@@ -2,211 +2,435 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>快速开单 - 三联单电子版</title>
+    <title>快速开单工具（表格版）</title>
     <style>
         /* 基础样式 */
         body { font-family: "Microsoft YaHei", sans-serif; margin: 20px; }
-        .container { max-width: 800px; margin: 0 auto; }
-        .search-box { margin-bottom: 20px; }
+        .container { max-width: 1000px; margin: 0 auto; }
+        .search-box { margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
         #product-input { width: 300px; padding: 8px; font-size: 16px; }
-        #suggest-list { border: 1px solid #ccc; width: 300px; display: none; position: absolute; background: #fff; }
+        #suggest-list { border: 1px solid #ccc; width: 300px; display: none; position: absolute; background: #fff; z-index: 100; }
         #suggest-list li { padding: 8px; cursor: pointer; }
         #suggest-list li:hover { background: #f5f5f5; }
-        .bill-area { border: 1px solid #000; padding: 20px; margin-bottom: 20px; min-height: 300px; }
-        .bill-page { /* 三联单页面样式，适配纸张 */
-            width: 210mm; height: 140mm; margin: 10px 0; 
-            border: 1px dashed #999; padding: 10mm; box-sizing: border-box;
+        .btn-add-row { padding: 8px 20px; font-size: 16px; cursor: pointer; background: #0066cc; color: #fff; border: none; border-radius: 4px; margin-bottom: 10px; }
+        .btn-add-row:hover { background: #0055bb; }
+
+        /* 单据表格样式（适配三联单） */
+        .bill-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        .bill-table th, .bill-table td { border: 1px solid #000; padding: 8px; text-align: center; }
+        .bill-table th { background: #e9e9e9; font-weight: bold; }
+        .bill-table input { 
+            width: 95%; 
+            padding: 6px; 
+            text-align: center; 
+            border: 1px solid #ddd; 
+            border-radius: 3px;
+            font-size: 14px;
+            outline: none;
         }
-        .bill-item { margin: 10px 0; line-height: 1.5; }
+        .bill-table input:focus {
+            border-color: #0066cc;
+            box-shadow: 0 0 3px rgba(0, 102, 204, 0.3);
+        }
+        .bill-table .amount-cell { background: #f5f5f5; font-weight: bold; }
+        .bill-table .serial-cell { font-weight: bold; color: #666; }
+        .btn-del { 
+            padding: 4px 8px; 
+            background: #ff4400; 
+            color: #fff; 
+            border: none; 
+            border-radius: 3px; 
+            cursor: pointer; 
+            font-size: 12px;
+        }
+        .btn-del:hover { background: #dd3300; }
+
+        /* 合计行样式 */
+        .total-row { background: #f0f0f0; font-weight: bold; }
+        .total-row td { padding: 10px; }
+
+        /* 功能按钮组 */
         .btn-group { margin: 20px 0; }
-        button { padding: 10px 20px; font-size: 16px; margin-right: 10px; cursor: pointer; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; border-radius: 4px; border: 1px solid #ccc; }
+        .btn-save { background: #009900; color: #fff; border: none; }
+        .btn-print { background: #ff6600; color: #fff; border: none; }
+        .btn-stock, .btn-order { background: #0066cc; color: #fff; border: none; }
+
+        /* 打印适配 */
+        @media print {
+            .search-box, .btn-add-row, .btn-group { display: none; }
+            .bill-table { border: 1px solid #000; }
+            .bill-table th, .bill-table td { border: 1px solid #000; }
+            .bill-table input { border: none; }
+            .btn-del { display: none; }
+        }
     </style>
     <script src="/static/js-pinyin.min.js"></script>
 </head>
 <body>
     <div class="container">
-        <h1>快速开单工具</h1>
-        <!-- 商品检索框 -->
+        <h1>快速开单工具（表格版）</h1>
+        
+        <!-- 商品检索区域 -->
         <div class="search-box">
-            <input type="text" id="product-input" placeholder="输入商品名称/拼音检索（支持相似字）">
+            <input type="text" id="product-input" placeholder="输入商品名称/拼音检索（可选）">
             <ul id="suggest-list"></ul>
-            <input type="number" id="quantity-input" placeholder="数量" value="1" style="width: 80px; padding: 8px; margin-left: 10px;">
-            <button onclick="addProduct()">添加到单据</button>
         </div>
 
-        <!-- 三联单填写区域 -->
-        <div class="bill-area" id="bill-area" contenteditable="true">
-            <!-- 自动生成的三联单页面 -->
-            <div class="bill-page" id="bill-page-1"></div>
+        <!-- 新增行按钮（点击创建行+自动聚焦） -->
+        <button class="btn-add-row" onclick="addBlankRow()">新增空白行</button>
+
+        <!-- 表格区域 -->
+        <div class="bill-area">
+            <table class="bill-table" id="bill-table">
+                <thead>
+                    <tr>
+                        <th>序号</th>
+                        <th>商品名称</th>
+                        <th>销售数量</th>
+                        <th>销售单位</th>
+                        <th>销售单价（¥）</th>
+                        <th>销售金额（¥）</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="bill-tbody">
+                    <!-- 初始空白 -->
+                </tbody>
+                <tfoot>
+                    <tr class="total-row">
+                        <td colspan="5" align="right">订单总计：</td>
+                        <td id="total-amount">¥0.00</td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
         </div>
 
         <!-- 功能按钮 -->
         <div class="btn-group">
-            <button onclick="saveOrder()">保存并提交</button>
-            <button onclick="printBill()">一键打印</button>
-            <a href="/stock/"><button>查看库存</button></a>
-            <a href="/orders/"><button>查看订单记录</button></a>
+            <button class="btn-save" onclick="saveOrder()">保存并提交</button>
+            <button class="btn-print" onclick="printBill()">一键打印</button>
+            <a href="/stock/"><button class="btn-stock">查看库存</button></a>
+            <a href="/orders/"><button class="btn-order">查看订单记录</button></a>
         </div>
     </div>
 
     <script>
-        // 全局变量：当前单据明细、当前页码
-        let billItems = [];
-        let currentPage = 1;
-        const PAGE_MAX_HEIGHT = 130; // 页面最大高度（mm），超过则新建页
+        // 全局配置
+        let productCache = {};
+        let rowIdCounter = 0;
+        const inputColsCount = 4; // 商品名称、数量、单位、单价
 
         // 初始化拼音库
         pinyin.setOptions({ checkPolyphone: false, charCase: 0 });
 
-        // 商品检索（实时匹配）
-        const productInput = document.getElementById('product-input');
-        const suggestList = document.getElementById('suggest-list');
-        productInput.addEventListener('input', async function() {
-            const keyword = this.value.trim();
-            if (!keyword) {
-                suggestList.style.display = 'none';
-                return;
-            }
-            // 调用后端检索接口
-            const res = await fetch(`/search-product/?keyword=${encodeURIComponent(keyword)}`);
-            const data = await res.json();
-            if (data.code === 1 && data.data.length > 0) {
-                // 渲染建议列表
-                suggestList.innerHTML = '';
-                data.data.forEach(item => {
-                    const li = document.createElement('li');
-                    li.dataset.id = item.id;
-                    li.dataset.name = item.name;
-                    li.dataset.price = item.price;
-                    li.dataset.unit = item.unit;
-                    li.textContent = `${item.name}（${item.unit}¥${item.price} 库存：${item.stock}）`;
-                    li.addEventListener('click', function() {
-                        // 选中商品，填充到输入框
-                        productInput.value = this.dataset.name;
-                        suggestList.style.display = 'none';
-                    });
-                    suggestList.appendChild(li);
-                });
-                suggestList.style.display = 'block';
-            } else {
-                suggestList.style.display = 'none';
-            }
-        });
-
-        // 点击空白处关闭建议列表
-        document.addEventListener('click', function(e) {
-            if (e.target !== productInput) {
-                suggestList.style.display = 'none';
-            }
-        });
-
-        // 回车自动换行（单据区域）
-        const billArea = document.getElementById('bill-area');
-        billArea.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') {
-                e.preventDefault(); // 阻止默认回车行为
-                document.execCommand('insertHTML', false, '<br>'); // 插入换行
-                // 检查是否需要自动切页
-                checkPageHeight();
-            }
-        });
-
-        // 检查页面高度，自动切页
-        function checkPageHeight() {
-            const currentPageEl = document.getElementById(`bill-page-${currentPage}`);
-            const height = currentPageEl.offsetHeight;
-            // 转换为mm（1px ≈ 0.264583mm）
-            const heightMm = height * 0.264583;
-            if (heightMm > PAGE_MAX_HEIGHT) {
-                // 新建页面
-                currentPage++;
-                const newPage = document.createElement('div');
-                newPage.id = `bill-page-${currentPage}`;
-                newPage.className = 'bill-page';
-                billArea.appendChild(newPage);
-            }
+        // ====================== 核心1：序号自动更新 ======================
+        function updateRowNumbers() {
+            const rows = document.querySelectorAll('#bill-tbody tr');
+            rows.forEach((row, index) => {
+                row.querySelector('.serial-cell').textContent = index + 1;
+            });
         }
 
-        // 添加商品到单据
-        function addProduct() {
-            const productName = productInput.value.trim();
-            const quantity = parseInt(document.getElementById('quantity-input').value) || 1;
-            if (!productName) {
-                alert('请选择商品！');
-                return;
+        // ====================== 核心2：创建带事件的输入框 ======================
+        function createInputElement(type, className, placeholder, value = '') {
+            const input = document.createElement('input');
+            input.type = type;
+            input.className = className;
+            input.placeholder = placeholder;
+            input.value = value;
+
+            // 数字输入框配置
+            if (type === 'number') {
+                input.min = className === 'quantity-input' ? 1 : 0;
+                input.step = className === 'price-input' ? 0.01 : 1;
+                // 实时计算价格
+                input.addEventListener('input', function() {
+                    calcRowAmount(this);
+                });
             }
-            // 查找商品ID（从建议列表的缓存中，简化版：实际可再调用接口）
-            let productId = null;
-            let productPrice = 0;
-            let productUnit = '';
-            Array.from(suggestList.children).forEach(li => {
-                if (li.dataset.name === productName) {
-                    productId = li.dataset.id;
-                    productPrice = li.dataset.price;
-                    productUnit = li.dataset.unit;
+
+            // 绑定输入框内的键盘事件
+            bindInputKeyboardEvents(input);
+            
+            return input;
+        }
+
+        // ====================== 核心3：输入框内键盘事件（跳转/删除） ======================
+        function bindInputKeyboardEvents(input) {
+            // 回车键：列/行跳转
+            input.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleEnterKey(this);
                 }
             });
-            if (!productId) {
-                alert('未找到该商品，请重新检索！');
-                return;
-            }
-            // 添加到单据明细
-            const item = {
-                id: productId,
-                name: productName,
-                quantity: quantity,
-                price: productPrice,
-                unit: productUnit,
-                amount: (quantity * productPrice).toFixed(2)
-            };
-            billItems.push(item);
-            // 渲染到当前页面
-            const currentPageEl = document.getElementById(`bill-page-${currentPage}`);
-            const itemEl = document.createElement('div');
-            itemEl.className = 'bill-item';
-            itemEl.textContent = `${productName} × ${quantity}${productUnit} 单价：¥${productPrice} 小计：¥${item.amount}`;
-            currentPageEl.appendChild(itemEl);
-            // 清空输入框
-            productInput.value = '';
-            document.getElementById('quantity-input').value = 1;
-            // 检查切页
-            checkPageHeight();
-        }
 
-        // 保存订单
-        async function saveOrder() {
-            if (billItems.length === 0) {
-                alert('单据无商品，请添加后再提交！');
-                return;
-            }
-            const res = await fetch('/save-order/', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ items: billItems })
+            // 方向键：循环跳转
+            input.addEventListener('keydown', function(e) {
+                const directionKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
+                if (directionKeys.includes(e.key)) {
+                    e.preventDefault();
+                    handleDirectionKeys(this, e.key);
+                }
             });
-            const data = await res.json();
-            if (data.code === 1) {
-                alert(`开单成功！订单编号：${data.order_no}`);
-                // 跳转到打印页面
-                window.open(`/print/${data.order_no}/`, '_blank');
-                // 清空单据
-                billItems = [];
-                billArea.innerHTML = `<div class="bill-page" id="bill-page-1"></div>`;
-                currentPage = 1;
+
+            // Shift+Backspace：删除当前行
+            input.addEventListener('keydown', function(e) {
+                if (e.shiftKey && (e.key === 'Backspace' || e.key === 'Delete')) {
+                    e.preventDefault();
+                    handleDeleteRowByKey(this);
+                }
+            });
+        }
+
+        /**
+         * 输入框内回车键：列/行跳转
+         */
+        function handleEnterKey(input) {
+            const currentRow = input.closest('tr');
+            const allRows = Array.from(document.querySelectorAll('#bill-tbody tr'));
+            const currentRowIndex = allRows.indexOf(currentRow);
+            const rowInputs = currentRow.querySelectorAll('input');
+            const currentInputIndex = Array.from(rowInputs).findIndex(el => el === input);
+
+            // 跳转到下一列
+            if (currentInputIndex < inputColsCount - 1) {
+                rowInputs[currentInputIndex + 1].focus();
+                rowInputs[currentInputIndex + 1].select();
             } else {
-                alert(data.msg);
+                // 最后一列：新增行或跳转到下一行
+                if (currentRowIndex === allRows.length - 1) {
+                    const newRow = addBlankRow(true);
+                    newRow.querySelector('.name-input').focus();
+                    newRow.querySelector('.name-input').select();
+                } else {
+                    allRows[currentRowIndex + 1].querySelector('.name-input').focus();
+                    allRows[currentRowIndex + 1].querySelector('.name-input').select();
+                }
             }
         }
 
-        // 一键打印（直接打印当前单据）
+        /**
+         * 方向键循环跳转
+         */
+        function handleDirectionKeys(input, key) {
+            const currentRow = input.closest('tr');
+            const allRows = Array.from(document.querySelectorAll('#bill-tbody tr'));
+            const rowCount = allRows.length;
+            const currentRowIndex = allRows.indexOf(currentRow);
+            const rowInputs = currentRow.querySelectorAll('input');
+            const currentInputIndex = Array.from(rowInputs).findIndex(el => el === input);
+
+            switch(key) {
+                case 'ArrowLeft': // 最左→最右
+                    const leftIndex = currentInputIndex === 0 ? inputColsCount - 1 : currentInputIndex - 1;
+                    rowInputs[leftIndex].focus();
+                    rowInputs[leftIndex].select();
+                    break;
+                
+                case 'ArrowRight': // 最右→最左
+                    const rightIndex = currentInputIndex === inputColsCount - 1 ? 0 : currentInputIndex + 1;
+                    rowInputs[rightIndex].focus();
+                    rowInputs[rightIndex].select();
+                    break;
+                
+                case 'ArrowUp': // 最上→最下
+                    const upRowIndex = currentRowIndex === 0 ? rowCount - 1 : currentRowIndex - 1;
+                    allRows[upRowIndex].querySelectorAll('input')[currentInputIndex].focus();
+                    allRows[upRowIndex].querySelectorAll('input')[currentInputIndex].select();
+                    break;
+                
+                case 'ArrowDown': // 最下→最上
+                    const downRowIndex = currentRowIndex === rowCount - 1 ? 0 : currentRowIndex + 1;
+                    allRows[downRowIndex].querySelectorAll('input')[currentInputIndex].focus();
+                    allRows[downRowIndex].querySelectorAll('input')[currentInputIndex].select();
+                    break;
+            }
+        }
+
+        /**
+         * Shift+Backspace删除当前行
+         */
+        function handleDeleteRowByKey(input) {
+            const currentRow = input.closest('tr');
+            const tbody = document.getElementById('bill-tbody');
+            
+            if (tbody.children.length <= 1) {
+                alert('至少保留1行！');
+                return;
+            }
+
+            const rowIndex = Array.from(tbody.children).indexOf(currentRow);
+            currentRow.remove();
+            updateRowNumbers();
+            calcTotalAmount();
+
+            // 聚焦到上一行
+            const targetRow = tbody.children[rowIndex > 0 ? rowIndex - 1 : 0];
+            targetRow.querySelector('.name-input').focus();
+        }
+
+        // ====================== 核心4：价格计算（确保统计正常） ======================
+        /**
+         * 计算单行金额
+         */
+        function calcRowAmount(input) {
+            const tr = input.closest('tr');
+            
+            // 安全转换数值，避免NaN
+            const quantity = parseFloat(tr.querySelector('.quantity-input').value) || 0;
+            const price = parseFloat(tr.querySelector('.price-input').value) || 0;
+            
+            // 计算并格式化单行金额
+            const rowAmount = (quantity * price).toFixed(2);
+            tr.querySelector('.amount-cell').textContent = `¥${rowAmount}`;
+            
+            // 立即更新总计
+            calcTotalAmount();
+        }
+
+        /**
+         * 计算订单总计
+         */
+        function calcTotalAmount() {
+            let total = 0;
+            const rows = document.querySelectorAll('#bill-tbody tr');
+            
+            // 遍历所有行累加金额
+            rows.forEach(tr => {
+                const amountText = tr.querySelector('.amount-cell').textContent;
+                const amount = parseFloat(amountText.replace('¥', '')) || 0;
+                total += amount;
+            });
+
+            // 更新总计显示
+            document.getElementById('total-amount').textContent = `¥${total.toFixed(2)}`;
+        }
+
+        // ====================== 核心5：新增空白行（点击按钮触发，自动聚焦商品名称） ======================
+        function addBlankRow(returnRow = false) {
+            rowIdCounter++;
+            const tbody = document.getElementById('bill-tbody');
+            const tr = document.createElement('tr');
+            tr.dataset.rowId = rowIdCounter;
+
+            // 创建单元格
+            tr.innerHTML = `
+                <td class="serial-cell">${tbody.children.length + 1}</td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td class="amount-cell">¥0.00</td>
+                <td><button class="btn-del" onclick="deleteRow(this)">删除</button></td>
+            `;
+
+            // 添加输入框
+            tr.cells[1].appendChild(createInputElement('text', 'name-input', '输入商品名称'));
+            tr.cells[2].appendChild(createInputElement('number', 'quantity-input', '销售数量', 1));
+            tr.cells[3].appendChild(createInputElement('text', 'unit-input', '如：件/斤/个'));
+            tr.cells[4].appendChild(createInputElement('number', 'price-input', '0.00', 0));
+
+            tbody.appendChild(tr);
+            updateRowNumbers();
+            calcTotalAmount(); // 新增行后更新总计
+
+            // 关键：自动聚焦到商品名称输入框
+            const nameInput = tr.querySelector('.name-input');
+            nameInput.focus();
+            nameInput.select();
+
+            if (returnRow) return tr;
+        }
+
+        /**
+         * 删除行（按钮点击）
+         */
+        function deleteRow(btn) {
+            const tr = btn.closest('tr');
+            const tbody = document.getElementById('bill-tbody');
+            
+            if (tbody.children.length <= 1) {
+                alert('至少保留1行！');
+                return;
+            }
+            
+            tr.remove();
+            updateRowNumbers();
+            calcTotalAmount();
+        }
+
+        // ====================== 订单操作 ======================
+        async function saveOrder() {
+            const billItems = [];
+            let hasEmpty = false;
+
+            document.querySelectorAll('#bill-tbody tr').forEach(tr => {
+                const name = tr.querySelector('.name-input').value.trim();
+                const quantity = parseInt(tr.querySelector('.quantity-input').value) || 0;
+                const unit = tr.querySelector('.unit-input').value.trim();
+                const price = parseFloat(tr.querySelector('.price-input').value) || 0;
+                const amount = parseFloat(tr.querySelector('.amount-cell').textContent.replace('¥', '')) || 0;
+
+                if (name && quantity > 0 && price >= 0) {
+                    billItems.push({ name, quantity, unit, price, amount });
+                } else if (name || quantity > 0 || price > 0) {
+                    hasEmpty = true;
+                }
+            });
+
+            if (billItems.length === 0) {
+                alert('请填写有效的商品信息（名称+数量+单价）！');
+                return;
+            }
+            if (hasEmpty) {
+                alert('部分行信息不完整，已自动忽略空行/无效行！');
+            }
+
+            const totalAmount = billItems.reduce((sum, item) => sum + parseFloat(item.amount), 0).toFixed(2);
+            const orderData = { items: billItems, total_amount: totalAmount };
+
+            try {
+                const res = await fetch('/save-order/', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCsrfToken()
+                    },
+                    body: JSON.stringify(orderData)
+                });
+                const data = await res.json();
+                if (data.code === 1) {
+                    alert(`开单成功！订单编号：${data.order_no}`);
+                    window.open(`/print/${data.order_no}/`, '_blank');
+                    resetBillTable();
+                } else {
+                    alert(data.msg);
+                }
+            } catch (e) {
+                alert('保存订单失败：' + e.message);
+            }
+        }
+
         function printBill() {
-            // 仅打印单据区域
-            const printContent = document.getElementById('bill-area').innerHTML;
-            const originalContent = document.body.innerHTML;
-            document.body.innerHTML = printContent;
             window.print();
-            document.body.innerHTML = originalContent;
-            window.location.reload(); // 恢复页面
+        }
+
+        function resetBillTable() {
+            const tbody = document.getElementById('bill-tbody');
+            tbody.innerHTML = '';
+            rowIdCounter = 0;
+        }
+
+        function getCsrfToken() {
+            let token = '';
+            document.cookie.split(';').forEach(cookie => {
+                const [name, val] = cookie.trim().split('=');
+                if (name === 'csrftoken') token = val;
+            });
+            return token;
         }
     </script>
 </body>
