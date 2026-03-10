@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>订单记录</title>
+    <style>
+        table { width: 80%; margin: 20px auto; border-collapse: collapse; }
+        th, td { border: 1px solid #000; padding: 10px; text-align: center; }
+        th { background: #f5f5f5; }
+        a { text-decoration: none; color: #0066cc; }
+    </style>
+</head>
+<body>
+    <div style="text-align: center;">
+        <h1>订单记录查询</h1>
+        <a href="/">返回开单页</a>
+        <table>
+            <thead>
+                <tr>
+                    <th>订单编号</th>
+                    <th>开单时间</th>
+                    <th>总金额</th>
+                    <th>状态</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for order in orders %}
+                <tr>
+                    <td>{{ order.order_no }}</td>
+                    <td>{{ order.create_time|date:"Y-m-d H:i:s" }}</td>
+                    <td>¥{{ order.total_amount }}</td>
+                    <td>{{ order.get_status_display }}</td>
+                    <td><a href="/print/{{ order.order_no }}/">打印</a></td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="5">暂无订单数据</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>

@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>库存查询</title>
+    <style>
+        table { width: 80%; margin: 20px auto; border-collapse: collapse; }
+        th, td { border: 1px solid #000; padding: 10px; text-align: center; }
+        th { background: #f5f5f5; }
+        a { text-decoration: none; color: #0066cc; }
+    </style>
+</head>
+<body>
+    <div style="text-align: center;">
+        <h1>商品库存查询</h1>
+        <a href="/">返回开单页</a>
+        <table>
+            <thead>
+                <tr>
+                    <th>商品名称</th>
+                    <th>拼音首字母</th>
+                    <th>单位</th>
+                    <th>单价</th>
+                    <th>库存数量</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for product in products %}
+                <tr>
+                    <td>{{ product.name }}</td>
+                    <td>{{ product.pinyin_abbr }}</td>
+                    <td>{{ product.unit }}</td>
+                    <td>¥{{ product.price }}</td>
+                    <td>{{ product.stock }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="5">暂无商品数据</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>

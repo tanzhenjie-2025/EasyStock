@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>打印订单 - {{ order.order_no }}</title>
+    <style>
+        /* 打印样式（适配三联单打印机） */
+        @media print {
+            body { margin: 0; padding: 0; font-family: "SimSun", serif; }
+            .bill-print {
+                width: 210mm; height: 140mm; padding: 10mm; 
+                page-break-after: always; /* 自动分页 */
+                box-sizing: border-box;
+            }
+            .no-print { display: none; }
+        }
+        /* 屏幕预览样式 */
+        .bill-print {
+            width: 210mm; height: 140mm; 
+            border: 1px solid #000; margin: 20px auto;
+            padding: 10mm; box-sizing: border-box;
+        }
+        .bill-header { text-align: center; margin-bottom: 20px; }
+        .bill-table { width: 100%; border-collapse: collapse; }
+        .bill-table th, .bill-table td { border: 1px solid #000; padding: 8px; text-align: center; }
+        .bill-footer { margin-top: 20px; text-align: right; }
+    </style>
+</head>
+<body>
+    <!-- 打印按钮（仅屏幕显示） -->
+    <div class="no-print" style="text-align: center; margin: 20px;">
+        <button onclick="window.print()">打印三联单</button>
+        <a href="/"><button>返回开单页</button></a>
+    </div>
+
+    <!-- 三联单内容（适配打印） -->
+    <div class="bill-print">
+        <div class="bill-header">
+            <h2>销售三联单</h2>
+            <p>订单编号：{{ order.order_no }} | 开单时间：{{ order.create_time|date:"Y-m-d H:i:s" }}</p>
+        </div>
+        <table class="bill-table">
+            <thead>
+                <tr>
+                    <th>商品名称</th>
+                    <th>单位</th>
+                    <th>单价</th>
+                    <th>数量</th>
+                    <th>小计</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr>
+                    <td>{{ item.product.name }}</td>
+                    <td>{{ item.product.unit }}</td>
+                    <td>¥{{ item.product.price }}</td>
+                    <td>{{ item.quantity }}</td>
+                    <td>¥{{ item.amount }}</td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="5">无商品明细</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div class="bill-footer">
+            <p>总金额：¥{{ order.total_amount }}</p>
+            <p>打印时间：{% now "Y-m-d H:i:s" %}</p>
+        </div>
+    </div>
+</body>
+</html>

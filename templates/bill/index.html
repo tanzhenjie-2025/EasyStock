@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>快速开单 - 三联单电子版</title>
+    <style>
+        /* 基础样式 */
+        body { font-family: "Microsoft YaHei", sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .search-box { margin-bottom: 20px; }
+        #product-input { width: 300px; padding: 8px; font-size: 16px; }
+        #suggest-list { border: 1px solid #ccc; width: 300px; display: none; position: absolute; background: #fff; }
+        #suggest-list li { padding: 8px; cursor: pointer; }
+        #suggest-list li:hover { background: #f5f5f5; }
+        .bill-area { border: 1px solid #000; padding: 20px; margin-bottom: 20px; min-height: 300px; }
+        .bill-page { /* 三联单页面样式，适配纸张 */
+            width: 210mm; height: 140mm; margin: 10px 0; 
+            border: 1px dashed #999; padding: 10mm; box-sizing: border-box;
+        }
+        .bill-item { margin: 10px 0; line-height: 1.5; }
+        .btn-group { margin: 20px 0; }
+        button { padding: 10px 20px; font-size: 16px; margin-right: 10px; cursor: pointer; }
+    </style>
+    <script src="/static/js-pinyin.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>快速开单工具</h1>
+        <!-- 商品检索框 -->
+        <div class="search-box">
+            <input type="text" id="product-input" placeholder="输入商品名称/拼音检索（支持相似字）">
+            <ul id="suggest-list"></ul>
+            <input type="number" id="quantity-input" placeholder="数量" value="1" style="width: 80px; padding: 8px; margin-left: 10px;">
+            <button onclick="addProduct()">添加到单据</button>
+        </div>
+
+        <!-- 三联单填写区域 -->
+        <div class="bill-area" id="bill-area" contenteditable="true">
+            <!-- 自动生成的三联单页面 -->
+            <div class="bill-page" id="bill-page-1"></div>
+        </div>
+
+        <!-- 功能按钮 -->
+        <div class="btn-group">
+            <button onclick="saveOrder()">保存并提交</button>
+            <button onclick="printBill()">一键打印</button>
+            <a href="/stock/"><button>查看库存</button></a>
+            <a href="/orders/"><button>查看订单记录</button></a>
+        </div>
+    </div>
+
+    <script>
+        // 全局变量：当前单据明细、当前页码
+        let billItems = [];
+        let currentPage = 1;
+        const PAGE_MAX_HEIGHT = 130; // 页面最大高度（mm），超过则新建页
+
+        // 初始化拼音库
+        pinyin.setOptions({ checkPolyphone: false, charCase: 0 });
+
+        // 商品检索（实时匹配）
+        const productInput = document.getElementById('product-input');
+        const suggestList = document.getElementById('suggest-list');
+        productInput.addEventListener('input', async function() {
+            const keyword = this.value.trim();
+            if (!keyword) {
+                suggestList.style.display = 'none';
+                return;
+            }
+            // 调用后端检索接口
+            const res = await fetch(`/search-product/?keyword=${encodeURIComponent(keyword)}`);
+            const data = await res.json();
+            if (data.code === 1 && data.data.length > 0) {
+                // 渲染建议列表
+                suggestList.innerHTML = '';
+                data.data.forEach(item => {
+                    const li = document.createElement('li');
+                    li.dataset.id = item.id;
+                    li.dataset.name = item.name;
+                    li.dataset.price = item.price;
+                    li.dataset.unit = item.unit;
+                    li.textContent = `${item.name}（${item.unit}¥${item.price} 库存：${item.stock}）`;
+                    li.addEventListener('click', function() {
+                        // 选中商品，填充到输入框
+                        productInput.value = this.dataset.name;
+                        suggestList.style.display = 'none';
+                    });
+                    suggestList.appendChild(li);
+                });
+                suggestList.style.display = 'block';
+            } else {
+                suggestList.style.display = 'none';
+            }
+        });
+
+        // 点击空白处关闭建议列表
+        document.addEventListener('click', function(e) {
+            if (e.target !== productInput) {
+                suggestList.style.display = 'none';
+            }
+        });
+
+        // 回车自动换行（单据区域）
+        const billArea = document.getElementById('bill-area');
+        billArea.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault(); // 阻止默认回车行为
+                document.execCommand('insertHTML', false, '<br>'); // 插入换行
+                // 检查是否需要自动切页
+                checkPageHeight();
+            }
+        });
+
+        // 检查页面高度，自动切页
+        function checkPageHeight() {
+            const currentPageEl = document.getElementById(`bill-page-${currentPage}`);
+            const height = currentPageEl.offsetHeight;
+            // 转换为mm（1px ≈ 0.264583mm）
+            const heightMm = height * 0.264583;
+            if (heightMm > PAGE_MAX_HEIGHT) {
+                // 新建页面
+                currentPage++;
+                const newPage = document.createElement('div');
+                newPage.id = `bill-page-${currentPage}`;
+                newPage.className = 'bill-page';
+                billArea.appendChild(newPage);
+            }
+        }
+
+        // 添加商品到单据
+        function addProduct() {
+            const productName = productInput.value.trim();
+            const quantity = parseInt(document.getElementById('quantity-input').value) || 1;
+            if (!productName) {
+                alert('请选择商品！');
+                return;
+            }
+            // 查找商品ID（从建议列表的缓存中，简化版：实际可再调用接口）
+            let productId = null;
+            let productPrice = 0;
+            let productUnit = '';
+            Array.from(suggestList.children).forEach(li => {
+                if (li.dataset.name === productName) {
+                    productId = li.dataset.id;
+                    productPrice = li.dataset.price;
+                    productUnit = li.dataset.unit;
+                }
+            });
+            if (!productId) {
+                alert('未找到该商品，请重新检索！');
+                return;
+            }
+            // 添加到单据明细
+            const item = {
+                id: productId,
+                name: productName,
+                quantity: quantity,
+                price: productPrice,
+                unit: productUnit,
+                amount: (quantity * productPrice).toFixed(2)
+            };
+            billItems.push(item);
+            // 渲染到当前页面
+            const currentPageEl = document.getElementById(`bill-page-${currentPage}`);
+            const itemEl = document.createElement('div');
+            itemEl.className = 'bill-item';
+            itemEl.textContent = `${productName} × ${quantity}${productUnit} 单价：¥${productPrice} 小计：¥${item.amount}`;
+            currentPageEl.appendChild(itemEl);
+            // 清空输入框
+            productInput.value = '';
+            document.getElementById('quantity-input').value = 1;
+            // 检查切页
+            checkPageHeight();
+        }
+
+        // 保存订单
+        async function saveOrder() {
+            if (billItems.length === 0) {
+                alert('单据无商品，请添加后再提交！');
+                return;
+            }
+            const res = await fetch('/save-order/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ items: billItems })
+            });
+            const data = await res.json();
+            if (data.code === 1) {
+                alert(`开单成功！订单编号：${data.order_no}`);
+                // 跳转到打印页面
+                window.open(`/print/${data.order_no}/`, '_blank');
+                // 清空单据
+                billItems = [];
+                billArea.innerHTML = `<div class="bill-page" id="bill-page-1"></div>`;
+                currentPage = 1;
+            } else {
+                alert(data.msg);
+            }
+        }
+
+        // 一键打印（直接打印当前单据）
+        function printBill() {
+            // 仅打印单据区域
+            const printContent = document.getElementById('bill-area').innerHTML;
+            const originalContent = document.body.innerHTML;
+            document.body.innerHTML = printContent;
+            window.print();
+            document.body.innerHTML = originalContent;
+            window.location.reload(); // 恢复页面
+        }
+    </script>
+</body>
+</html>
