@@ -17,7 +17,9 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', include('bill.urls')),  # 挂载开单应用URL
+    path('',include('product.urls'))
 ]

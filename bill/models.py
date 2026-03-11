@@ -34,7 +34,11 @@ class ProductAlias(models.Model):
         Product,
         on_delete=models.CASCADE,
         verbose_name='关联商品',
-        related_name='aliases'  # 反向关联：商品对象.aliases 可获取所有别名
+        related_name='aliases',  # 反向关联：商品对象.aliases 可获取所有别名
+    # ========== 新增：临时允许为空 ==========
+    null = True,
+    blank = True
+
     )
     alias_name = models.CharField('别名', max_length=100, unique=True)  # 别名唯一，避免重复
     alias_pinyin_full = models.CharField('别名全拼', max_length=200, blank=True)
@@ -86,19 +90,27 @@ class Order(models.Model):
 class OrderItem(models.Model):
     """订单明细表（三联单明细）"""
     order = models.ForeignKey(Order, on_delete=models.CASCADE, verbose_name='关联订单', related_name='items')
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, verbose_name='商品')
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        verbose_name='商品',
+        # ========== 新增：临时允许为空 ==========
+        null=True,
+        blank=True
+    )
     quantity = models.IntegerField('数量', default=1)
-    amount = models.DecimalField('小计金额', max_digits=10, decimal_places=2)
+    amount = models.DecimalField('小计金额', max_digits=10, decimal_places=2, null=True, blank=True)
 
     def save(self, *args, **kwargs):
         """保存时自动计算小计，并更新商品库存"""
-        # 计算小计
-        self.amount = self.product.price * self.quantity
-        # 更新库存（扣减）
-        product = self.product
-        product.stock -= self.quantity
-        product.save()
-        # 保存明细
+        # 新增：避免product为空时报错
+        if self.product:
+            # 计算小计
+            self.amount = self.product.price * self.quantity
+            # 更新库存（扣减）
+            product = self.product
+            product.stock -= self.quantity
+            product.save()
         super().save(*args, **kwargs)
 
     class Meta:
@@ -113,7 +125,10 @@ class DailySalesSummary(models.Model):
         Product,
         on_delete=models.CASCADE,
         verbose_name='商品',
-        related_name='daily_summaries'
+        related_name='daily_summaries',
+        # ========== 临时允许为空 ==========
+        null=True,
+        blank=True
     )
     sale_quantity = models.IntegerField('销售数量', default=0)  # 当日该商品总销量
     is_manual = models.BooleanField('是否手动汇总', default=False)  # 区分自动/手动
@@ -122,10 +137,13 @@ class DailySalesSummary(models.Model):
     class Meta:
         verbose_name = '每日销售汇总'
         verbose_name_plural = '每日销售汇总管理'
-        unique_together = ('summary_date', 'product')  # 一个日期一个商品仅一条记录（避免重复）
+        unique_together = ('summary_date', 'product')  # 修复后的字段
         indexes = [
             models.Index(fields=['summary_date']),  # 优化按日期查询
         ]
 
     def __str__(self):
-        return f'{self.summary_date} - {self.product.name} - 销售{self.sale_quantity}{self.product.unit}'
+        # 新增：避免product为空时报错
+        product_name = self.product.name if self.product else "无商品"
+        product_unit = self.product.unit if self.product else ""
+        return f'{self.summary_date} - {product_name} - 销售{self.sale_quantity}{product_unit}'

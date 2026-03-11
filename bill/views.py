@@ -162,3 +162,44 @@ def auto_summary_task(request):
         return JsonResponse({'code': 1, 'msg': f'自动汇总完成：{count}个商品'})
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'自动汇总失败：{str(e)}'})
+
+from django.http import JsonResponse
+from django.db.models import Q
+from .models import Product, ProductAlias
+
+def search_product(request):
+    """
+    商品搜索：匹配 名称 / 别名 / 全拼 / 首字母
+    返回：去重后的商品列表 [id, name, price, unit, stock]
+    """
+    keyword = request.GET.get('keyword', '').strip()
+    if not keyword:
+        return JsonResponse({'code': 0, 'data': []})
+
+    # 1. 从【商品表】匹配
+    product_matches = Product.objects.filter(
+        Q(name__icontains=keyword) |
+        Q(pinyin_full__icontains=keyword) |
+        Q(pinyin_abbr__icontains=keyword)
+    )
+
+    # 2. 从【别名表】匹配，并拿到对应的商品
+    alias_matches = ProductAlias.objects.filter(
+        Q(alias_name__icontains=keyword) |
+        Q(alias_pinyin_full__icontains=keyword) |
+        Q(alias_pinyin_abbr__icontains=keyword)
+    ).values_list('product_id', flat=True)
+    alias_products = Product.objects.filter(id__in=alias_matches)
+
+    # 3. 合并去重，最多返回8条（输入法式候选）
+    all_products = (product_matches | alias_products).distinct()[:8]
+
+    data = [{
+        'id': p.id,
+        'name': p.name,
+        'price': float(p.price),
+        'unit': p.unit,
+        'stock': p.stock
+    } for p in all_products]
+
+    return JsonResponse({'code': 1, 'data': data})
