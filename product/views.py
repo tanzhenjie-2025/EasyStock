@@ -4,7 +4,6 @@ from django.db import IntegrityError
 from django.views.decorators.csrf import csrf_exempt
 from bill.models import Product, ProductAlias
 
-
 # ====================== 商品管理主页面 ======================
 def product_manage(request):
     """商品管理主页面（展示所有商品+别名）"""
@@ -22,7 +21,6 @@ def product_manage(request):
             'aliases': [{'id': a.id, 'alias_name': a.alias_name} for a in aliases]
         })
     return render(request, 'product/product_manage.html', {'products': product_list})
-
 
 # ====================== 商品CRUD ======================
 @csrf_exempt
@@ -61,7 +59,6 @@ def product_add(request):
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'新增失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
-
 
 @csrf_exempt
 def product_edit(request, pk):

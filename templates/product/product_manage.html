@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <title>商品管理系统</title>
     <style>
+        /* 样式部分保持不变，省略（和原代码一致） */
         * {
             margin: 0;
             padding: 0;
@@ -19,6 +20,20 @@
             text-align: center;
             margin-bottom: 30px;
             color: #333;
+        }
+        /* 搜索栏样式 */
+        .search-form {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            align-items: center;
+        }
+        .search-input {
+            padding: 8px 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            width: 300px;
         }
         /* 新增商品表单 */
         .add-form {
@@ -76,6 +91,13 @@
         .btn-success:hover {
             background: #008800;
         }
+        .btn-default {
+            background: #e9e9e9;
+            color: #333;
+        }
+        .btn-default:hover {
+            background: #ddd;
+        }
         /* 商品列表 */
         .product-table {
             width: 100%;
@@ -110,12 +132,6 @@
             cursor: pointer;
             color: #ff4400;
             font-size: 12px;
-        }
-        .alias-add {
-            margin-top: 5px;
-            font-size: 12px;
-            color: #0066cc;
-            cursor: pointer;
         }
         /* 编辑弹窗 */
         .modal {
@@ -179,6 +195,13 @@
         
         <!-- 提示消息 -->
         <div id="msg-box" class="msg"></div>
+
+        <!-- 商品搜索栏 -->
+        <div class="search-form">
+            <input type="text" id="search-keyword" class="search-input" placeholder="搜索商品名称/别名...">
+            <button class="btn btn-primary" id="btn-search">搜索</button>
+            <button class="btn btn-default" id="btn-reset-search">重置</button>
+        </div>
         
         <!-- 新增商品表单 -->
         <div class="add-form">
@@ -198,7 +221,6 @@
                 <label>库存数量</label>
                 <input type="number" id="add-stock" placeholder="77" min="0" value="77">
             </div>
-            <!-- 关键1：移除onclick，只保留ID -->
             <button class="btn btn-primary" id="btn-add-product">新增商品</button>
         </div>
 
@@ -216,7 +238,7 @@
                 </tr>
             </thead>
             <tbody id="product-list">
-                <tr><td colspan="7" style="text-align:center; color:#999;">暂无商品数据</td></tr>
+                <tr><td colspan="7" style="text-align:center; color:#999;">加载中...</td></tr>
             </tbody>
         </table>
     </div>
@@ -255,7 +277,7 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn" id="btn-close-modal">取消</button>
+                <button class="btn btn-default" id="btn-close-modal">取消</button>
                 <button class="btn btn-primary" id="btn-save-edit">保存修改</button>
             </div>
         </div>
@@ -265,6 +287,7 @@
         // 全局变量
         let currentEditProductId = null;
         let currentAliases = [];
+        let allProducts = []; // 存储所有商品数据
 
         // 工具函数：显示提示
         function showMsg(text, isSuccess = true) {
@@ -284,8 +307,63 @@
             return token;
         }
 
-        // 核心函数：新增商品（确保100%定义）
-        function addProduct() {
+        // ========== 1. 商品列表渲染 ==========
+        function renderProductList(products = []) {
+            const productList = document.getElementById('product-list');
+            if (products.length === 0) {
+                productList.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#999;">暂无商品数据</td></tr>';
+                return;
+            }
+
+            productList.innerHTML = '';
+            products.forEach(product => {
+                // 渲染别名
+                let aliasHtml = '';
+                if (product.aliases && product.aliases.length > 0) {
+                    product.aliases.forEach(alias => {
+                        aliasHtml += `<span class="alias-item">${alias.alias_name}<span class="alias-del" onclick="deleteAlias(${alias.id})">×</span></span>`;
+                    });
+                } else {
+                    aliasHtml = '<span style="color: #999;">暂无别名</span>';
+                }
+
+                // 渲染商品行
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${product.id || ''}</td>
+                    <td>${product.name || ''}</td>
+                    <td>${parseFloat(product.price).toFixed(2)}</td>
+                    <td>${product.unit || '件'}</td>
+                    <td>${product.stock || 0}</td>
+                    <td>${aliasHtml}</td>
+                    <td>
+                        <button class="btn btn-primary" onclick="editProduct(${product.id})" style="padding: 4px 10px; font-size: 12px; margin-right: 5px;">编辑</button>
+                        <button class="btn btn-danger" onclick="deleteProduct(${product.id})" style="padding: 4px 10px; font-size: 12px;">删除</button>
+                    </td>
+                `;
+                productList.appendChild(tr);
+            });
+        }
+
+        // ========== 2. 获取商品列表数据（核心修复：移除无限刷新） ==========
+        async function loadProductList() {
+            try {
+                // 调用专门的商品数据接口，而非刷新页面
+                const res = await fetch('/product/manage/data/');
+                if (!res.ok) throw new Error('接口请求失败');
+                
+                const products = await res.json();
+                allProducts = products; // 赋值给全局数组，供搜索使用
+                renderProductList(products); // 渲染列表
+            } catch (error) {
+                showMsg('加载商品列表失败：' + error.message, false);
+                console.error('加载商品失败：', error);
+                renderProductList([]); // 失败时显示空列表
+            }
+        }
+
+        // ========== 3. 新增商品 ==========
+        async function addProduct() {
             const name = document.getElementById('add-name').value.trim();
             const price = document.getElementById('add-price').value.trim();
             const unit = document.getElementById('add-unit').value.trim();
@@ -301,17 +379,16 @@
                 return;
             }
 
-            // 发送AJAX请求
-            fetch('/product/add/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'X-CSRFToken': getCsrfToken()
-                },
-                body: `name=${encodeURIComponent(name)}&price=${price}&unit=${encodeURIComponent(unit)}&stock=${stock}`
-            })
-            .then(response => response.json())
-            .then(data => {
+            try {
+                const res = await fetch('/product/add/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRFToken': getCsrfToken()
+                    },
+                    body: `name=${encodeURIComponent(name)}&price=${price}&unit=${encodeURIComponent(unit)}&stock=${stock}`
+                });
+                const data = await res.json();
                 if (data.code === 1) {
                     showMsg(data.msg);
                     // 清空表单
@@ -319,33 +396,286 @@
                     document.getElementById('add-price').value = '0.00';
                     document.getElementById('add-unit').value = '件';
                     document.getElementById('add-stock').value = '77';
-                    // 重新加载列表（简化版：仅提示，后续可完善）
-                    showMsg('商品新增成功，刷新页面查看列表', true);
+                    // 重新加载数据（仅请求接口，不刷新页面）
+                    loadProductList();
                 } else {
                     showMsg(data.msg, false);
                 }
-            })
-            .catch(error => {
+            } catch (error) {
                 showMsg('新增商品失败：' + error.message, false);
-                console.error('新增失败：', error);
-            });
+                console.error(error);
+            }
         }
 
-        // ========== 关键2：DOM加载完成后绑定所有事件 ==========
+        // ========== 4. 编辑商品 ==========
+async function editProduct(productId) {
+    currentEditProductId = productId;
+    try {
+        // 修复：调用专门的商品详情接口，而非编辑接口
+        const res = await fetch(`/product/edit/data/${productId}/`, {
+            method: 'GET',
+            headers: { 'X-CSRFToken': getCsrfToken() }
+        });
+        if (!res.ok) throw new Error('获取商品详情失败');
+        
+        const product = await res.json();
+        if (!product) {
+            showMsg('商品数据不存在', false);
+            return;
+        }
+
+        // 填充表单
+        document.getElementById('edit-id').value = product.id || '';
+        document.getElementById('edit-name').value = product.name || '';
+        document.getElementById('edit-price').value = product.price || '0.00';
+        document.getElementById('edit-unit').value = product.unit || '件';
+        document.getElementById('edit-stock').value = product.stock || '77';
+
+        // 保存当前别名并渲染
+        currentAliases = product.aliases || [];
+        renderEditAliases();
+
+        // 显示弹窗
+        document.getElementById('edit-modal').style.display = 'flex';
+    } catch (error) {
+        showMsg('加载商品详情失败：' + error.message, false);
+        console.error(error);
+    }
+}
+
+        // 渲染编辑弹窗中的别名
+        function renderEditAliases() {
+            const aliasContainer = document.getElementById('edit-aliases');
+            aliasContainer.innerHTML = '';
+            
+            if (currentAliases && currentAliases.length > 0) {
+                currentAliases.forEach(alias => {
+                    const aliasItem = document.createElement('div');
+                    aliasItem.className = 'alias-item';
+                    aliasItem.innerHTML = `${alias.alias_name || ''}<span class="alias-del" onclick="deleteEditAlias(${alias.id})">×</span>`;
+                    aliasContainer.appendChild(aliasItem);
+                });
+            } else {
+                aliasContainer.innerHTML = '<span style="color: #999;">暂无别名</span>';
+            }
+        }
+
+        // 保存编辑后的商品
+        async function saveEdit() {
+            const id = document.getElementById('edit-id').value;
+            const name = document.getElementById('edit-name').value.trim();
+            const price = document.getElementById('edit-price').value.trim();
+            const unit = document.getElementById('edit-unit').value.trim();
+            const stock = document.getElementById('edit-stock').value.trim();
+
+            // 表单验证
+            if (!name) {
+                showMsg('商品名称不能为空', false);
+                return;
+            }
+            if (!price || parseFloat(price) < 0) {
+                showMsg('请输入有效的单价', false);
+                return;
+            }
+
+            try {
+                const res = await fetch(`/product/edit/${id}/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRFToken': getCsrfToken()
+                    },
+                    body: `name=${encodeURIComponent(name)}&price=${price}&unit=${encodeURIComponent(unit)}&stock=${stock}`
+                });
+                const data = await res.json();
+                if (data.code === 1) {
+                    showMsg(data.msg);
+                    closeModal();
+                    loadProductList(); // 重新加载数据，不刷新页面
+                } else {
+                    showMsg(data.msg, false);
+                }
+            } catch (error) {
+                showMsg('保存修改失败：' + error.message, false);
+                console.error(error);
+            }
+        }
+
+        // 关闭编辑弹窗
+        function closeModal() {
+            document.getElementById('edit-modal').style.display = 'none';
+            currentEditProductId = null;
+            currentAliases = [];
+            // 清空编辑表单
+            document.getElementById('edit-id').value = '';
+            document.getElementById('edit-name').value = '';
+            document.getElementById('edit-price').value = '0.00';
+            document.getElementById('edit-unit').value = '件';
+            document.getElementById('edit-stock').value = '77';
+            document.getElementById('new-alias').value = '';
+        }
+
+        // ========== 5. 删除商品 ==========
+        async function deleteProduct(productId) {
+            if (!confirm('确定要删除这个商品吗？删除后别名也会被移除！')) return;
+
+            try {
+                const res = await fetch(`/product/delete/${productId}/`, {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': getCsrfToken() }
+                });
+                const data = await res.json();
+                if (data.code === 1) {
+                    showMsg(data.msg);
+                    loadProductList(); // 重新加载数据，不刷新页面
+                } else {
+                    showMsg(data.msg, false);
+                }
+            } catch (error) {
+                showMsg('删除商品失败：' + error.message, false);
+                console.error(error);
+            }
+        }
+
+        // ========== 6. 别名管理 ==========
+        // 添加别名（编辑弹窗中）
+        async function addAlias() {
+            if (!currentEditProductId) {
+                showMsg('请先选择要编辑的商品', false);
+                return;
+            }
+            
+            const aliasName = document.getElementById('new-alias').value.trim();
+            if (!aliasName) {
+                showMsg('别名不能为空', false);
+                return;
+            }
+
+            try {
+                const res = await fetch('/alias/add/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRFToken': getCsrfToken()
+                    },
+                    body: `product_id=${currentEditProductId}&alias_name=${encodeURIComponent(aliasName)}`
+                });
+                const data = await res.json();
+                if (data.code === 1) {
+                    showMsg(data.msg);
+                    // 更新当前别名列表
+                    currentAliases.push({
+                        id: data.data.id,
+                        alias_name: data.data.alias_name
+                    });
+                    // 重新渲染别名
+                    renderEditAliases();
+                    // 清空输入框
+                    document.getElementById('new-alias').value = '';
+                } else {
+                    showMsg(data.msg, false);
+                }
+            } catch (error) {
+                showMsg('新增别名失败：' + error.message, false);
+                console.error(error);
+            }
+        }
+
+        // 删除编辑弹窗中的别名
+        async function deleteEditAlias(aliasId) {
+            if (!confirm('确定要删除这个别名吗？')) return;
+
+            try {
+                const res = await fetch(`/alias/delete/${aliasId}/`, {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': getCsrfToken() }
+                });
+                const data = await res.json();
+                if (data.code === 1) {
+                    showMsg(data.msg);
+                    // 更新当前别名列表
+                    currentAliases = currentAliases.filter(alias => alias.id !== aliasId);
+                    // 重新渲染别名
+                    renderEditAliases();
+                } else {
+                    showMsg(data.msg, false);
+                }
+            } catch (error) {
+                showMsg('删除别名失败：' + error.message, false);
+                console.error(error);
+            }
+        }
+
+        // 删除列表中的别名
+        async function deleteAlias(aliasId) {
+            if (!confirm('确定要删除这个别名吗？')) return;
+
+            try {
+                const res = await fetch(`/alias/delete/${aliasId}/`, {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': getCsrfToken() }
+                });
+                const data = await res.json();
+                if (data.code === 1) {
+                    showMsg(data.msg);
+                    loadProductList(); // 重新加载数据，不刷新页面
+                } else {
+                    showMsg(data.msg, false);
+                }
+            } catch (error) {
+                showMsg('删除别名失败：' + error.message, false);
+                console.error(error);
+            }
+        }
+
+        // ========== 7. 商品搜索（现在可正常工作） ==========
+        function searchProduct() {
+            const keyword = document.getElementById('search-keyword').value.trim().toLowerCase();
+            if (!keyword) {
+                renderProductList(allProducts);
+                return;
+            }
+
+            // 搜索匹配：名称/别名
+            const filteredProducts = allProducts.filter(product => {
+                // 匹配商品名称
+                if (product.name?.toLowerCase().includes(keyword)) return true;
+                // 匹配别名
+                if (product.aliases && product.aliases.some(alias => alias.alias_name?.toLowerCase().includes(keyword))) {
+                    return true;
+                }
+                return false;
+            });
+
+            renderProductList(filteredProducts);
+        }
+
+        // 重置搜索
+        function resetSearch() {
+            document.getElementById('search-keyword').value = '';
+            renderProductList(allProducts);
+        }
+
+        // ========== 8. 初始化和事件绑定 ==========
         document.addEventListener('DOMContentLoaded', function() {
+            // 加载商品列表（仅调用一次，无无限循环）
+            loadProductList();
+
             // 绑定新增商品按钮
             document.getElementById('btn-add-product').addEventListener('click', addProduct);
-            
-            // 其他按钮绑定（暂时留空，先确保新增功能可用）
-            document.getElementById('btn-close-modal').addEventListener('click', function() {
-                document.getElementById('edit-modal').style.display = 'none';
+
+            // 绑定搜索按钮
+            document.getElementById('btn-search').addEventListener('click', searchProduct);
+            document.getElementById('btn-reset-search').addEventListener('click', resetSearch);
+            // 搜索框回车触发搜索
+            document.getElementById('search-keyword').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') searchProduct();
             });
-            document.getElementById('btn-save-edit').addEventListener('click', function() {
-                showMsg('编辑功能暂未完善', false);
-            });
-            document.getElementById('btn-add-alias').addEventListener('click', function() {
-                showMsg('别名功能暂未完善', false);
-            });
+
+            // 绑定编辑弹窗相关按钮
+            document.getElementById('btn-close-modal').addEventListener('click', closeModal);
+            document.getElementById('btn-save-edit').addEventListener('click', saveEdit);
+            document.getElementById('btn-add-alias').addEventListener('click', addAlias);
         });
     </script>
 </body>
