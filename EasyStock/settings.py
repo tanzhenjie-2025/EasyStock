@@ -40,7 +40,8 @@ INSTALLED_APPS = [
     "bill.apps.BillConfig",
     "product.apps.GoodsConfig",
     "summary.apps.SummaryConfig",
-    "area_manage.apps.AreaManageConfig"
+    "area_manage.apps.AreaManageConfig",
+    "customer_manage.apps.CustomerManageConfig"
 ]
 
 MIDDLEWARE = [

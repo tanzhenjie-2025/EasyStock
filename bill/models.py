@@ -181,3 +181,26 @@ class DailySalesSummary(models.Model):
         product_unit = self.product.unit if self.product else ""
         return f'{self.summary_date} - {product_name} - 销售{self.sale_quantity}{product_unit}'
 
+# bill/models.py 末尾新增
+class Customer(models.Model):
+    """客户信息表"""
+    name = models.CharField('客户名称', max_length=100, unique=True)  # 客户名唯一
+    area = models.ForeignKey(
+        Area,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=False,  # 必须选择区域
+        verbose_name='所属区域'
+    )
+    phone = models.CharField('联系电话', max_length=20, unique=True)  # 电话唯一且必填
+    remark = models.CharField('备注', max_length=200, blank=True, default='')  # 备注默认为空
+    create_time = models.DateTimeField('创建时间', auto_now_add=True)
+
+    def __str__(self):
+        return f'{self.name} ({self.phone})'
+
+    class Meta:
+        verbose_name = '客户'
+        verbose_name_plural = '客户管理'
+        ordering = ['-create_time']  # 按创建时间倒序
+

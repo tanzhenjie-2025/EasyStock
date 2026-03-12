@@ -1,0 +1,309 @@
+{% extends "base.html" %}
+
+<!-- 页面标题 -->
+{% block title %}客户管理 - EasyStock{% endblock %}
+
+<!-- 页面专属样式 -->
+{% block extra_css %}
+<style>
+    /* 表单弹窗样式（新增/编辑） */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        display: none;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+    .modal-content {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        width: 400px;
+        max-width: 90%;
+    }
+    .form-group {
+        margin-bottom: 15px;
+    }
+    .form-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+    }
+    .form-group input, .form-group select {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+    }
+    .btn-group {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        margin-top: 20px;
+    }
+    .btn-save {
+        background: #007bff;
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    .btn-cancel {
+        background: #6c757d;
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+</style>
+{% endblock %}
+
+<!-- 页面主体内容 -->
+{% block content %}
+<div class="content-container">
+    <h3>客户管理</h3>
+    <div class="my-3">
+        <button class="btn btn-sm btn-primary" onclick="openAddModal()">新增客户</button>
+    </div>
+    <table class="table table-sm table-bordered">
+        <thead class="table-light">
+            <tr>
+                <th>ID</th>
+                <th>客户名称</th>
+                <th>所属区域</th>
+                <th>联系电话</th>
+                <th>备注</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody id="customerList">
+            <!-- 客户列表由JS动态填充 -->
+        </tbody>
+    </table>
+</div>
+
+<!-- 新增/编辑客户弹窗 -->
+<div class="modal-overlay" id="customerModal">
+    <div class="modal-content">
+        <h4 id="modalTitle">新增客户</h4>
+        <form id="customerForm">
+            <input type="hidden" id="customerId" value="">
+            <div class="form-group">
+                <label for="customerName">客户名称 <span style="color:red">*</span></label>
+                <input type="text" id="customerName" placeholder="请输入客户名称" required>
+            </div>
+            <div class="form-group">
+                <label for="areaSelect">所属区域 <span style="color:red">*</span></label>
+                <select id="areaSelect" required>
+                    <option value="">请选择区域</option>
+                    <!-- 区域选项由JS动态填充 -->
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="customerPhone">联系电话 <span style="color:red">*</span></label>
+                <input type="text" id="customerPhone" placeholder="请输入联系电话" required>
+            </div>
+            <div class="form-group">
+                <label for="customerRemark">备注</label>
+                <input type="text" id="customerRemark" placeholder="请输入备注（选填）">
+            </div>
+            <div class="btn-group">
+                <button type="button" class="btn-cancel" onclick="closeModal()">取消</button>
+                <button type="button" class="btn-save" onclick="saveCustomer()">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+<!-- 页面专属JS -->
+{% block extra_js %}
+<script>
+    let currentCustomerId = '';  // 当前编辑的客户ID
+    let areaList = [];           // 区域列表缓存
+
+    // 页面加载初始化
+    $(document).ready(function() {
+        loadAreaList();  // 加载区域下拉列表
+        loadCustomerList();  // 加载客户列表
+    });
+
+    // 1. 加载区域列表（用于下拉选择）
+    function loadAreaList() {
+        $.get('/customer-manage/area/list/', function(res) {
+            console.log('区域列表：', res);
+            areaList = res;
+            let html = '<option value="">请选择区域</option>';
+            if (Array.isArray(res)) {
+                res.forEach(area => {
+                    html += `<option value="${area.id}">${area.name}</option>`;
+                });
+            }
+            $('#areaSelect').html(html);
+        }, 'json').fail(function(xhr, status, error) {
+            console.error('加载区域失败：', xhr.responseText);
+            alert('加载区域列表失败！\n' + error);
+        });
+    }
+
+    // 2. 加载客户列表
+    function loadCustomerList() {
+        $.get('/customer-manage/customer/list/', function(res) {
+            console.log('客户列表：', res);
+            let html = '';
+            if (Array.isArray(res) && res.length > 0) {
+                res.forEach(customer => {
+                    html += `<tr>
+                        <td>${customer.id}</td>
+                        <td>${customer.name}</td>
+                        <td>${customer.area_name || '无'}</td>
+                        <td>${customer.phone}</td>
+                        <td>${customer.remark || '无'}</td>
+                        <td>
+                            <button class="btn btn-sm btn-warning me-1" onclick="openEditModal(${customer.id})">编辑</button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteCustomer(${customer.id})">删除</button>
+                        </td>
+                    </tr>`;
+                });
+            } else {
+                html = '<tr><td colspan="6" class="text-center">暂无客户数据</td></tr>';
+            }
+            $('#customerList').html(html);
+        }, 'json').fail(function(xhr, status, error) {
+            console.error('加载客户失败：', xhr.responseText);
+            alert('加载客户列表失败！\n' + error);
+        });
+    }
+
+    // 3. 打开新增客户弹窗
+    function openAddModal() {
+        // 重置表单
+        $('#modalTitle').text('新增客户');
+        $('#customerForm')[0].reset();
+        $('#customerId').val('');
+        currentCustomerId = '';
+        // 显示弹窗
+        $('#customerModal').css('display', 'flex');
+    }
+
+    // 4. 打开编辑客户弹窗
+    function openEditModal(id) {
+        currentCustomerId = id;
+        // 获取客户详情
+        $.get('/customer-manage/customer/list/', function(res) {
+            const customer = res.find(item => item.id === id);
+            if (!customer) {
+                alert('客户不存在！');
+                return;
+            }
+            // 填充表单
+            $('#modalTitle').text('编辑客户');
+            $('#customerId').val(customer.id);
+            $('#customerName').val(customer.name);
+            $('#areaSelect').val(customer.area_id);
+            $('#customerPhone').val(customer.phone);
+            $('#customerRemark').val(customer.remark || '');
+            // 显示弹窗
+            $('#customerModal').css('display', 'flex');
+        }, 'json').fail(function(xhr, status, error) {
+            console.error('获取客户失败：', xhr.responseText);
+            alert('获取客户信息失败！\n' + error);
+        });
+    }
+
+    // 5. 关闭弹窗
+    function closeModal() {
+        $('#customerModal').css('display', 'none');
+        // 重置表单
+        $('#customerForm')[0].reset();
+        currentCustomerId = '';
+    }
+
+    // 6. 保存客户（新增/编辑）
+    function saveCustomer() {
+        // 获取表单数据
+        const name = $('#customerName').val().trim();
+        const areaId = $('#areaSelect').val().trim();
+        const phone = $('#customerPhone').val().trim();
+        const remark = $('#customerRemark').val().trim();
+
+        // 基础校验
+        if (!name) {
+            alert('客户名称不能为空！');
+            return;
+        }
+        if (!areaId) {
+            alert('所属区域不能为空！');
+            return;
+        }
+        if (!phone) {
+            alert('联系电话不能为空！');
+            return;
+        }
+
+        // 组装数据
+        const data = {
+            name: name,
+            area_id: areaId,
+            phone: phone,
+            remark: remark
+        };
+
+        // 确定请求URL和方式
+        let url = '/customer-manage/customer/add/';
+        if (currentCustomerId) {
+            url = `/customer-manage/customer/edit/${currentCustomerId}/`;
+        }
+
+        // 发送请求
+        $.ajax({
+            url: url,
+            type: 'POST',
+            data: data,
+            headers: {'X-CSRFToken': getCsrfToken()},
+            dataType: 'json',
+            success: function(res) {
+                alert(res.msg);
+                if (res.code === 1) {
+                    closeModal();  // 关闭弹窗
+                    loadCustomerList();  // 刷新列表
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('保存客户失败：', xhr.responseText);
+                alert('保存客户失败！\n' + xhr.responseText);
+            }
+        });
+    }
+
+    // 7. 删除客户
+    function deleteCustomer(id) {
+        if (!confirm('确定要删除该客户吗？删除后不可恢复！')) {
+            return;
+        }
+        $.ajax({
+            url: `/customer-manage/customer/delete/${id}/`,
+            type: 'POST',
+            headers: {'X-CSRFToken': getCsrfToken()},
+            dataType: 'json',
+            success: function(res) {
+                alert(res.msg);
+                if (res.code === 1) {
+                    loadCustomerList();  // 刷新列表
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('删除客户失败：', xhr.responseText);
+                alert('删除客户失败！\n' + xhr.responseText);
+            }
+        });
+    }
+</script>
+{% endblock %}
