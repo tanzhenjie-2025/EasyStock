@@ -59,10 +59,44 @@ class ProductAlias(models.Model):
         verbose_name_plural = '商品别名管理'
 
 
+# ===================== 区域 & 汇总分组 模块 =====================
+class Area(models.Model):
+    """区域（如：A区、B区、C区、D区...）"""
+    name = models.CharField('区域名称', max_length=50, unique=True)
+    remark = models.CharField('备注', max_length=100, blank=True)
+    create_time = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        verbose_name = '区域'
+        verbose_name_plural = '区域管理'
+
+
+class AreaGroup(models.Model):
+    """区域组（自定义组合：A+B、A+C、B+D 等）"""
+    name = models.CharField('组名', max_length=50, unique=True)
+    areas = models.ManyToManyField(Area, verbose_name='包含区域')
+    remark = models.CharField('备注', max_length=100, blank=True)
+    create_time = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        verbose_name = '区域组'
+        verbose_name_plural = '区域组管理'
+
+
+# ===================== 给原有 Order 加区域 =====================
+# 请把你原来的 Order 替换成下面这个
 class Order(models.Model):
     """订单表（三联单主表）"""
     ORDER_STATUS = (('pending', '未打印'), ('printed', '已打印'))
     order_no = models.CharField('订单编号', max_length=30, unique=True, blank=True)
+    # 新增：订单所属区域
+    area = models.ForeignKey(Area, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='订单区域')
     create_time = models.DateTimeField('开单时间', auto_now_add=True)
     total_amount = models.DecimalField('总金额', max_digits=12, decimal_places=2, default=0)
     status = models.CharField('状态', max_length=10, choices=ORDER_STATUS, default='pending')
@@ -71,7 +105,6 @@ class Order(models.Model):
         """自动生成订单编号（年月日+随机数）"""
         if not self.order_no:
             date_str = datetime.datetime.now().strftime('%Y%m%d')
-            # 取当天最后一个订单编号，自增
             last_order = Order.objects.filter(order_no__startswith=date_str).last()
             if last_order:
                 seq = int(last_order.order_no[-4:]) + 1
@@ -147,3 +180,4 @@ class DailySalesSummary(models.Model):
         product_name = self.product.name if self.product else "无商品"
         product_unit = self.product.unit if self.product else ""
         return f'{self.summary_date} - {product_name} - 销售{self.sale_quantity}{product_unit}'
+

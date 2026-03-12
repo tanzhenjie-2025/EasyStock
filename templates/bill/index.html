@@ -1,11 +1,18 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <title>快速开单工具（表格版）</title>
+{% extends "base.html" %}
+
+<!-- 页面标题 -->
+{% block title %}快速开单工具（表格版） - EasyStock{% endblock %}
+
+<!-- 页面专属样式（保留原有所有样式，适配模板布局） -->
+{% block extra_css %}
     <style>
-        body { font-family: "Microsoft YaHei", sans-serif; margin: 20px; }
-        .container { max-width: 1000px; margin: 0 auto; }
+        body { font-family: "Microsoft YaHei", sans-serif; margin: 0; }
+        /* 适配模板的container，覆盖原有margin */
+        .content-container { 
+            max-width: 1000px; 
+            margin: 20px auto; 
+            padding: 0 15px;
+        }
         .btn-add-row { padding: 8px 20px; font-size: 16px; cursor: pointer; background: #0066cc; color: #fff; border: none; border-radius: 4px; margin-bottom: 10px; }
         .btn-add-row:hover { background: #0055bb; }
 
@@ -49,309 +56,326 @@
         .btn-print { background: #ff6600; color: #fff; border: none; }
 
         @media print {
-            .btn-add-row, .btn-group, .suggest-dropdown { display: none !important; }
+            .navbar, .btn-add-row, .btn-group, .suggest-dropdown { display: none !important; }
             .bill-table input { border: none; }
             .btn-del { display: none; }
         }
     </style>
-</head>
-<body>
-<div class="container">
-    <h1>快速开单工具（表格版）</h1>
-    <button class="btn-add-row" onclick="addBlankRow()">新增空白行</button>
+{% endblock %}
 
-    <table class="bill-table" id="bill-table">
-        <thead>
-            <tr>
-                <th>序号</th>
-                <th>商品名称</th>
-                <th>销售数量</th>
-                <th>销售单位</th>
-                <th>销售单价（¥）</th>
-                <th>销售金额（¥）</th>
-                <th>操作</th>
-            </tr>
-        </thead>
-        <tbody id="bill-tbody"></tbody>
-        <tfoot>
-            <tr class="total-row">
-                <td colspan="5" align="right">订单总计：</td>
-                <td id="total-amount">¥0.00</td>
-                <td></td>
-            </tr>
-        </tfoot>
-    </table>
+<!-- 页面主体内容 -->
+{% block content %}
+    <div class="content-container">
+        <h1>快速开单工具（表格版）</h1>
+        <button class="btn-add-row" onclick="addBlankRow()">新增空白行</button>
 
-    <div class="btn-group">
-        <button class="btn-save" onclick="saveOrder()">保存并提交</button>
-        <button class="btn-print" onclick="printBill()">一键打印</button>
+        <table class="bill-table" id="bill-table">
+            <thead>
+                <tr>
+                    <th>序号</th>
+                    <th>商品名称</th>
+                    <th>销售数量</th>
+                    <th>销售单位</th>
+                    <th>销售单价（¥）</th>
+                    <th>销售金额（¥）</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="bill-tbody"></tbody>
+            <tfoot>
+                <tr class="total-row">
+                    <td colspan="5" align="right">订单总计：</td>
+                    <td id="total-amount">¥0.00</td>
+                    <td></td>
+                </tr>
+            </tfoot>
+        </table>
+
+        <div class="btn-group">
+            <button class="btn-save" onclick="saveOrder()">保存并提交</button>
+            <button class="btn-print" onclick="printBill()">一键打印</button>
+        </div>
     </div>
-</div>
+{% endblock %}
 
-<script>
-    // ========== 全局配置 ==========
-    let rowIdCounter = 0;
-    const inputColsCount = 4;
-    let currentSearchInput = null;    // 当前正在搜索的输入框
-    let currentSuggestList = [];     // 当前候选列表
-    let suggestBox = null;           // 全局候选DOM
+<!-- 页面专属JS（保留所有原有逻辑，仅优化CSRF函数） -->
+{% block extra_js %}
+    <script>
+        // ========== 全局配置 ==========
+        let rowIdCounter = 0;
+        const inputColsCount = 4;
+        let currentSearchInput = null;    // 当前正在搜索的输入框
+        let currentSuggestList = [];     // 当前候选列表
+        let suggestBox = null;           // 全局候选DOM
 
-    // ========== 初始化 ==========
-    initSuggestBox();
-    window.addEventListener('click', hideAllSuggest);
+        // ========== 初始化 ==========
+        initSuggestBox();
+        window.addEventListener('click', hideAllSuggest);
 
-    // ========== 1. 商品搜索候选框 ==========
-    function initSuggestBox() {
-        suggestBox = document.createElement('div');
-        suggestBox.className = 'suggest-dropdown';
-        document.body.appendChild(suggestBox);
-    }
-
-    // 输入时搜索
-    async function onProductInput(input) {
-        const keyword = input.value.trim();
-        if (!keyword) {
-            hideSuggest();
-            return;
+        // ========== 1. 商品搜索候选框 ==========
+        function initSuggestBox() {
+            suggestBox = document.createElement('div');
+            suggestBox.className = 'suggest-dropdown';
+            document.body.appendChild(suggestBox);
         }
-        currentSearchInput = input;
-        try {
-            const res = await fetch(`/search-product/?keyword=${encodeURIComponent(keyword)}`);
-            const data = await res.json();
-            if (data.code === 1 && data.data.length > 0) {
-                currentSuggestList = data.data;
-                showSuggest(input, data.data);
-            } else {
+
+        // 输入时搜索
+        async function onProductInput(input) {
+            const keyword = input.value.trim();
+            if (!keyword) {
                 hideSuggest();
+                return;
             }
-        } catch (e) { hideSuggest(); }
-    }
-
-    // 显示候选（输入法样式：1 xxx 2 xxx）
-    function showSuggest(input, list) {
-        const rect = input.getBoundingClientRect();
-        suggestBox.style.left = rect.left + 'px';
-        suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
-        suggestBox.style.width = rect.width + 'px';
-        suggestBox.innerHTML = '';
-
-        list.slice(0, 8).forEach((item, idx) => {
-            const div = document.createElement('div');
-            div.textContent = `${idx+1} ${item.name}  ¥${item.price}/${item.unit}`;
-            div.dataset.index = idx;
-            div.onclick = () => selectItem(idx);
-            suggestBox.appendChild(div);
-        });
-        suggestBox.style.display = 'block';
-    }
-
-    function hideSuggest() {
-        if (suggestBox) suggestBox.style.display = 'none';
-        currentSearchInput = null;
-        currentSuggestList = [];
-    }
-    function hideAllSuggest(e) {
-        if (e && e.target.closest('.suggest-dropdown')) return;
-        if (e && e.target.classList.contains('name-input')) return;
-        hideSuggest();
-    }
-
-    // 选中商品 → 回填到行
-    function selectItem(index) {
-        const item = currentSuggestList[index];
-        if (!item || !currentSearchInput) return;
-        const tr = currentSearchInput.closest('tr');
-        tr.querySelector('.name-input').value = item.name;
-        tr.querySelector('.price-input').value = item.price;
-        tr.querySelector('.unit-input').value = item.unit;
-        calcRowAmount(tr.querySelector('.price-input'));
-        hideSuggest();
-    }
-
-    // ========== 2. 键盘选择：空格=第1个，数字1-8=选中 ==========
-    function handleProductInputKey(e) {
-        if (!currentSuggestList.length) return;
-        // 空格 = 选第1个
-        if (e.key === ' ') {
-            e.preventDefault();
-            selectItem(0);
-        }
-        // 数字 1-8
-        const num = parseInt(e.key);
-        if (!isNaN(num) && num >= 1 && num <= currentSuggestList.length) {
-            e.preventDefault();
-            selectItem(num - 1);
-        }
-        // ESC 关闭
-        if (e.key === 'Escape') hideSuggest();
-    }
-
-    // ========== 3. 表格行创建（带搜索） ==========
-    function createInputElement(type, className, placeholder, value = '') {
-        const input = document.createElement('input');
-        input.type = type;
-        input.className = className;
-        input.placeholder = placeholder;
-        input.value = value;
-
-        if (type === 'number') {
-            input.min = className === 'quantity-input' ? 1 : 0;
-            input.step = className === 'price-input' ? 0.01 : 1;
-            input.addEventListener('input', () => calcRowAmount(input));
+            currentSearchInput = input;
+            try {
+                const res = await fetch(`/bill/search-product/?keyword=${encodeURIComponent(keyword)}`);
+                const data = await res.json();
+                if (data.code === 1 && data.data.length > 0) {
+                    currentSuggestList = data.data;
+                    showSuggest(input, data.data);
+                } else {
+                    hideSuggest();
+                }
+            } catch (e) { hideSuggest(); }
         }
 
-        // 商品名输入框：绑定搜索 + 键盘选择
-        if (className === 'name-input') {
-            input.addEventListener('input', () => onProductInput(input));
-            input.addEventListener('keydown', handleProductInputKey);
-        }
+        // 显示候选（输入法样式：1 xxx 2 xxx）
+        function showSuggest(input, list) {
+            const rect = input.getBoundingClientRect();
+            suggestBox.style.left = rect.left + 'px';
+            suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
+            suggestBox.style.width = rect.width + 'px';
+            suggestBox.innerHTML = '';
 
-        bindInputKeyboardEvents(input);
-        return input;
-    }
-
-    // ========== 4. 原有键盘逻辑（回车/方向键/删除） ==========
-    function bindInputKeyboardEvents(input) {
-        input.addEventListener('keydown', e => {
-            if (e.key === 'Enter') { e.preventDefault(); handleEnterKey(input); }
-            const dir = ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'];
-            if (dir.includes(e.key)) { e.preventDefault(); handleDirectionKeys(input,e.key); }
-            if (e.shiftKey && (e.key === 'Backspace' || e.key === 'Delete')) {
-                e.preventDefault(); handleDeleteRowByKey(input);
-            }
-        });
-    }
-
-    function handleEnterKey(input) {
-        const tr = input.closest('tr');
-        const inputs = tr.querySelectorAll('input');
-        const idx = Array.from(inputs).indexOf(input);
-        if (idx < inputColsCount - 1) {
-            inputs[idx+1].focus(); inputs[idx+1].select();
-        } else {
-            const newTr = addBlankRow(true);
-            newTr.querySelector('.name-input').focus();
-        }
-    }
-
-    function handleDirectionKeys(input, key) {
-        const tr = input.closest('tr');
-        const allTr = Array.from(document.querySelectorAll('#bill-tbody tr'));
-        const trIdx = allTr.indexOf(tr);
-        const inputs = tr.querySelectorAll('input');
-        const idx = Array.from(inputs).indexOf(input);
-        const rowCount = allTr.length;
-
-        switch(key) {
-            case 'ArrowLeft':
-                const l = idx === 0 ? inputColsCount-1 : idx-1;
-                inputs[l].focus(); inputs[l].select(); break;
-            case 'ArrowRight':
-                const r = idx === inputColsCount-1 ? 0 : idx+1;
-                inputs[r].focus(); inputs[r].select(); break;
-            case 'ArrowUp':
-                const upTr = allTr[trIdx === 0 ? rowCount-1 : trIdx-1];
-                upTr.querySelectorAll('input')[idx].focus(); break;
-            case 'ArrowDown':
-                const dnTr = allTr[trIdx === rowCount-1 ? 0 : trIdx+1];
-                dnTr.querySelectorAll('input')[idx].focus(); break;
-        }
-    }
-
-    function handleDeleteRowByKey(input) {
-        const tr = input.closest('tr');
-        const tbody = document.getElementById('bill-tbody');
-        if (tbody.children.length <=1) { alert('至少保留1行'); return; }
-        tr.remove(); updateRowNumbers(); calcTotalAmount();
-    }
-
-    // ========== 5. 计算 ==========
-    function calcRowAmount(input) {
-        const tr = input.closest('tr');
-        const qty = parseFloat(tr.querySelector('.quantity-input').value) || 0;
-        const price = parseFloat(tr.querySelector('.price-input').value) || 0;
-        tr.querySelector('.amount-cell').textContent = `¥${(qty*price).toFixed(2)}`;
-        calcTotalAmount();
-    }
-
-    function calcTotalAmount() {
-        let total = 0;
-        document.querySelectorAll('#bill-tbody tr').forEach(tr => {
-            const t = tr.querySelector('.amount-cell').textContent;
-            total += parseFloat(t.replace('¥','')) || 0;
-        });
-        document.getElementById('total-amount').textContent = `¥${total.toFixed(2)}`;
-    }
-
-    // ========== 6. 行操作 ==========
-    function updateRowNumbers() {
-        document.querySelectorAll('#bill-tbody tr').forEach((r,i)=>{
-            r.querySelector('.serial-cell').textContent = i+1;
-        });
-    }
-
-    function addBlankRow(returnRow=false) {
-        rowIdCounter++;
-        const tbody = document.getElementById('bill-tbody');
-        const tr = document.createElement('tr');
-        tr.dataset.rowId = rowIdCounter;
-        tr.innerHTML = `
-            <td class="serial-cell">${tbody.children.length+1}</td>
-            <td></td><td></td><td></td><td></td>
-            <td class="amount-cell">¥0.00</td>
-            <td><button class="btn-del" onclick="deleteRow(this)">删除</button></td>`;
-        tr.cells[1].appendChild(createInputElement('text','name-input','商品名称/拼音'));
-        tr.cells[2].appendChild(createInputElement('number','quantity-input','数量',1));
-        tr.cells[3].appendChild(createInputElement('text','unit-input','单位'));
-        tr.cells[4].appendChild(createInputElement('number','price-input','单价'));
-        tbody.appendChild(tr);
-        updateRowNumbers();
-        calcTotalAmount();
-        const nameInput = tr.querySelector('.name-input');
-        nameInput.focus();
-        if (returnRow) return tr;
-    }
-
-    function deleteRow(btn) {
-        const tr = btn.closest('tr');
-        const tbody = document.getElementById('bill-tbody');
-        if (tbody.children.length <=1) { alert('至少保留1行'); return; }
-        tr.remove(); updateRowNumbers(); calcTotalAmount();
-    }
-
-    // ========== 7. 保存/打印/重置 ==========
-    async function saveOrder() {
-        const items = [];
-        document.querySelectorAll('#bill-tbody tr').forEach(tr=>{
-            const name = tr.querySelector('.name-input').value.trim();
-            const qty = parseInt(tr.querySelector('.quantity-input').value)||0;
-            const unit = tr.querySelector('.unit-input').value.trim();
-            const price = parseFloat(tr.querySelector('.price-input').value)||0;
-            const amt = parseFloat(tr.querySelector('.amount-cell').textContent.replace('¥',''))||0;
-            if(name&&qty&&price>=0) items.push({name,qty,unit,price,amt});
-        });
-        if(!items.length){alert('请填写商品');return;}
-        const total = items.reduce((s,i)=>s+parseFloat(i.amt),0).toFixed(2);
-        try{
-            const r = await fetch('/save-order/',{
-                method:'POST',
-                headers:{'Content-Type':'application/json', 'X-CSRFToken':getCsrf()},
-                body:JSON.stringify({items, total_amount:total})
+            list.slice(0, 8).forEach((item, idx) => {
+                const div = document.createElement('div');
+                div.textContent = `${idx+1} ${item.name}  ¥${item.price}/${item.unit}`;
+                div.dataset.index = idx;
+                div.onclick = () => selectItem(idx);
+                suggestBox.appendChild(div);
             });
-            const d=await r.json();
-            if(d.code===1){alert('开单成功：'+d.order_no); window.open(`/print/${d.order_no}/`); resetBill();}
-            else alert(d.msg);
-        }catch(e){alert('保存失败')}
-    }
+            suggestBox.style.display = 'block';
+        }
 
-    function printBill(){window.print();}
-    function resetBill(){
-        document.getElementById('bill-tbody').innerHTML='';
-        rowIdCounter=0;
-    }
-    function getCsrf(){
-        return document.cookie.split('; ').find(row=>row.startsWith('csrftoken'))?.split('=')[1]||'';
-    }
-</script>
-</body>
-</html>
+        function hideSuggest() {
+            if (suggestBox) suggestBox.style.display = 'none';
+            currentSearchInput = null;
+            currentSuggestList = [];
+        }
+        function hideAllSuggest(e) {
+            if (e && e.target.closest('.suggest-dropdown')) return;
+            if (e && e.target.classList.contains('name-input')) return;
+            hideSuggest();
+        }
+
+        // 选中商品 → 回填到行
+        function selectItem(index) {
+            const item = currentSuggestList[index];
+            if (!item || !currentSearchInput) return;
+            const tr = currentSearchInput.closest('tr');
+            tr.querySelector('.name-input').value = item.name;
+            tr.querySelector('.price-input').value = item.price;
+            tr.querySelector('.unit-input').value = item.unit;
+            calcRowAmount(tr.querySelector('.price-input'));
+            hideSuggest();
+        }
+
+        // ========== 2. 键盘选择：空格=第1个，数字1-8=选中 ==========
+        function handleProductInputKey(e) {
+            if (!currentSuggestList.length) return;
+            // 空格 = 选第1个
+            if (e.key === ' ') {
+                e.preventDefault();
+                selectItem(0);
+            }
+            // 数字 1-8
+            const num = parseInt(e.key);
+            if (!isNaN(num) && num >= 1 && num <= currentSuggestList.length) {
+                e.preventDefault();
+                selectItem(num - 1);
+            }
+            // ESC 关闭
+            if (e.key === 'Escape') hideSuggest();
+        }
+
+        // ========== 3. 表格行创建（带搜索） ==========
+        function createInputElement(type, className, placeholder, value = '') {
+            const input = document.createElement('input');
+            input.type = type;
+            input.className = className;
+            input.placeholder = placeholder;
+            input.value = value;
+
+            if (type === 'number') {
+                input.min = className === 'quantity-input' ? 1 : 0;
+                input.step = className === 'price-input' ? 0.01 : 1;
+                input.addEventListener('input', () => calcRowAmount(input));
+            }
+
+            // 商品名输入框：绑定搜索 + 键盘选择
+            if (className === 'name-input') {
+                input.addEventListener('input', () => onProductInput(input));
+                input.addEventListener('keydown', handleProductInputKey);
+            }
+
+            bindInputKeyboardEvents(input);
+            return input;
+        }
+
+        // ========== 4. 原有键盘逻辑（回车/方向键/删除） ==========
+        function bindInputKeyboardEvents(input) {
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Enter') { e.preventDefault(); handleEnterKey(input); }
+                const dir = ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'];
+                if (dir.includes(e.key)) { e.preventDefault(); handleDirectionKeys(input,e.key); }
+                if (e.shiftKey && (e.key === 'Backspace' || e.key === 'Delete')) {
+                    e.preventDefault(); handleDeleteRowByKey(input);
+                }
+            });
+        }
+
+        function handleEnterKey(input) {
+            const tr = input.closest('tr');
+            const inputs = tr.querySelectorAll('input');
+            const idx = Array.from(inputs).indexOf(input);
+            if (idx < inputColsCount - 1) {
+                inputs[idx+1].focus(); inputs[idx+1].select();
+            } else {
+                const newTr = addBlankRow(true);
+                newTr.querySelector('.name-input').focus();
+            }
+        }
+
+        function handleDirectionKeys(input, key) {
+            const tr = input.closest('tr');
+            const allTr = Array.from(document.querySelectorAll('#bill-tbody tr'));
+            const trIdx = allTr.indexOf(tr);
+            const inputs = tr.querySelectorAll('input');
+            const idx = Array.from(inputs).indexOf(input);
+            const rowCount = allTr.length;
+
+            switch(key) {
+                case 'ArrowLeft':
+                    const l = idx === 0 ? inputColsCount-1 : idx-1;
+                    inputs[l].focus(); inputs[l].select(); break;
+                case 'ArrowRight':
+                    const r = idx === inputColsCount-1 ? 0 : idx+1;
+                    inputs[r].focus(); inputs[r].select(); break;
+                case 'ArrowUp':
+                    const upTr = allTr[trIdx === 0 ? rowCount-1 : trIdx-1];
+                    upTr.querySelectorAll('input')[idx].focus(); break;
+                case 'ArrowDown':
+                    const dnTr = allTr[trIdx === rowCount-1 ? 0 : trIdx+1];
+                    dnTr.querySelectorAll('input')[idx].focus(); break;
+            }
+        }
+
+        function handleDeleteRowByKey(input) {
+            const tr = input.closest('tr');
+            const tbody = document.getElementById('bill-tbody');
+            if (tbody.children.length <=1) { alert('至少保留1行'); return; }
+            tr.remove(); updateRowNumbers(); calcTotalAmount();
+        }
+
+        // ========== 5. 计算 ==========
+        function calcRowAmount(input) {
+            const tr = input.closest('tr');
+            const qty = parseFloat(tr.querySelector('.quantity-input').value) || 0;
+            const price = parseFloat(tr.querySelector('.price-input').value) || 0;
+            tr.querySelector('.amount-cell').textContent = `¥${(qty*price).toFixed(2)}`;
+            calcTotalAmount();
+        }
+
+        function calcTotalAmount() {
+            let total = 0;
+            document.querySelectorAll('#bill-tbody tr').forEach(tr => {
+                const t = tr.querySelector('.amount-cell').textContent;
+                total += parseFloat(t.replace('¥','')) || 0;
+            });
+            document.getElementById('total-amount').textContent = `¥${total.toFixed(2)}`;
+        }
+
+        // ========== 6. 行操作 ==========
+        function updateRowNumbers() {
+            document.querySelectorAll('#bill-tbody tr').forEach((r,i)=>{
+                r.querySelector('.serial-cell').textContent = i+1;
+            });
+        }
+
+        function addBlankRow(returnRow=false) {
+            rowIdCounter++;
+            const tbody = document.getElementById('bill-tbody');
+            const tr = document.createElement('tr');
+            tr.dataset.rowId = rowIdCounter;
+            tr.innerHTML = `
+                <td class="serial-cell">${tbody.children.length+1}</td>
+                <td></td><td></td><td></td><td></td>
+                <td class="amount-cell">¥0.00</td>
+                <td><button class="btn-del" onclick="deleteRow(this)">删除</button></td>`;
+            tr.cells[1].appendChild(createInputElement('text','name-input','商品名称/拼音'));
+            tr.cells[2].appendChild(createInputElement('number','quantity-input','数量',1));
+            tr.cells[3].appendChild(createInputElement('text','unit-input','单位'));
+            tr.cells[4].appendChild(createInputElement('number','price-input','单价'));
+            tbody.appendChild(tr);
+            updateRowNumbers();
+            calcTotalAmount();
+            const nameInput = tr.querySelector('.name-input');
+            nameInput.focus();
+            if (returnRow) return tr;
+        }
+
+        function deleteRow(btn) {
+            const tr = btn.closest('tr');
+            const tbody = document.getElementById('bill-tbody');
+            if (tbody.children.length <=1) { alert('至少保留1行'); return; }
+            tr.remove(); updateRowNumbers(); calcTotalAmount();
+        }
+
+        // ========== 7. 保存/打印/重置 ==========
+        async function saveOrder() {
+            const items = [];
+            document.querySelectorAll('#bill-tbody tr').forEach(tr=>{
+                const name = tr.querySelector('.name-input').value.trim();
+                const qty = parseInt(tr.querySelector('.quantity-input').value)||0;
+                const unit = tr.querySelector('.unit-input').value.trim();
+                const price = parseFloat(tr.querySelector('.price-input').value)||0;
+                const amt = parseFloat(tr.querySelector('.amount-cell').textContent.replace('¥',''))||0;
+                if(name&&qty&&price>=0) items.push({name,qty,unit,price,amt});
+            });
+            if(!items.length){alert('请填写商品');return;}
+            const total = items.reduce((s,i)=>s+parseFloat(i.amt),0).toFixed(2);
+            try{
+                const r = await fetch('/bill/save-order/',{
+                    method:'POST',
+                    headers:{
+                        'Content-Type':'application/json', 
+                        // 优化：使用base模板的全局CSRF函数，删除原有getCsrf函数
+                        'X-CSRFToken': getCsrfToken()
+                    },
+                    body:JSON.stringify({items, total_amount:total})
+                });
+                const d=await r.json();
+                if(d.code===1){
+                    alert('开单成功：'+d.order_no); 
+                    // 修复打印URL（补全bill前缀）
+                    window.open(`/bill/print/${d.order_no}/`); 
+                    resetBill();
+                }
+                else alert(d.msg);
+            }catch(e){alert('保存失败：' + e.message)}
+        }
+
+        function printBill(){window.print();}
+        function resetBill(){
+            document.getElementById('bill-tbody').innerHTML='';
+            rowIdCounter=0;
+            // 重置后自动新增一行
+            addBlankRow();
+        }
+
+        // 页面加载时自动新增一行
+        window.onload = function() {
+            addBlankRow();
+        }
+    </script>
+{% endblock %}

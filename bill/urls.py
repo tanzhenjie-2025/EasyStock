@@ -14,4 +14,5 @@ urlpatterns = [
     path('auto-summary/', views.auto_summary_task, name='auto_summary_task'),  # 自动汇总接口
 # 新增：商品搜索接口
     path('search-product/', views.search_product, name='search_product'),
+
 ]

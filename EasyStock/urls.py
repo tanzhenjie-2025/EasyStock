@@ -17,9 +17,9 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 
-
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('', include('bill.urls')),  # 挂载开单应用URL
-    path('',include('product.urls'))
+    path('bill/', include('bill.urls')),        # 开单
+    path('area-manage/', include('area_manage.urls')),  # 区域/组管理
+    path('summary/', include('summary.urls')),  # 汇总
 ]
