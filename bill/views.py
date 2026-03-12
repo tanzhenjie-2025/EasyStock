@@ -187,3 +187,35 @@ def auto_summary_task(request):
         return JsonResponse({'code': 0, 'msg': f'自动汇总失败：{str(e)}'})
 
 
+# ========== 新增：客户搜索接口（输入法式） ==========
+def search_customer(request):
+    """
+    客户搜索：匹配 区域名称 / 客户名称
+    支持：1. 关键词匹配 2. 返回输入法式候选数据（格式：区域 | 客户名）
+    """
+    keyword = request.GET.get('keyword', '').strip()
+    # 移除区域筛选逻辑
+
+    if not keyword:
+        return JsonResponse({'code': 0, 'data': []})
+
+    # 基础查询：匹配区域名称 或 客户名称
+    customer_matches = Customer.objects.select_related('area').filter(
+        Q(name__icontains=keyword) |
+        Q(area__name__icontains=keyword)
+    ).distinct()[:8]
+
+    # 构造返回数据（关键：去掉括号，格式为 区域 | 客户名）
+    data = []
+    for customer in customer_matches:
+        area_name = customer.area.name if customer.area else '无区域'
+        full_name = f"{area_name} | {customer.name}"  # 核心修改：去掉括号
+        data.append({
+            'id': customer.id,
+            'name': customer.name,
+            'area_id': customer.area.id if customer.area else '',
+            'area_name': area_name,
+            'full_name': full_name
+        })
+
+    return JsonResponse({'code': 1, 'data': data})
