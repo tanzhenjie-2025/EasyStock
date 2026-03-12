@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+<!-- 页面标题 -->
+{% block title %}区域组管理 - EasyStock{% endblock %}
+
+<!-- 页面专属内容 -->
+{% block content %}
+    <h3>区域组管理（可多选区域组合）</h3>
+    <div class="my-3">
+        <button class="btn btn-sm btn-primary" onclick="add()">新建组</button>
+    </div>
+    <table class="table table-sm">
+        <thead>
+            <tr><th>ID</th><th>组名</th><th>包含区域</th><th>备注</th><th>操作</th></tr>
+        </thead>
+        <tbody id="list"></tbody>
+    </table>
+{% endblock %}
+
+<!-- 页面专属JS -->
+{% block extra_js %}
+    <script>
+        let allAreas=[];
+        // 加载区域列表（添加详细日志）
+        function loadArea(){ 
+            console.log('加载区域列表（用于区域组）...');
+            $.get('/area-manage/area/list/', function(res){
+                console.log('区域列表返回：', res);
+                if(res.code === 0){
+                    alert(res.msg);
+                    return;
+                }
+                allAreas=Array.isArray(res) ? res : [];
+            },'json').fail(function(xhr, status, error){
+                console.error('加载区域失败：', xhr.responseText);
+                alert('加载区域列表失败！\n' + error);
+            });
+        }
+
+        // 加载区域组列表（添加详细日志）
+        function loadGroup(){
+            console.log('加载区域组列表...');
+            $.get('/area-manage/group/list/', function(res){
+                console.log('区域组接口返回：', res);
+                let html='';
+                if(res.code === 0){
+                    alert(res.msg);
+                    return;
+                }
+                if(Array.isArray(res)){
+                    res.forEach(g=>{
+                        html+=`<tr>
+                            <td>${g.id}</td>
+                            <td>${g.name}</td>
+                            <td>${g.area_names.join('、') || '无'}</td>
+                            <td>${g.remark || '无'}</td>
+                            <td>
+                                <button class="btn btn-sm btn-warning me-1" onclick="edit(${g.id})">改</button>
+                                <button class="btn btn-sm btn-danger" onclick="del(${g.id})">删</button>
+                            </td>
+                        </tr>`;
+                    });
+                }
+                $('#list').html(html);
+            },'json').fail(function(xhr, status, error){
+                console.error('加载区域组失败：', xhr.responseText);
+                alert(`加载区域组列表失败！\n错误：${error}\n返回内容：${xhr.responseText.substring(0, 100)}`);
+            });
+        }
+
+        // 新增区域组
+        function add(){
+            let name=prompt('请输入组名：');
+            if(!name) return;
+            let remark=prompt('请输入备注（可选）：')||'';
+            
+            if(allAreas.length === 0){
+                alert('暂无可用区域，请先添加区域！');
+                return;
+            }
+            let areaSelectStr = '请选择要包含的区域（输入区域ID，多个用英文逗号分隔）：\n';
+            allAreas.forEach(a => {
+                areaSelectStr += `${a.id} - ${a.name}\n`;
+            });
+            let selectedIds = prompt(areaSelectStr);
+            let areaIds = [];
+            if(selectedIds) {
+                areaIds = selectedIds.split(',').map(id => id.trim()).filter(id => id);
+            }
+
+            $.ajax({
+                url: '/area-manage/group/add/',
+                type: 'POST',
+                data: {name, remark, 'area_ids[]': areaIds},
+                headers: {'X-CSRFToken': getCsrfToken()},
+                dataType: 'json',
+                success: function(res){
+                    alert(res.msg);
+                    if(res.code === 1) loadGroup();
+                },
+                error: function(xhr, status, error){
+                    console.error('新增区域组失败：', xhr.responseText);
+                    alert('新增区域组失败！\n' + xhr.responseText);
+                }
+            });
+        }
+
+        // 编辑区域组
+        function edit(id){
+            $.get('/area-manage/group/list/', function(groups){
+                console.log('所有区域组：', groups);
+                let g=groups.find(x=>x.id == id);
+                if(!g){
+                    alert('该区域组不存在！');
+                    return;
+                }
+                let name=prompt('请输入新组名：', g.name);
+                if(!name) return;
+                let remark=prompt('请输入备注（可选）：', g.remark)||'';
+
+                let areaSelectStr = `当前已选：${g.area_names.join('、') || '无'}\n请输入新的区域ID（多个用英文逗号分隔）：\n`;
+                allAreas.forEach(a => {
+                    areaSelectStr += `${a.id} - ${a.name}\n`;
+                });
+                let selectedIds = prompt(areaSelectStr, g.area_ids.join(','));
+                let areaIds = [];
+                if(selectedIds) {
+                    areaIds = selectedIds.split(',').map(id => id.trim()).filter(id => id);
+                }
+
+                $.ajax({
+                    url: `/area-manage/group/edit/${id}/`,
+                    type: 'POST',
+                    data: {name, remark, 'area_ids[]': areaIds},
+                    headers: {'X-CSRFToken': getCsrfToken()},
+                    dataType: 'json',
+                    success: function(res){
+                        alert(res.msg);
+                        if(res.code === 1) loadGroup();
+                    },
+                    error: function(xhr, status, error){
+                        console.error('编辑区域组失败：', xhr.responseText);
+                        alert('编辑区域组失败！\n' + xhr.responseText);
+                    }
+                });
+            },'json').fail(function(xhr, status, error){
+                console.error('获取区域组失败：', xhr.responseText);
+                alert('获取区域组信息失败！\n' + error);
+            });
+        }
+
+        // 删除区域组
+        function del(id){
+            if(!confirm('确定要删除该区域组吗？')) return;
+            $.ajax({
+                url: `/area-manage/group/delete/${id}/`,
+                type: 'POST',
+                headers: {'X-CSRFToken': getCsrfToken()},
+                dataType: 'json',
+                success: function(res){
+                    alert(res.msg);
+                    loadGroup();
+                },
+                error: function(xhr, status, error){
+                    console.error('删除区域组失败：', xhr.responseText);
+                    alert('删除区域组失败！\n' + xhr.responseText);
+                }
+            });
+        }
+
+        // 页面加载完成后初始化
+        $(document).ready(function(){
+            console.log('区域组页面加载完成，初始化数据');
+            loadArea();
+            loadGroup();
+        });
+    </script>
+{% endblock %}

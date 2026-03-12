@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{% block title %}EasyStock - 库存管理系统{% endblock %}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5/dist/css/bootstrap.min.css">
+    <!-- 1. 先加载jQuery，确保子页面能使用$ -->
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js"></script>
+    <style>
+        /* 通用样式：导航栏、页面间距 */
+        .navbar { margin-bottom: 20px; }
+        .content-container { padding: 0 15px; }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- 全局导航栏：所有页面共享 -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/bill/">EasyStock 系统</a>
+            <div class="collapse navbar-collapse">
+                <ul class="navbar-nav me-auto">
+                    <!-- 开单页面 -->
+                    <li class="nav-item">
+                        <a class="nav-link" href="/bill/">快速开单</a>
+                    </li>
+                    <!-- 区域管理 -->
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/area-manage/area/page/' %}active{% endif %}" href="/area-manage/area/page/">区域管理</a>
+                    </li>
+                    <!-- 区域组管理 -->
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/area-manage/group/page/' %}active{% endif %}" href="/area-manage/group/page/">区域组管理</a>
+                    </li>
+                    <!-- 汇总页面（预留） -->
+                    <li class="nav-item">
+                        <a class="nav-link" href="/summary/summary_page/">数据汇总</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 页面专属内容：子页面填充 -->
+    <div class="container content-container">
+        {% block content %}{% endblock %}
+    </div>
+
+    <!-- 2. 通用JS：CSRF Token获取（所有页面共用） -->
+    <script>
+        // 全局CSRF Token获取函数（所有页面可直接调用）
+        function getCsrfToken() {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, 10) === 'csrftoken=') {
+                        cookieValue = decodeURIComponent(cookie.substring(10));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+    </script>
+    <!-- 3. 子页面JS放在最后，确保jQuery和全局函数已加载 -->
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

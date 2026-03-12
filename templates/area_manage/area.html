@@ -1,0 +1,137 @@
+{% extends "base.html" %}
+
+<!-- 页面标题 -->
+{% block title %}区域管理 - EasyStock{% endblock %}
+
+<!-- 页面专属内容 -->
+{% block content %}
+    <h3>区域管理</h3>
+    <div class="my-3">
+        <button class="btn btn-sm btn-primary" onclick="add()">新增区域</button>
+    </div>
+    <table class="table table-sm">
+        <thead>
+            <tr><th>ID</th><th>区域名</th><th>备注</th><th>操作</th></tr>
+        </thead>
+        <tbody id="list"></tbody>
+    </table>
+{% endblock %}
+
+<!-- 页面专属JS -->
+{% block extra_js %}
+    <script>
+        // 加载区域列表（添加详细日志）
+        function load(){
+            console.log('开始加载区域列表...');
+            $.get('/area-manage/area/list/', function(res){
+                console.log('接口返回数据：', res); // 打印返回数据，方便排查
+                let html='';
+                // 处理接口返回错误的情况
+                if(res.code === 0){
+                    alert(res.msg);
+                    return;
+                }
+                // 遍历数据（兼容空数组）
+                if(Array.isArray(res)){
+                    res.forEach(i=>{
+                        html+=`<tr>
+                            <td>${i.id}</td>
+                            <td>${i.name}</td>
+                            <td>${i.remark || '无'}</td>
+                            <td>
+                                <button class="btn btn-sm btn-warning me-1" onclick="edit(${i.id})">改</button>
+                                <button class="btn btn-sm btn-danger" onclick="del(${i.id})">删</button>
+                            </td>
+                        </tr>`;
+                    });
+                }
+                $('#list').html(html);
+            },'json').fail(function(xhr, status, error){
+                // 打印详细错误信息
+                console.error('加载失败：', status, error);
+                console.error('返回内容：', xhr.responseText);
+                alert(`加载区域列表失败！\n错误：${error}\n返回内容：${xhr.responseText.substring(0, 100)}`);
+            });
+        }
+
+        // 新增区域
+        function add(){
+            let name=prompt('区域名：');
+            if(!name)return;
+            let remark=prompt('备注：')||'';
+            $.ajax({
+                url: '/area-manage/area/add/',
+                type: 'POST',
+                data: {name, remark},
+                headers: {'X-CSRFToken': getCsrfToken()},
+                dataType: 'json',
+                success: function(res){
+                    alert(res.msg);
+                    if(res.code==1)load();
+                },
+                error: function(xhr, status, error){
+                    console.error('新增失败：', xhr.responseText);
+                    alert('新增区域失败！\n' + xhr.responseText);
+                }
+            });
+        }
+
+        // 编辑区域
+        function edit(id){
+            $.get('/area-manage/area/list/',function(areas){
+                console.log('所有区域：', areas);
+                let a=areas.find(x=>x.id==id);
+                if(!a){
+                    alert('区域不存在！');
+                    return;
+                }
+                let name=prompt('新名称：',a.name);
+                if(!name)return;
+                let remark=prompt('备注：',a.remark)||'';
+                $.ajax({
+                    url: `/area-manage/area/edit/${id}/`,
+                    type: 'POST',
+                    data: {name, remark},
+                    headers: {'X-CSRFToken': getCsrfToken()},
+                    dataType: 'json',
+                    success: function(res){
+                        alert(res.msg);
+                        if(res.code==1)load();
+                    },
+                    error: function(xhr, status, error){
+                        console.error('编辑失败：', xhr.responseText);
+                        alert('编辑区域失败！\n' + xhr.responseText);
+                    }
+                });
+            },'json').fail(function(xhr, status, error){
+                console.error('获取区域失败：', xhr.responseText);
+                alert('获取区域信息失败！\n' + error);
+            });
+        }
+
+        // 删除区域
+        function del(id){
+            if(!confirm('确定删除？'))return;
+            $.ajax({
+                url: `/area-manage/area/delete/${id}/`,
+                type: 'POST',
+                headers: {'X-CSRFToken': getCsrfToken()},
+                dataType: 'json',
+                success: function(res){
+                    alert(res.msg);
+                    load();
+                },
+                error: function(xhr, status, error){
+                    console.error('删除失败：', xhr.responseText);
+                    alert('删除区域失败！\n' + xhr.responseText);
+                }
+            });
+        }
+
+        // 页面加载完成后执行（确保DOM和jQuery已就绪）
+        $(document).ready(function(){
+            console.log('页面加载完成，开始执行load()');
+            load();
+        });
+    </script>
+{% endblock %}
