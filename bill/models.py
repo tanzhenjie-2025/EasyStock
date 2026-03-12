@@ -2,6 +2,7 @@ from django.db import models
 from pypinyin import lazy_pinyin
 import datetime
 
+
 class Product(models.Model):
     """商品表（含拼音检索字段）"""
     name = models.CharField('商品名称', max_length=100, unique=True)
@@ -59,6 +60,7 @@ class ProductAlias(models.Model):
         verbose_name_plural = '商品别名管理'
 
 
+
 # ===================== 区域 & 汇总分组 模块 =====================
 class Area(models.Model):
     """区域（如：A区、B区、C区、D区...）"""
@@ -88,18 +90,77 @@ class AreaGroup(models.Model):
         verbose_name = '区域组'
         verbose_name_plural = '区域组管理'
 
+# bill/models.py 末尾新增
+class Customer(models.Model):
+    """客户信息表"""
+    name = models.CharField('客户名称', max_length=100, unique=True)  # 客户名唯一
+    area = models.ForeignKey(
+        Area,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=False,  # 必须选择区域
+        verbose_name='所属区域'
+    )
+    phone = models.CharField('联系电话', max_length=20, unique=True)  # 电话唯一且必填
+    remark = models.CharField('备注', max_length=200, blank=True, default='')  # 备注默认为空
+    create_time = models.DateTimeField('创建时间', auto_now_add=True)
+
+    def __str__(self):
+        return f'{self.name} ({self.phone})'
+
+    class Meta:
+        verbose_name = '客户'
+        verbose_name_plural = '客户管理'
+        ordering = ['-create_time']  # 按创建时间倒序
+
+# bill/models.py 末尾新增
+class CustomerPrice(models.Model):
+    """客户商品专属价格表"""
+    customer = models.ForeignKey(
+        Customer,
+        on_delete=models.CASCADE,
+        verbose_name='关联客户'
+    )
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        verbose_name='关联商品'
+    )
+    custom_price = models.DecimalField('客户专属价', max_digits=10, decimal_places=2)  # 专属价格
+    remark = models.CharField('定价备注', max_length=200, blank=True, default='')  # 如："熟客优惠价"
+    create_time = models.DateTimeField('创建时间', auto_now_add=True)
+    update_time = models.DateTimeField('更新时间', auto_now=True)
+
+    def __str__(self):
+        return f'{self.customer.name} - {self.product.name} - ¥{self.custom_price}'
+
+    class Meta:
+        verbose_name = '客户专属价格'
+        verbose_name_plural = '客户专属价格管理'
+        unique_together = ('customer', 'product')  # 核心约束：一个客户一个商品只能有一个专属价
+        ordering = ['-create_time']
 
 # ===================== 给原有 Order 加区域 =====================
 # 请把你原来的 Order 替换成下面这个
+# 修改原有Order模型，新增customer外键
 class Order(models.Model):
     """订单表（三联单主表）"""
     ORDER_STATUS = (('pending', '未打印'), ('printed', '已打印'))
     order_no = models.CharField('订单编号', max_length=30, unique=True, blank=True)
-    # 新增：订单所属区域
     area = models.ForeignKey(Area, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='订单区域')
+    # 新增：订单关联客户
+    customer = models.ForeignKey(
+        Customer,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name='所属客户'
+    )
     create_time = models.DateTimeField('开单时间', auto_now_add=True)
     total_amount = models.DecimalField('总金额', max_digits=12, decimal_places=2, default=0)
     status = models.CharField('状态', max_length=10, choices=ORDER_STATUS, default='pending')
+
+    # 保留原有save方法...
 
     def save(self, *args, **kwargs):
         """自动生成订单编号（年月日+随机数）"""
@@ -180,27 +241,4 @@ class DailySalesSummary(models.Model):
         product_name = self.product.name if self.product else "无商品"
         product_unit = self.product.unit if self.product else ""
         return f'{self.summary_date} - {product_name} - 销售{self.sale_quantity}{product_unit}'
-
-# bill/models.py 末尾新增
-class Customer(models.Model):
-    """客户信息表"""
-    name = models.CharField('客户名称', max_length=100, unique=True)  # 客户名唯一
-    area = models.ForeignKey(
-        Area,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=False,  # 必须选择区域
-        verbose_name='所属区域'
-    )
-    phone = models.CharField('联系电话', max_length=20, unique=True)  # 电话唯一且必填
-    remark = models.CharField('备注', max_length=200, blank=True, default='')  # 备注默认为空
-    create_time = models.DateTimeField('创建时间', auto_now_add=True)
-
-    def __str__(self):
-        return f'{self.name} ({self.phone})'
-
-    class Meta:
-        verbose_name = '客户'
-        verbose_name_plural = '客户管理'
-        ordering = ['-create_time']  # 按创建时间倒序
 

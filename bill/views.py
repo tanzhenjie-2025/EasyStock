@@ -1,24 +1,36 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse
 from difflib import SequenceMatcher
-from .models import Product, Order, OrderItem, ProductAlias, DailySalesSummary
+
+from django.views.decorators.csrf import csrf_exempt
+
+from .models import Product, Order, OrderItem, ProductAlias, DailySalesSummary, CustomerPrice, Customer, Area
 from django.db.models import Q, Sum
 import json
 from datetime import date, datetime, timedelta
 from .utils import generate_daily_summary, auto_summary_yesterday
 
 # ========== 开单核心功能 ==========
+# bill/views.py 修改index函数
 def index(request):
     """开单主页面（三联单填写页）"""
-    return render(request, 'bill/index.html')
+    # 传递客户列表和区域列表，供前端下拉选择
+    customers = Customer.objects.all().order_by('name')
+    areas = Area.objects.all().order_by('name')
+    return render(request, 'bill/index.html', {
+        'customers': customers,
+        'areas': areas
+    })
 
 # 保留完善的商品搜索（去重后的版本）
+# bill/views.py 修改search_product函数
 def search_product(request):
     """
     商品搜索：匹配 名称 / 别名 / 全拼 / 首字母
-    返回：去重后的商品列表 [id, name, price, unit, stock]
+    新增：接收customer_id，返回客户专属价（如有）
     """
     keyword = request.GET.get('keyword', '').strip()
+    customer_id = request.GET.get('customer_id', '').strip()  # 新增：接收客户ID
     if not keyword:
         return JsonResponse({'code': 0, 'data': []})
 
@@ -40,13 +52,28 @@ def search_product(request):
     # 3. 合并去重，最多返回8条（输入法式候选）
     all_products = (product_matches | alias_products).distinct()[:8]
 
-    data = [{
-        'id': p.id,
-        'name': p.name,
-        'price': float(p.price),
-        'unit': p.unit,
-        'stock': p.stock
-    } for p in all_products]
+    # 4. 匹配客户专属价（如有）
+    data = []
+    customer_prices = {}
+    if customer_id:
+        # 批量查询该客户的所有专属价，提升性能
+        cp_list = CustomerPrice.objects.filter(
+            customer_id=customer_id,
+            product_id__in=[p.id for p in all_products]
+        )
+        customer_prices = {cp.product_id: float(cp.custom_price) for cp in cp_list}
+
+    for p in all_products:
+        # 优先用客户专属价，无则用标准价
+        final_price = customer_prices.get(p.id, float(p.price))
+        data.append({
+            'id': p.id,
+            'name': p.name,
+            'price': final_price,  # 返回最终使用的价格
+            'standard_price': float(p.price),  # 保留标准价（前端可显示）
+            'unit': p.unit,
+            'stock': p.stock
+        })
 
     return JsonResponse({'code': 1, 'data': data})
 
@@ -158,3 +185,5 @@ def auto_summary_task(request):
         return JsonResponse({'code': 1, 'msg': f'自动汇总完成：{count}个商品'})
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'自动汇总失败：{str(e)}'})
+
+

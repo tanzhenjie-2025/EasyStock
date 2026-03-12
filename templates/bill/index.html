@@ -67,7 +67,30 @@
 {% block content %}
     <div class="content-container">
         <h1>快速开单工具（表格版）</h1>
-        <button class="btn-add-row" onclick="addBlankRow()">新增空白行</button>
+    
+    <!-- 新增：客户&区域选择 -->
+    <div class="mb-3 d-flex gap-3 align-items-center">
+        <div>
+            <label class="form-label me-2">选择客户：</label>
+            <select id="customerSelect" class="form-select form-select-sm" style="width: 200px;">
+                <option value="">请选择客户（可选）</option>
+                {% for customer in customers %}
+                <option value="{{ customer.id }}">{{ customer.name }}（{{ customer.phone }}）</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="form-label me-2">选择区域：</label>
+            <select id="areaSelect" class="form-select form-select-sm" style="width: 150px;">
+                <option value="">请选择区域</option>
+                {% for area in areas %}
+                <option value="{{ area.id }}">{{ area.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+
+    <button class="btn-add-row" onclick="addBlankRow()">新增空白行</button>
 
         <table class="bill-table" id="bill-table">
             <thead>
@@ -120,42 +143,52 @@
         }
 
         // 输入时搜索
-        async function onProductInput(input) {
-            const keyword = input.value.trim();
-            if (!keyword) {
-                hideSuggest();
-                return;
-            }
-            currentSearchInput = input;
-            try {
-                const res = await fetch(`/bill/search-product/?keyword=${encodeURIComponent(keyword)}`);
-                const data = await res.json();
-                if (data.code === 1 && data.data.length > 0) {
-                    currentSuggestList = data.data;
-                    showSuggest(input, data.data);
-                } else {
-                    hideSuggest();
-                }
-            } catch (e) { hideSuggest(); }
+        // 修改onProductInput函数，传递customer_id
+async function onProductInput(input) {
+    const keyword = input.value.trim();
+    if (!keyword) {
+        hideSuggest();
+        return;
+    }
+    currentSearchInput = input;
+    // 新增：获取选中的客户ID
+    const customerId = document.getElementById('customerSelect').value;
+    try {
+        // 新增：传递customer_id参数
+        const res = await fetch(`/bill/search-product/?keyword=${encodeURIComponent(keyword)}&customer_id=${encodeURIComponent(customerId)}`);
+        const data = await res.json();
+        if (data.code === 1 && data.data.length > 0) {
+            currentSuggestList = data.data;
+            showSuggest(input, data.data);
+        } else {
+            hideSuggest();
         }
+    } catch (e) { hideSuggest(); }
+}
 
         // 显示候选（输入法样式：1 xxx 2 xxx）
-        function showSuggest(input, list) {
-            const rect = input.getBoundingClientRect();
-            suggestBox.style.left = rect.left + 'px';
-            suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
-            suggestBox.style.width = rect.width + 'px';
-            suggestBox.innerHTML = '';
+        // 修改showSuggest函数，显示专属价提示
+function showSuggest(input, list) {
+    const rect = input.getBoundingClientRect();
+    suggestBox.style.left = rect.left + 'px';
+    suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
+    suggestBox.style.width = rect.width + 'px';
+    suggestBox.innerHTML = '';
 
-            list.slice(0, 8).forEach((item, idx) => {
-                const div = document.createElement('div');
-                div.textContent = `${idx+1} ${item.name}  ¥${item.price}/${item.unit}`;
-                div.dataset.index = idx;
-                div.onclick = () => selectItem(idx);
-                suggestBox.appendChild(div);
-            });
-            suggestBox.style.display = 'block';
+    list.slice(0, 8).forEach((item, idx) => {
+        const div = document.createElement('div');
+        // 新增：显示标准价和专属价（如有差异）
+        let priceText = `¥${item.price}/${item.unit}`;
+        if (item.standard_price !== item.price) {
+            priceText = `¥${item.price}/${item.unit}（原价¥${item.standard_price}）`;
         }
+        div.textContent = `${idx+1} ${item.name}  ${priceText}`;
+        div.dataset.index = idx;
+        div.onclick = () => selectItem(idx);
+        suggestBox.appendChild(div);
+    });
+    suggestBox.style.display = 'block';
+}
 
         function hideSuggest() {
             if (suggestBox) suggestBox.style.display = 'none';
@@ -169,16 +202,20 @@
         }
 
         // 选中商品 → 回填到行
-        function selectItem(index) {
-            const item = currentSuggestList[index];
-            if (!item || !currentSearchInput) return;
-            const tr = currentSearchInput.closest('tr');
-            tr.querySelector('.name-input').value = item.name;
-            tr.querySelector('.price-input').value = item.price;
-            tr.querySelector('.unit-input').value = item.unit;
-            calcRowAmount(tr.querySelector('.price-input'));
-            hideSuggest();
-        }
+        // 修改selectItem函数，给name-input添加商品ID属性
+function selectItem(index) {
+    const item = currentSuggestList[index];
+    if (!item || !currentSearchInput) return;
+    const tr = currentSearchInput.closest('tr');
+    const nameInput = tr.querySelector('.name-input');
+    nameInput.value = item.name;
+    // 新增：存储商品ID，方便保存订单时使用
+    nameInput.dataset.productId = item.id;
+    tr.querySelector('.price-input').value = item.price;
+    tr.querySelector('.unit-input').value = item.unit;
+    calcRowAmount(tr.querySelector('.price-input'));
+    hideSuggest();
+}
 
         // ========== 2. 键盘选择：空格=第1个，数字1-8=选中 ==========
         function handleProductInputKey(e) {
@@ -333,37 +370,44 @@
 
         // ========== 7. 保存/打印/重置 ==========
         async function saveOrder() {
-            const items = [];
-            document.querySelectorAll('#bill-tbody tr').forEach(tr=>{
-                const name = tr.querySelector('.name-input').value.trim();
-                const qty = parseInt(tr.querySelector('.quantity-input').value)||0;
-                const unit = tr.querySelector('.unit-input').value.trim();
-                const price = parseFloat(tr.querySelector('.price-input').value)||0;
-                const amt = parseFloat(tr.querySelector('.amount-cell').textContent.replace('¥',''))||0;
-                if(name&&qty&&price>=0) items.push({name,qty,unit,price,amt});
-            });
-            if(!items.length){alert('请填写商品');return;}
-            const total = items.reduce((s,i)=>s+parseFloat(i.amt),0).toFixed(2);
-            try{
-                const r = await fetch('/bill/save-order/',{
-                    method:'POST',
-                    headers:{
-                        'Content-Type':'application/json', 
-                        // 优化：使用base模板的全局CSRF函数，删除原有getCsrf函数
-                        'X-CSRFToken': getCsrfToken()
-                    },
-                    body:JSON.stringify({items, total_amount:total})
-                });
-                const d=await r.json();
-                if(d.code===1){
-                    alert('开单成功：'+d.order_no); 
-                    // 修复打印URL（补全bill前缀）
-                    window.open(`/bill/print/${d.order_no}/`); 
-                    resetBill();
-                }
-                else alert(d.msg);
-            }catch(e){alert('保存失败：' + e.message)}
-        }
+    const items = [];
+    document.querySelectorAll('#bill-tbody tr').forEach(tr=>{
+        const nameInput = tr.querySelector('.name-input');
+        const name = nameInput.value.trim();
+        const qty = parseInt(tr.querySelector('.quantity-input').value)||0;
+        const unit = tr.querySelector('.unit-input').value.trim();
+        const price = parseFloat(tr.querySelector('.price-input').value)||0;
+        const amt = parseFloat(tr.querySelector('.amount-cell').textContent.replace('¥',''))||0;
+        // 新增：获取商品ID（需要给name-input加data-product-id属性）
+        const productId = nameInput.dataset.productId || '';
+        if(name&&qty&&price>=0) items.push({
+            id: productId,  // 商品ID
+            name, qty, unit, price, amt
+        });
+    });
+    if(!items.length){alert('请填写商品');return;}
+    const total = items.reduce((s,i)=>s+parseFloat(i.amt),0).toFixed(2);
+    
+    // 新增：获取客户ID和区域ID
+    const customerId = document.getElementById('customerSelect').value;
+    const areaId = document.getElementById('areaSelect').value;
+
+    try{
+        const r = await fetch('/bill/save-order/',{
+            method:'POST',
+            headers:{'Content-Type':'application/json', 'X-CSRFToken':getCsrfToken()},
+            body:JSON.stringify({
+                items, 
+                total_amount:total,
+                customer_id: customerId,  // 传递客户ID
+                area_id: areaId           // 传递区域ID
+            })
+        });
+        const d=await r.json();
+        if(d.code===1){alert('开单成功：'+d.order_no); window.open(`/bill/print/${d.order_no}/`); resetBill();}
+        else alert(d.msg);
+    }catch(e){alert('保存失败：' + e.message)}
+}
 
         function printBill(){window.print();}
         function resetBill(){

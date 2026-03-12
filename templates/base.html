@@ -40,6 +40,10 @@
                     <li class="nav-item">
                         <a class="nav-link" href="/summary/summary_page/">数据汇总</a>
                     </li>
+                <!-- 导航栏新增客户价格管理项 -->
+<li class="nav-item">
+    <a class="nav-link {% if request.path == '/customer-manage/price/page/' %}active{% endif %}" href="/customer-manage/price/page/">客户专属价</a>
+</li>
                 </ul>
             </div>
         </div>

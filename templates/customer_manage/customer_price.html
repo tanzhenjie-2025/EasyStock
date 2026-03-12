@@ -1,0 +1,294 @@
+{% extends "base.html" %}
+
+{% block title %}客户专属价格管理 - EasyStock{% endblock %}
+
+{% block extra_css %}
+<style>
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        display: none;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+    .modal-content {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        width: 450px;
+        max-width: 90%;
+    }
+    .form-group {
+        margin-bottom: 15px;
+    }
+    .form-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+    }
+    .form-group input, .form-group select {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+    }
+    .btn-group {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        margin-top: 20px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="content-container">
+    <h3>客户专属价格管理</h3>
+    <div class="my-3">
+        <button class="btn btn-sm btn-primary" onclick="openAddModal()">新增专属价</button>
+    </div>
+    <table class="table table-sm table-bordered">
+        <thead class="table-light">
+            <tr>
+                <th>ID</th>
+                <th>客户名称</th>
+                <th>商品名称</th>
+                <th>商品标准价</th>
+                <th>客户专属价</th>
+                <th>备注</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody id="priceList">
+            <!-- 动态填充 -->
+        </tbody>
+    </table>
+</div>
+
+<!-- 新增/编辑专属价弹窗 -->
+<div class="modal-overlay" id="priceModal">
+    <div class="modal-content">
+        <h4 id="modalTitle">新增客户专属价</h4>
+        <form id="priceForm">
+            <input type="hidden" id="priceId" value="">
+            <div class="form-group">
+                <label for="customerSelect">客户名称 <span style="color:red">*</span></label>
+                <select id="customerSelect" required>
+                    <option value="">请选择客户</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="productSelect">商品名称 <span style="color:red">*</span></label>
+                <select id="productSelect" required>
+                    <option value="">请选择商品</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="customPrice">客户专属价（¥）<span style="color:red">*</span></label>
+                <input type="number" id="customPrice" step="0.01" min="0" placeholder="请输入专属价格" required>
+            </div>
+            <div class="form-group">
+                <label for="priceRemark">备注</label>
+                <input type="text" id="priceRemark" placeholder="如：熟客优惠价、长期合作价">
+            </div>
+            <div class="btn-group">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">取消</button>
+                <button type="button" class="btn btn-primary" onclick="savePrice()">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let currentPriceId = '';
+    let customerList = [];
+    let productList = [];
+
+    // 页面初始化
+    $(document).ready(function() {
+        loadCustomerList();
+        loadProductList();
+        loadPriceList();
+    });
+
+    // 1. 加载客户列表（下拉框）
+    function loadCustomerList() {
+        $.get('/customer-manage/customer/list/', function(res) {
+            customerList = res;
+            let html = '<option value="">请选择客户</option>';
+            if (Array.isArray(res)) {
+                res.forEach(c => {
+                    html += `<option value="${c.id}">${c.name}</option>`;
+                });
+            }
+            $('#customerSelect').html(html);
+        }, 'json').fail(function(err) {
+            alert('加载客户列表失败！');
+            console.error(err);
+        });
+    }
+
+    // 2. 加载商品列表（下拉框）
+    function loadProductList() {
+        $.get('/customer-manage/product/list/', function(res) {
+            productList = res;
+            let html = '<option value="">请选择商品</option>';
+            if (Array.isArray(res)) {
+                res.forEach(p => {
+                    html += `<option value="${p.id}" data-price="${p.price}">${p.name}（¥${p.price}）</option>`;
+                });
+            }
+            $('#productSelect').html(html);
+        }, 'json').fail(function(err) {
+            alert('加载商品列表失败！');
+            console.error(err);
+        });
+    }
+
+    // 3. 加载客户专属价列表
+    function loadPriceList() {
+        $.get('/customer-manage/price/list/', function(res) {
+            let html = '';
+            if (Array.isArray(res) && res.length > 0) {
+                res.forEach(item => {
+                    html += `<tr>
+                        <td>${item.id}</td>
+                        <td>${item.customer_name}</td>
+                        <td>${item.product_name}</td>
+                        <td>¥${item.standard_price.toFixed(2)}</td>
+                        <td>¥${item.custom_price.toFixed(2)}</td>
+                        <td>${item.remark || '无'}</td>
+                        <td>
+                            <button class="btn btn-sm btn-warning me-1" onclick="openEditModal(${item.id})">编辑</button>
+                            <button class="btn btn-sm btn-danger" onclick="deletePrice(${item.id})">删除</button>
+                        </td>
+                    </tr>`;
+                });
+            } else {
+                html = '<tr><td colspan="7" class="text-center">暂无客户专属价数据</td></tr>';
+            }
+            $('#priceList').html(html);
+        }, 'json').fail(function(err) {
+            alert('加载专属价列表失败！');
+            console.error(err);
+        });
+    }
+
+    // 4. 打开新增弹窗
+    function openAddModal() {
+        $('#modalTitle').text('新增客户专属价');
+        $('#priceForm')[0].reset();
+        $('#priceId').val('');
+        currentPriceId = '';
+        $('#priceModal').css('display', 'flex');
+    }
+
+    // 5. 打开编辑弹窗
+    function openEditModal(id) {
+        currentPriceId = id;
+        $.get('/customer-manage/price/list/', function(res) {
+            const item = res.find(p => p.id === id);
+            if (!item) {
+                alert('专属价记录不存在！');
+                return;
+            }
+            // 填充表单
+            $('#modalTitle').text('编辑客户专属价');
+            $('#priceId').val(item.id);
+            $('#customerSelect').val(item.customer_id);
+            $('#productSelect').val(item.product_id);
+            $('#customPrice').val(item.custom_price);
+            $('#priceRemark').val(item.remark || '');
+            $('#priceModal').css('display', 'flex');
+        }, 'json').fail(function(err) {
+            alert('获取专属价信息失败！');
+            console.error(err);
+        });
+    }
+
+    // 6. 关闭弹窗
+    function closeModal() {
+        $('#priceModal').css('display', 'none');
+        $('#priceForm')[0].reset();
+        currentPriceId = '';
+    }
+
+    // 7. 保存专属价（新增/编辑）
+    function savePrice() {
+        const customerId = $('#customerSelect').val().trim();
+        const productId = $('#productSelect').val().trim();
+        const customPrice = $('#customPrice').val().trim();
+        const remark = $('#priceRemark').val().trim();
+
+        // 校验
+        if (!customerId) { alert('请选择客户！'); return; }
+        if (!productId) { alert('请选择商品！'); return; }
+        if (!customPrice || isNaN(customPrice) || parseFloat(customPrice) < 0) {
+            alert('请输入有效的专属价格！');
+            return;
+        }
+
+        // 组装数据
+        const data = {
+            customer_id: customerId,
+            product_id: productId,
+            custom_price: customPrice,
+            remark: remark
+        };
+
+        // 请求URL
+        let url = '/customer-manage/price/add/';
+        if (currentPriceId) {
+            url = `/customer-manage/price/edit/${currentPriceId}/`;
+            // 编辑时只传价格和备注（客户/商品不可改）
+            data = { custom_price: customPrice, remark: remark };
+        }
+
+        // 发送请求
+        $.ajax({
+            url: url,
+            type: 'POST',
+            data: data,
+            headers: {'X-CSRFToken': getCsrfToken()},
+            dataType: 'json',
+            success: function(res) {
+                alert(res.msg);
+                if (res.code === 1) {
+                    closeModal();
+                    loadPriceList();
+                }
+            },
+            error: function(err) {
+                alert('保存失败！');
+                console.error(err);
+            }
+        });
+    }
+
+    // 8. 删除专属价
+    function deletePrice(id) {
+        if (!confirm('确定删除该专属价吗？')) return;
+        $.ajax({
+            url: `/customer-manage/price/delete/${id}/`,
+            type: 'POST',
+            headers: {'X-CSRFToken': getCsrfToken()},
+            dataType: 'json',
+            success: function(res) {
+                alert(res.msg);
+                if (res.code === 1) loadPriceList();
+            },
+            error: function(err) {
+                alert('删除失败！');
+                console.error(err);
+            }
+        });
+    }
+</script>
+{% endblock %}
