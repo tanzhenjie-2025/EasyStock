@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>按区域组汇总</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5/dist/css/bootstrap.min.css">
+</head>
+<body class="p-4">
+<div class="container">
+    <h3>按区域组汇总订单（可跨天）</h3>
+    <div class="row my-3 g-2">
+        <div class="col-auto">
+            <select id="group" class="form-select form-select-sm"></select>
+        </div>
+        <div class="col-auto">
+            <input type="date" id="s" class="form-control form-control-sm">
+        </div>
+        <div class="col-auto">
+            <input type="date" id="e" class="form-control form-control-sm">
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-sm btn-primary" onclick="query()">查询汇总</button>
+        </div>
+    </div>
+    <table class="table table-sm table-bordered">
+        <thead>
+            <tr>
+                <th>商品</th><th>单位</th><th>单价</th><th>总销量</th><th>总金额</th>
+            </tr>
+        </thead>
+        <tbody id="data"></tbody>
+    </table>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js"></script>
+<script>
+function loadGroup(){
+    $.get('/group/list/',function(res){
+        let opt='';
+        res.forEach(g=>opt+=`<option value="${g.id}">${g.name}</option>`);
+        $('#group').html(opt);
+    },'json');
+}
+
+function query(){
+    let group_id=$('#group').val();
+    let start_date=$('#s').val();
+    let end_date=$('#e').val();
+    if(!group_id||!start_date||!end_date)return alert('选组+填日期');
+    
+    $.get('/summary/by-group/',{group_id,start_date,end_date},function(res){
+        if(res.code!=1)return alert(res.msg);
+        let html='';
+        res.data.forEach(i=>{
+            html+=`<tr>
+                <td>${i.name}</td>
+                <td>${i.unit}</td>
+                <td>${i.price.toFixed(2)}</td>
+                <td>${i.total_qty}</td>
+                <td>${i.total_amt.toFixed(2)}</td>
+            </tr>`;
+        });
+        $('#data').html(html);
+    },'json');
+}
+
+$(function(){
+    loadGroup();
+    let today=new Date().toISOString().split('T')[0];
+    $('#s').val(today); $('#e').val(today);
+});
+</script>
+</body>
+</html>
