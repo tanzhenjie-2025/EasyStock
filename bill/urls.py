@@ -9,8 +9,5 @@ urlpatterns = [
     path('print/<str:order_no>/', views.print_order, name='print_order'),  # 打印页面
     path('stock/', views.stock_list, name='stock_list'),  # 库存查询
     path('orders/', views.order_list, name='order_list'),  # 订单记录
-    # 汇总相关URL
-    path('summary/', views.summary_list, name='summary_list'),
-    path('manual-summary/', views.manual_summary, name='manual_summary'),
-    path('auto-summary/', views.auto_summary_task, name='auto_summary_task'),
+
 ]

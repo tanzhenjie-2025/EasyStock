@@ -2,12 +2,12 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>按区域组汇总</title>
+    <title>按区域组汇总客户金额</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5/dist/css/bootstrap.min.css">
 </head>
 <body class="p-4">
 <div class="container">
-    <h3>按区域组汇总订单（可跨天）</h3>
+    <h3>按区域组汇总客户消费金额（可跨天）</h3>
     <div class="row my-3 g-2">
         <div class="col-auto">
             <select id="group" class="form-select form-select-sm">
@@ -27,7 +27,10 @@
     <table class="table table-sm table-bordered">
         <thead>
             <tr>
-                <th>商品</th><th>单位</th><th>单价</th><th>总销量</th><th>总金额</th>
+                <th>序号</th>
+                <th>客户</th>
+                <th>金额</th>
+                <th>备注</th>
             </tr>
         </thead>
         <tbody id="data"></tbody>
@@ -36,7 +39,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js"></script>
 <script>
-// 加载区域组列表（修复错误处理）
+// 加载区域组列表（逻辑和原有一致）
 function loadGroup(){
     $.get('/summary/group/list/', function(res) {
         // 兼容接口返回列表/错误的情况
@@ -52,19 +55,19 @@ function loadGroup(){
     });
 }
 
-// 查询汇总（优化错误提示、空数据处理）
+// 查询客户金额汇总（仅接口地址和渲染逻辑不同）
 function query(){
     let group_id = $('#group').val();
     let start_date = $('#s').val();
     let end_date = $('#e').val();
 
-    // 基础校验
+    // 基础校验（和原有一致）
     if (!group_id) return alert('请先选择区域组');
     if (!start_date || !end_date) return alert('请选择完整的日期范围');
     if (new Date(start_date) > new Date(end_date)) return alert('开始日期不能晚于结束日期');
 
-    // 发起查询
-    $.get('/summary/by-group/', {group_id, start_date, end_date}, function(res) {
+    // 发起客户金额汇总请求（接口地址为新增的）
+    $.get('/summary/customer-by-group/', {group_id, start_date, end_date}, function(res) {
         if (res.code !== 1) {
             alert(res.msg || '查询失败');
             $('#data').html('');
@@ -72,18 +75,17 @@ function query(){
         }
         // 处理空数据
         if (res.data.length === 0) {
-            $('#data').html('<tr><td colspan="5" class="text-center">该时间段内无销售数据</td></tr>');
+            $('#data').html('<tr><td colspan="4" class="text-center">该时间段内无客户消费数据</td></tr>');
             return;
         }
-        // 渲染数据
+        // 渲染客户汇总数据
         let html = '';
-        res.data.forEach(i => {
+        res.data.forEach((i, index) => {
             html += `<tr>
-                <td>${i.name}</td>
-                <td>${i.unit}</td>
-                <td>${i.price.toFixed(2)}</td>
-                <td>${i.total_qty}</td>
-                <td>${i.total_amt.toFixed(2)}</td>
+                <td>${index + 1}</td>
+                <td>${i.customer_name}</td>
+                <td>¥${i.total_amount.toFixed(2)}</td>
+                <td>${i.remark || '-'}</td>
             </tr>`;
         });
         $('#data').html(html);
@@ -92,7 +94,7 @@ function query(){
     });
 }
 
-// 页面加载初始化
+// 页面加载初始化（和原有一致）
 $(function(){
     loadGroup();
     // 设置默认日期为当天
