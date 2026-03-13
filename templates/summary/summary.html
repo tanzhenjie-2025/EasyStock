@@ -1,40 +1,59 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>按区域组汇总</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5/dist/css/bootstrap.min.css">
-</head>
-<body class="p-4">
-<div class="container">
-    <h3>按区域组汇总订单（可跨天）</h3>
-    <div class="row my-3 g-2">
-        <div class="col-auto">
-            <select id="group" class="form-select form-select-sm">
-                <option value="">请选择区域组</option> <!-- 默认提示选项 -->
-            </select>
-        </div>
-        <div class="col-auto">
-            <input type="date" id="s" class="form-control form-control-sm" placeholder="开始日期">
-        </div>
-        <div class="col-auto">
-            <input type="date" id="e" class="form-control form-control-sm" placeholder="结束日期">
-        </div>
-        <div class="col-auto">
-            <button class="btn btn-sm btn-primary" onclick="query()">查询汇总</button>
-        </div>
-    </div>
-    <table class="table table-sm table-bordered">
-        <thead>
-            <tr>
-                <th>商品</th><th>单位</th><th>单价</th><th>总销量</th><th>总金额</th>
-            </tr>
-        </thead>
-        <tbody id="data"></tbody>
-    </table>
+{% extends "base.html" %}
+
+{% block title %}按区域组汇总商品销量 - EasyStock{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* 页面专属样式 */
+    .query-form {
+        margin-bottom: 20px;
+    }
+    .empty-data {
+        text-align: center;
+        padding: 20px;
+        color: #666;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h3>按区域组汇总订单（可跨天）</h3>
+
+<!-- 返回按钮 -->
+<div class="mb-3">
+    <a href="/summary/page/" class="btn btn-sm btn-secondary">返回数据汇总主页</a>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js"></script>
+<!-- 查询表单 -->
+<div class="row my-3 g-2 query-form">
+    <div class="col-auto">
+        <select id="group" class="form-select form-select-sm">
+            <option value="">请选择区域组</option> <!-- 默认提示选项 -->
+        </select>
+    </div>
+    <div class="col-auto">
+        <input type="date" id="s" class="form-control form-control-sm" placeholder="开始日期">
+    </div>
+    <div class="col-auto">
+        <input type="date" id="e" class="form-control form-control-sm" placeholder="结束日期">
+    </div>
+    <div class="col-auto">
+        <button class="btn btn-sm btn-primary" onclick="query()">查询汇总</button>
+    </div>
+</div>
+
+<!-- 数据表格 -->
+<table class="table table-sm table-bordered">
+    <thead>
+        <tr>
+            <th>商品</th><th>单位</th><th>单价</th><th>总销量</th><th>总金额</th>
+        </tr>
+    </thead>
+    <tbody id="data"></tbody>
+</table>
+{% endblock %}
+
+{% block extra_js %}
 <script>
 // 加载区域组列表（修复错误处理）
 function loadGroup(){
@@ -72,7 +91,7 @@ function query(){
         }
         // 处理空数据
         if (res.data.length === 0) {
-            $('#data').html('<tr><td colspan="5" class="text-center">该时间段内无销售数据</td></tr>');
+            $('#data').html('<tr><td colspan="5" class="empty-data">该时间段内无销售数据</td></tr>');
             return;
         }
         // 渲染数据
@@ -101,5 +120,4 @@ $(function(){
     $('#e').val(today);
 });
 </script>
-</body>
-</html>
+{% endblock %}
