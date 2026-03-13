@@ -30,7 +30,7 @@
     <!-- 打印按钮（仅屏幕显示） -->
     <div class="no-print" style="text-align: center; margin: 20px;">
         <button onclick="window.print()">打印三联单</button>
-        <a href="/"><button>返回开单页</button></a>
+        <a href="/bill/"><button>返回开单页</button></a>
     </div>
 
     <!-- 三联单内容（适配打印） -->
@@ -38,6 +38,12 @@
         <div class="bill-header">
             <h2>销售三联单</h2>
             <p>订单编号：{{ order.order_no }} | 开单时间：{{ order.create_time|date:"Y-m-d H:i:s" }}</p>
+            <!-- 新增：客户名称和区域地址 -->
+            {% if order.customer %}
+                <p>客户名称：{{ order.customer.name }} | 区域地址：{{ order.area.name|default:"无" }}</p>
+            {% else %}
+                <p>客户名称：无 | 区域地址：无</p>
+            {% endif %}
         </div>
         <table class="bill-table">
             <thead>
@@ -68,5 +74,17 @@
             <p>打印时间：{% now "Y-m-d H:i:s" %}</p>
         </div>
     </div>
+
+    <!-- 新增：按回车返回开单页 -->
+    <script>
+        // 监听全局回车事件，返回开单页
+        document.addEventListener('keydown', function(e) {
+            // 排除输入框内的回车（如果有输入框的话）
+            if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && e.key === 'Enter') {
+                e.preventDefault();
+                window.location.href = '/bill/'; // 跳转到开单主页
+            }
+        });
+    </script>
 </body>
 </html>

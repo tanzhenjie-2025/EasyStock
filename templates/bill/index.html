@@ -28,20 +28,34 @@
         .btn-del:hover { background: #dd3300; }
         .total-row { background: #f0f0f0; font-weight: bold; }
 
-        /* 输入法式候选框 */
+        /* 输入法式候选框 - 核心修改：解决文字换行问题 */
         .suggest-dropdown {
             position: absolute;
             top: 100%; left: 0;
-            width: 100%;
+            /* 关键1：最小宽度350px，避免过窄；宽度自动适配内容，最大不超过500px */
+            min-width: 350px;
+            max-width: 500px;
+            width: auto !important; /* 覆盖JS设置的固定宽度 */
             background: #fff;
             border: 1px solid #ccc;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
             z-index: 9999;
             font-size: 14px;
             text-align: left;
+            /* 关键2：强制文字不换行 */
+            white-space: nowrap;
+            /* 关键3：溢出隐藏+省略号 */
+            overflow: hidden;
         }
         .suggest-dropdown div {
-            padding: 4px 8px;
+            padding: 6px 12px;
             cursor: pointer;
+            /* 继承不换行样式 */
+            white-space: nowrap;
+            /* 超长文字显示省略号 */
+            text-overflow: ellipsis;
+            overflow: hidden;
         }
         .suggest-dropdown div:hover,
         .suggest-dropdown div.active {
@@ -175,7 +189,8 @@
             const rect = input.getBoundingClientRect();
             suggestBox.style.left = rect.left + 'px';
             suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
-            suggestBox.style.width = rect.width + 'px';
+            // 移除固定宽度设置，改用CSS的min-width/max-width
+            // suggestBox.style.width = rect.width + 'px'; 
             suggestBox.innerHTML = '';
 
             list.slice(0, 8).forEach((item, idx) => {
@@ -244,7 +259,8 @@
             const rect = input.getBoundingClientRect();
             suggestBox.style.left = rect.left + 'px';
             suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
-            suggestBox.style.width = rect.width + 'px';
+            // 移除固定宽度设置，改用CSS的min-width/max-width
+            // suggestBox.style.width = rect.width + 'px';
             suggestBox.innerHTML = '';
 
             // 显示格式：1 区域 | 客户名（无括号）
@@ -295,6 +311,12 @@
                     firstProductInput.select(); // 选中输入框内容，方便直接输入
                 }
             }
+
+            // Shift+Enter 保存提交（客户输入框也支持）
+            if (e.shiftKey && e.key === 'Enter') {
+                e.preventDefault();
+                saveOrder();
+            }
         }
 
         function initCustomerInput() {
@@ -333,11 +355,19 @@
 
         function bindInputKeyboardEvents(input) {
             input.addEventListener('keydown', e => {
+                // Shift+Enter 保存提交（表格输入框支持）
+                if (e.shiftKey && e.key === 'Enter') {
+                    e.preventDefault();
+                    saveOrder();
+                    return;
+                }
+
                 if (e.key === 'Enter') { e.preventDefault(); handleEnterKey(input); }
                 const dir = ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'];
                 if (dir.includes(e.key)) { e.preventDefault(); handleDirectionKeys(input,e.key); }
                 if (e.shiftKey && (e.key === 'Backspace' || e.key === 'Delete')) {
-                    e.preventDefault(); handleDeleteRowByKey(input);
+                    e.preventDefault();
+                    handleDeleteRowByKey(input);
                 }
             });
         }
@@ -378,11 +408,42 @@
             }
         }
 
+        // 修复：删除行后聚焦到上一行对应输入框
         function handleDeleteRowByKey(input) {
             const tr = input.closest('tr');
             const tbody = document.getElementById('bill-tbody');
-            if (tbody.children.length <=1) { alert('至少保留1行'); return; }
-            tr.remove(); updateRowNumbers(); calcTotalAmount();
+            if (tbody.children.length <= 1) { 
+                alert('至少保留1行'); 
+                return; 
+            }
+
+            // 记录当前行位置和输入框位置
+            const allTr = Array.from(tbody.querySelectorAll('tr'));
+            const trIdx = allTr.indexOf(tr);
+            const inputs = tr.querySelectorAll('input');
+            const inputIdx = Array.from(inputs).indexOf(input);
+
+            // 删除当前行
+            tr.remove();
+            updateRowNumbers();
+            calcTotalAmount();
+
+            // 聚焦到上一行的对应输入框
+            const newAllTr = Array.from(tbody.querySelectorAll('tr'));
+            if (newAllTr.length > 0) {
+                // 目标行：上一行（如果是第一行则取当前第一行）
+                const targetTrIdx = trIdx > 0 ? trIdx - 1 : 0;
+                const targetTr = newAllTr[targetTrIdx];
+                const targetInputs = targetTr.querySelectorAll('input');
+                
+                // 目标输入框：原位置（超出则取最后一个输入框）
+                const targetInputIdx = inputIdx < targetInputs.length ? inputIdx : targetInputs.length - 1;
+                const targetInput = targetInputs[targetInputIdx];
+                
+                // 聚焦并选中内容
+                targetInput.focus();
+                targetInput.select();
+            }
         }
 
         // ========== 5. 计算逻辑 ==========
@@ -440,22 +501,21 @@
         }
         
         // 在saveOrder函数上方新增CSRF Token获取函数
-function getCsrfToken() {
-    let cookieValue = null;
-    if (document.cookie && document.cookie !== '') {
-        const cookies = document.cookie.split(';');
-        for (let i = 0; i < cookies.length; i++) {
-            const cookie = cookies[i].trim();
-            // 查找csrftoken开头的cookie
-            if (cookie.substring(0, 10) === 'csrftoken=') {
-                cookieValue = decodeURIComponent(cookie.substring(10));
-                break;
+        function getCsrfToken() {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    // 查找csrftoken开头的cookie
+                    if (cookie.substring(0, 10) === 'csrftoken=') {
+                        cookieValue = decodeURIComponent(cookie.substring(10));
+                        break;
+                    }
+                }
             }
+            return cookieValue;
         }
-    }
-    return cookieValue;
-}
-
 
         // ========== 7. 保存/打印/重置（删除区域相关逻辑） ==========
         async function saveOrder() {

@@ -169,10 +169,86 @@ def stock_list(request):
     products = Product.objects.all()
     return render(request, 'bill/stock.html', {'products': products})
 
+
+from django.shortcuts import render, redirect, get_object_or_404
+from django.http import JsonResponse
+from difflib import SequenceMatcher
+from django.views.decorators.csrf import csrf_exempt
+from .models import Product, Order, OrderItem, ProductAlias, DailySalesSummary, CustomerPrice, Customer, Area
+from django.db.models import Q, Sum
+import json
+from datetime import date, datetime, timedelta
+from .utils import generate_daily_summary, auto_summary_yesterday
+
+
+# ========== 原有代码保持不变，以下新增/修改 ==========
+
+# 重写订单列表视图（支持叠加筛选）
 def order_list(request):
-    """订单记录页面"""
-    orders = Order.objects.all().order_by('-create_time')
-    return render(request, 'bill/order_list.html', {'orders': orders})
+    """订单列表页（支持日期、区域、商家名称叠加筛选）"""
+    # 1. 获取所有筛选参数
+    date_from = request.GET.get('date_from', '')  # 开始日期
+    date_to = request.GET.get('date_to', '')  # 结束日期
+    area_id = request.GET.get('area_id', '')  # 区域ID
+    customer_name = request.GET.get('customer_name', '').strip()  # 商家名称
+
+    # 2. 初始化查询集（按开单时间倒序）
+    orders = Order.objects.select_related('area', 'customer').order_by('-create_time')
+
+    # 3. 叠加筛选逻辑（逐步过滤）
+    # 日期筛选
+    if date_from:
+        try:
+            start_date = datetime.strptime(date_from, '%Y-%m-%d').date()
+            orders = orders.filter(create_time__date__gte=start_date)
+        except:
+            pass
+    if date_to:
+        try:
+            end_date = datetime.strptime(date_to, '%Y-%m-%d').date()
+            orders = orders.filter(create_time__date__lte=end_date)
+        except:
+            pass
+
+    # 区域筛选
+    if area_id and area_id.isdigit():
+        orders = orders.filter(area_id=area_id)
+
+    # 商家名称模糊筛选
+    if customer_name:
+        orders = orders.filter(customer__name__icontains=customer_name)
+
+    # 4. 获取所有区域（用于下拉筛选）
+    areas = Area.objects.all().order_by('name')
+
+    # 5. 渲染模板
+    context = {
+        'orders': orders,
+        'areas': areas,
+        # 回显筛选条件
+        'date_from': date_from,
+        'date_to': date_to,
+        'area_id': area_id,
+        'customer_name': customer_name
+    }
+    return render(request, 'bill/order_list.html', context)
+
+
+# 新增订单详情视图
+def order_detail(request, order_no):
+    """订单详情页"""
+    # 获取订单及明细
+    order = get_object_or_404(Order, order_no=order_no)
+    items = OrderItem.objects.select_related('product').filter(order=order)
+
+    context = {
+        'order': order,
+        'items': items
+    }
+    return render(request, 'bill/order_detail.html', context)
+
+
+# ========== 原有代码保持不变 ==========
 
 # ========== 基础销售汇总（按日期） ==========
 def summary_list(request):
