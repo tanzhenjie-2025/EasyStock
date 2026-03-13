@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}个人信息 - EasyStock{% endblock %}
+
+{% block extra_css %}
+<style>
+    .profile-card {
+        max-width: 600px;
+        margin: 20px auto;
+        padding: 20px;
+        box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        border-radius: 5px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="profile-card">
+    <h3 class="mb-4">个人信息修改</h3>
+    <form method="post">
+        {% csrf_token %}
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <label for="user_code" class="form-label">用户编号（不可修改）</label>
+                <input type="text" class="form-control" id="user_code" value="{{ user.user_code }}" disabled>
+            </div>
+            <div class="col-md-6">
+                <label for="username" class="form-label">用户名（不可修改）</label>
+                <input type="text" class="form-control" id="username" value="{{ user.username }}" disabled>
+            </div>
+        </div>
+        <div class="row mb-3">
+            <div class="col-md-6">
+                <label for="first_name" class="form-label">姓名</label>
+                <input type="text" class="form-control" id="first_name" name="first_name" value="{{ user.first_name|default:'' }}">
+            </div>
+            <div class="col-md-6">
+                <label for="phone" class="form-label">联系电话</label>
+                <input type="text" class="form-control" id="phone" name="phone" value="{{ user.phone|default:'' }}">
+            </div>
+        </div>
+        <div class="mb-3">
+            <label for="email" class="form-label">邮箱</label>
+            <input type="email" class="form-control" id="email" name="email" value="{{ user.email|default:'' }}">
+        </div>
+        <div class="mb-3">
+            <label for="address" class="form-label">地址</label>
+            <textarea class="form-control" id="address" name="address" rows="3">{{ user.address|default:'' }}</textarea>
+        </div>
+        <hr>
+        <div class="mb-3">
+            <label for="new_password" class="form-label">修改密码（不填则不修改）</label>
+            <input type="password" class="form-control" id="new_password" name="new_password" placeholder="请输入新密码">
+        </div>
+        <button type="submit" class="btn btn-primary">保存修改</button>
+    </form>
+</div>
+{% endblock %}

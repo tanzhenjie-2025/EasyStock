@@ -6,6 +6,7 @@ urlpatterns = [
     path('bill/', include('bill.urls')),
     path('area-manage/', include('area_manage.urls')),
     path('summary/', include('summary.urls')),
-    # 新增客户管理路由
     path('customer-manage/', include('customer_manage.urls')),
+    # 新增账户管理路由
+    path('accounts/', include('accounts.urls')),
 ]

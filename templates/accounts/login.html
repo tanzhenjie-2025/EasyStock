@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}登录 - EasyStock{% endblock %}
+
+{% block extra_css %}
+<style>
+    .login-card {
+        max-width: 400px;
+        margin: 50px auto;
+        padding: 20px;
+        box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        border-radius: 5px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="login-card">
+    <h3 class="text-center mb-4">系统登录</h3>
+    <form method="post">
+        {% csrf_token %}
+        <div class="mb-3">
+            <label for="username" class="form-label">用户名</label>
+            <input type="text" class="form-control" id="username" name="username" required placeholder="请输入用户名">
+        </div>
+        <div class="mb-3">
+            <label for="password" class="form-label">密码</label>
+            <input type="password" class="form-control" id="password" name="password" required placeholder="请输入密码">
+        </div>
+        <button type="submit" class="btn btn-primary w-100">登录</button>
+    </form>
+</div>
+{% endblock %}

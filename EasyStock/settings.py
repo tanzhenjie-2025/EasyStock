@@ -30,6 +30,8 @@ ALLOWED_HOSTS = []
 
 # Application definition
 
+AUTH_USER_MODEL = 'accounts.User'
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -37,11 +39,15 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+
+    "accounts.apps.AccountsConfig",
+
     "bill.apps.BillConfig",
     "product.apps.GoodsConfig",
     "summary.apps.SummaryConfig",
     "area_manage.apps.AreaManageConfig",
-    "customer_manage.apps.CustomerManageConfig"
+    "customer_manage.apps.CustomerManageConfig",
+
 ]
 
 MIDDLEWARE = [
@@ -109,13 +115,13 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.1/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+# ========== 2. 时区和语言（适配中国场景，避免时间显示错误） ==========
+LANGUAGE_CODE = 'zh-hans'  # 改为中文（admin 界面更友好）
+TIME_ZONE = 'Asia/Shanghai'  # 改为中国时区（UTC 会导致订单时间差8小时）
+USE_TZ = False  # 关闭时区转换（开发阶段简化，避免时间混乱）
 
 USE_I18N = True
-
-USE_TZ = True
 
 
 # Static files (CSS, JavaScript, Images)
@@ -127,3 +133,11 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+
+
+# ========== 3. 登录跳转配置（可选，提升体验） ==========
+LOGIN_URL = '/accounts/login/'  # 未登录时重定向到登录页
+LOGIN_REDIRECT_URL = '/bill/'  # 登录后默认跳开单页
+LOGOUT_REDIRECT_URL = '/accounts/login/'  # 登出后跳登录页

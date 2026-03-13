@@ -1,29 +1,35 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse
 from difflib import SequenceMatcher
-
 from django.views.decorators.csrf import csrf_exempt
-
 from .models import Product, Order, OrderItem, ProductAlias, DailySalesSummary, CustomerPrice, Customer, Area
 from django.db.models import Q, Sum
 import json
 from datetime import date, datetime, timedelta
 from .utils import generate_daily_summary, auto_summary_yesterday
+# 新增：Django原生登录验证 + 权限装饰器
+from django.contrib.auth.decorators import login_required, user_passes_test
+from accounts.views import is_boss, is_operator
+
 
 # ========== 开单核心功能 ==========
-# bill/views.py 修改index函数
+# 添加登录和权限装饰器 + 传递 is_boss 变量
+@login_required
+@user_passes_test(is_operator)
 def index(request):
     """开单主页面（三联单填写页）"""
-    # 传递客户列表和区域列表，供前端下拉选择
     customers = Customer.objects.all().order_by('name')
     areas = Area.objects.all().order_by('name')
     return render(request, 'bill/index.html', {
         'customers': customers,
-        'areas': areas
+        'areas': areas,
+        'is_boss': is_boss(request.user)  # 传递是否为老板的变量
     })
 
-# 保留完善的商品搜索（去重后的版本）
-# bill/views.py 修改search_product函数
+
+# 添加登录和权限装饰器
+@login_required
+@user_passes_test(is_operator)
 def search_product(request):
     """
     商品搜索：匹配 名称 / 别名 / 全拼 / 首字母
@@ -41,18 +47,18 @@ def search_product(request):
         Q(pinyin_abbr__icontains=keyword)
     )
 
-    # 2. 从【别名表】匹配，并拿到对应的商品
+    # 2. 从【别名表】匹配，并拿到对应的商品（修复字段名笔误）
     alias_matches = ProductAlias.objects.filter(
         Q(alias_name__icontains=keyword) |
-        Q(alias_pinyin_full__icontains=keyword) |
-        Q(alias_pinyin_abbr__icontains=keyword)
+        Q(pinyin_full__icontains=keyword) |  # 原错误：alias_pinyin_full
+        Q(pinyin_abbr__icontains=keyword)   # 原错误：alias_pinyin_abbr
     ).values_list('product_id', flat=True)
     alias_products = Product.objects.filter(id__in=alias_matches)
 
     # 3. 合并去重，最多返回8条（输入法式候选）
     all_products = (product_matches | alias_products).distinct()[:8]
 
-    # 4. 匹配客户专属价（如有）
+    # 4. 匹配客户专属价（如有）（修复字典推导式语法错误）
     data = []
     customer_prices = {}
     if customer_id:
@@ -61,6 +67,7 @@ def search_product(request):
             customer_id=customer_id,
             product_id__in=[p.id for p in all_products]
         )
+        # 修正：添加 cp in，补全推导式语法
         customer_prices = {cp.product_id: float(cp.custom_price) for cp in cp_list}
 
     for p in all_products:
@@ -78,8 +85,11 @@ def search_product(request):
     return JsonResponse({'code': 1, 'data': data})
 
 
+# 添加登录和权限装饰器 + 关联开单人
+@login_required
+@user_passes_test(is_operator)
 def save_order(request):
-    """保存订单（开单提交）- 修复字段名+完善异常处理"""
+    """保存订单（开单提交）- 修复字段名+完善异常处理 + 关联开单人"""
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
@@ -91,6 +101,7 @@ def save_order(request):
 
             # 1. 创建订单（先不保存，待明细验证通过后再保存）
             order = Order()
+            order.creator = request.user  # 关联当前登录的开单人
             # 关联客户（如有）
             if customer_id:
                 try:
@@ -158,32 +169,33 @@ def save_order(request):
 
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
+
+# 添加登录装饰器 + 传递 is_boss 变量
+@login_required
 def print_order(request, order_no):
     """订单打印页面（适配三联单）"""
     order = get_object_or_404(Order, order_no=order_no)
     items = order.items.all()
-    return render(request, 'bill/print.html', {'order': order, 'items': items})
+    return render(request, 'bill/print.html', {
+        'order': order,
+        'items': items,
+        'is_boss': is_boss(request.user)  # 传递变量
+    })
 
+
+# 添加登录装饰器 + 传递 is_boss 变量
+@login_required
 def stock_list(request):
     """库存查询页面"""
     products = Product.objects.all()
-    return render(request, 'bill/stock.html', {'products': products})
+    return render(request, 'bill/stock.html', {
+        'products': products,
+        'is_boss': is_boss(request.user)  # 传递变量
+    })
 
 
-from django.shortcuts import render, redirect, get_object_or_404
-from django.http import JsonResponse
-from difflib import SequenceMatcher
-from django.views.decorators.csrf import csrf_exempt
-from .models import Product, Order, OrderItem, ProductAlias, DailySalesSummary, CustomerPrice, Customer, Area
-from django.db.models import Q, Sum
-import json
-from datetime import date, datetime, timedelta
-from .utils import generate_daily_summary, auto_summary_yesterday
-
-
-# ========== 原有代码保持不变，以下新增/修改 ==========
-
-# 重写订单列表视图（支持叠加筛选）
+# 添加登录装饰器 + 权限控制 + 传递 is_boss 变量
+@login_required
 def order_list(request):
     """订单列表页（支持日期、区域、商家名称叠加筛选）"""
     # 1. 获取所有筛选参数
@@ -193,7 +205,11 @@ def order_list(request):
     customer_name = request.GET.get('customer_name', '').strip()  # 商家名称
 
     # 2. 初始化查询集（按开单时间倒序）
-    orders = Order.objects.select_related('area', 'customer').order_by('-create_time')
+    orders = Order.objects.select_related('area', 'customer', 'creator').order_by('-create_time')
+
+    # 权限控制：老板看所有订单，开单人只看自己的
+    if not is_boss(request.user):
+        orders = orders.filter(creator=request.user)
 
     # 3. 叠加筛选逻辑（逐步过滤）
     # 日期筛选
@@ -229,28 +245,36 @@ def order_list(request):
         'date_from': date_from,
         'date_to': date_to,
         'area_id': area_id,
-        'customer_name': customer_name
+        'customer_name': customer_name,
+        'is_boss': is_boss(request.user)  # 传递变量
     }
     return render(request, 'bill/order_list.html', context)
 
 
-# 新增订单详情视图
+# 添加登录装饰器 + 权限控制 + 传递 is_boss 变量
+@login_required
 def order_detail(request, order_no):
     """订单详情页"""
     # 获取订单及明细
     order = get_object_or_404(Order, order_no=order_no)
+
+    # 权限控制：开单人只能看自己的订单
+    if not is_boss(request.user) and order.creator != request.user:
+        return redirect('/bill/orders/')
+
     items = OrderItem.objects.select_related('product').filter(order=order)
 
     context = {
         'order': order,
-        'items': items
+        'items': items,
+        'is_boss': is_boss(request.user)  # 传递变量
     }
     return render(request, 'bill/order_detail.html', context)
 
 
-# ========== 原有代码保持不变 ==========
-
-# ========== 基础销售汇总（按日期） ==========
+# 添加登录和老板权限装饰器 + 传递 is_boss 变量
+@login_required
+@user_passes_test(is_boss)
 def summary_list(request):
     """销售汇总列表页（核心展示页）"""
     # 默认查询昨天的汇总，支持日期筛选
@@ -276,11 +300,16 @@ def summary_list(request):
         'summary_data': summary_data,
         'target_date': target_date,
         'total_product': total_product,
-        'total_quantity': total_quantity
+        'total_quantity': total_quantity,
+        'is_boss': is_boss(request.user)  # 传递变量
     })
 
+
+# 添加老板权限装饰器（仅老板可手动汇总）
+@login_required
+@user_passes_test(is_boss)
 def manual_summary(request):
-    """手动生成/重置汇总接口（无登录限制，简化操作）"""
+    """手动生成/重置汇总接口（老板权限）"""
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
@@ -296,7 +325,8 @@ def manual_summary(request):
             return JsonResponse({'code': 0, 'msg': f'汇总失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
-# 自动汇总接口（用于定时任务）
+
+# 自动汇总接口（用于定时任务，保留原逻辑）
 def auto_summary_task(request):
     """自动汇总昨天数据（定时任务调用）"""
     try:
@@ -306,15 +336,14 @@ def auto_summary_task(request):
         return JsonResponse({'code': 0, 'msg': f'自动汇总失败：{str(e)}'})
 
 
-# ========== 新增：客户搜索接口（输入法式） ==========
+# 添加登录装饰器（仅登录用户可搜索客户）
+@login_required
 def search_customer(request):
     """
     客户搜索：匹配 区域名称 / 客户名称
     支持：1. 关键词匹配 2. 返回输入法式候选数据（格式：区域 | 客户名）
     """
     keyword = request.GET.get('keyword', '').strip()
-    # 移除区域筛选逻辑
-
     if not keyword:
         return JsonResponse({'code': 0, 'data': []})
 

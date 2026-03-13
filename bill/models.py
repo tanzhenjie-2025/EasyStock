@@ -1,7 +1,8 @@
 from django.db import models
 from pypinyin import lazy_pinyin
 import datetime
-
+# 新增：关联accounts的User模型
+from accounts.models import User
 
 class Product(models.Model):
     """商品表（含拼音检索字段）"""
@@ -148,7 +149,6 @@ class Order(models.Model):
     ORDER_STATUS = (('pending', '未打印'), ('printed', '已打印'))
     order_no = models.CharField('订单编号', max_length=30, unique=True, blank=True)
     area = models.ForeignKey(Area, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='订单区域')
-    # 新增：订单关联客户
     customer = models.ForeignKey(
         Customer,
         on_delete=models.SET_NULL,
@@ -156,11 +156,18 @@ class Order(models.Model):
         blank=True,
         verbose_name='所属客户'
     )
+    # 核心修改：关联拓展用户模型（开单人）
+    creator = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name='开单人',
+        related_name='created_orders'
+    )
     create_time = models.DateTimeField('开单时间', auto_now_add=True)
     total_amount = models.DecimalField('总金额', max_digits=12, decimal_places=2, default=0)
     status = models.CharField('状态', max_length=10, choices=ORDER_STATUS, default='pending')
-
-    # 保留原有save方法...
 
     def save(self, *args, **kwargs):
         """自动生成订单编号（年月日+随机数）"""
