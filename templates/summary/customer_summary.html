@@ -17,14 +17,14 @@
 {% endblock %}
 
 {% block content %}
-<h3>按区域组汇总客户消费金额（可跨天）</h3>
+<h3>按区域组汇总客户消费金额（可精准到时分）</h3>
 
 <!-- 返回按钮 -->
 <div class="mb-3">
     <a href="/summary/page/" class="btn btn-sm btn-secondary">返回数据汇总主页</a>
 </div>
 
-<!-- 查询表单 -->
+<!-- 查询表单：date改为datetime-local -->
 <div class="row my-3 g-2 query-form">
     <div class="col-auto">
         <select id="group" class="form-select form-select-sm">
@@ -32,13 +32,15 @@
         </select>
     </div>
     <div class="col-auto">
-        <input type="date" id="s" class="form-control form-control-sm" placeholder="开始日期">
+        <label class="form-label-sm mb-0">开始时间</label>
+        <input type="datetime-local" id="s" class="form-control form-control-sm" placeholder="开始时间">
     </div>
     <div class="col-auto">
-        <input type="date" id="e" class="form-control form-control-sm" placeholder="结束日期">
+        <label class="form-label-sm mb-0">结束时间</label>
+        <input type="datetime-local" id="e" class="form-control form-control-sm" placeholder="结束时间">
     </div>
     <div class="col-auto">
-        <button class="btn btn-sm btn-primary" onclick="query()">查询汇总</button>
+        <button class="btn btn-sm btn-primary" onclick="query()" style="margin-top: 24px;">查询汇总</button>
     </div>
 </div>
 
@@ -74,19 +76,30 @@ function loadGroup(){
     });
 }
 
-// 查询客户金额汇总（仅接口地址和渲染逻辑不同）
+// 查询客户金额汇总（适配时间筛选）
 function query(){
     let group_id = $('#group').val();
-    let start_date = $('#s').val();
-    let end_date = $('#e').val();
+    let start_time = $('#s').val();
+    let end_time = $('#e').val();
 
-    // 基础校验（和原有一致）
+    // 基础校验
     if (!group_id) return alert('请先选择区域组');
-    if (!start_date || !end_date) return alert('请选择完整的日期范围');
-    if (new Date(start_date) > new Date(end_date)) return alert('开始日期不能晚于结束日期');
+    if (!start_time || !end_time) return alert('请选择完整的时间范围');
+    
+    // 时间格式校验 & 大小比较
+    const start = new Date(start_time);
+    const end = new Date(end_time);
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return alert('时间格式错误，请选择有效的时间');
+    }
+    if (start > end) return alert('开始时间不能晚于结束时间');
 
-    // 发起客户金额汇总请求（接口地址为新增的）
-    $.get('/summary/customer-by-group/', {group_id, start_date, end_date}, function(res) {
+    // 发起查询
+    $.get('/summary/customer-by-group/', {
+        group_id: group_id,
+        start_date: start_time,
+        end_date: end_time
+    }, function(res) {
         if (res.code !== 1) {
             alert(res.msg || '查询失败');
             $('#data').html('');
@@ -113,13 +126,15 @@ function query(){
     });
 }
 
-// 页面加载初始化（和原有一致）
+// 页面加载初始化（设置默认时间为当前时间）
 $(function(){
     loadGroup();
-    // 设置默认日期为当天
-    let today = new Date().toISOString().split('T')[0];
-    $('#s').val(today);
-    $('#e').val(today);
+    // 设置默认时间为当前时间
+    const now = new Date();
+    const pad = (num) => num.toString().padStart(2, '0');
+    const defaultTime = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    $('#s').val(defaultTime);
+    $('#e').val(defaultTime);
 });
 </script>
 {% endblock %}
