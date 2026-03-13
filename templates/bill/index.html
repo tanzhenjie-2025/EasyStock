@@ -438,6 +438,24 @@
             if (tbody.children.length <=1) { alert('至少保留1行'); return; }
             tr.remove(); updateRowNumbers(); calcTotalAmount();
         }
+        
+        // 在saveOrder函数上方新增CSRF Token获取函数
+function getCsrfToken() {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            // 查找csrftoken开头的cookie
+            if (cookie.substring(0, 10) === 'csrftoken=') {
+                cookieValue = decodeURIComponent(cookie.substring(10));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
 
         // ========== 7. 保存/打印/重置（删除区域相关逻辑） ==========
         async function saveOrder() {

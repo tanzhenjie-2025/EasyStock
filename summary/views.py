@@ -53,3 +53,19 @@ def summary_by_group(request):
         })
 
     return JsonResponse({'code': 1, 'data': data})
+
+# summary/views.py 补充以下代码
+from django.http import JsonResponse
+from bill.models import AreaGroup
+
+# 新增：加载所有区域组列表（供前端下拉框）
+def group_list(request):
+    """获取所有区域组列表（前端下拉框数据源）"""
+    try:
+        # 查询所有区域组并按名称排序
+        groups = AreaGroup.objects.all().order_by('name')
+        # 构造前端需要的格式：[{id: xxx, name: xxx}, ...]
+        group_list = [{'id': group.id, 'name': group.name} for group in groups]
+        return JsonResponse(group_list, safe=False)  # safe=False 允许返回列表
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': f'加载组列表失败：{str(e)}'}, status=400)

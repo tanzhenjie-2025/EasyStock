@@ -77,42 +77,85 @@ def search_product(request):
 
     return JsonResponse({'code': 1, 'data': data})
 
+
 def save_order(request):
-    """保存订单（开单提交）"""
+    """保存订单（开单提交）- 修复字段名+完善异常处理"""
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
             items = data.get('items', [])
+            customer_id = data.get('customer_id', '')  # 接收前端传递的客户ID
+
             if not items:
                 return JsonResponse({'code': 0, 'msg': '无订单明细'})
 
-            # 创建订单
+            # 1. 创建订单（先不保存，待明细验证通过后再保存）
             order = Order()
-            order.save()
-            total_amount = 0
-            # 创建订单明细
-            for item in items:
-                product = get_object_or_404(Product, id=item['id'])
-                quantity = int(item['quantity'])
-                # 检查库存
-                if product.stock < quantity:
-                    order.delete()  # 回滚订单
-                    return JsonResponse({'code': 0, 'msg': f'{product.name}库存不足'})
-                order_item = OrderItem(
-                    order=order,
-                    product=product,
-                    quantity=quantity,
-                    amount=product.price * quantity
-                )
-                order_item.save()
-                total_amount += order_item.amount
+            # 关联客户（如有）
+            if customer_id:
+                try:
+                    customer = Customer.objects.get(id=customer_id)
+                    order.customer = customer
+                    order.area = customer.area  # 同步客户所属区域到订单
+                except Customer.DoesNotExist:
+                    return JsonResponse({'code': 0, 'msg': '所选客户不存在'})
 
-            # 更新订单总金额
+            total_amount = 0
+            # 2. 先验证所有明细（避免部分创建后回滚）
+            valid_items = []
+            for item in items:
+                # 修复：前端传的是qty，后端读取qty而非quantity
+                product_id = item.get('id', '')
+                qty = item.get('qty', 0)
+
+                # 字段校验
+                if not product_id or not isinstance(qty, int) or qty <= 0:
+                    return JsonResponse({'code': 0, 'msg': f'商品{item.get("name", "未知")}数量无效'})
+
+                product = get_object_or_404(Product, id=product_id)
+                # 库存校验
+                if product.stock < qty:
+                    return JsonResponse({'code': 0, 'msg': f'{product.name}库存不足（当前库存：{product.stock}）'})
+
+                # 计算明细金额
+                item_amount = product.price * qty
+                valid_items.append({
+                    'product': product,
+                    'quantity': qty,
+                    'amount': item_amount
+                })
+                total_amount += item_amount
+
+            # 3. 验证通过后，保存订单主表
             order.total_amount = total_amount
             order.save()
+
+            # 4. 创建订单明细
+            for valid_item in valid_items:
+                order_item = OrderItem(
+                    order=order,
+                    product=valid_item['product'],
+                    quantity=valid_item['quantity'],
+                    amount=valid_item['amount']
+                )
+                order_item.save()
+                # 扣减库存
+                valid_item['product'].stock -= valid_item['quantity']
+                valid_item['product'].save()
+
             return JsonResponse({'code': 1, 'msg': '开单成功', 'order_no': order.order_no})
+
+        except KeyError as e:
+            # 捕获字段缺失异常，回滚订单
+            if 'order' in locals():
+                order.delete()
+            return JsonResponse({'code': 0, 'msg': f'开单失败：缺少字段 {str(e)}'})
         except Exception as e:
+            # 通用异常，回滚订单
+            if 'order' in locals():
+                order.delete()
             return JsonResponse({'code': 0, 'msg': f'开单失败：{str(e)}'})
+
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
 def print_order(request, order_no):

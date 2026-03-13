@@ -10,13 +10,15 @@
     <h3>按区域组汇总订单（可跨天）</h3>
     <div class="row my-3 g-2">
         <div class="col-auto">
-            <select id="group" class="form-select form-select-sm"></select>
+            <select id="group" class="form-select form-select-sm">
+                <option value="">请选择区域组</option> <!-- 默认提示选项 -->
+            </select>
         </div>
         <div class="col-auto">
-            <input type="date" id="s" class="form-control form-control-sm">
+            <input type="date" id="s" class="form-control form-control-sm" placeholder="开始日期">
         </div>
         <div class="col-auto">
-            <input type="date" id="e" class="form-control form-control-sm">
+            <input type="date" id="e" class="form-control form-control-sm" placeholder="结束日期">
         </div>
         <div class="col-auto">
             <button class="btn btn-sm btn-primary" onclick="query()">查询汇总</button>
@@ -34,25 +36,49 @@
 
 <script src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js"></script>
 <script>
+// 加载区域组列表（修复错误处理）
 function loadGroup(){
-    $.get('/group/list/',function(res){
-        let opt='';
-        res.forEach(g=>opt+=`<option value="${g.id}">${g.name}</option>`);
+    $.get('/summary/group/list/', function(res) {
+        // 兼容接口返回列表/错误的情况
+        if (res.code === 0) {
+            alert(res.msg);
+            return;
+        }
+        let opt = '<option value="">请选择区域组</option>'; // 默认选项
+        res.forEach(g => opt += `<option value="${g.id}">${g.name}</option>`);
         $('#group').html(opt);
-    },'json');
+    }).fail(function() {
+        alert('加载区域组失败，请检查接口是否正常');
+    });
 }
 
+// 查询汇总（优化错误提示、空数据处理）
 function query(){
-    let group_id=$('#group').val();
-    let start_date=$('#s').val();
-    let end_date=$('#e').val();
-    if(!group_id||!start_date||!end_date)return alert('选组+填日期');
+    let group_id = $('#group').val();
+    let start_date = $('#s').val();
+    let end_date = $('#e').val();
     
-    $.get('/summary/by-group/',{group_id,start_date,end_date},function(res){
-        if(res.code!=1)return alert(res.msg);
-        let html='';
-        res.data.forEach(i=>{
-            html+=`<tr>
+    // 基础校验
+    if (!group_id) return alert('请先选择区域组');
+    if (!start_date || !end_date) return alert('请选择完整的日期范围');
+    if (new Date(start_date) > new Date(end_date)) return alert('开始日期不能晚于结束日期');
+    
+    // 发起查询
+    $.get('/summary/by-group/', {group_id, start_date, end_date}, function(res) {
+        if (res.code !== 1) {
+            alert(res.msg || '查询失败');
+            $('#data').html('');
+            return;
+        }
+        // 处理空数据
+        if (res.data.length === 0) {
+            $('#data').html('<tr><td colspan="5" class="text-center">该时间段内无销售数据</td></tr>');
+            return;
+        }
+        // 渲染数据
+        let html = '';
+        res.data.forEach(i => {
+            html += `<tr>
                 <td>${i.name}</td>
                 <td>${i.unit}</td>
                 <td>${i.price.toFixed(2)}</td>
@@ -61,13 +87,18 @@ function query(){
             </tr>`;
         });
         $('#data').html(html);
-    },'json');
+    }).fail(function() {
+        alert('查询失败，请检查网络或接口');
+    });
 }
 
+// 页面加载初始化
 $(function(){
     loadGroup();
-    let today=new Date().toISOString().split('T')[0];
-    $('#s').val(today); $('#e').val(today);
+    // 设置默认日期为当天
+    let today = new Date().toISOString().split('T')[0];
+    $('#s').val(today); 
+    $('#e').val(today);
 });
 </script>
 </body>
