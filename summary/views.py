@@ -1,21 +1,20 @@
-# summary/views.py
 from django.shortcuts import render
 from django.http import JsonResponse
-from django.db.models import Sum
+from django.db.models import Sum  # 无需再导入Q
 from django.views.decorators.csrf import csrf_exempt
 from bill.models import Product, Order, OrderItem, AreaGroup
-from datetime import datetime  # 确保导入
+from datetime import datetime
 
 # 汇总页面
 def summary_page(request):
     return render(request, 'summary/summary.html')
 
-# 核心接口：按区域组 + 精准时间段汇总（修改查询条件）
+# 核心接口：按区域组 + 精准时间段汇总（彻底修复语法错误）
 @csrf_exempt
 def summary_by_group(request):
     group_id = request.GET.get('group_id')
-    start_datetime = request.GET.get('start_date')  # 实际是datetime
-    end_datetime = request.GET.get('end_date')      # 实际是datetime
+    start_datetime = request.GET.get('start_date')
+    end_datetime = request.GET.get('end_date')
 
     if not group_id or not start_datetime or not end_datetime:
         return JsonResponse({'code': 0, 'msg': '请选择组和时间范围'})
@@ -27,19 +26,20 @@ def summary_by_group(request):
 
     area_ids = group.areas.values_list('id', flat=True)
 
-    # 时间格式校验（适配YYYY-MM-DDTHH:MM）
+    # 时间格式校验
     try:
-        # 替换T为空格，转换为datetime对象
         start = datetime.strptime(start_datetime.replace('T', ' '), '%Y-%m-%d %H:%M')
         end = datetime.strptime(end_datetime.replace('T', ' '), '%Y-%m-%d %H:%M')
     except ValueError:
         return JsonResponse({'code': 0, 'msg': '时间格式错误（需为YYYY-MM-DDTHH:MM）'})
 
-    # 按商品汇总销量/金额（修改为按完整时间过滤）
+    # 修复核心：先用filter过滤基础条件，再用exclude排除作废订单（全关键字参数，无位置参数问题）
     items = OrderItem.objects.filter(
         order__area_id__in=area_ids,
-        order__create_time__gte=start,  # 精准时间大于等于
-        order__create_time__lte=end     # 精准时间小于等于
+        order__create_time__gte=start,
+        order__create_time__lte=end
+    ).exclude(  # 新增：用exclude替代~Q()，彻底避免位置参数问题
+        order__status='cancelled'
     ).values(
         'product__id',
         'product__name',
@@ -76,7 +76,7 @@ def group_list(request):
 def customer_summary_page(request):
     return render(request, 'summary/customer_summary.html')
 
-# 按区域组+精准时间段汇总客户消费金额（修改查询条件）
+# 按区域组+精准时间段汇总客户消费金额（彻底修复语法错误）
 @csrf_exempt
 def summary_customer_by_group(request):
     group_id = request.GET.get('group_id')
@@ -87,7 +87,7 @@ def summary_customer_by_group(request):
     if not group_id or not start_datetime or not end_datetime:
         return JsonResponse({'code': 0, 'msg': '请选择组和时间范围'})
 
-    # 2. 时间格式校验（适配YYYY-MM-DDTHH:MM）
+    # 2. 时间格式校验
     try:
         start = datetime.strptime(start_datetime.replace('T', ' '), '%Y-%m-%d %H:%M')
         end = datetime.strptime(end_datetime.replace('T', ' '), '%Y-%m-%d %H:%M')
@@ -105,12 +105,14 @@ def summary_customer_by_group(request):
     if not area_ids:
         return JsonResponse({'code': 0, 'msg': '该区域组未关联任何区域'})
 
-    # 5. 按客户汇总金额（修改为按完整时间过滤）
+    # 修复核心：filter + exclude 组合，全关键字参数
     customer_summary = Order.objects.filter(
         area_id__in=area_ids,
-        create_time__gte=start,       # 精准时间过滤
-        create_time__lte=end,        # 精准时间过滤
+        create_time__gte=start,
+        create_time__lte=end,
         customer__isnull=False
+    ).exclude(  # 排除作废订单
+        status='cancelled'
     ).values(
         'customer__id',
         'customer__name',

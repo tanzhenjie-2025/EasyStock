@@ -6,6 +6,17 @@
 <!-- 页面专属样式 -->
 {% block extra_css %}
     <style>
+        /* 原有样式保留，新增重开标识样式 */
+        .reopen-tag {
+            background: #ffc107;
+            color: #000;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 14px;
+            margin-bottom: 10px;
+            display: inline-block;
+        }
+        /* 原有样式... */
         body { font-family: "Microsoft YaHei", sans-serif; margin: 0; }
         .content-container { 
             max-width: 1000px; 
@@ -76,18 +87,25 @@
     </style>
 {% endblock %}
 
-<!-- 页面主体内容：删除区域选择框，仅保留客户输入框 -->
+<!-- 页面主体内容：添加重开标识展示 -->
 {% block content %}
     <div class="content-container">
         <h1>快速开单工具（表格版）</h1>
-    
+        
+        <!-- 新增：重开订单标识 -->
+        {% if reopen_order_data %}
+            <div class="reopen-tag">
+                🔄 重开订单：原作废单号 {{ reopen_order_data.order_no }}
+            </div>
+        {% endif %}
+
     <!-- 仅保留客户输入框 -->
     <div class="mb-3">
         <label class="form-label me-2">选择客户：</label>
-        <input 
-            type="text" 
-            id="customerInput" 
-            class="form-control form-control-sm" 
+        <input
+            type="text"
+            id="customerInput"
+            class="form-control form-control-sm"
             style="width: 250px;"
             placeholder="输入区域/客户名（输入法式选择）"
         >
@@ -124,7 +142,7 @@
     </div>
 {% endblock %}
 
-<!-- 页面专属JS：整合所有修改 -->
+<!-- 页面专属JS：修改保存逻辑，传递原废单号 -->
 {% block extra_js %}
     <script>
         // ========== 全局配置 ==========
@@ -133,10 +151,13 @@
         let currentSearchInput = null;    // 当前商品搜索输入框
         let currentSuggestList = [];      // 当前商品候选列表
         let suggestBox = null;            // 全局候选DOM
-        
+
         // 客户搜索全局变量
         let currentCustomerInput = null;  // 当前客户搜索输入框
         let currentCustomerList = [];     // 当前客户候选列表
+        
+        // 新增：存储原废单号（重开场景）
+        let originalOrderNo = {% if reopen_order_data %}"{{ reopen_order_data.order_no }}"{% else %}null{% endif %};
 
         // ========== 初始化 ==========
         initSuggestBox();
@@ -190,7 +211,7 @@
             suggestBox.style.left = rect.left + 'px';
             suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
             // 移除固定宽度设置，改用CSS的min-width/max-width
-            // suggestBox.style.width = rect.width + 'px'; 
+            // suggestBox.style.width = rect.width + 'px';
             suggestBox.innerHTML = '';
 
             list.slice(0, 8).forEach((item, idx) => {
@@ -412,9 +433,9 @@
         function handleDeleteRowByKey(input) {
             const tr = input.closest('tr');
             const tbody = document.getElementById('bill-tbody');
-            if (tbody.children.length <= 1) { 
-                alert('至少保留1行'); 
-                return; 
+            if (tbody.children.length <= 1) {
+                alert('至少保留1行');
+                return;
             }
 
             // 记录当前行位置和输入框位置
@@ -435,11 +456,11 @@
                 const targetTrIdx = trIdx > 0 ? trIdx - 1 : 0;
                 const targetTr = newAllTr[targetTrIdx];
                 const targetInputs = targetTr.querySelectorAll('input');
-                
+
                 // 目标输入框：原位置（超出则取最后一个输入框）
                 const targetInputIdx = inputIdx < targetInputs.length ? inputIdx : targetInputs.length - 1;
                 const targetInput = targetInputs[targetInputIdx];
-                
+
                 // 聚焦并选中内容
                 targetInput.focus();
                 targetInput.select();
@@ -499,7 +520,7 @@
             if (tbody.children.length <=1) { alert('至少保留1行'); return; }
             tr.remove(); updateRowNumbers(); calcTotalAmount();
         }
-        
+
         // 在saveOrder函数上方新增CSRF Token获取函数
         function getCsrfToken() {
             let cookieValue = null;
@@ -517,7 +538,7 @@
             return cookieValue;
         }
 
-        // ========== 7. 保存/打印/重置（删除区域相关逻辑） ==========
+        // ========== 7. 保存/打印/重置（核心修改：传递原废单号） ==========
         async function saveOrder() {
             const items = [];
             document.querySelectorAll('#bill-tbody tr').forEach(tr=>{
@@ -541,15 +562,21 @@
             const customerId = customerInput.dataset.customerId || '';
 
             try{
+                const requestData = {
+                    items, 
+                    total_amount:total,
+                    customer_id: customerId
+                };
+                
+                // 新增：如果是重开场景，添加原废单号
+                if (originalOrderNo) {
+                    requestData.original_order_no = originalOrderNo;
+                }
+
                 const r = await fetch(`/bill/save-order/`,{
                     method:'POST',
                     headers:{'Content-Type':'application/json', 'X-CSRFToken':getCsrfToken()},
-                    body:JSON.stringify({
-                        items, 
-                        total_amount:total,
-                        customer_id: customerId
-                        // 移除area_id参数
-                    })
+                    body:JSON.stringify(requestData)
                 });
                 const d=await r.json();
                 if(d.code===1){alert('开单成功：'+d.order_no); window.open(`/bill/print/${d.order_no}/`); resetBill();}
@@ -568,17 +595,63 @@
                 customerInput.value = '';
                 delete customerInput.dataset.customerId;
             }
+            // 重置原废单号
+            originalOrderNo = null;
         }
 
-        // 页面加载初始化 ← 关键修改2
+        // ========== 页面加载初始化（合并重复定义，解决IDE警告） ==========
         window.onload = function() {
-            addBlankRow(); // 创建行，但不再聚焦商品框
-            initCustomerInput(); // 初始化客户输入框事件
-            // 主动聚焦到客户输入框
-            const customerInput = document.getElementById('customerInput');
-            if (customerInput) {
-                customerInput.focus();
-            }
-        }
+            // 初始化客户输入框事件
+            initCustomerInput();
+            
+            // ========== 重开订单数据填充逻辑 ==========
+            {% if reopen_order_data %}
+                // 1. 填充客户信息
+                const customerInput = document.getElementById('customerInput');
+                customerInput.value = "{{ reopen_order_data.customer_name }}";
+                customerInput.dataset.customerId = "{{ reopen_order_data.customer_id }}";
+                
+                // 2. 清空默认行，重新填充商品明细
+                document.getElementById('bill-tbody').innerHTML = '';
+                rowIdCounter = 0;
+                
+                // 3. 填充作废订单的商品明细
+                const reopenItems = {{ reopen_order_data.items|safe }};
+                reopenItems.forEach(item => {
+                    const tr = addBlankRow(true); // 创建行并返回
+                    
+                    // 填充商品信息
+                    const nameInput = tr.querySelector('.name-input');
+                    nameInput.value = item.name;
+                    nameInput.dataset.productId = item.id;
+                    
+                    tr.querySelector('.quantity-input').value = item.qty;
+                    tr.querySelector('.unit-input').value = item.unit;
+                    tr.querySelector('.price-input').value = item.price;
+                    
+                    // 计算行金额
+                    calcRowAmount(tr.querySelector('.price-input'));
+                });
+                
+                // 4. 如果无商品，添加空白行
+                if (reopenItems.length === 0) {
+                    addBlankRow();
+                }
+                
+                // 5. 聚焦到第一个商品输入框，方便修改
+                const firstProductInput = document.querySelector('#bill-tbody .name-input');
+                if (firstProductInput) {
+                    firstProductInput.focus();
+                    firstProductInput.select(); // 选中内容，方便直接修改
+                }
+            {% else %}
+                // 普通开单：添加空白行并聚焦客户输入框
+                addBlankRow();
+                const customerInput = document.getElementById('customerInput');
+                if (customerInput) {
+                    customerInput.focus();
+                }
+            {% endif %}
+        };
     </script>
 {% endblock %}

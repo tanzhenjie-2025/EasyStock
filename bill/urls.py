@@ -10,7 +10,7 @@ urlpatterns = [
     path('stock/', views.stock_list, name='stock_list'),  # 库存查询
     path('orders/', views.order_list, name='order_list'),  # 订单列表（查单）
     path('orders/<str:order_no>/', views.order_detail, name='order_detail'),  # 订单详情
-    # 新增：作废/重开订单路由
     path('orders/cancel/<str:order_no>/', views.cancel_order, name='cancel_order'),
-    path('orders/reopen/<str:order_no>/', views.reopen_order, name='reopen_order'),
+    path('orders/reopen/<str:order_no>/', views.reopen_order, name='reopen_order'),  # 保留原接口（可注释，前端不再调用）
+    path('reopen-edit/<str:order_no>/', views.reopen_order_edit, name='reopen_order_edit'),  # 新增：重开编辑页面
 ]

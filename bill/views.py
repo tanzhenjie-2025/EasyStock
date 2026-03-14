@@ -88,12 +88,14 @@ def search_product(request):
 @login_required
 @user_passes_test(is_operator, login_url='/accounts/no-permission/', redirect_field_name=None)
 def save_order(request):
-    """保存订单（开单提交）- 修复字段名+完善异常处理 + 关联开单人"""
+    """保存订单（开单提交）- 新增重开订单关联逻辑"""
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
             items = data.get('items', [])
-            customer_id = data.get('customer_id', '')  # 接收前端传递的客户ID
+            customer_id = data.get('customer_id', '')
+            # 新增：获取原废单号
+            original_order_no = data.get('original_order_no', '')
 
             if not items:
                 return JsonResponse({'code': 0, 'msg': '无订单明细'})
@@ -109,6 +111,20 @@ def save_order(request):
                     order.area = customer.area  # 同步客户所属区域到订单
                 except Customer.DoesNotExist:
                     return JsonResponse({'code': 0, 'msg': '所选客户不存在'})
+
+            # 新增：处理重开订单逻辑
+            if original_order_no:
+                try:
+                    # 获取原作废订单
+                    original_order = Order.objects.get(order_no=original_order_no)
+                    # 校验原订单状态（必须是作废）
+                    if original_order.status != 'cancelled':
+                        return JsonResponse({'code': 0, 'msg': '仅作废订单可重开'})
+                    # 关联原订单+标记重开状态
+                    order.original_order = original_order
+                    order.status = 'reopened'  # 标记为重开状态
+                except Order.DoesNotExist:
+                    return JsonResponse({'code': 0, 'msg': '原作废订单不存在'})
 
             total_amount = 0
             # 2. 先验证所有明细（避免部分创建后回滚）
@@ -380,15 +396,17 @@ def cancel_order(request, order_no):
             if order.status == 'cancelled':
                 return JsonResponse({'code': 0, 'msg': '该订单已作废，无需重复操作'})
 
-            # 获取作废原因
-            reason = request.POST.get('reason', '').strip()
+            # ========== 关键修复：从JSON请求体中获取作废原因 ==========
+            # 解析JSON格式的请求体（前端用JSON.stringify提交）
+            data = json.loads(request.body)
+            reason = data.get('reason', '').strip()
+
             if not reason:
                 return JsonResponse({'code': 0, 'msg': '请填写作废原因'})
 
             # 更新订单作废信息
             order.status = 'cancelled'
             order.cancelled_by = request.user
-            # 关键修复：去掉多余的 .datetime，直接使用 datetime.now()
             order.cancelled_time = datetime.now()
             order.cancelled_reason = reason
             order.save()
@@ -473,3 +491,48 @@ def reopen_order(request, order_no):
             return JsonResponse({'code': 0, 'msg': f'重开失败：{str(e)}'})
 
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
+
+
+@login_required
+@user_passes_test(is_operator, login_url='/accounts/no-permission/', redirect_field_name=None)
+def reopen_order_edit(request, order_no):
+    """重开订单编辑页面 - 加载作废订单数据到开单页面"""
+    # 获取原作废订单
+    original_order = get_object_or_404(Order, order_no=order_no)
+
+    # 校验原订单状态（必须是作废状态才能重开编辑）
+    if original_order.status != 'cancelled':
+        return redirect('order_detail', order_no=order_no)
+
+    # 获取订单明细（关联商品信息）
+    items = OrderItem.objects.select_related('product').filter(order=original_order)
+
+    # 构造重开订单数据（供前端填充）
+    order_data = {
+        'order_no': original_order.order_no,
+        'customer_id': original_order.customer.id if original_order.customer else '',
+        'customer_name': f"{original_order.area.name} | {original_order.customer.name}" if (
+                    original_order.customer and original_order.area) else '',
+        'items': [
+            {
+                'id': item.product.id if item.product else '',
+                'name': item.product.name if item.product else '',
+                'qty': item.quantity,
+                'unit': item.product.unit if item.product else '',
+                'price': float(item.product.price) if item.product else 0,
+                'amt': float(item.amount) if item.amount else 0
+            }
+            for item in items
+        ]
+    }
+
+    # 保留原有开单页面的上下文数据
+    customers = Customer.objects.all().order_by('name')
+    areas = Area.objects.all().order_by('name')
+
+    return render(request, 'bill/index.html', {
+        'customers': customers,
+        'areas': areas,
+        'is_boss': is_boss(request.user),
+        'reopen_order_data': order_data  # 传递重开订单数据给前端
+    })
