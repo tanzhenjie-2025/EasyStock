@@ -366,3 +366,110 @@ def search_customer(request):
         })
 
     return JsonResponse({'code': 1, 'data': data})
+
+
+@login_required
+@user_passes_test(is_boss, login_url='/accounts/no-permission/', redirect_field_name=None)
+def cancel_order(request, order_no):
+    """作废订单（仅老板/有权限操作员）"""
+    if request.method == 'POST':
+        try:
+            order = get_object_or_404(Order, order_no=order_no)
+
+            # 校验订单状态（已作废的不能重复作废）
+            if order.status == 'cancelled':
+                return JsonResponse({'code': 0, 'msg': '该订单已作废，无需重复操作'})
+
+            # 获取作废原因
+            reason = request.POST.get('reason', '').strip()
+            if not reason:
+                return JsonResponse({'code': 0, 'msg': '请填写作废原因'})
+
+            # 更新订单作废信息
+            order.status = 'cancelled'
+            order.cancelled_by = request.user
+            # 关键修复：去掉多余的 .datetime，直接使用 datetime.now()
+            order.cancelled_time = datetime.now()
+            order.cancelled_reason = reason
+            order.save()
+
+            # 恢复库存（作废订单后，库存加回来）
+            for item in order.items.all():
+                if item.product:
+                    item.product.stock += item.quantity
+                    item.product.save()
+
+            return JsonResponse({'code': 1, 'msg': '订单作废成功', 'order_no': order_no})
+
+        except Exception as e:
+            return JsonResponse({'code': 0, 'msg': f'作废失败：{str(e)}'})
+
+    return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
+
+
+# ========== 新增：订单重开功能 ==========
+@login_required
+@user_passes_test(is_operator, login_url='/accounts/no-permission/', redirect_field_name=None)
+def reopen_order(request, order_no):
+    """重开订单（一键复用原单信息）"""
+    if request.method == 'POST':
+        try:
+            # 获取原作废订单
+            original_order = get_object_or_404(Order, order_no=order_no)
+
+            # 校验原订单状态（必须是作废状态才能重开）
+            if original_order.status != 'cancelled':
+                return JsonResponse({'code': 0, 'msg': '仅作废订单可重开'})
+
+            # 1. 创建新订单
+            new_order = Order()
+            new_order.creator = request.user  # 新订单开单人是当前用户
+            new_order.customer = original_order.customer
+            new_order.area = original_order.area
+            new_order.status = 'reopened'  # 新订单状态为"重开"
+            new_order.original_order = original_order  # 关联原订单
+            new_order.save()  # 先保存生成新订单号
+
+            # 2. 复制原订单明细
+            total_amount = 0
+            for original_item in original_order.items.all():
+                if original_item.product:
+                    # 校验库存
+                    if original_item.product.stock < original_item.quantity:
+                        # 回滚：删除已创建的新订单
+                        new_order.delete()
+                        return JsonResponse({
+                            'code': 0,
+                            'msg': f'{original_item.product.name}库存不足（当前库存：{original_item.product.stock}）'
+                        })
+
+                    # 创建新订单明细
+                    new_item = OrderItem(
+                        order=new_order,
+                        product=original_item.product,
+                        quantity=original_item.quantity,
+                        amount=original_item.amount
+                    )
+                    new_item.save()
+
+                    # 扣减库存
+                    original_item.product.stock -= original_item.quantity
+                    original_item.product.save()
+
+                    total_amount += float(new_item.amount or 0)
+
+            # 3. 更新新订单总金额
+            new_order.total_amount = total_amount
+            new_order.save()
+
+            return JsonResponse({
+                'code': 1,
+                'msg': '订单重开成功',
+                'new_order_no': new_order.order_no,
+                'original_order_no': original_order.order_no
+            })
+
+        except Exception as e:
+            return JsonResponse({'code': 0, 'msg': f'重开失败：{str(e)}'})
+
+    return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})

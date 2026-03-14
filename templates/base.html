@@ -42,7 +42,7 @@
                             欢迎：{{ user.name }} ({{ user.user_code }})
                             <!-- 修复：仅判断 is_boss 变量显示角色 -->
                             {% if is_boss %}
-                                <span class="badge bg-warning">老板</span>
+                                <span class="badge bg-warning">管理员</span>
                             {% else %}
                                 <span class="badge bg-secondary">开单人</span>
                             {% endif %}

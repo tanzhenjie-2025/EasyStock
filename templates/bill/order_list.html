@@ -50,16 +50,34 @@
     </thead>
     <tbody>
         {% for order in orders %}
-        <tr>
-            <td>{{ order.order_no }}</td>
+        <tr {% if order.status == 'cancelled' %}class="table-danger"{% elif order.status == 'reopened' %}class="table-warning"{% endif %}>
+            <td>
+                {{ order.order_no }}
+                {% if order.original_order %}
+                    <br><small class="text-muted">重开自：{{ order.original_order.order_no }}</small>
+                {% endif %}
+            </td>
             <td>{{ order.create_time|date:"Y-m-d H:i" }}</td>
             <td>{% if order.creator %}{{ order.creator.name }} ({{ order.creator.user_code }}){% else %}未知{% endif %}</td>
             <td>{{ order.customer.name|default:"无" }}</td>
             <td>{{ order.area.name|default:"无" }}</td>
             <td>¥{{ order.total_amount }}</td>
-            <td>{{ order.get_status_display }}</td>
             <td>
-                <a href="{% url 'print_order' order.order_no %}" class="btn btn-sm btn-primary">打印</a>
+                {% if order.status == 'pending' %}
+                    <span class="badge bg-secondary">未打印</span>
+                {% elif order.status == 'printed' %}
+                    <span class="badge bg-primary">已打印</span>
+                {% elif order.status == 'cancelled' %}
+                    <span class="badge bg-danger">作废</span>
+                    <br><small class="text-danger">
+                        {{ order.cancelled_time|date:"m-d H:i" }} {{ order.cancelled_by.name|default:"未知" }}
+                    </small>
+                {% elif order.status == 'reopened' %}
+                    <span class="badge bg-warning">重开</span>
+                {% endif %}
+            </td>
+            <td>
+                <a href="{% url 'print_order' order.order_no %}" class="btn btn-sm btn-primary {% if order.status == 'cancelled' %}disabled{% endif %}">打印</a>
                 <a href="{% url 'order_detail' order.order_no %}" class="btn btn-sm btn-info">详情</a>
             </td>
         </tr>

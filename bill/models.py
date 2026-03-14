@@ -144,9 +144,17 @@ class CustomerPrice(models.Model):
 # ===================== 给原有 Order 加区域 =====================
 # 请把你原来的 Order 替换成下面这个
 # 修改原有Order模型，新增customer外键
+
+# 其他模型保持不变，重点修改Order模型
 class Order(models.Model):
-    """订单表（三联单主表）"""
-    ORDER_STATUS = (('pending', '未打印'), ('printed', '已打印'))
+    """订单表（三联单主表）- 新增作废/重开字段"""
+    # 扩展订单状态选项
+    ORDER_STATUS = (
+        ('pending', '未打印'),
+        ('printed', '已打印'),
+        ('cancelled', '作废'),  # 新增：作废
+        ('reopened', '重开')  # 新增：重开
+    )
     order_no = models.CharField('订单编号', max_length=30, unique=True, blank=True)
     area = models.ForeignKey(Area, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='订单区域')
     customer = models.ForeignKey(
@@ -156,7 +164,6 @@ class Order(models.Model):
         blank=True,
         verbose_name='所属客户'
     )
-    # 核心修改：关联拓展用户模型（开单人）
     creator = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -168,6 +175,28 @@ class Order(models.Model):
     create_time = models.DateTimeField('开单时间', auto_now_add=True)
     total_amount = models.DecimalField('总金额', max_digits=12, decimal_places=2, default=0)
     status = models.CharField('状态', max_length=10, choices=ORDER_STATUS, default='pending')
+
+    # 新增：作废相关字段
+    cancelled_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name='作废人',
+        related_name='cancelled_orders'
+    )
+    cancelled_time = models.DateTimeField('作废时间', null=True, blank=True)
+    cancelled_reason = models.CharField('作废原因', max_length=500, null=True, blank=True)
+
+    # 新增：重开相关字段（关联原订单）
+    original_order = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name='原订单',
+        related_name='reopened_orders'
+    )
 
     def save(self, *args, **kwargs):
         """自动生成订单编号（年月日+随机数）"""

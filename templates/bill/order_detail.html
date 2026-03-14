@@ -86,10 +86,73 @@
         background: #e55a00;
         color: white;
     }
+    .cancel-btn {
+        background: #dc3545;
+        color: white;
+    }
+    .cancel-btn:hover {
+        background: #bb2d3b;
+        color: white;
+    }
+    .reopen-btn {
+        background: #ffc107;
+        color: #000;
+    }
+    .reopen-btn:hover {
+        background: #ffca2c;
+        color: #000;
+    }
     .no-items {
         text-align: center;
         padding: 20px;
         color: #999;
+    }
+    /* 作废弹窗样式 */
+    .modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        display: none;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+    }
+    .modal-content {
+        background: white;
+        padding: 30px;
+        border-radius: 8px;
+        width: 500px;
+    }
+    .modal-title {
+        font-size: 18px;
+        margin-bottom: 20px;
+        color: #dc3545;
+        font-weight: bold;
+    }
+    .modal-footer {
+        margin-top: 20px;
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+    }
+    .cancelled-info {
+        background: #f8d7da;
+        padding: 15px;
+        border-radius: 4px;
+        margin: 15px 0;
+        color: #721c24;
+    }
+    .reopened-tag {
+        background: #fff3cd;
+        padding: 5px 10px;
+        border-radius: 4px;
+        color: #856404;
+        font-weight: bold;
+        display: inline-block;
+        margin-left: 10px;
     }
 </style>
 {% endblock %}
@@ -98,8 +161,27 @@
 <div class="content-container">
     <div class="detail-card">
         <div class="order-header">
-            <h3>订单详情 - {{ order.order_no }}</h3>
+            <h3>订单详情 - {{ order.order_no }}
+                {% if order.status == 'reopened' %}
+                    <span class="reopened-tag">重开订单</span>
+                {% endif %}
+            </h3>
+            {% if order.original_order %}
+                <p class="text-muted">
+                    重开自：<a href="{% url 'order_detail' order.original_order.order_no %}">{{ order.original_order.order_no }}</a>
+                </p>
+            {% endif %}
         </div>
+
+        <!-- 作废订单信息展示 -->
+        {% if order.status == 'cancelled' %}
+        <div class="cancelled-info">
+            <div><strong>作废状态：</strong>该订单已作废</div>
+            <div><strong>作废人：</strong>{{ order.cancelled_by.name|default:"未知" }} ({{ order.cancelled_by.user_code|default:"未知" }})</div>
+            <div><strong>作废时间：</strong>{{ order.cancelled_time|date:"Y-m-d H:i:s" }}</div>
+            <div><strong>作废原因：</strong>{{ order.cancelled_reason|default:"未填写" }}</div>
+        </div>
+        {% endif %}
 
         <!-- 订单基本信息 -->
         <div class="info-row">
@@ -117,7 +199,19 @@
             </div>
             <div class="info-item">
                 <span class="info-label">订单状态：</span>
-                {{ order.get_status_display }}
+                {% if order.status == 'pending' %}
+                    <span class="badge bg-secondary">未打印</span>
+                {% elif order.status == 'printed' %}
+                    <span class="badge bg-primary">已打印</span>
+                {% elif order.status == 'cancelled' %}
+                    <span class="badge bg-danger">作废</span>
+                {% elif order.status == 'reopened' %}
+                    <span class="badge bg-warning">重开</span>
+                {% endif %}
+            </div>
+            <div class="info-item">
+                <span class="info-label">开单人：</span>
+                {% if order.creator %}{{ order.creator.name }} ({{ order.creator.user_code }}){% else %}未知{% endif %}
             </div>
             <div class="info-item" style="width: 100%;">
                 <span class="info-label">总金额：</span>
@@ -163,8 +257,130 @@
         <!-- 操作按钮 -->
         <div class="btn-group">
             <a href="{% url 'order_list' %}" class="action-btn back-btn">返回订单列表</a>
-            <a href="{% url 'print_order' order.order_no %}" class="action-btn print-btn">打印三联单</a>
+            
+            <!-- 打印按钮：作废订单不可打印 -->
+            <a href="{% url 'print_order' order.order_no %}" class="action-btn print-btn {% if order.status == 'cancelled' %}disabled{% endif %}">打印三联单</a>
+            
+            <!-- 作废按钮：仅老板可见，且订单未作废 -->
+            {% if is_boss and order.status != 'cancelled' %}
+                <button class="action-btn cancel-btn" onclick="showCancelModal()">作废订单</button>
+            {% endif %}
+            
+            <!-- 重开按钮：仅作废订单显示 -->
+            {% if order.status == 'cancelled' %}
+                <button class="action-btn reopen-btn" onclick="reopenOrder()">一键重开</button>
+            {% endif %}
         </div>
     </div>
 </div>
+
+<!-- 作废订单弹窗 -->
+<div class="modal" id="cancelModal">
+    <div class="modal-content">
+        <div class="modal-title">作废订单 - {{ order.order_no }}</div>
+        <div class="mb-3">
+            <label class="form-label">作废原因 <span class="text-danger">*</span></label>
+            <textarea class="form-control" id="cancelReason" rows="3" placeholder="请填写作废原因（如：价格输错、客户选错、重复开单）"></textarea>
+            <div class="form-text text-muted">作废后将恢复商品库存，该订单状态变为"作废"，不可打印</div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="hideCancelModal()">取消</button>
+            <button class="btn btn-danger" onclick="confirmCancelOrder()">确认作废</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // 获取CSRF Token（复用base模板的函数）
+    function getCsrfToken() {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, 10) === 'csrftoken=') {
+                    cookieValue = decodeURIComponent(cookie.substring(10));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    // 显示作废弹窗
+    function showCancelModal() {
+        document.getElementById('cancelModal').style.display = 'flex';
+        document.getElementById('cancelReason').focus();
+    }
+
+    // 隐藏作废弹窗
+    function hideCancelModal() {
+        document.getElementById('cancelModal').style.display = 'none';
+        document.getElementById('cancelReason').value = '';
+    }
+
+    // 确认作废订单
+    async function confirmCancelOrder() {
+        const reason = document.getElementById('cancelReason').value.trim();
+        if (!reason) {
+            alert('请填写作废原因');
+            return;
+        }
+
+        if (!confirm(`确定要作废订单【{{ order.order_no }}】吗？\n作废原因：${reason}`)) {
+            return;
+        }
+
+        try {
+            const res = await fetch(`/bill/orders/cancel/{{ order.order_no }}/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': getCsrfToken()
+                },
+                body: `reason=${encodeURIComponent(reason)}`
+            });
+
+            const data = await res.json();
+            if (data.code === 1) {
+                alert(data.msg);
+                window.location.reload(); // 刷新页面显示作废状态
+            } else {
+                alert('作废失败：' + data.msg);
+            }
+        } catch (error) {
+            alert('作废失败：' + error.message);
+        }
+    }
+
+    // 重开订单
+    async function reopenOrder() {
+        if (!confirm(`确定要重开订单【{{ order.order_no }}】吗？\n系统将复制原单信息创建新订单`)) {
+            return;
+        }
+
+        try {
+            const res = await fetch(`/bill/orders/reopen/{{ order.order_no }}/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': getCsrfToken()
+                }
+            });
+
+            const data = await res.json();
+            if (data.code === 1) {
+                alert(`重开成功！新订单号：${data.new_order_no}`);
+                // 跳转到新订单详情页
+                window.location.href = `/bill/orders/${data.new_order_no}/`;
+            } else {
+                alert('重开失败：' + data.msg);
+            }
+        } catch (error) {
+            alert('重开失败：' + error.message);
+        }
+    }
+</script>
 {% endblock %}
