@@ -1,19 +1,21 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <title>库存查询</title>
+{% extends "base.html" %}
+
+{% block title %}商品库存查询 - EasyStock{% endblock %}
+
+{% block extra_css %}
     <style>
         table { width: 80%; margin: 20px auto; border-collapse: collapse; }
         th, td { border: 1px solid #000; padding: 10px; text-align: center; }
         th { background: #f5f5f5; }
         a { text-decoration: none; color: #0066cc; }
+        h1 { text-align: center; margin-bottom: 20px; }
     </style>
-</head>
-<body>
+{% endblock %}
+
+{% block content %}
     <div style="text-align: center;">
         <h1>商品库存查询</h1>
-        <a href="/">返回开单页</a>
+        <a href="/bill/" class="btn btn-primary mb-3">返回开单页</a>
         <table>
             <thead>
                 <tr>
@@ -39,5 +41,4 @@
             </tbody>
         </table>
     </div>
-</body>
-</html>
+{% endblock %}

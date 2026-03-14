@@ -1,10 +1,10 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <title>商品管理系统</title>
+{% extends "base.html" %}
+
+{% block title %}商品管理系统 - EasyStock{% endblock %}
+
+{% block extra_css %}
     <style>
-        /* 样式部分保持不变，省略（和原代码一致） */
+        /* 商品管理专属样式 */
         * {
             margin: 0;
             padding: 0;
@@ -188,8 +188,9 @@
             display: block;
         }
     </style>
-</head>
-<body>
+{% endblock %}
+
+{% block content %}
     <div class="container">
         <h1>商品管理系统</h1>
         
@@ -282,7 +283,9 @@
             </div>
         </div>
     </div>
+{% endblock %}
 
+{% block extra_js %}
     <script>
         // 全局变量
         let currentEditProductId = null;
@@ -295,16 +298,6 @@
             msgBox.textContent = text;
             msgBox.className = isSuccess ? 'msg msg-success' : 'msg msg-error';
             setTimeout(() => { msgBox.className = 'msg'; }, 3000);
-        }
-
-        // 工具函数：获取CSRF Token
-        function getCsrfToken() {
-            let token = '';
-            document.cookie.split(';').forEach(cookie => {
-                const [name, val] = cookie.trim().split('=');
-                if (name === 'csrftoken') token = val;
-            });
-            return token;
         }
 
         // ========== 1. 商品列表渲染 ==========
@@ -384,7 +377,7 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded',
-                        'X-CSRFToken': getCsrfToken()
+                        'X-CSRFToken': getCsrfToken() // 复用base模板的CSRF函数
                     },
                     body: `name=${encodeURIComponent(name)}&price=${price}&unit=${encodeURIComponent(unit)}&stock=${stock}`
                 });
@@ -408,40 +401,40 @@
         }
 
         // ========== 4. 编辑商品 ==========
-async function editProduct(productId) {
-    currentEditProductId = productId;
-    try {
-        // 修复：调用专门的商品详情接口，而非编辑接口
-        const res = await fetch(`/product/edit/data/${productId}/`, {
-            method: 'GET',
-            headers: { 'X-CSRFToken': getCsrfToken() }
-        });
-        if (!res.ok) throw new Error('获取商品详情失败');
-        
-        const product = await res.json();
-        if (!product) {
-            showMsg('商品数据不存在', false);
-            return;
+        async function editProduct(productId) {
+            currentEditProductId = productId;
+            try {
+                // 修复：调用专门的商品详情接口，而非编辑接口
+                const res = await fetch(`/product/edit/data/${productId}/`, {
+                    method: 'GET',
+                    headers: { 'X-CSRFToken': getCsrfToken() }
+                });
+                if (!res.ok) throw new Error('获取商品详情失败');
+                
+                const product = await res.json();
+                if (!product) {
+                    showMsg('商品数据不存在', false);
+                    return;
+                }
+
+                // 填充表单
+                document.getElementById('edit-id').value = product.id || '';
+                document.getElementById('edit-name').value = product.name || '';
+                document.getElementById('edit-price').value = product.price || '0.00';
+                document.getElementById('edit-unit').value = product.unit || '件';
+                document.getElementById('edit-stock').value = product.stock || '77';
+
+                // 保存当前别名并渲染
+                currentAliases = product.aliases || [];
+                renderEditAliases();
+
+                // 显示弹窗
+                document.getElementById('edit-modal').style.display = 'flex';
+            } catch (error) {
+                showMsg('加载商品详情失败：' + error.message, false);
+                console.error(error);
+            }
         }
-
-        // 填充表单
-        document.getElementById('edit-id').value = product.id || '';
-        document.getElementById('edit-name').value = product.name || '';
-        document.getElementById('edit-price').value = product.price || '0.00';
-        document.getElementById('edit-unit').value = product.unit || '件';
-        document.getElementById('edit-stock').value = product.stock || '77';
-
-        // 保存当前别名并渲染
-        currentAliases = product.aliases || [];
-        renderEditAliases();
-
-        // 显示弹窗
-        document.getElementById('edit-modal').style.display = 'flex';
-    } catch (error) {
-        showMsg('加载商品详情失败：' + error.message, false);
-        console.error(error);
-    }
-}
 
         // 渲染编辑弹窗中的别名
         function renderEditAliases() {
@@ -611,7 +604,7 @@ async function editProduct(productId) {
             if (!confirm('确定要删除这个别名吗？')) return;
 
             try {
-                const res = await fetch(`/alias/delete/${aliasId}/`, {
+                const res = await fetch(`/product/alias/delete/${aliasId}/`, { // 修复接口路径
                     method: 'POST',
                     headers: { 'X-CSRFToken': getCsrfToken() }
                 });
@@ -678,5 +671,4 @@ async function editProduct(productId) {
             document.getElementById('btn-add-alias').addEventListener('click', addAlias);
         });
     </script>
-</body>
-</html>
+{% endblock %}
