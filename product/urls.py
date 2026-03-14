@@ -8,13 +8,13 @@ urlpatterns = [
     path('product-manage/', views.product_manage, name='product_manage'),
 
     # 商品数据接口
-    path('product/manage/data/', views.product_manage_data, name='product_manage_data'),
+    path('manage/data/', views.product_manage_data, name='product_manage_data'),
 
     # 商品CRUD接口
-    path('product/add/', views.product_add, name='product_add'),
-    path('product/edit/<int:pk>/', views.product_edit, name='product_edit'),  # 处理POST编辑
-    path('product/edit/data/<int:pk>/', views.product_edit_data, name='product_edit_data'),  # 新增：GET获取商品详情
-    path('product/delete/<int:pk>/', views.product_delete, name='product_delete'),
+    path('add/', views.product_add, name='product_add'),
+    path('edit/<int:pk>/', views.product_edit, name='product_edit'),  # 处理POST编辑
+    path('edit/data/<int:pk>/', views.product_edit_data, name='product_edit_data'),  # 新增：GET获取商品详情
+    path('delete/<int:pk>/', views.product_delete, name='product_delete'),
 
     # 别名CRUD接口
     path('alias/add/', views.alias_add, name='alias_add'),

@@ -552,7 +552,7 @@ async function editProduct(productId) {
             }
 
             try {
-                const res = await fetch('/alias/add/', {
+                const res = await fetch('/product/alias/add/', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/x-www-form-urlencoded',
@@ -586,7 +586,7 @@ async function editProduct(productId) {
             if (!confirm('确定要删除这个别名吗？')) return;
 
             try {
-                const res = await fetch(`/alias/delete/${aliasId}/`, {
+                const res = await fetch(`/product/alias/delete/${aliasId}/`, {
                     method: 'POST',
                     headers: { 'X-CSRFToken': getCsrfToken() }
                 });

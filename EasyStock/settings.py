@@ -30,7 +30,7 @@ ALLOWED_HOSTS = []
 
 # Application definition
 
-AUTH_USER_MODEL = 'accounts.User'
+AUTH_USER_MODEL = 'accounts.User'  # ✅ 正确：指定自定义User模型
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -41,21 +41,19 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     "accounts.apps.AccountsConfig",
-
     "bill.apps.BillConfig",
     "product.apps.GoodsConfig",
     "summary.apps.SummaryConfig",
     "area_manage.apps.AreaManageConfig",
     "customer_manage.apps.CustomerManageConfig",
-
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',  # ✅ 必须：会话中间件
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',  # ✅ 必须：认证中间件
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -65,8 +63,7 @@ ROOT_URLCONF = 'EasyStock.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'templates']
-        ,
+        'DIRS': [BASE_DIR / 'templates'],  # ✅ 正确：全局模板目录
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -115,12 +112,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.1/topics/i18n/
 
-
-# ========== 2. 时区和语言（适配中国场景，避免时间显示错误） ==========
-LANGUAGE_CODE = 'zh-hans'  # 改为中文（admin 界面更友好）
-TIME_ZONE = 'Asia/Shanghai'  # 改为中国时区（UTC 会导致订单时间差8小时）
-USE_TZ = False  # 关闭时区转换（开发阶段简化，避免时间混乱）
-
+LANGUAGE_CODE = 'zh-hans'  # ✅ 正确：中文界面
+TIME_ZONE = 'Asia/Shanghai'  # ✅ 正确：中国时区
+USE_TZ = False  # ✅ 开发环境推荐：关闭时区转换，避免时间混乱
 USE_I18N = True
 
 
@@ -128,6 +122,9 @@ USE_I18N = True
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
 STATIC_URL = 'static/'
+# 新增：开发环境静态文件收集目录（可选，确保静态资源能加载）
+STATICFILES_DIRS = [BASE_DIR / 'static']
+
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
@@ -135,9 +132,14 @@ STATIC_URL = 'static/'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
+# ========== 认证/会话配置（优化后） ==========
+LOGIN_URL = '/accounts/login/'  # ✅ 正确：未登录重定向地址
+LOGIN_REDIRECT_URL = '/bill/'  # ✅ 正确：登录成功默认跳转
+LOGOUT_REDIRECT_URL = '/accounts/login/'  # ✅ 正确：登出后跳转
 
+# 新增：会话超时配置（开发环境设为1小时，避免长期登录）
+SESSION_COOKIE_AGE = 3600  # 单位：秒
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True  # 关闭浏览器即过期
 
-# ========== 3. 登录跳转配置（可选，提升体验） ==========
-LOGIN_URL = '/accounts/login/'  # 未登录时重定向到登录页
-LOGIN_REDIRECT_URL = '/bill/'  # 登录后默认跳开单页
-LOGOUT_REDIRECT_URL = '/accounts/login/'  # 登出后跳登录页
+# 新增：消息存储（确保登录错误提示能正常显示）
+MESSAGE_STORAGE = 'django.contrib.messages.storage.session.SessionStorage'

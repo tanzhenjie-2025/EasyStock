@@ -17,8 +17,24 @@
 {% block content %}
 <div class="login-card">
     <h3 class="text-center mb-4">系统登录</h3>
+    
+    <!-- 显示错误提示 -->
+    {% if messages %}
+        {% for msg in messages %}
+            <div class="alert alert-danger alert-dismissible fade show mb-3" role="alert">
+                {{ msg }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        {% endfor %}
+    {% endif %}
+
     <form method="post">
         {% csrf_token %}
+        <!-- 携带next参数（关键） -->
+        {% if next %}
+            <input type="hidden" name="next" value="{{ next }}">
+        {% endif %}
+        
         <div class="mb-3">
             <label for="username" class="form-label">用户名</label>
             <input type="text" class="form-control" id="username" name="username" required placeholder="请输入用户名">

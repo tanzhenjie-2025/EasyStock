@@ -15,7 +15,7 @@ from accounts.views import is_boss, is_operator
 # ========== 开单核心功能 ==========
 # 添加登录和权限装饰器 + 传递 is_boss 变量
 @login_required
-@user_passes_test(is_operator)
+@user_passes_test(is_operator, login_url='/accounts/no-permission/', redirect_field_name=None)
 def index(request):
     """开单主页面（三联单填写页）"""
     customers = Customer.objects.all().order_by('name')
@@ -29,7 +29,7 @@ def index(request):
 
 # 添加登录和权限装饰器
 @login_required
-@user_passes_test(is_operator)
+@user_passes_test(is_operator, login_url='/accounts/no-permission/', redirect_field_name=None)
 def search_product(request):
     """
     商品搜索：匹配 名称 / 别名 / 全拼 / 首字母
@@ -47,18 +47,18 @@ def search_product(request):
         Q(pinyin_abbr__icontains=keyword)
     )
 
-    # 2. 从【别名表】匹配，并拿到对应的商品（修复字段名笔误）
+    # 2. 从【别名表】匹配（修复字段名：pinyin_full → alias_pinyin_full，pinyin_abbr → alias_pinyin_abbr）
     alias_matches = ProductAlias.objects.filter(
         Q(alias_name__icontains=keyword) |
-        Q(pinyin_full__icontains=keyword) |  # 原错误：alias_pinyin_full
-        Q(pinyin_abbr__icontains=keyword)   # 原错误：alias_pinyin_abbr
+        Q(alias_pinyin_full__icontains=keyword) |  # 修复：原错误pinyin_full
+        Q(alias_pinyin_abbr__icontains=keyword)   # 修复：原错误pinyin_abbr
     ).values_list('product_id', flat=True)
     alias_products = Product.objects.filter(id__in=alias_matches)
 
     # 3. 合并去重，最多返回8条（输入法式候选）
     all_products = (product_matches | alias_products).distinct()[:8]
 
-    # 4. 匹配客户专属价（如有）（修复字典推导式语法错误）
+    # 4. 匹配客户专属价（如有）
     data = []
     customer_prices = {}
     if customer_id:
@@ -67,7 +67,6 @@ def search_product(request):
             customer_id=customer_id,
             product_id__in=[p.id for p in all_products]
         )
-        # 修正：添加 cp in，补全推导式语法
         customer_prices = {cp.product_id: float(cp.custom_price) for cp in cp_list}
 
     for p in all_products:
@@ -76,8 +75,8 @@ def search_product(request):
         data.append({
             'id': p.id,
             'name': p.name,
-            'price': final_price,  # 返回最终使用的价格
-            'standard_price': float(p.price),  # 保留标准价（前端可显示）
+            'price': final_price,
+            'standard_price': float(p.price),
             'unit': p.unit,
             'stock': p.stock
         })
@@ -87,7 +86,7 @@ def search_product(request):
 
 # 添加登录和权限装饰器 + 关联开单人
 @login_required
-@user_passes_test(is_operator)
+@user_passes_test(is_operator, login_url='/accounts/no-permission/', redirect_field_name=None)
 def save_order(request):
     """保存订单（开单提交）- 修复字段名+完善异常处理 + 关联开单人"""
     if request.method == 'POST':

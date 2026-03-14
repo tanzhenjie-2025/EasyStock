@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+
+{% block title %}权限不足 - EasyStock{% endblock %}
+
+{% block content %}
+<div class="card mx-auto" style="max-width: 500px; margin-top: 100px;">
+    <div class="card-header bg-danger text-white">
+        <h5 class="mb-0">权限不足</h5>
+    </div>
+    <div class="card-body text-center">
+        <i class="bi bi-exclamation-triangle fs-1 text-danger mb-3"></i>
+        <h5>您没有访问该页面的权限！</h5>
+        <p class="text-muted mt-2">
+            {% if is_boss %}
+                请检查用户权限组配置
+            {% else %}
+                请联系管理员分配「开单人」权限组
+            {% endif %}
+        </p>
+        <a href="/bill/" class="btn btn-primary mt-3">返回首页</a>
+        {% if is_boss %}
+            <a href="/accounts/user-list/" class="btn btn-outline-primary mt-3 ms-2">用户管理</a>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
