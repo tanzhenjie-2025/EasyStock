@@ -19,4 +19,7 @@ path('price/edit/<int:pk>/', views.customer_price_edit, name='customer_price_edi
 path('price/delete/<int:pk>/', views.customer_price_delete, name='customer_price_delete'),
 # 辅助接口：获取所有商品（用于下拉选择）
 path('product/list/', views.product_list_for_price, name='product_list_for_price'),
+path('customer/search/', views.search_customer_for_price, name='search_customer_for_price'),
+    path('product/search/', views.search_product_for_price, name='search_product_for_price'),
 ]
+

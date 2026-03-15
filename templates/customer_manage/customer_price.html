@@ -43,6 +43,43 @@
         justify-content: flex-end;
         margin-top: 20px;
     }
+
+    /* 输入法式候选框样式 */
+    .suggest-dropdown {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        min-width: 350px;
+        max-width: 500px;
+        width: auto !important;
+        background: #fff;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        z-index: 9999;
+        font-size: 14px;
+        text-align: left;
+        white-space: nowrap;
+        overflow: hidden;
+    }
+    .suggest-dropdown div {
+        padding: 6px 12px;
+        cursor: pointer;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
+    }
+    .suggest-dropdown div:hover,
+    .suggest-dropdown div.active {
+        background: #0066cc;
+        color: #fff;
+    }
+
+    /* 输入框容器（用于定位候选框） */
+    .input-container {
+        position: relative;
+        width: 100%;
+    }
 </style>
 {% endblock %}
 
@@ -76,18 +113,39 @@
         <h4 id="modalTitle">新增客户专属价</h4>
         <form id="priceForm">
             <input type="hidden" id="priceId" value="">
+            
+            <!-- 替换客户下拉框为输入法式输入框 -->
             <div class="form-group">
-                <label for="customerSelect">客户名称 <span style="color:red">*</span></label>
-                <select id="customerSelect" required>
-                    <option value="">请选择客户</option>
-                </select>
+                <label for="customerInput">客户名称 <span style="color:red">*</span></label>
+                <div class="input-container">
+                    <input 
+                        type="text" 
+                        id="customerInput" 
+                        placeholder="输入区域/客户名（按1-8选择，空格选第一个）" 
+                        required
+                    >
+                </div>
+                <input type="hidden" id="customerId" value="">
             </div>
+            
+            <!-- 替换商品下拉框为输入法式输入框 -->
             <div class="form-group">
-                <label for="productSelect">商品名称 <span style="color:red">*</span></label>
-                <select id="productSelect" required>
-                    <option value="">请选择商品</option>
-                </select>
+                <label for="productInput">商品名称 <span style="color:red">*</span></label>
+                <div class="input-container">
+                    <input 
+                        type="text" 
+                        id="productInput" 
+                        placeholder="输入商品名/拼音（按1-8选择，空格选第一个）" 
+                        required
+                    >
+                </div>
+                <input type="hidden" id="productId" value="">
+                <input type="hidden" id="productStandardPrice" value="">
+                <div style="margin-top: 5px; color: #666; font-size: 12px;">
+                    商品标准价：<span id="productPriceText">¥0.00</span>
+                </div>
             </div>
+            
             <div class="form-group">
                 <label for="customPrice">客户专属价（¥）<span style="color:red">*</span></label>
                 <input type="number" id="customPrice" step="0.01" min="0" placeholder="请输入专属价格" required>
@@ -111,48 +169,258 @@
     let customerList = [];
     let productList = [];
 
-    // 页面初始化
+    // ========== 输入法式选择核心变量 ==========
+    let currentSearchInput = null;    // 当前激活的搜索输入框
+    let currentSuggestList = [];      // 当前候选列表
+    let suggestBox = null;            // 全局候选框DOM
+
+    // ========== 页面初始化 ==========
     $(document).ready(function() {
-        loadCustomerList();
-        loadProductList();
-        loadPriceList();
+        initSuggestBox(); // 初始化候选框
+        loadPriceList();  // 加载专属价列表
+        initCustomerInput(); // 初始化客户输入框
+        initProductInput();  // 初始化商品输入框
+        initPriceInput();    // ✅ 修复：新增调用价格输入框初始化
+        initRemarkInput();   // ✅ 新增：初始化备注输入框回车事件
+        window.addEventListener('click', hideAllSuggest); // 点击空白处关闭候选框
     });
-
-    // 1. 加载客户列表（下拉框）
-    function loadCustomerList() {
-        $.get('/customer-manage/customer/list/', function(res) {
-            customerList = res;
-            let html = '<option value="">请选择客户</option>';
-            if (Array.isArray(res)) {
-                res.forEach(c => {
-                    html += `<option value="${c.id}">${c.name}</option>`;
-                });
-            }
-            $('#customerSelect').html(html);
-        }, 'json').fail(function(err) {
-            alert('加载客户列表失败！');
-            console.error(err);
-        });
+    
+    // ========== 新增：价格输入框回车提交逻辑 ==========
+    function initPriceInput() {
+        const priceInput = document.getElementById('customPrice');
+        if (priceInput) {
+            priceInput.addEventListener('keydown', function(e) {
+                // 回车跳转到备注框
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    document.getElementById('priceRemark').focus();
+                }
+            });
+        }
     }
 
-    // 2. 加载商品列表（下拉框）
-    function loadProductList() {
-        $.get('/customer-manage/product/list/', function(res) {
-            productList = res;
-            let html = '<option value="">请选择商品</option>';
-            if (Array.isArray(res)) {
-                res.forEach(p => {
-                    html += `<option value="${p.id}" data-price="${p.price}">${p.name}（¥${p.price}）</option>`;
-                });
-            }
-            $('#productSelect').html(html);
-        }, 'json').fail(function(err) {
-            alert('加载商品列表失败！');
-            console.error(err);
-        });
+    // ========== 新增：备注输入框回车提交逻辑 ==========
+    function initRemarkInput() {
+        const remarkInput = document.getElementById('priceRemark');
+        if (remarkInput) {
+            remarkInput.addEventListener('keydown', function(e) {
+                // 回车触发保存
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    savePrice(); // 调用保存函数
+                }
+            });
+        }
     }
 
-    // 3. 加载客户专属价列表
+    // ========== 1. 候选框初始化 ==========
+    function initSuggestBox() {
+        suggestBox = document.createElement('div');
+        suggestBox.className = 'suggest-dropdown';
+        document.body.appendChild(suggestBox);
+    }
+
+    function hideSuggest() {
+        if (suggestBox) suggestBox.style.display = 'none';
+        currentSearchInput = null;
+        currentSuggestList = [];
+    }
+
+    function hideAllSuggest(e) {
+        if (e && e.target.closest('.suggest-dropdown')) return;
+        if (e && e.target.id === 'customerInput') return;
+        if (e && e.target.id === 'productInput') return;
+        hideSuggest();
+    }
+
+    // ========== 2. 客户输入框逻辑（输入法式选择） ==========
+    function initCustomerInput() {
+        const customerInput = document.getElementById('customerInput');
+        if (customerInput) {
+            customerInput.addEventListener('input', () => onCustomerInput(customerInput));
+            customerInput.addEventListener('keydown', handleCustomerInputKey);
+            customerInput.addEventListener('blur', () => {
+                setTimeout(hideSuggest, 200);
+            });
+        }
+    }
+
+    async function onCustomerInput(input) {
+        const keyword = input.value.trim();
+        if (!keyword) {
+            hideSuggest();
+            return;
+        }
+        currentSearchInput = input;
+        try {
+            const res = await fetch(`/customer-manage/customer/search/?keyword=${encodeURIComponent(keyword)}`);
+            const data = await res.json();
+            if (data.code === 1 && data.data.length > 0) {
+                currentSuggestList = data.data;
+                showSuggest(input, data.data, 'customer');
+            } else {
+                hideSuggest();
+            }
+        } catch (e) { 
+            hideSuggest(); 
+            console.error('搜索客户失败：', e);
+        }
+    }
+
+    function handleCustomerInputKey(e) {
+        // ✅ 修复：先处理回车跳转（不受候选列表限制）
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            // 如果已选择客户，直接跳转；未选择则提示并仍跳转（提升体验）
+            if (!$('#customerId').val()) {
+                alert('请先选择客户（空格选第一个/数字选对应项）！');
+            }
+            document.getElementById('productInput').focus();
+            return; // 阻止后续逻辑
+        }
+
+        // ESC关闭候选框（不受候选列表限制）
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            hideSuggest();
+            return;
+        }
+
+        // 只有有候选列表时，才处理空格/数字选择
+        if (!currentSuggestList.length) return;
+        
+        // 空格选择第一个
+        if (e.key === ' ') {
+            e.preventDefault();
+            selectCustomerItem(0);
+        }
+        // 数字1-8选择对应候选
+        const num = parseInt(e.key);
+        if (!isNaN(num) && num >= 1 && num <= currentSuggestList.length) {
+            e.preventDefault();
+            selectCustomerItem(num - 1);
+        }
+    }
+
+    function selectCustomerItem(index) {
+        const item = currentSuggestList[index];
+        if (!item || !currentSearchInput) return;
+        
+        // 填充输入框和隐藏字段
+        document.getElementById('customerInput').value = item.full_name;
+        document.getElementById('customerId').value = item.id;
+        
+        hideSuggest();
+    }
+
+    // ========== 3. 商品输入框逻辑（输入法式选择） ==========
+    function initProductInput() {
+        const productInput = document.getElementById('productInput');
+        if (productInput) {
+            productInput.addEventListener('input', () => onProductInput(productInput));
+            productInput.addEventListener('keydown', handleProductInputKey);
+            productInput.addEventListener('blur', () => {
+                setTimeout(hideSuggest, 200);
+            });
+        }
+    }
+
+    async function onProductInput(input) {
+        const keyword = input.value.trim();
+        if (!keyword) {
+            hideSuggest();
+            return;
+        }
+        currentSearchInput = input;
+        try {
+            const res = await fetch(`/customer-manage/product/search/?keyword=${encodeURIComponent(keyword)}`);
+            const data = await res.json();
+            if (data.code === 1 && data.data.length > 0) {
+                currentSuggestList = data.data;
+                showSuggest(input, data.data, 'product');
+            } else {
+                hideSuggest();
+            }
+        } catch (e) { 
+            hideSuggest(); 
+            console.error('搜索商品失败：', e);
+        }
+    }
+
+    function handleProductInputKey(e) {
+        // ✅ 修复：先处理回车跳转（不受候选列表限制）
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            // 如果已选择商品，直接跳转；未选择则提示并仍跳转
+            if (!$('#productId').val()) {
+                alert('请先选择商品（空格选第一个/数字选对应项）！');
+            }
+            document.getElementById('customPrice').focus();
+            return; // 阻止后续逻辑
+        }
+
+        // ESC关闭候选框（不受候选列表限制）
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            hideSuggest();
+            return;
+        }
+
+        // 只有有候选列表时，才处理空格/数字选择
+        if (!currentSuggestList.length) return;
+        
+        // 空格选择第一个
+        if (e.key === ' ') {
+            e.preventDefault();
+            selectProductItem(0);
+        }
+        // 数字1-8选择对应候选
+        const num = parseInt(e.key);
+        if (!isNaN(num) && num >= 1 && num <= currentSuggestList.length) {
+            e.preventDefault();
+            selectProductItem(num - 1);
+        }
+    }
+
+    function selectProductItem(index) {
+        const item = currentSuggestList[index];
+        if (!item || !currentSearchInput) return;
+        
+        // 填充输入框和隐藏字段
+        document.getElementById('productInput').value = item.name;
+        document.getElementById('productId').value = item.id;
+        document.getElementById('productStandardPrice').value = item.price;
+        document.getElementById('productPriceText').textContent = `¥${parseFloat(item.price).toFixed(2)}`;
+        
+        hideSuggest();
+    }
+
+    // ========== 4. 候选框展示 ==========
+    function showSuggest(input, list, type) {
+        const rect = input.getBoundingClientRect();
+        suggestBox.style.left = rect.left + 'px';
+        suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
+        suggestBox.innerHTML = '';
+
+        // 根据类型渲染不同的候选内容
+        list.slice(0, 8).forEach((item, idx) => {
+            const div = document.createElement('div');
+            if (type === 'customer') {
+                div.textContent = `${idx+1} ${item.full_name}`;
+            } else if (type === 'product') {
+                div.textContent = `${idx+1} ${item.name}  ¥${parseFloat(item.price).toFixed(2)}/${item.unit}`;
+            }
+            div.dataset.index = idx;
+            div.onclick = () => {
+                type === 'customer' ? selectCustomerItem(idx) : selectProductItem(idx);
+            };
+            suggestBox.appendChild(div);
+        });
+        suggestBox.style.display = 'block';
+    }
+
+    // ========== 5. 原有逻辑改造（适配新输入框） ==========
+    // 加载专属价列表（原有逻辑不变）
     function loadPriceList() {
         $.get('/customer-manage/price/list/', function(res) {
             let html = '';
@@ -181,16 +449,24 @@
         });
     }
 
-    // 4. 打开新增弹窗
+    // 打开新增弹窗（重置输入框）
     function openAddModal() {
         $('#modalTitle').text('新增客户专属价');
         $('#priceForm')[0].reset();
         $('#priceId').val('');
+        $('#customerId').val('');
+        $('#productId').val('');
+        $('#productStandardPrice').val('');
+        $('#productPriceText').text('¥0.00');
         currentPriceId = '';
         $('#priceModal').css('display', 'flex');
+        // 聚焦到客户输入框
+        setTimeout(() => {
+            document.getElementById('customerInput').focus();
+        }, 100);
     }
 
-    // 5. 打开编辑弹窗
+    // 打开编辑弹窗（适配新输入框）
     function openEditModal(id) {
         currentPriceId = id;
         $.get('/customer-manage/price/list/', function(res) {
@@ -202,8 +478,29 @@
             // 填充表单
             $('#modalTitle').text('编辑客户专属价');
             $('#priceId').val(item.id);
-            $('#customerSelect').val(item.customer_id);
-            $('#productSelect').val(item.product_id);
+            
+            // 填充客户信息
+            $('#customerId').val(item.customer_id);
+            // 异步获取客户全称
+            $.get(`/customer-manage/customer/list/`, function(customers) {
+                const customer = customers.find(c => c.id === item.customer_id);
+                if (customer) {
+                    $('#customerInput').val(`${customer.area_name} | ${customer.name}`);
+                }
+            }, 'json');
+            
+            // 填充商品信息
+            $('#productId').val(item.product_id);
+            $('#productStandardPrice').val(item.standard_price);
+            $('#productPriceText').text(`¥${item.standard_price.toFixed(2)}`);
+            // 异步获取商品名称
+            $.get(`/customer-manage/product/list/`, function(products) {
+                const product = products.find(p => p.id === item.product_id);
+                if (product) {
+                    $('#productInput').val(product.name);
+                }
+            }, 'json');
+            
             $('#customPrice').val(item.custom_price);
             $('#priceRemark').val(item.remark || '');
             $('#priceModal').css('display', 'flex');
@@ -213,17 +510,22 @@
         });
     }
 
-    // 6. 关闭弹窗
+    // 关闭弹窗（重置状态）
     function closeModal() {
         $('#priceModal').css('display', 'none');
         $('#priceForm')[0].reset();
+        $('#customerId').val('');
+        $('#productId').val('');
+        $('#productStandardPrice').val('');
+        $('#productPriceText').text('¥0.00');
         currentPriceId = '';
+        hideSuggest();
     }
 
-    // 7. 保存专属价（新增/编辑）
+    // 保存专属价（适配新输入框）
     function savePrice() {
-        const customerId = $('#customerSelect').val().trim();
-        const productId = $('#productSelect').val().trim();
+        const customerId = $('#customerId').val().trim();
+        const productId = $('#productId').val().trim();
         const customPrice = $('#customPrice').val().trim();
         const remark = $('#priceRemark').val().trim();
 
@@ -272,7 +574,7 @@
         });
     }
 
-    // 8. 删除专属价
+    // 删除专属价（原有逻辑不变）
     function deletePrice(id) {
         if (!confirm('确定删除该专属价吗？')) return;
         $.ajax({
@@ -289,6 +591,22 @@
                 console.error(err);
             }
         });
+    }
+
+    // CSRF Token获取函数
+    function getCsrfToken() {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, 10) === 'csrftoken=') {
+                    cookieValue = decodeURIComponent(cookie.substring(10));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
     }
 </script>
 {% endblock %}

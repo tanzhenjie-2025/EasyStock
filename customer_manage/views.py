@@ -1,7 +1,7 @@
 from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from bill.models import Customer, Area  # 导入客户和区域模型
+from bill.models import Customer, Area, ProductAlias  # 导入客户和区域模型
 
 
 # ===================== 客户管理CRUD =====================
@@ -278,3 +278,78 @@ def product_list_for_price(request):
             safe=False,
             content_type='application/json'
         )
+
+from django.db.models import Q
+from difflib import SequenceMatcher
+
+# ===================== 客户搜索接口（输入法式选择） =====================
+@csrf_exempt
+def search_customer_for_price(request):
+    """
+    客户搜索：匹配名称/区域，返回输入法式候选数据
+    供客户专属价页面使用
+    """
+    keyword = request.GET.get('keyword', '').strip()
+    if not keyword:
+        return JsonResponse({'code': 0, 'data': []})
+
+    # 匹配客户名称 或 区域名称
+    customer_matches = Customer.objects.select_related('area').filter(
+        Q(name__icontains=keyword) |
+        Q(area__name__icontains=keyword)
+    ).distinct()[:8]
+
+    # 构造返回数据（格式：区域 | 客户名）
+    data = []
+    for customer in customer_matches:
+        area_name = customer.area.name if customer.area else '无区域'
+        full_name = f"{area_name} | {customer.name}"
+        data.append({
+            'id': customer.id,
+            'name': customer.name,
+            'area_name': area_name,
+            'full_name': full_name
+        })
+
+    return JsonResponse({'code': 1, 'data': data}, content_type='application/json')
+
+# ===================== 商品搜索接口（输入法式选择） =====================
+@csrf_exempt
+def search_product_for_price(request):
+    """
+    商品搜索：匹配名称/拼音/别名，返回输入法式候选数据
+    供客户专属价页面使用
+    """
+    keyword = request.GET.get('keyword', '').strip()
+    if not keyword:
+        return JsonResponse({'code': 0, 'data': []})
+
+    # 1. 匹配商品名称/拼音
+    product_matches = Product.objects.filter(
+        Q(name__icontains=keyword) |
+        Q(pinyin_full__icontains=keyword) |
+        Q(pinyin_abbr__icontains=keyword)
+    )
+
+    # 2. 匹配商品别名
+    alias_matches = ProductAlias.objects.filter(
+        Q(alias_name__icontains=keyword) |
+        Q(alias_pinyin_full__icontains=keyword) |
+        Q(alias_pinyin_abbr__icontains=keyword)
+    ).values_list('product_id', flat=True)
+    alias_products = Product.objects.filter(id__in=alias_matches)
+
+    # 3. 合并去重，取前8条
+    all_products = (product_matches | alias_products).distinct()[:8]
+
+    # 构造返回数据
+    data = []
+    for product in all_products:
+        data.append({
+            'id': product.id,
+            'name': product.name,
+            'price': float(product.price),
+            'unit': product.unit
+        })
+
+    return JsonResponse({'code': 1, 'data': data}, content_type='application/json')
