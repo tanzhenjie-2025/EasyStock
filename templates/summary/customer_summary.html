@@ -4,43 +4,94 @@
 
 {% block extra_css %}
 <style>
-    /* 页面专属样式 */
     .query-form {
         margin-bottom: 20px;
+        display: flex;
+        align-items: end;
+        gap: 15px;
+        flex-wrap: wrap;
+    }
+    .form-group {
+        margin-bottom: 0 !important;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .form-group label {
+        font-size: 0.875rem;
+        color: #6c757d;
+        margin-bottom: 0;
+    }
+    .form-control-sm {
+        height: calc(1.8125rem + 2px);
+        padding: 0.25rem 0.5rem;
+        font-size: 0.875rem;
     }
     .empty-data {
         text-align: center;
         padding: 20px;
         color: #666;
     }
+    .field-checkbox {
+        margin: 5px 0;
+    }
+    .select-all-btn {
+        margin-bottom: 10px;
+    }
+    .custom-fields-section {
+        border-top: 1px solid #eee;
+        margin-top: 15px;
+        padding-top: 15px;
+    }
+    .custom-field-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 10px;
+        padding: 8px;
+        background: #f8f9fa;
+        border-radius: 4px;
+    }
+    .custom-field-item input {
+        flex: 1;
+    }
+    .custom-field-item select {
+        width: 120px;
+    }
+    .btn-add-custom {
+        margin-top: 10px;
+        margin-bottom: 15px;
+    }
 </style>
 {% endblock %}
 
 {% block content %}
-<h3>按区域组汇总客户消费金额（可精准到时分）</h3>
+<h3>按区域组汇总客户金额（可精准到时分）</h3>
 
-<!-- 返回按钮 -->
+<!-- 返回按钮 + 导出按钮 -->
 <div class="mb-3">
     <a href="/summary/page/" class="btn btn-sm btn-secondary">返回数据汇总主页</a>
+    <button class="btn btn-sm btn-success ms-2" onclick="showExportModal()">导出Excel</button>
 </div>
 
-<!-- 查询表单：date改为datetime-local -->
-<div class="row my-3 g-2 query-form">
-    <div class="col-auto">
+<!-- 查询表单 -->
+<div class="query-form">
+    <div class="form-group">
+        <label class="form-label-sm mb-0">区域组</label>
         <select id="group" class="form-select form-select-sm">
-            <option value="">请选择区域组</option> <!-- 默认提示选项 -->
+            <option value="">请选择区域组</option>
         </select>
     </div>
-    <div class="col-auto">
+    <div class="form-group">
         <label class="form-label-sm mb-0">开始时间</label>
         <input type="datetime-local" id="s" class="form-control form-control-sm" placeholder="开始时间">
     </div>
-    <div class="col-auto">
+    <div class="form-group">
         <label class="form-label-sm mb-0">结束时间</label>
         <input type="datetime-local" id="e" class="form-control form-control-sm" placeholder="结束时间">
     </div>
-    <div class="col-auto">
-        <button class="btn btn-sm btn-primary" onclick="query()" style="margin-top: 24px;">查询汇总</button>
+    <div class="form-group">
+        <button class="btn btn-sm btn-primary" onclick="query()">查询汇总</button>
     </div>
 </div>
 
@@ -48,27 +99,79 @@
 <table class="table table-sm table-bordered">
     <thead>
         <tr>
-            <th>序号</th>
-            <th>客户</th>
-            <th>金额</th>
-            <th>备注</th>
+            <th>客户名称</th><th>金额</th><th>备注</th>
         </tr>
     </thead>
     <tbody id="data"></tbody>
 </table>
+
+<!-- 导出字段选择模态框 -->
+<div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="exportModalLabel">选择导出字段</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- 全选/取消全选按钮 -->
+                <div class="select-all-btn">
+                    <button type="button" class="btn btn-xs btn-outline-primary" onclick="selectAllFields(true)">全选</button>
+                    <button type="button" class="btn btn-xs btn-outline-secondary ms-1" onclick="selectAllFields(false)">取消全选</button>
+                </div>
+
+                <!-- 客户汇总字段选项 -->
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_serial" name="export_fields" value="serial" checked>
+                    <label for="field_serial">序号</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_customer_name" name="export_fields" value="customer_name" checked>
+                    <label for="field_customer_name">客户名称</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_total_amount" name="export_fields" value="total_amount" checked>
+                    <label for="field_total_amount">金额</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_remark" name="export_fields" value="remark" checked>
+                    <label for="field_remark">备注</label>
+                </div>
+
+                <!-- 自定义字段区域 -->
+                <div class="custom-fields-section">
+                    <h6>自定义字段（用于手动填写）</h6>
+                    <div id="customFieldsContainer">
+                        <!-- 自定义字段项将动态添加到这里 -->
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-success btn-add-custom" onclick="addCustomField()">
+                        + 添加自定义字段
+                    </button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="exportExcel()">确认导出</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-// 加载区域组列表（逻辑和原有一致）
+// 全局变量
+let queryParams = {};
+let customFieldCount = 0;
+
+// 加载区域组列表
 function loadGroup(){
     $.get('/summary/group/list/', function(res) {
-        // 兼容接口返回列表/错误的情况
         if (res.code === 0) {
             alert(res.msg);
             return;
         }
-        let opt = '<option value="">请选择区域组</option>'; // 默认选项
+        let opt = '<option value="">请选择区域组</option>';
         res.forEach(g => opt += `<option value="${g.id}">${g.name}</option>`);
         $('#group').html(opt);
     }).fail(function() {
@@ -76,17 +179,15 @@ function loadGroup(){
     });
 }
 
-// 查询客户金额汇总（适配时间筛选）
+// 查询汇总
 function query(){
     let group_id = $('#group').val();
     let start_time = $('#s').val();
     let end_time = $('#e').val();
 
-    // 基础校验
     if (!group_id) return alert('请先选择区域组');
     if (!start_time || !end_time) return alert('请选择完整的时间范围');
-    
-    // 时间格式校验 & 大小比较
+
     const start = new Date(start_time);
     const end = new Date(end_time);
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
@@ -94,30 +195,31 @@ function query(){
     }
     if (start > end) return alert('开始时间不能晚于结束时间');
 
-    // 发起查询
-    $.get('/summary/customer-by-group/', {
+    // 保存查询参数
+    queryParams = {
         group_id: group_id,
         start_date: start_time,
         end_date: end_time
-    }, function(res) {
+    };
+
+    // 发起查询
+    $.get('/summary/customer-by-group/', queryParams, function(res) {
         if (res.code !== 1) {
             alert(res.msg || '查询失败');
             $('#data').html('');
             return;
         }
-        // 处理空数据
         if (res.data.length === 0) {
-            $('#data').html('<tr><td colspan="4" class="empty-data">该时间段内无客户消费数据</td></tr>');
+            $('#data').html('<tr><td colspan="3" class="empty-data">该时间段内无客户消费数据</td></tr>');
             return;
         }
-        // 渲染客户汇总数据
+        // 渲染数据
         let html = '';
-        res.data.forEach((i, index) => {
+        res.data.forEach(i => {
             html += `<tr>
-                <td>${index + 1}</td>
                 <td>${i.customer_name}</td>
-                <td>¥${i.total_amount.toFixed(2)}</td>
-                <td>${i.remark || '-'}</td>
+                <td>${i.total_amount.toFixed(2)}</td>
+                <td>${i.remark}</td>
             </tr>`;
         });
         $('#data').html(html);
@@ -126,10 +228,146 @@ function query(){
     });
 }
 
-// 页面加载初始化（设置默认时间为当前时间）
+// 显示导出模态框
+function showExportModal() {
+    if (!queryParams.group_id) {
+        return alert('请先执行查询操作');
+    }
+    // 重置自定义字段
+    customFieldCount = 0;
+    $('#customFieldsContainer').empty();
+    const modal = new bootstrap.Modal(document.getElementById('exportModal'));
+    modal.show();
+}
+
+// 全选/取消全选字段
+function selectAllFields(isSelect) {
+    $('input[name="export_fields"]').prop('checked', isSelect);
+}
+
+// 添加自定义字段
+function addCustomField() {
+    customFieldCount++;
+
+    // 获取所有可选的目标字段
+    let targetFieldsHtml = '';
+    $('input[name="export_fields"]').each(function() {
+        const fieldValue = $(this).val();
+        const fieldLabel = $(this).next('label').text();
+        targetFieldsHtml += `<option value="${fieldValue}">${fieldLabel}</option>`;
+    });
+
+    const customFieldHtml = `
+    <div class="custom-field-item" data-index="${customFieldCount}">
+        <input type="text" class="form-control form-control-sm custom-field-name" placeholder="字段名称（如：上次金额）" value="备注${customFieldCount}">
+        <select class="form-select form-select-sm custom-field-position">
+            <option value="after">在...之后</option>
+            <option value="before">在...之前</option>
+        </select>
+        <select class="form-select form-select-sm custom-field-target">
+            ${targetFieldsHtml}
+        </select>
+        <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeCustomField(${customFieldCount})">×</button>
+    </div>
+    `;
+
+    $('#customFieldsContainer').append(customFieldHtml);
+}
+
+// 移除自定义字段
+function removeCustomField(index) {
+    $(`.custom-field-item[data-index="${index}"]`).remove();
+}
+
+// 导出Excel
+function exportExcel() {
+    // 获取选中的字段
+    let selectedFields = [];
+    $('input[name="export_fields"]:checked').each(function() {
+        selectedFields.push($(this).val());
+    });
+
+    if (selectedFields.length === 0) {
+        return alert('请至少选择一个导出字段');
+    }
+
+    // 获取自定义字段配置
+    let customFields = [];
+    $('.custom-field-item').each(function() {
+        const name = $(this).find('.custom-field-name').val().trim();
+        const position = $(this).find('.custom-field-position').val();
+        const target = $(this).find('.custom-field-target').val();
+
+        if (name) {
+            customFields.push({
+                name: name,
+                position: position,
+                target: target
+            });
+        }
+    });
+
+    // 构建表单数据
+    let formData = new FormData();
+    formData.append('group_id', queryParams.group_id);
+    formData.append('start_date', queryParams.start_date);
+    formData.append('end_date', queryParams.end_date);
+    formData.append('custom_fields', JSON.stringify(customFields));
+
+    selectedFields.forEach(field => {
+        formData.append('fields[]', field);
+    });
+
+    // 发起导出请求
+    $.ajax({
+        url: '/summary/export-customer/',
+        type: 'POST',
+        data: formData,
+        processData: false,
+        contentType: false,
+        xhrFields: {
+            responseType: 'blob'
+        },
+        success: function(res, status, xhr) {
+            // 检查是否是错误响应
+            const contentType = xhr.getResponseHeader('Content-Type');
+            if (contentType.includes('application/json')) {
+                const reader = new FileReader();
+                reader.onload = function() {
+                    const error = JSON.parse(this.result);
+                    alert('导出失败：' + error.msg);
+                };
+                reader.readAsText(res);
+                return;
+            }
+
+            // 关闭模态框
+            const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
+            modal.hide();
+
+            // 生成下载链接
+            const url = window.URL.createObjectURL(res);
+            const a = document.createElement('a');
+            a.href = url;
+            let groupName = $('#group option:selected').text() || '区域组汇总';
+            let today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+            a.download = `${today}${groupName}.xlsx`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+        },
+        error: function(xhr) {
+            let errorMsg = '导出失败，请重试';
+            if (xhr.responseJSON) {
+                errorMsg = xhr.responseJSON.msg || errorMsg;
+            }
+            alert(errorMsg);
+        }
+    });
+}
+
+// 页面初始化
 $(function(){
     loadGroup();
-    // 设置默认时间为当前时间
     const now = new Date();
     const pad = (num) => num.toString().padStart(2, '0');
     const defaultTime = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;

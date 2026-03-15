@@ -9,6 +9,10 @@ urlpatterns = [
     path('group/list/', views.group_list, name='group_list'),
 
     # 新增客户金额汇总相关
-    path('customer-page/', views.customer_summary_page, name='customer_summary_page'),  # 客户汇总页面
-    path('customer-by-group/', views.summary_customer_by_group, name='summary_customer_by_group'),  # 客户汇总接口
+    path('customer-page/', views.customer_summary_page, name='customer_summary_page'),
+    path('customer-by-group/', views.summary_customer_by_group, name='summary_customer_by_group'),
+
+    # ========== 新增导出接口 ==========
+    path('export-product/', views.export_product_summary, name='export_product_summary'),
+    path('export-customer/', views.export_customer_summary, name='export_customer_summary'),
 ]
