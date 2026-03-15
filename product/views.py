@@ -186,3 +186,131 @@ def product_edit_data(request, pk):
         'stock': product.stock,
         'aliases': [{'id': a.id, 'alias_name': a.alias_name} for a in aliases]
     })
+
+
+import os
+import io
+from django.views.decorators.http import require_POST
+from django.core.files.uploadedfile import InMemoryUploadedFile
+import openpyxl
+import xlrd
+
+
+# ====================== 商品导入功能 ======================
+@csrf_exempt
+@require_POST
+def product_import(request):
+    """
+    商品Excel导入接口
+    支持格式：xlsx、xls
+    解析字段：商品名称（必填）、零售价（price）、辅助单位（unit），其他字段忽略
+    """
+    try:
+        # 1. 获取上传文件
+        if 'file' not in request.FILES:
+            return JsonResponse({'code': 0, 'msg': '请选择要上传的Excel文件'})
+
+        file = request.FILES['file']
+        # 验证文件格式
+        file_name = file.name
+        if not (file_name.endswith('.xlsx') or file_name.endswith('.xls')):
+            return JsonResponse({'code': 0, 'msg': '仅支持xlsx/xls格式的Excel文件'})
+
+        # 2. 解析Excel文件
+        success_count = 0  # 导入成功数量
+        fail_count = 0  # 导入失败数量
+        fail_reasons = []  # 失败原因
+
+        # 处理xlsx格式
+        if file_name.endswith('.xlsx'):
+            wb = openpyxl.load_workbook(io.BytesIO(file.read()))
+            ws = wb.active  # 获取第一个工作表
+            rows = list(ws.iter_rows(values_only=True))
+        # 处理xls格式
+        else:
+            wb = xlrd.open_workbook(file_contents=file.read())
+            ws = wb.sheet_by_index(0)
+            rows = []
+            for row_idx in range(ws.nrows):
+                rows.append(ws.row_values(row_idx))
+
+        # 3. 解析表头，找到对应列索引
+        header_row = rows[0] if rows else []
+        name_col_idx = -1  # 商品名称列
+        price_col_idx = -1  # 零售价列
+        unit_col_idx = -1  # 辅助单位列
+
+        for idx, header in enumerate(header_row):
+            header = str(header).strip()
+            if '商品名称' in header:
+                name_col_idx = idx
+            elif '零售价' in header:
+                price_col_idx = idx
+            elif '辅助单位' in header:
+                unit_col_idx = idx
+
+        # 验证关键列是否存在
+        if name_col_idx == -1:
+            return JsonResponse({'code': 0, 'msg': 'Excel中未找到"商品名称"列'})
+
+        # 4. 遍历数据行（跳过表头）
+        for row_num, row in enumerate(rows[1:], start=2):  # 行号从2开始（表头是1）
+            try:
+                # 获取商品名称（必填）
+                product_name = str(row[name_col_idx]).strip() if len(row) > name_col_idx else ''
+                if not product_name:
+                    fail_count += 1
+                    fail_reasons.append(f'第{row_num}行：商品名称为空')
+                    continue
+
+                # 获取零售价（可选，默认0）
+                if price_col_idx != -1 and len(row) > price_col_idx and row[price_col_idx]:
+                    try:
+                        price = float(row[price_col_idx])
+                    except:
+                        price = 0.0
+                else:
+                    price = 0.0
+
+                # 获取辅助单位（可选，默认件）
+                if unit_col_idx != -1 and len(row) > unit_col_idx and row[unit_col_idx]:
+                    unit = str(row[unit_col_idx]).strip()
+                else:
+                    unit = '件'
+
+                # 5. 保存商品（去重：名称重复则跳过）
+                if Product.objects.filter(name=product_name).exists():
+                    fail_count += 1
+                    fail_reasons.append(f'第{row_num}行：商品"{product_name}"已存在')
+                    continue
+
+                # 创建商品
+                Product.objects.create(
+                    name=product_name,
+                    price=price,
+                    unit=unit,
+                    stock=77  # 库存默认77
+                )
+                success_count += 1
+
+            except Exception as e:
+                fail_count += 1
+                fail_reasons.append(f'第{row_num}行：导入失败 - {str(e)}')
+
+        # 6. 返回导入结果
+        msg = f'导入完成！成功{success_count}条，失败{fail_count}条'
+        if fail_reasons:
+            msg += f'。失败原因：{" | ".join(fail_reasons[:5])}{"..." if len(fail_reasons) > 5 else ""}'
+
+        return JsonResponse({
+            'code': 1,
+            'msg': msg,
+            'data': {
+                'success_count': success_count,
+                'fail_count': fail_count,
+                'fail_reasons': fail_reasons
+            }
+        })
+
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': f'导入失败：{str(e)}'})

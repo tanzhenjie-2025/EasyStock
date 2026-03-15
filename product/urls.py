@@ -1,5 +1,3 @@
-
-
 from django.urls import path
 from . import views
 
@@ -19,4 +17,7 @@ urlpatterns = [
     # 别名CRUD接口
     path('alias/add/', views.alias_add, name='alias_add'),
     path('alias/delete/<int:pk>/', views.alias_delete, name='alias_delete'),
+
+    # 新增：商品导入接口
+    path('import/', views.product_import, name='product_import'),
 ]

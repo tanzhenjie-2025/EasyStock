@@ -209,25 +209,32 @@
         </div>
         
         <!-- 新增商品表单 -->
-        <div class="add-form">
-            <div class="form-item">
-                <label>商品名称</label>
-                <input type="text" id="add-name" placeholder="请输入商品名称">
-            </div>
-            <div class="form-item">
-                <label>单价（¥）</label>
-                <input type="number" id="add-price" placeholder="0.00" min="0" step="0.01" value="0.00">
-            </div>
-            <div class="form-item">
-                <label>单位</label>
-                <input type="text" id="add-unit" placeholder="件/斤/瓶等" value="件">
-            </div>
-            <div class="form-item">
-                <label>库存数量</label>
-                <input type="number" id="add-stock" placeholder="77" min="0" value="77">
-            </div>
-            <button class="btn btn-primary" id="btn-add-product">新增商品</button>
-        </div>
+        <!-- 新增商品表单 -->
+<div class="add-form">
+    <div class="form-item">
+        <label>商品名称</label>
+        <input type="text" id="add-name" placeholder="请输入商品名称">
+    </div>
+    <div class="form-item">
+        <label>单价（¥）</label>
+        <input type="number" id="add-price" placeholder="0.00" min="0" step="0.01" value="0.00">
+    </div>
+    <div class="form-item">
+        <label>单位</label>
+        <input type="text" id="add-unit" placeholder="件/斤/瓶等" value="件">
+    </div>
+    <div class="form-item">
+        <label>库存数量</label>
+        <input type="number" id="add-stock" placeholder="77" min="0" value="77">
+    </div>
+    <button class="btn btn-primary" id="btn-add-product">新增商品</button>
+    
+    <!-- 新增：Excel导入控件 -->
+    <div style="margin-left: 20px; display: flex; align-items: center; gap: 10px;">
+        <input type="file" id="import-file" accept=".xlsx,.xls" style="font-size: 14px;">
+        <button class="btn btn-success" id="btn-import-product">批量导入商品</button>
+    </div>
+</div>
 
         <!-- 商品列表 -->
         <table class="product-table">
@@ -677,5 +684,67 @@
             document.getElementById('btn-save-edit').addEventListener('click', saveEdit);
             document.getElementById('btn-add-alias').addEventListener('click', addAlias);
         });
+        
+                // ========== 9. 商品导入功能 ==========
+        document.getElementById('btn-import-product').addEventListener('click', importProduct);
+
+        async function importProduct() {
+            const fileInput = document.getElementById('import-file');
+            if (!fileInput.files || fileInput.files.length === 0) {
+                showMsg('请选择要导入的Excel文件', false);
+                return;
+            }
+
+            const file = fileInput.files[0];
+            // 验证文件格式
+            if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+                showMsg('仅支持xlsx/xls格式的Excel文件', false);
+                return;
+            }
+
+            // 构建FormData
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                showMsg('正在导入商品数据，请稍候...', true);
+                const res = await fetch('/product/import/', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': getCsrfToken()
+                    },
+                    body: formData
+                });
+                const data = await res.json();
+                if (data.code === 1) {
+                    showMsg(data.msg, true);
+                    // 清空文件选择框
+                    fileInput.value = '';
+                    // 重新加载商品列表
+                    loadProductList();
+                } else {
+                    showMsg(data.msg, false);
+                }
+            } catch (error) {
+                showMsg('导入失败：' + error.message, false);
+                console.error('导入商品失败：', error);
+            }
+        }
+
+        // 补充：CSRF Token获取函数（如果没有的话）
+        function getCsrfToken() {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, 10) === 'csrftoken=') {
+                        cookieValue = decodeURIComponent(cookie.substring(10));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
     </script>
 {% endblock %}
