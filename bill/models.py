@@ -3,6 +3,7 @@ from pypinyin import lazy_pinyin
 import datetime
 # 新增：关联accounts的User模型
 from accounts.models import User
+from django.urls import reverse
 
 class Product(models.Model):
     """商品表（含拼音检索字段）"""
@@ -188,13 +189,13 @@ class Order(models.Model):
     cancelled_time = models.DateTimeField('作废时间', null=True, blank=True)
     cancelled_reason = models.CharField('作废原因', max_length=500, null=True, blank=True)
 
-    # 新增：重开相关字段（关联原订单）
+    # 新增：重开相关字段（关联直接来源的原订单）
     original_order = models.ForeignKey(
         'self',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        verbose_name='原订单',
+        verbose_name='直接来源订单',
         related_name='reopened_orders'
     )
 
@@ -209,6 +210,26 @@ class Order(models.Model):
                 seq = 1
             self.order_no = f'{date_str}{seq:04d}'
         super().save(*args, **kwargs)
+
+    # 新增：获取完整溯源链条
+    def get_full_trace_chain(self):
+        """递归获取完整溯源链条：[当前单, 上一级单, 最早原始单]"""
+        chain = [self]
+        current = self
+        while current.original_order:
+            current = current.original_order
+            chain.append(current)
+        return chain
+
+    # 新增：生成溯源链条展示字符串
+    def get_trace_chain_display(self):
+        """返回带跳转链接的溯源链条，如：C202403150003 → B202403150002 → A202403150001"""
+        chain = self.get_full_trace_chain()
+        link_list = []
+        for order in chain:
+            detail_url = reverse("order_detail", args=[order.order_no])
+            link_list.append(f'<a href="{detail_url}" class="alert-link">{order.order_no}</a>')
+        return ' → '.join(link_list)
 
     def __str__(self):
         return self.order_no

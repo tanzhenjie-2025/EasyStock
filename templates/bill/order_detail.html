@@ -45,13 +45,11 @@
                 </div>
             </div>
 
-            <!-- 新增：重开溯源信息 -->
-            {% if order.status == 'reopened' and order.original_order %}
+            <!-- 新增：完整溯源链条展示 -->
+            {% if order.get_full_trace_chain|length > 1 %}
             <div class="alert alert-warning mb-4">
-                <strong>重开溯源：</strong> 该订单由作废订单 
-                <a href="{% url 'order_detail' order.original_order.order_no %}" class="alert-link">
-                    {{ order.original_order.order_no }}
-                </a> 重开生成
+                <strong>完整溯源链条：</strong> {{ order.get_trace_chain_display|safe }}
+                <br><small class="text-muted">直接来源订单：{{ order.original_order.order_no }}</small>
             </div>
             {% endif %}
 
@@ -111,8 +109,8 @@
                 </a>
                 <a href="{% url 'order_list' %}" class="btn btn-secondary">返回列表</a>
                 
-                <!-- 作废按钮（仅老板可见） -->
-                {% if is_boss and order.status != 'cancelled' and order.status != 'reopened' %}
+                <!-- 作废按钮（仅老板可见，修正权限逻辑） -->
+                {% if is_boss and order.status != 'cancelled' %}
                 <button class="btn btn-danger ms-2" data-bs-toggle="modal" data-bs-target="#cancelModal">
                     作废订单
                 </button>
@@ -130,7 +128,7 @@
 </div>
 
 <!-- 作废订单模态框 -->
-{% if is_boss and order.status != 'cancelled' and order.status != 'reopened' %}
+{% if is_boss and order.status != 'cancelled' %}
 <div class="modal fade" id="cancelModal" tabindex="-1" aria-labelledby="cancelModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
