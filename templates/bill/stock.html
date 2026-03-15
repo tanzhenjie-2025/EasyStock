@@ -19,6 +19,7 @@
         .stock-container .search-wrapper {
             text-align: center;
             margin-bottom: 20px;
+            position: relative; /* 新增：为候选框定位做准备 */
         }
         .stock-container .product-search-input {
             width: 400px;
@@ -107,7 +108,7 @@
                 type="text"
                 id="productSearchInput"
                 class="product-search-input"
-                placeholder="输入商品名称/别名/拼音（按1-8选择，空格选第一个）"
+                placeholder="输入商品名称/别名/拼音（按1-8选择，空格选第一个，回车查询）"
             >
         </div>
 
@@ -167,7 +168,8 @@
         function initSuggestBox() {
             suggestBox = document.createElement('div');
             suggestBox.className = 'suggest-dropdown';
-            document.body.appendChild(suggestBox);
+            // 将候选框挂载到搜索容器内，避免定位偏移
+            document.querySelector('.search-wrapper').appendChild(suggestBox);
         }
 
         function hideSuggest() {
@@ -189,7 +191,7 @@
 
             // 输入事件：触发商品搜索
             searchInput.addEventListener('input', () => onProductInput(searchInput));
-            // 键盘事件：支持数字选择、空格选择、ESC隐藏
+            // 键盘事件：支持数字选择、空格选择、ESC隐藏、回车查询
             searchInput.addEventListener('keydown', handleProductInputKey);
             // 失焦延迟隐藏（避免点击候选项时直接隐藏）
             searchInput.addEventListener('blur', () => {
@@ -226,8 +228,10 @@
         // 显示候选框
         function showSuggest(input, list) {
             const rect = input.getBoundingClientRect();
-            suggestBox.style.left = rect.left + 'px';
-            suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
+            const wrapperRect = document.querySelector('.search-wrapper').getBoundingClientRect();
+            // 修正候选框定位（相对搜索容器）
+            suggestBox.style.left = (rect.left - wrapperRect.left) + 'px';
+            suggestBox.style.top = (rect.bottom - wrapperRect.top) + 'px';
             suggestBox.innerHTML = '';
 
             // 显示前8个候选（带数字编号）
@@ -250,13 +254,13 @@
             currentSearchInput.value = item.name;
             // 2. 隐藏候选框
             hideSuggest();
-            // 3. 过滤表格：只显示选中商品（或高亮该行）
+            // 3. 过滤表格：高亮选中商品并滚动到该行
             filterStockTable(item.id);
         }
 
-        // 处理搜索框键盘事件（核心：数字/空格选择）
+        // 处理搜索框键盘事件（核心：数字/空格选择、回车查询）
         function handleProductInputKey(e) {
-            if (!currentSuggestList.length) return;
+            if (!currentSuggestList.length && e.key !== 'Enter') return;
 
             // 空格：选择第一个商品
             if (e.key === ' ') {
@@ -274,22 +278,35 @@
                 hideSuggest();
                 e.preventDefault();
             }
-            // 回车：清空搜索框，重置表格
+            // 回车：执行查询（高亮匹配商品/显示所有匹配结果）
             if (e.key === 'Enter') {
-                resetStockTable();
-                currentSearchInput.value = '';
+                e.preventDefault();
                 hideSuggest();
+                const keyword = currentSearchInput.value.trim();
+                if (keyword) {
+                    // 如果有候选列表，优先选第一个；否则按关键词过滤
+                    if (currentSuggestList.length) {
+                        selectProductItem(0);
+                    } else {
+                        searchStockByKeyword(keyword);
+                    }
+                } else {
+                    resetStockTable();
+                }
             }
         }
 
         // ========== 5. 表格过滤/高亮逻辑 ==========
-        // 过滤表格：只显示选中商品
+        // 按商品ID过滤表格（高亮+滚动）
         function filterStockTable(productId) {
             const tableBody = document.querySelector('#stockTable tbody');
             const rows = tableBody.querySelectorAll('tr');
             
-            // 移除所有高亮样式
-            rows.forEach(row => row.classList.remove('highlight-row'));
+            // 移除所有高亮样式，显示所有行
+            rows.forEach(row => {
+                row.classList.remove('highlight-row');
+                row.style.display = '';
+            });
 
             // 查找并高亮目标商品行
             let targetRow = null;
@@ -299,8 +316,6 @@
                     row.classList.add('highlight-row');
                     row.scrollIntoView({ behavior: 'smooth', block: 'center' }); // 滚动到该行
                 }
-                // 可选：隐藏非目标行（注释掉则只高亮，不隐藏）
-                // row.style.display = row.dataset.productId == productId ? '' : 'none';
             });
 
             // 如果没找到（本地数据未更新），手动添加一行显示
@@ -317,6 +332,31 @@
                         </tr>
                     `;
                 }
+            }
+        }
+
+        // 按关键词模糊搜索库存
+        function searchStockByKeyword(keyword) {
+            const tableBody = document.querySelector('#stockTable tbody');
+            const rows = tableBody.querySelectorAll('tr');
+            let hasMatch = false;
+
+            rows.forEach(row => {
+                const productName = row.querySelector('td:first-child').textContent.toLowerCase();
+                const pinyinAbbr = row.querySelector('td:nth-child(2)').textContent.toLowerCase();
+                // 匹配商品名称或拼音首字母
+                if (productName.includes(keyword.toLowerCase()) || pinyinAbbr.includes(keyword.toLowerCase())) {
+                    row.style.display = '';
+                    row.classList.add('highlight-row');
+                    hasMatch = true;
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+
+            // 无匹配结果时提示
+            if (!hasMatch) {
+                tableBody.innerHTML = `<tr><td colspan="5">未找到关键词「${keyword}」相关商品</td></tr>`;
             }
         }
 

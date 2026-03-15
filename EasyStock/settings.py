@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     "summary.apps.SummaryConfig",
     "area_manage.apps.AreaManageConfig",
     "customer_manage.apps.CustomerManageConfig",
+    "operation_log.apps.OperationLogConfig"
 ]
 
 MIDDLEWARE = [

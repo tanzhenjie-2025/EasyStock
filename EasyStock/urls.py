@@ -8,6 +8,7 @@ urlpatterns = [
     path('summary/', include('summary.urls')),
     path('customer-manage/', include('customer_manage.urls')),
     path('product/', include('product.urls')),
-    # 新增账户管理路由
     path('accounts/', include('accounts.urls')),
+    # 新增操作日志路由
+    path('operation-log/', include('operation_log.urls')),
 ]

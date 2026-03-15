@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+
+{% block title %}操作日志列表 - EasyStock{% endblock %}
+
+{% block extra_css %}
+<style>
+    .filter-card {
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+    .log-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .log-table th, .log-table td {
+        border: 1px solid #dee2e6;
+        padding: 10px;
+        text-align: left;
+    }
+    .log-table th {
+        background: #e9ecef;
+    }
+    .log-row:hover {
+        background: #f8f9fa;
+        cursor: pointer;
+    }
+    .filter-form .form-group {
+        margin-bottom: 10px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="content-container">
+    <h1>操作日志管理</h1>
+
+    <!-- 筛选卡片 -->
+    <div class="filter-card">
+        <form class="filter-form row g-3" method="get">
+            <!-- 操作人筛选 -->
+            <div class="col-md-2">
+                <label class="form-label">操作人</label>
+                <select name="operator_id" class="form-select">
+                    <option value="">全部</option>
+                    {% for operator in operators %}
+                    <option value="{{ operator.id }}" {% if operator_id == operator.id|stringformat:"i" %}selected{% endif %}>
+                        {{ operator.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- 时间范围筛选 -->
+            <div class="col-md-2">
+                <label class="form-label">开始日期</label>
+                <input type="date" name="start_date" class="form-control" value="{{ start_date }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label">结束日期</label>
+                <input type="date" name="end_date" class="form-control" value="{{ end_date }}">
+            </div>
+
+            <!-- 操作行为筛选 -->
+            <div class="col-md-2">
+                <label class="form-label">操作行为</label>
+                <select name="operation_type" class="form-select">
+                    <option value="">全部</option>
+                    {% for type_key, type_name in operation_types %}
+                    <option value="{{ type_key }}" {% if operation_type == type_key %}selected{% endif %}>
+                        {{ type_name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- 操作对象类型筛选 -->
+            <div class="col-md-2">
+                <label class="form-label">操作对象</label>
+                <select name="object_type" class="form-select">
+                    <option value="">全部</option>
+                    {% for type_key, type_name in object_types %}
+                    <option value="{{ type_key }}" {% if object_type == type_key %}selected{% endif %}>
+                        {{ type_name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- 筛选按钮 -->
+            <div class="col-md-2 d-flex align-items-end">
+                <button type="submit" class="btn btn-primary w-100">筛选</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- 日志列表 -->
+    <div class="table-responsive">
+        <table class="log-table">
+            <thead>
+                <tr>
+                    <th>序号</th>
+                    <th>操作人</th>
+                    <th>操作时间</th>
+                    <th>操作行为</th>
+                    <th>操作对象</th>
+                    <th>对象名称</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                <tr class="log-row" onclick="window.location.href='{% url 'log_detail' log.id %}'">
+                    <td>{{ forloop.counter }}</td>
+                    <td>{{ log.operator.name|default:"未知用户" }}</td>
+                    <td>{{ log.operation_time|date:"Y-m-d H:i:s" }}</td>
+                    <td>{{ log.get_operation_type_display }}</td>
+                    <td>{{ log.get_object_type_display }}</td>
+                    <td>{{ log.object_name|default:"-" }}</td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="6" class="text-center py-3">暂无日志记录</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // 取消行点击事件（如果点击的是链接）
+    document.querySelectorAll('.log-row a').forEach(link => {
+        link.addEventListener('click', function(e) {
+            e.stopPropagation();
+        });
+    });
+</script>
+{% endblock %}

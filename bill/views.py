@@ -10,7 +10,17 @@ from .utils import generate_daily_summary, auto_summary_yesterday
 # 新增：Django原生登录验证 + 权限装饰器
 from django.contrib.auth.decorators import login_required, user_passes_test
 from accounts.views import is_boss, is_operator
+from operation_log.models import OperationLog
+import socket  # 用于获取IP地址
 
+def get_client_ip(request):
+    """获取客户端IP地址"""
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[0]
+    else:
+        ip = request.META.get('REMOTE_ADDR', 'unknown')
+    return ip
 
 # ========== 开单核心功能 ==========
 # 添加登录和权限装饰器 + 传递 is_boss 变量
@@ -168,6 +178,18 @@ def save_order(request):
                 # 扣减库存
                 valid_item['product'].stock -= valid_item['quantity']
                 valid_item['product'].save()
+
+            # ========== 新增：记录开单操作日志 ==========
+            customer_name = order.customer.name if order.customer else '无'
+            OperationLog.objects.create(
+                operator=request.user,
+                operation_type='create_order',
+                object_type='order',
+                object_id=str(order.id),
+                object_name=f"订单-{order.order_no}",
+                operation_detail=f"创建订单{order.order_no}，客户：{customer_name}，总金额：{order.total_amount}元，商品数量：{len(valid_items)}个",
+                ip_address=get_client_ip(request)
+            )
 
             return JsonResponse({'code': 1, 'msg': '开单成功', 'order_no': order.order_no})
 
@@ -412,10 +434,23 @@ def cancel_order(request, order_no):
             order.save()
 
             # 恢复库存（作废订单后，库存加回来）
+            item_count = 0
             for item in order.items.all():
                 if item.product:
                     item.product.stock += item.quantity
                     item.product.save()
+                    item_count += 1
+
+            # ========== 新增：记录作废订单操作日志 ==========
+            OperationLog.objects.create(
+                operator=request.user,
+                operation_type='cancel_order',
+                object_type='order',
+                object_id=str(order.id),
+                object_name=f"订单-{order.order_no}",
+                operation_detail=f"作废订单{order.order_no}，原因：{reason}，恢复{item_count}个商品库存",
+                ip_address=get_client_ip(request)
+            )
 
             return JsonResponse({'code': 1, 'msg': '订单作废成功', 'order_no': order_no})
 
@@ -450,6 +485,7 @@ def reopen_order(request, order_no):
 
             # 2. 复制原订单明细
             total_amount = 0
+            item_count = 0
             for original_item in original_order.items.all():
                 if original_item.product:
                     # 校验库存
@@ -475,10 +511,23 @@ def reopen_order(request, order_no):
                     original_item.product.save()
 
                     total_amount += float(new_item.amount or 0)
+                    item_count += 1
 
             # 3. 更新新订单总金额
             new_order.total_amount = total_amount
             new_order.save()
+
+            # ========== 新增：记录重开订单操作日志 ==========
+            customer_name = new_order.customer.name if new_order.customer else '无'
+            OperationLog.objects.create(
+                operator=request.user,
+                operation_type='reopen_order',
+                object_type='order',
+                object_id=str(new_order.id),
+                object_name=f"订单-{new_order.order_no}",
+                operation_detail=f"重开订单{new_order.order_no}，原作废订单：{original_order.order_no}，客户：{customer_name}，总金额：{new_order.total_amount}元，商品数量：{item_count}个",
+                ip_address=get_client_ip(request)
+            )
 
             return JsonResponse({
                 'code': 1,
