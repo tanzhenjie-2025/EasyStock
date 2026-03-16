@@ -8,7 +8,8 @@
         <span class="badge bg-secondary">仅显示您创建的订单</span>
     {% endif %}
 </h3>
-<!-- 筛选表单 -->
+
+<!-- 筛选表单（新增结清状态筛选） -->
 <form method="get" class="mb-4">
     <div class="row g-2">
         <div class="col-auto">
@@ -26,13 +27,15 @@
             </select>
         </div>
         <div class="col-auto">
-            <!-- 核心修改：添加唯一ID用于JS定位 -->
-            <input type="text" 
-                   id="customerNameInput" 
-                   name="customer_name" 
-                   class="form-control form-control-sm" 
-                   placeholder="客户名称" 
-                   value="{{ customer_name }}">
+            <input type="text" id="customerNameInput" name="customer_name" class="form-control form-control-sm" placeholder="客户名称" value="{{ customer_name }}">
+        </div>
+        <!-- 新增：结清状态筛选 -->
+        <div class="col-auto">
+            <select name="settled_status" class="form-select form-select-sm">
+                <option value="" {% if settled_status == "" %}selected{% endif %}>所有状态</option>
+                <option value="settled" {% if settled_status == "settled" %}selected{% endif %}>已结清</option>
+                <option value="unsettled" {% if settled_status == "unsettled" %}selected{% endif %}>未结清</option>
+            </select>
         </div>
         <div class="col-auto">
             <button type="submit" class="btn btn-sm btn-primary">筛选</button>
@@ -40,23 +43,34 @@
     </div>
 </form>
 
-<!-- 订单表格 -->
+<!-- 批量操作按钮 -->
+<div class="mb-3">
+    <button class="btn btn-sm btn-success" id="batchSettleBtn" disabled>批量结清选中订单</button>
+</div>
+
+<!-- 订单表格（新增批量选择框、结清标识、操作按钮） -->
 <table class="table table-striped table-bordered">
     <thead>
         <tr>
+            <th><input type="checkbox" id="selectAll"></th>  <!-- 批量选择全选框 -->
             <th>订单编号</th>
             <th>开单时间</th>
             <th>开单人</th>
             <th>客户</th>
             <th>区域</th>
             <th>总金额</th>
-            <th>状态</th>
+            <th>订单状态</th>
+            <th>结清状态</th>  <!-- 新增结清状态列 -->
             <th>操作</th>
         </tr>
     </thead>
     <tbody>
         {% for order in orders %}
         <tr {% if order.status == 'cancelled' %}class="table-danger"{% elif order.status == 'reopened' %}class="table-warning"{% endif %}>
+            <td>
+                <!-- 批量选择框（作废订单不可选） -->
+                <input type="checkbox" class="orderCheckbox" value="{{ order.order_no }}" {% if order.status == 'cancelled' %}disabled{% endif %}>
+            </td>
             <td>
                 {{ order.order_no }}
                 {% if order.original_order %}
@@ -82,38 +96,334 @@
                     <span class="badge bg-warning">重开</span>
                 {% endif %}
             </td>
+            <!-- 新增：结清状态展示 -->
+            <td>
+                {% if order.is_settled %}
+                    <span class="badge bg-success">已结清</span>
+                    <br><small class="text-success">
+                        {{ order.settled_time|date:"m-d H:i" }} {{ order.settled_by.name|default:"未知" }}
+                        {% if order.unsettled_time %}
+                            <br><span class="text-danger">已撤销：{{ order.unsettled_time|date:"m-d H:i" }}</span>
+                        {% endif %}
+                    </small>
+                {% else %}
+                    <span class="badge bg-danger">未结清</span>
+                {% endif %}
+            </td>
             <td>
                 <a href="{% url 'print_order' order.order_no %}" class="btn btn-sm btn-primary {% if order.status == 'cancelled' %}disabled{% endif %}">打印</a>
                 <a href="{% url 'order_detail' order.order_no %}" class="btn btn-sm btn-info">详情</a>
+                
+                <!-- 标记结清按钮（未结清+非作废订单可见） -->
+                {% if not order.is_settled and order.status != 'cancelled' %}
+                    <button class="btn btn-sm btn-success mt-1 settleBtn" data-order-no="{{ order.order_no }}">标记结清</button>
+                {% endif %}
+                
+                <!-- 撤销结清按钮（仅老板+已结清订单可见） -->
+                {% if is_boss and order.is_settled %}
+                    <button class="btn btn-sm btn-warning mt-1 unsettleBtn" data-order-no="{{ order.order_no }}">撤销结清</button>
+                {% endif %}
             </td>
         </tr>
         {% empty %}
         <tr>
-            <td colspan="8" class="text-center">暂无订单数据</td>
+            <td colspan="10" class="text-center">暂无订单数据</td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
+
+<!-- 1. 标记结清模态框 -->
+<div class="modal fade" id="settleModal" tabindex="-1" aria-labelledby="settleModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="settleModalLabel">标记订单结清</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="settleOrderNo">
+                <div class="mb-3">
+                    <label for="settleRemark" class="form-label">结清备注（必填）</label>
+                    <textarea class="form-control" id="settleRemark" rows="3" placeholder="请填写收款方式、转账账户、转账时间等信息..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-success" onclick="submitSettle()">确认结清</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 2. 撤销结清模态框（仅老板可见） -->
+{% if is_boss %}
+<div class="modal fade" id="unsettleModal" tabindex="-1" aria-labelledby="unsettleModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="unsettleModalLabel">撤销订单结清</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="unsettleOrderNo">
+                <div class="mb-3">
+                    <label for="unsettleRemark" class="form-label">撤销结清备注（必填）</label>
+                    <textarea class="form-control" id="unsettleRemark" rows="3" placeholder="请填写撤销原因..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-warning" onclick="submitUnsettle()">确认撤销</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- 3. 批量结清模态框 -->
+<div class="modal fade" id="batchSettleModal" tabindex="-1" aria-labelledby="batchSettleModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="batchSettleModalLabel">批量结清订单</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="batchOrderList" class="mb-3">
+                    <!-- 动态生成选中订单的备注输入框 -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-success" onclick="submitBatchSettle()">确认批量结清</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
-<!-- 新增：自动聚焦的JS代码 -->
 {% block extra_js %}
 <script>
-// 页面DOM加载完成后执行
+// 1. 全选/取消全选
 $(document).ready(function() {
-    // 定位客户名称输入框
-    const customerInput = $('#customerNameInput');
+    $('#selectAll').change(function() {
+        $('.orderCheckbox').prop('checked', this.checked);
+        updateBatchBtnStatus();
+    });
     
-    // 确保输入框存在再执行聚焦（避免报错）
-    if (customerInput.length > 0) {
-        // 自动聚焦到输入框
-        customerInput.focus();
+    // 单个选择框变化时更新批量按钮状态
+    $('.orderCheckbox').change(updateBatchBtnStatus);
+    
+    // 标记结清按钮点击事件
+    $('.settleBtn').click(function() {
+        const orderNo = $(this).data('order-no');
+        $('#settleOrderNo').val(orderNo);
+        $('#settleRemark').val('');
+        $('#settleModal').modal('show');
+    });
+    
+    // 撤销结清按钮点击事件（仅老板可见）
+    $('.unsettleBtn').click(function() {
+        const orderNo = $(this).data('order-no');
+        $('#unsettleOrderNo').val(orderNo);
+        $('#unsettleRemark').val('');
+        $('#unsettleModal').modal('show');
+    });
+    
+    // 批量结清按钮点击事件
+    $('#batchSettleBtn').click(function() {
+        // 收集选中的订单号
+        const selectedOrders = $('.orderCheckbox:checked').map(function() {
+            return $(this).val();
+        }).get();
         
-        // 可选优化：如果输入框有默认值，将光标移到内容末尾
+        // 生成批量备注输入框
+        let html = '<div class="alert alert-info">请为每个订单填写结清备注：</div>';
+        selectedOrders.forEach(orderNo => {
+            html += `
+                <div class="mb-2">
+                    <label class="form-label">订单 ${orderNo} 备注：</label>
+                    <textarea class="form-control batchRemark" data-order-no="${orderNo}" rows="2" placeholder="收款方式、账户等..."></textarea>
+                </div>
+            `;
+        });
+        $('#batchOrderList').html(html);
+        $('#batchSettleModal').modal('show');
+    });
+});
+
+// 2. 更新批量按钮状态
+function updateBatchBtnStatus() {
+    const checkedCount = $('.orderCheckbox:checked').length;
+    $('#batchSettleBtn').prop('disabled', checkedCount === 0);
+}
+
+// 3. 获取CSRF Token
+function getCsrfToken() {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, 10) === 'csrftoken=') {
+                cookieValue = decodeURIComponent(cookie.substring(10));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+// 4. 提交标记结清（修复版）
+function submitSettle() {
+    const orderNo = $('#settleOrderNo').val();
+    const remark = $('#settleRemark').val().trim();
+    
+    if (!remark) {
+        alert('请填写结清备注');
+        return;
+    }
+    
+    fetch(`/bill/orders/settle/${orderNo}/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken(),
+            'X-Requested-With': 'XMLHttpRequest' // 标记AJAX请求
+        },
+        body: JSON.stringify({ remark: remark })
+    })
+    .then(res => {
+        // 先检查响应状态是否正常
+        if (!res.ok) {
+            return res.text().then(text => {
+                throw new Error(`请求失败（状态码：${res.status}）：${text.substring(0, 100)}`);
+            });
+        }
+        return res.json();
+    })
+    .then(data => {
+        if (data.code === 1) {
+            alert('标记结清成功');
+            window.location.reload();
+        } else {
+            alert('标记失败：' + data.msg);
+        }
+    })
+    .catch(err => {
+        alert('标记失败：' + err.message);
+        console.error('标记结清错误详情：', err);
+    });
+}
+
+// 5. 提交撤销结清（修复版）
+function submitUnsettle() {
+    const orderNo = $('#unsettleOrderNo').val();
+    const remark = $('#unsettleRemark').val().trim();
+    
+    if (!remark) {
+        alert('请填写撤销结清备注');
+        return;
+    }
+    
+    fetch(`/bill/orders/unsettle/${orderNo}/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken(),
+            'X-Requested-With': 'XMLHttpRequest' // 标记AJAX请求
+        },
+        body: JSON.stringify({ remark: remark })
+    })
+    .then(res => {
+        if (!res.ok) {
+            return res.text().then(text => {
+                throw new Error(`请求失败（状态码：${res.status}）：${text.substring(0, 100)}`);
+            });
+        }
+        return res.json();
+    })
+    .then(data => {
+        if (data.code === 1) {
+            alert('撤销结清成功');
+            window.location.reload();
+        } else {
+            alert('撤销失败：' + data.msg);
+        }
+    })
+    .catch(err => {
+        alert('撤销失败：' + err.message);
+        console.error('撤销结清错误详情：', err);
+    });
+}
+
+// 6. 提交批量结清（优化版）
+function submitBatchSettle() {
+    // 收集订单号和备注
+    const orderList = [];
+    let hasEmptyRemark = false;
+    
+    $('.batchRemark').each(function() {
+        const orderNo = $(this).data('order-no');
+        const remark = $(this).val().trim();
+        
+        if (!remark) {
+            hasEmptyRemark = true;
+            alert(`订单 ${orderNo} 的备注不能为空`);
+            return false;
+        }
+        
+        orderList.push({
+            order_no: orderNo,
+            remark: remark
+        });
+    });
+    
+    if (hasEmptyRemark || orderList.length === 0) {
+        alert('请选择至少一个订单并填写备注');
+        return;
+    }
+    
+    fetch('/bill/orders/batch-settle/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken(),
+            'X-Requested-With': 'XMLHttpRequest' // 标记AJAX请求
+        },
+        body: JSON.stringify({ orders: orderList })
+    })
+    .then(res => {
+        // 先检查响应状态
+        if (!res.ok) {
+            return res.text().then(text => {
+                throw new Error(`请求失败（状态码：${res.status}）：${text.substring(0, 100)}`);
+            });
+        }
+        return res.json();
+    })
+    .then(data => {
+        alert(data.msg);
+        if (data.code === 1) {
+            window.location.reload();
+        }
+    })
+    .catch(err => {
+        alert('批量结清失败：' + err.message);
+        console.error('批量结清错误详情：', err);
+    });
+}
+
+// 原有自动聚焦逻辑保持不变
+$(document).ready(function() {
+    const customerInput = $('#customerNameInput');
+    if (customerInput.length > 0) {
+        customerInput.focus();
         const inputValue = customerInput.val();
         if (inputValue) {
-            customerInput.val(''); // 清空
-            customerInput.val(inputValue); // 重新赋值，光标到末尾
+            customerInput.val('');
+            customerInput.val(inputValue);
         }
     }
 });

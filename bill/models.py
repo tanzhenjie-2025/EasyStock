@@ -5,6 +5,8 @@ import datetime
 from accounts.models import User
 from django.urls import reverse
 
+
+
 class Product(models.Model):
     """商品表（含拼音检索字段）"""
     name = models.CharField('商品名称', max_length=100, unique=True)
@@ -198,6 +200,31 @@ class Order(models.Model):
         verbose_name='直接来源订单',
         related_name='reopened_orders'
     )
+
+    # 新增：结清相关字段
+    is_settled = models.BooleanField('是否结清', default=False)  # 核心标识
+    settled_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name='结清人',
+        related_name='settled_orders'
+    )
+    settled_time = models.DateTimeField('结清时间', null=True, blank=True)
+    settled_remark = models.TextField('结清备注', null=True, blank=True, help_text='收款方式、账户、转账时间等')
+
+    # 新增：撤销结清相关字段（仅老板可操作）
+    unsettled_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name='撤销结清人',
+        related_name='unsettled_orders'
+    )
+    unsettled_time = models.DateTimeField('撤销结清时间', null=True, blank=True)
+    unsettled_remark = models.TextField('撤销结清备注', null=True, blank=True)
 
     def save(self, *args, **kwargs):
         """自动生成订单编号（年月日+随机数）"""

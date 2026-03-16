@@ -9,8 +9,16 @@ urlpatterns = [
     path('print/<str:order_no>/', views.print_order, name='print_order'),  # 打印页面
     path('stock/', views.stock_list, name='stock_list'),  # 库存查询
     path('orders/', views.order_list, name='order_list'),  # 订单列表（查单）
-    path('orders/<str:order_no>/', views.order_detail, name='order_detail'),  # 订单详情
+
+    # ========== 调整：将所有orders子路径放在动态路径前面 ==========
     path('orders/cancel/<str:order_no>/', views.cancel_order, name='cancel_order'),
-    path('orders/reopen/<str:order_no>/', views.reopen_order, name='reopen_order'),  # 保留原接口（可注释，前端不再调用）
-    path('reopen-edit/<str:order_no>/', views.reopen_order_edit, name='reopen_order_edit'),  # 新增：重开编辑页面
+    path('orders/reopen/<str:order_no>/', views.reopen_order, name='reopen_order'),  # 保留原接口
+    path('orders/settle/<str:order_no>/', views.settle_order, name='settle_order'),  # 标记结清
+    path('orders/unsettle/<str:order_no>/', views.unsettle_order, name='unsettle_order'),  # 撤销结清
+    path('orders/batch-settle/', views.batch_settle_order, name='batch_settle_order'),  # 批量结清
+
+    # ========== 动态路径移到最后 ==========
+    path('orders/<str:order_no>/', views.order_detail, name='order_detail'),  # 订单详情
+
+    path('reopen-edit/<str:order_no>/', views.reopen_order_edit, name='reopen_order_edit'),  # 重开编辑页面
 ]
