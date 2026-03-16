@@ -9,6 +9,41 @@ from openpyxl.styles import Font, Alignment
 from io import BytesIO
 import json
 
+# 新增：导入日志模型和时间工具
+from operation_log.models import OperationLog
+from django.utils import timezone
+
+
+# ========== 新增：通用日志记录函数（核心） ==========
+def create_operation_log(request, operation_type, object_type, object_id=None, object_name=None, operation_detail=None):
+    """
+    封装操作日志记录逻辑，容错处理（日志失败不影响主业务）
+    :param request: 请求对象（获取用户/IP）
+    :param operation_type: 操作类型（对应OperationLog的OPERATION_TYPE_CHOICES）
+    :param object_type: 操作对象类型（对应OperationLog的OBJECT_TYPE_CHOICES）
+    :param object_id: 操作对象ID（汇总导出无具体ID，传空）
+    :param object_name: 操作对象名称（如“商品汇总”/“客户汇总”）
+    :param operation_detail: 操作详情（导出范围、时间、字段等关键信息）
+    """
+    # 获取客户端IP（兼容代理场景）
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    ip_address = x_forwarded_for.split(',')[0] if x_forwarded_for else request.META.get('REMOTE_ADDR', '')
+
+    # 容错处理：日志记录失败仅打印错误，不中断导出功能
+    try:
+        OperationLog.objects.create(
+            operator=request.user if request.user.is_authenticated else None,  # 当前登录用户
+            operation_time=timezone.now(),
+            operation_type=operation_type,
+            object_type=object_type,
+            object_id=str(object_id) if object_id else None,
+            object_name=object_name,
+            operation_detail=operation_detail,
+            ip_address=ip_address
+        )
+    except Exception as e:
+        print(f"【汇总模块日志记录失败】：{str(e)}")
+
 
 # 汇总页面
 def summary_page(request):
@@ -248,7 +283,7 @@ def export_to_excel(data, title, headers, selected_fields, custom_fields, file_n
     return response
 
 
-# ========== 商品汇总导出接口 ==========
+# ========== 商品汇总导出接口（添加日志记录） ==========
 @csrf_exempt
 def export_product_summary(request):
     if request.method == 'POST':
@@ -330,6 +365,22 @@ def export_product_summary(request):
                     'remark': ''  # 空的备注字段
                 })
 
+            # ========== 新增：记录商品汇总导出日志 ==========
+            # 拼接操作详情（包含关键导出信息）
+            operation_detail = (
+                f"导出商品汇总：区域组={group_name}，时间范围={start.strftime('%Y-%m-%d %H:%M')}至{end.strftime('%Y-%m-%d %H:%M')}，"
+                f"选中字段={','.join(selected_fields)}，自定义字段={json.dumps(custom_fields, ensure_ascii=False)}，"
+                f"导出数据行数={len(export_data)}"
+            )
+            # 记录日志
+            create_operation_log(
+                request=request,
+                operation_type='export',  # 导出操作
+                object_type='daily_summary',  # 销售汇总
+                object_name='商品汇总',
+                operation_detail=operation_detail
+            )
+
             # 导出Excel
             return export_to_excel(
                 data=export_data,
@@ -345,7 +396,7 @@ def export_product_summary(request):
             return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'}, status=500)
 
 
-# ========== 客户汇总导出接口 ==========
+# ========== 客户汇总导出接口（添加日志记录） ==========
 @csrf_exempt
 def export_customer_summary(request):
     if request.method == 'POST':
@@ -420,6 +471,22 @@ def export_customer_summary(request):
                     'remark': item['customer__remark'] or ''
                 })
 
+            # ========== 新增：记录客户汇总导出日志 ==========
+            # 拼接操作详情（包含关键导出信息）
+            operation_detail = (
+                f"导出客户汇总：区域组={group_name}，时间范围={start.strftime('%Y-%m-%d %H:%M')}至{end.strftime('%Y-%m-%d %H:%M')}，"
+                f"选中字段={','.join(selected_fields)}，自定义字段={json.dumps(custom_fields, ensure_ascii=False)}，"
+                f"导出数据行数={len(export_data)}"
+            )
+            # 记录日志
+            create_operation_log(
+                request=request,
+                operation_type='export',  # 导出操作
+                object_type='daily_summary',  # 销售汇总
+                object_name='客户汇总',
+                operation_detail=operation_detail
+            )
+
             # 导出Excel
             return export_to_excel(
                 data=export_data,
@@ -432,3 +499,19 @@ def export_customer_summary(request):
 
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'}, status=500)
+
+
+# ========== 新增：商品列表接口（供客户价格管理） ==========
+@csrf_exempt
+def product_list_for_price(request):
+    """供客户价格管理页面获取商品列表"""
+    try:
+        products = Product.objects.all().order_by('name')
+        result = [{'id': p.id, 'name': p.name, 'price': float(p.price)} for p in products]
+        return JsonResponse(result, safe=False, content_type='application/json')
+    except Exception as e:
+        return JsonResponse(
+            {'code': 0, 'msg': f'查询商品失败：{str(e)}'},
+            safe=False,
+            content_type='application/json'
+        )
