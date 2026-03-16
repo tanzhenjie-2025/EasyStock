@@ -10,6 +10,7 @@
             margin: 0 auto;
             padding: 20px;
             font-family: "Microsoft YaHei", sans-serif;
+            text-align: center; /* 关键：让内部行内元素居中 */
         }
         .stock-container h1 {
             text-align: center;
@@ -17,9 +18,13 @@
             color: #333;
         }
         .stock-container .search-wrapper {
-            text-align: center;
-            margin-bottom: 20px;
-            position: relative; /* 新增：为候选框定位做准备 */
+            /* 核心修改：实现搜索栏整体居中 */
+            margin: 0 auto 20px; /* 上下边距0/20px，左右auto水平居中 */
+            position: relative; /* 为候选框定位准备 */
+            display: flex; /* 改为flex，替代inline-flex */
+            align-items: center; /* 垂直居中内部元素 */
+            gap: 8px; /* 输入框和按钮间距 */
+            width: fit-content; /* 宽度适配内容，保证margin auto生效 */
         }
         .stock-container .product-search-input {
             width: 400px;
@@ -32,6 +37,20 @@
         .stock-container .product-search-input:focus {
             border-color: #0066cc;
             box-shadow: 0 0 5px rgba(0, 102, 204, 0.2);
+        }
+        /* 新增：查询按钮样式 */
+        .stock-container .search-btn {
+            padding: 10px 18px;
+            background-color: #0066cc;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.2s;
+        }
+        .stock-container .search-btn:hover {
+            background-color: #0055bb;
         }
         .stock-container .back-btn {
             display: inline-block;
@@ -100,16 +119,17 @@
 {% block content %}
     <div class="stock-container">
         <h1>商品库存查询</h1>
-        <a href="/bill/" class="back-btn">返回开单页</a>
         
-        <!-- 输入法式商品搜索框 -->
+        <!-- 输入法式商品搜索框 + 新增查询按钮 -->
         <div class="search-wrapper">
             <input
                 type="text"
                 id="productSearchInput"
                 class="product-search-input"
-                placeholder="输入商品名称/别名/拼音（按1-8选择，空格选第一个，回车查询）"
+                placeholder="输入商品名称/别名/拼音（回车或点击查询）"
             >
+            <!-- 新增：查询按钮 -->
+            <button id="searchBtn" class="search-btn">查询</button>
         </div>
 
         <!-- 库存表格 -->
@@ -123,7 +143,7 @@
                     <th>库存数量</th>
                 </tr>
             </thead>
-            <tbody>
+            <tbody id="stockTableBody">
                 {% for product in products %}
                 <tr data-product-id="{{ product.id }}">
                     <td>{{ product.name }}</td>
@@ -142,261 +162,121 @@
 
 {% block extra_js %}
     <script>
-        // ========== 全局变量（适配库存页） ==========
-        let currentSearchInput = null;    // 当前商品搜索输入框
-        let currentSuggestList = [];      // 当前商品候选列表
-        let suggestBox = null;            // 全局候选DOM
-        let allProducts = {% for product in products %}
-            {
-                id: {{ product.id }},
-                name: "{{ product.name }}",
-                pinyin_abbr: "{{ product.pinyin_abbr }}",
-                unit: "{{ product.unit }}",
-                price: {{ product.price }},
-                stock: {{ product.stock }}
-            }{% if not forloop.last %},{% endif %}
-        {% empty %}[]{% endfor %}; // 本地缓存所有商品数据
+        // ========== 全局变量 ==========
+        let allProducts = []; // 本地缓存所有商品数据
+        
+        // ========== 页面加载完成后执行（修复DOM加载时机问题） ==========
+        window.onload = function() {
+            // 1. 初始化商品数据（修复模板渲染语法问题）
+            {% if products %}
+                allProducts = [
+                    {% for product in products %}
+                    {
+                        id: {{ product.id }},
+                        name: "{{ product.name }}",
+                        pinyin_abbr: "{{ product.pinyin_abbr }}",
+                        unit: "{{ product.unit }}",
+                        price: {{ product.price }},
+                        stock: {{ product.stock }}
+                    }{% if not forloop.last %},{% endif %}
+                    {% endfor %}
+                ];
+            {% endif %}
 
-        // ========== 初始化 ==========
-        document.addEventListener('DOMContentLoaded', function() {
-            // 核心新增：自动聚焦到库存查询输入框
+            // 2. 强制自动聚焦到搜索框（核心修复）
             const searchInput = document.getElementById('productSearchInput');
             if (searchInput) {
-                searchInput.focus(); // 自动聚焦
-                // 可选优化：光标移到输入框末尾（如果有默认值）
-                const inputValue = searchInput.value;
-                if (inputValue) {
-                    searchInput.value = '';
-                    searchInput.value = inputValue;
-                }
+                // 延迟聚焦确保DOM完全加载
+                setTimeout(() => {
+                    searchInput.focus();
+                    // 确保光标在输入框末尾
+                    searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length);
+                }, 100);
             }
 
-            initSuggestBox();
-            initProductSearchInput();
-            window.addEventListener('click', hideAllSuggest);
-        });
-
-        // ========== 1. 候选框初始化 ==========
-        function initSuggestBox() {
-            suggestBox = document.createElement('div');
-            suggestBox.className = 'suggest-dropdown';
-            // 将候选框挂载到搜索容器内，避免定位偏移
-            document.querySelector('.search-wrapper').appendChild(suggestBox);
-        }
-
-        function hideSuggest() {
-            if (suggestBox) suggestBox.style.display = 'none';
-            currentSearchInput = null;
-            currentSuggestList = [];
-        }
-
-        function hideAllSuggest(e) {
-            if (e && e.target.closest('.suggest-dropdown')) return;
-            if (e && e.target.id === 'productSearchInput') return;
-            hideSuggest();
-        }
-
-        // ========== 2. 搜索框初始化 ==========
-        function initProductSearchInput() {
-            const searchInput = document.getElementById('productSearchInput');
-            if (!searchInput) return;
-
-            // 输入事件：触发商品搜索
-            searchInput.addEventListener('input', () => onProductInput(searchInput));
-            // 键盘事件：支持数字选择、空格选择、ESC隐藏、回车查询
-            searchInput.addEventListener('keydown', handleProductInputKey);
-            // 失焦延迟隐藏（避免点击候选项时直接隐藏）
-            searchInput.addEventListener('blur', () => {
-                setTimeout(hideSuggest, 200);
-            });
-        }
-
-        // ========== 3. 商品搜索逻辑（复用开单页接口） ==========
-        async function onProductInput(input) {
-            const keyword = input.value.trim();
-            if (!keyword) {
-                hideSuggest();
-                resetStockTable(); // 清空关键词时重置表格
-                return;
+            // 3. 绑定查询按钮点击事件（核心修复）
+            const searchBtn = document.getElementById('searchBtn');
+            if (searchBtn && searchInput) {
+                searchBtn.addEventListener('click', function() {
+                    const keyword = searchInput.value.trim();
+                    console.log('点击查询，关键词：', keyword); // 调试日志
+                    searchStockByKeyword(keyword);
+                });
             }
-            currentSearchInput = input;
 
-            try {
-                // 调用开单页的商品搜索接口（无需新增后端代码）
-                const res = await fetch(`/bill/search-product/?keyword=${encodeURIComponent(keyword)}`);
-                const data = await res.json();
-                if (data.code === 1 && data.data.length > 0) {
-                    currentSuggestList = data.data;
-                    showSuggest(input, data.data);
-                } else {
-                    hideSuggest();
-                }
-            } catch (e) { 
-                hideSuggest();
-                console.error('搜索商品失败：', e);
-            }
-        }
-
-        // 显示候选框
-        function showSuggest(input, list) {
-            const rect = input.getBoundingClientRect();
-            const wrapperRect = document.querySelector('.search-wrapper').getBoundingClientRect();
-            // 修正候选框定位（相对搜索容器）
-            suggestBox.style.left = (rect.left - wrapperRect.left) + 'px';
-            suggestBox.style.top = (rect.bottom - wrapperRect.top) + 'px';
-            suggestBox.innerHTML = '';
-
-            // 显示前8个候选（带数字编号）
-            list.slice(0, 8).forEach((item, idx) => {
-                const div = document.createElement('div');
-                div.textContent = `${idx+1} ${item.name}  ¥${item.price}/${item.unit} 库存：${item.stock}`;
-                div.dataset.index = idx;
-                div.onclick = () => selectProductItem(idx); // 选择商品
-                suggestBox.appendChild(div);
-            });
-            suggestBox.style.display = 'block';
-        }
-
-        // ========== 4. 商品选择逻辑（适配库存页） ==========
-        function selectProductItem(index) {
-            const item = currentSuggestList[index];
-            if (!item || !currentSearchInput) return;
-
-            // 1. 填充搜索框为选中商品名称
-            currentSearchInput.value = item.name;
-            // 2. 隐藏候选框
-            hideSuggest();
-            // 3. 过滤表格：高亮选中商品并滚动到该行
-            filterStockTable(item.id);
-        }
-
-        // 处理搜索框键盘事件（核心：数字/空格选择、回车查询）
-        function handleProductInputKey(e) {
-            if (!currentSuggestList.length && e.key !== 'Enter') return;
-
-            // 空格：选择第一个商品
-            if (e.key === ' ') {
-                e.preventDefault();
-                selectProductItem(0);
-            }
-            // 数字1-8：选择对应序号的商品
-            const num = parseInt(e.key);
-            if (!isNaN(num) && num >= 1 && num <= currentSuggestList.length) {
-                e.preventDefault();
-                selectProductItem(num - 1);
-            }
-            // ESC：隐藏候选框
-            if (e.key === 'Escape') {
-                hideSuggest();
-                e.preventDefault();
-            }
-            // 回车：执行查询（高亮匹配商品/显示所有匹配结果）
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                hideSuggest();
-                const keyword = currentSearchInput.value.trim();
-                if (keyword) {
-                    // 如果有候选列表，优先选第一个；否则按关键词过滤
-                    if (currentSuggestList.length) {
-                        selectProductItem(0);
-                    } else {
+            // 4. 绑定搜索框回车事件（核心修复）
+            if (searchInput) {
+                searchInput.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault(); // 阻止默认行为
+                        const keyword = searchInput.value.trim();
+                        console.log('回车查询，关键词：', keyword); // 调试日志
                         searchStockByKeyword(keyword);
                     }
-                } else {
-                    resetStockTable();
-                }
+                });
             }
-        }
+        };
 
-        // ========== 5. 表格过滤/高亮逻辑 ==========
-        // 按商品ID过滤表格（高亮+滚动）
-        function filterStockTable(productId) {
-            const tableBody = document.querySelector('#stockTable tbody');
-            const rows = tableBody.querySelectorAll('tr');
-            
-            // 移除所有高亮样式，显示所有行
-            rows.forEach(row => {
-                row.classList.remove('highlight-row');
-                row.style.display = '';
-            });
-
-            // 查找并高亮目标商品行
-            let targetRow = null;
-            rows.forEach(row => {
-                if (row.dataset.productId == productId) {
-                    targetRow = row;
-                    row.classList.add('highlight-row');
-                    row.scrollIntoView({ behavior: 'smooth', block: 'center' }); // 滚动到该行
-                }
-            });
-
-            // 如果没找到（本地数据未更新），手动添加一行显示
-            if (!targetRow && currentSuggestList.length > 0) {
-                const selectedItem = currentSuggestList.find(item => item.id == productId);
-                if (selectedItem) {
-                    tableBody.innerHTML = `
-                        <tr class="highlight-row">
-                            <td>${selectedItem.name}</td>
-                            <td>${selectedItem.pinyin_abbr || '-'}</td>
-                            <td>${selectedItem.unit}</td>
-                            <td>¥${selectedItem.price}</td>
-                            <td>${selectedItem.stock}</td>
-                        </tr>
-                    `;
-                }
-            }
-        }
-
-        // 按关键词模糊搜索库存
+        // ========== 核心查询函数（修复过滤逻辑） ==========
         function searchStockByKeyword(keyword) {
-            const tableBody = document.querySelector('#stockTable tbody');
-            const rows = tableBody.querySelectorAll('tr');
-            let hasMatch = false;
+            const tableBody = document.getElementById('stockTableBody');
+            if (!tableBody) {
+                console.error('未找到表格主体元素');
+                return;
+            }
 
-            rows.forEach(row => {
-                const productName = row.querySelector('td:first-child').textContent.toLowerCase();
-                const pinyinAbbr = row.querySelector('td:nth-child(2)').textContent.toLowerCase();
-                // 匹配商品名称或拼音首字母
-                if (productName.includes(keyword.toLowerCase()) || pinyinAbbr.includes(keyword.toLowerCase())) {
-                    row.style.display = '';
-                    row.classList.add('highlight-row');
-                    hasMatch = true;
-                } else {
-                    row.style.display = 'none';
+            // 清空表格
+            tableBody.innerHTML = '';
+
+            // 无关键词时显示所有商品
+            if (!keyword) {
+                if (allProducts.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="5">暂无商品数据</td></tr>';
+                    return;
                 }
+                // 渲染所有商品
+                allProducts.forEach(product => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${product.name}</td>
+                        <td>${product.pinyin_abbr}</td>
+                        <td>${product.unit}</td>
+                        <td>¥${product.price}</td>
+                        <td>${product.stock}</td>
+                    `;
+                    tableBody.appendChild(tr);
+                });
+                return;
+            }
+
+            // 按关键词过滤（不区分大小写）
+            const lowerKeyword = keyword.toLowerCase();
+            const filteredProducts = allProducts.filter(product => {
+                return product.name.toLowerCase().includes(lowerKeyword) || 
+                       product.pinyin_abbr.toLowerCase().includes(lowerKeyword);
             });
 
-            // 无匹配结果时提示
-            if (!hasMatch) {
+            // 渲染过滤结果
+            if (filteredProducts.length === 0) {
                 tableBody.innerHTML = `<tr><td colspan="5">未找到关键词「${keyword}」相关商品</td></tr>`;
+            } else {
+                filteredProducts.forEach(product => {
+                    const tr = document.createElement('tr');
+                    // 高亮匹配的关键词
+                    let highlightedName = product.name.replace(
+                        new RegExp(keyword, 'gi'), 
+                        match => `<span style="background-color: yellow;">${match}</span>`
+                    );
+                    tr.innerHTML = `
+                        <td>${highlightedName}</td>
+                        <td>${product.pinyin_abbr}</td>
+                        <td>${product.unit}</td>
+                        <td>¥${product.price}</td>
+                        <td>${product.stock}</td>
+                    `;
+                    tableBody.appendChild(tr);
+                });
             }
-        }
-
-        // 重置表格：显示所有商品
-        function resetStockTable() {
-            const tableBody = document.querySelector('#stockTable tbody');
-            const rows = tableBody.querySelectorAll('tr');
-            
-            rows.forEach(row => {
-                row.classList.remove('highlight-row');
-                row.style.display = ''; // 显示所有行
-            });
-        }
-
-        // ========== 工具函数：获取CSRF Token（接口调用备用） ==========
-        function getCsrfToken() {
-            let cookieValue = null;
-            if (document.cookie && document.cookie !== '') {
-                const cookies = document.cookie.split(';');
-                for (let i = 0; i < cookies.length; i++) {
-                    const cookie = cookies[i].trim();
-                    if (cookie.substring(0, 10) === 'csrftoken=') {
-                        cookieValue = decodeURIComponent(cookie.substring(10));
-                        break;
-                    }
-                }
-            }
-            return cookieValue;
         }
     </script>
 {% endblock %}

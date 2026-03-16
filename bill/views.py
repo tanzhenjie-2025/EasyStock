@@ -39,7 +39,6 @@ def index(request):
 
 # 添加登录和权限装饰器
 @login_required
-@user_passes_test(is_operator, login_url='/accounts/no-permission/', redirect_field_name=None)
 def search_product(request):
     """
     商品搜索：匹配 名称 / 别名 / 全拼 / 首字母
