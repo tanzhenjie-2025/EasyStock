@@ -96,10 +96,10 @@ def login_view(request):
             request.session['user_code'] = user.user_code
             request.session['user_name'] = user.name
 
-            # ========== 新增：记录用户登录日志 ==========
+            # ========== 修改：日志操作类型从 query 改为 login ==========
             create_operation_log(
                 request=request,
-                operation_type='query',  # 登录归类为查询类操作
+                operation_type='login',  # 关键修改：登录操作
                 object_type='user',
                 object_id=user.id,
                 object_name=f"{user.user_code}-{user.username}",
@@ -121,11 +121,11 @@ def login_view(request):
 
 def logout_view(request):
     """登出（清除session）"""
-    # ========== 新增：记录用户登出日志 ==========
+    # ========== 修改：日志操作类型从 query 改为 logout ==========
     if request.user.is_authenticated:
         create_operation_log(
             request=request,
-            operation_type='query',  # 登出归类为查询类操作
+            operation_type='logout',  # 关键修改：登出操作
             object_type='user',
             object_id=request.user.id,
             object_name=f"{request.user.user_code}-{request.user.username}",
@@ -136,7 +136,8 @@ def logout_view(request):
     return redirect('/accounts/login/')
 
 
-# ========== 个人信息管理 ==========
+# ========== 以下代码无修改，保持原样 ==========
+# 个人信息管理
 @login_required
 def profile(request):
     """个人信息修改（所有登录用户可访问）"""
@@ -199,7 +200,7 @@ def profile(request):
     })
 
 
-# ========== 用户管理（仅老板可访问） ==========
+# 用户管理（仅老板可访问）
 @login_required
 @user_passes_test(is_boss)
 def user_list(request):
@@ -455,7 +456,7 @@ def user_toggle_status(request, user_id):
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
 
-# ========== 新增：无权限提示页 ==========
+# 新增：无权限提示页
 @login_required
 def no_permission(request):
     """权限不足提示页"""

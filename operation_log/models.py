@@ -5,7 +5,7 @@ from django.utils import timezone
 
 class OperationLog(models.Model):
     """操作日志模型 - 覆盖所有需要记录的行为"""
-    # 操作类型（覆盖所有需求场景）
+    # 操作类型（覆盖所有需求场景）- 新增 login/logout 选项
     OPERATION_TYPE_CHOICES = (
         ('create', '新增'),
         ('update', '修改'),
@@ -18,6 +18,8 @@ class OperationLog(models.Model):
         ('reopen_order', '重开订单'),
         ('enable_user', '启用用户'),
         ('disable_user', '禁用用户'),
+        ('login', '登录'),  # 新增：登录操作
+        ('logout', '登出'), # 新增：登出操作
     )
 
     # 操作对象类型（明确操作的是哪个模块的内容）
