@@ -531,14 +531,14 @@
 
         // 校验
         if (!customerId) { alert('请选择客户！'); return; }
-        if (!productId) { alert('请选择商品！'); return; }
+        if (!productId && !currentPriceId) { alert('请选择商品！'); return; } // 编辑时不校验商品/客户
         if (!customPrice || isNaN(customPrice) || parseFloat(customPrice) < 0) {
             alert('请输入有效的专属价格！');
             return;
         }
 
-        // 组装数据
-        const data = {
+        // ========== 核心修复：将 const 改为 let，允许重新赋值 ==========
+        let data = {
             customer_id: customerId,
             product_id: productId,
             custom_price: customPrice,
