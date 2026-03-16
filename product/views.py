@@ -3,6 +3,48 @@ from django.http import JsonResponse
 from django.db import IntegrityError
 from django.views.decorators.csrf import csrf_exempt
 from bill.models import Product, ProductAlias
+# 新增：导入日志模型和时间工具
+from operation_log.models import OperationLog
+from django.utils import timezone
+# 新增：导入文件和Excel处理相关（原有）
+import os
+import io
+from django.views.decorators.http import require_POST
+from django.core.files.uploadedfile import InMemoryUploadedFile
+import openpyxl
+import xlrd
+
+
+# ========== 新增：日志记录辅助函数（核心） ==========
+def create_operation_log(request, operation_type, object_type, object_id=None, object_name=None, operation_detail=None):
+    """
+    创建操作日志的通用函数
+    :param request: 请求对象（用于获取用户和IP）
+    :param operation_type: 操作类型（对应OperationLog的OPERATION_TYPE_CHOICES）
+    :param object_type: 操作对象类型（对应OperationLog的OBJECT_TYPE_CHOICES）
+    :param object_id: 操作对象ID
+    :param object_name: 操作对象名称
+    :param operation_detail: 操作详情
+    """
+    # 获取客户端IP地址
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    ip_address = x_forwarded_for.split(',')[0] if x_forwarded_for else request.META.get('REMOTE_ADDR', '')
+
+    # 容错处理：避免日志记录失败影响主业务
+    try:
+        OperationLog.objects.create(
+            operator=request.user if request.user.is_authenticated else None,  # 当前登录用户
+            operation_time=timezone.now(),
+            operation_type=operation_type,
+            object_type=object_type,
+            object_id=str(object_id) if object_id else None,
+            object_name=object_name,
+            operation_detail=operation_detail,
+            ip_address=ip_address
+        )
+    except Exception as e:
+        print(f"【日志记录失败】：{str(e)}")  # 仅打印错误，不中断主流程
+
 
 # ====================== 商品管理主页面 ======================
 def product_manage(request):
@@ -21,6 +63,7 @@ def product_manage(request):
             'aliases': [{'id': a.id, 'alias_name': a.alias_name} for a in aliases]
         })
     return render(request, 'product/product_manage.html', {'products': product_list})
+
 
 # ====================== 商品CRUD ======================
 @csrf_exempt
@@ -46,6 +89,17 @@ def product_add(request):
                 unit=unit,
                 stock=int(stock) if stock.isdigit() else 77
             )
+
+            # ========== 新增：记录新增商品日志 ==========
+            create_operation_log(
+                request=request,
+                operation_type='create',
+                object_type='product',
+                object_id=product.id,
+                object_name=product.name,
+                operation_detail=f"新增商品：名称={product.name}，单价={product.price}，单位={product.unit}，库存={product.stock}"
+            )
+
             return JsonResponse({'code': 1, 'msg': '商品新增成功', 'data': {
                 'id': product.id,
                 'name': product.name,
@@ -59,6 +113,7 @@ def product_add(request):
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'新增失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+
 
 @csrf_exempt
 def product_edit(request, pk):
@@ -91,6 +146,16 @@ def product_edit(request, pk):
             # 获取更新后的别名
             aliases = [{'id': a.id, 'alias_name': a.alias_name} for a in product.aliases.all()]
 
+            # ========== 新增：记录编辑商品日志 ==========
+            create_operation_log(
+                request=request,
+                operation_type='update',
+                object_type='product',
+                object_id=product.id,
+                object_name=product.name,
+                operation_detail=f"编辑商品：名称={product.name}，单价={product.price}，单位={product.unit}，库存={product.stock}"
+            )
+
             return JsonResponse({'code': 1, 'msg': '商品编辑成功', 'data': {
                 'id': product.id,
                 'name': product.name,
@@ -109,7 +174,19 @@ def product_delete(request, pk):
     """删除商品（AJAX接口）"""
     try:
         product = get_object_or_404(Product, pk=pk)
+        product_name = product.name  # 先保存名称（删除后无法获取）
         product.delete()
+
+        # ========== 新增：记录删除商品日志 ==========
+        create_operation_log(
+            request=request,
+            operation_type='delete',
+            object_type='product',
+            object_id=pk,
+            object_name=product_name,
+            operation_detail=f"删除商品：名称={product_name}，ID={pk}"
+        )
+
         return JsonResponse({'code': 1, 'msg': '商品删除成功'})
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'删除失败：{str(e)}'})
@@ -134,6 +211,17 @@ def alias_add(request):
                 product=product,
                 alias_name=alias_name
             )
+
+            # ========== 新增：记录新增别名日志 ==========
+            create_operation_log(
+                request=request,
+                operation_type='create',
+                object_type='product_alias',
+                object_id=alias.id,
+                object_name=f"{product.name}-{alias.alias_name}",
+                operation_detail=f"为商品【{product.name}】新增别名：{alias.alias_name}"
+            )
+
             return JsonResponse({'code': 1, 'msg': '别名新增成功', 'data': {
                 'id': alias.id,
                 'alias_name': alias.alias_name
@@ -150,12 +238,26 @@ def alias_delete(request, pk):
     """删除商品别名（AJAX接口）"""
     try:
         alias = get_object_or_404(ProductAlias, pk=pk)
+        product_name = alias.product.name  # 保存关联商品名称
+        alias_name = alias.alias_name  # 保存别名
         alias.delete()
+
+        # ========== 新增：记录删除别名日志 ==========
+        create_operation_log(
+            request=request,
+            operation_type='delete',
+            object_type='product_alias',
+            object_id=pk,
+            object_name=f"{product_name}-{alias_name}",
+            operation_detail=f"删除商品【{product_name}】的别名：{alias_name}"
+        )
+
         return JsonResponse({'code': 1, 'msg': '别名删除成功'})
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'删除失败：{str(e)}'})
 
-# 在product/views.py末尾添加
+
+# ====================== 商品数据接口（原有） ======================
 @csrf_exempt
 def product_manage_data(request):
     """商品列表数据接口（AJAX）"""
@@ -173,6 +275,7 @@ def product_manage_data(request):
         })
     return JsonResponse(product_list, safe=False)
 
+
 @csrf_exempt
 def product_edit_data(request, pk):
     """编辑商品数据接口（AJAX）"""
@@ -186,14 +289,6 @@ def product_edit_data(request, pk):
         'stock': product.stock,
         'aliases': [{'id': a.id, 'alias_name': a.alias_name} for a in aliases]
     })
-
-
-import os
-import io
-from django.views.decorators.http import require_POST
-from django.core.files.uploadedfile import InMemoryUploadedFile
-import openpyxl
-import xlrd
 
 
 # ====================== 商品导入功能 ======================
@@ -296,6 +391,17 @@ def product_import(request):
             except Exception as e:
                 fail_count += 1
                 fail_reasons.append(f'第{row_num}行：导入失败 - {str(e)}')
+
+        # ========== 新增：记录导入商品日志 ==========
+        import_detail = f"批量导入商品：成功{success_count}条，失败{fail_count}条。"
+        if fail_reasons:
+            import_detail += f" 失败原因：{' | '.join(fail_reasons[:5])}{'...' if len(fail_reasons) > 5 else ''}"
+        create_operation_log(
+            request=request,
+            operation_type='import',
+            object_type='product',
+            operation_detail=import_detail
+        )
 
         # 6. 返回导入结果
         msg = f'导入完成！成功{success_count}条，失败{fail_count}条'
