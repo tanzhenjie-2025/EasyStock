@@ -407,37 +407,49 @@ def user_edit(request, user_id):
 
 @login_required
 @user_passes_test(is_boss)
-def user_delete(request, user_id):
-    """删除用户（逻辑删除：禁用账户）"""
+def user_toggle_status(request, user_id):
+    """切换用户状态（启用/禁用）- 替代原来的固定禁用"""
     if request.method == 'POST':
         try:
             user = get_object_or_404(User, id=user_id)
-            # 保存禁用前的信息
+            # 保存修改前的信息
             old_info = {
                 'user_code': user.user_code,
                 'username': user.username,
                 'is_active': user.is_active
             }
 
-            # 逻辑删除：禁用账户（保留数据）
-            user.is_active = False
+            # 切换状态：启用 ↔ 禁用
+            user.is_active = not user.is_active
             user.save()
 
-            # ========== 新增：记录禁用用户日志 ==========
-            operation_detail = (
-                f"禁用用户：编号={old_info['user_code']}，用户名={old_info['username']}，"
-                f"原状态={'启用' if old_info['is_active'] else '禁用'}→新状态=禁用"
-            )
+            # 确定操作类型和详情
+            if user.is_active:
+                operation_type = 'enable_user'
+                operation_detail = (
+                    f"启用用户：编号={old_info['user_code']}，用户名={old_info['username']}，"
+                    f"原状态={'启用' if old_info['is_active'] else '禁用'}→新状态=启用"
+                )
+                msg = f'用户 {user.user_code} 已启用！'
+            else:
+                operation_type = 'disable_user'
+                operation_detail = (
+                    f"禁用用户：编号={old_info['user_code']}，用户名={old_info['username']}，"
+                    f"原状态={'启用' if old_info['is_active'] else '禁用'}→新状态=禁用"
+                )
+                msg = f'用户 {user.user_code} 已禁用！'
+
+            # 记录日志
             create_operation_log(
                 request=request,
-                operation_type='disable_user',  # 匹配日志模型的disable_user类型
+                operation_type=operation_type,
                 object_type='user',
                 object_id=user.id,
                 object_name=f"{user.user_code}-{user.username}",
                 operation_detail=operation_detail
             )
 
-            return JsonResponse({'code': 1, 'msg': f'用户 {user.user_code} 已禁用！'})
+            return JsonResponse({'code': 1, 'msg': msg})
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'操作失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})

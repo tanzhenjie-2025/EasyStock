@@ -23,6 +23,9 @@
 {% endblock %}
 
 {% block content %}
+<!-- 新增：补充CSRF Meta标签（解决Token获取失败） -->
+<meta name="csrf-token" content="{{ csrf_token }}">
+
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <h5 class="mb-0">开单人账户管理</h5>
@@ -94,10 +97,12 @@
                                 <a href="/accounts/user-edit/{{ user.id }}/" class="btn btn-outline-primary">
                                     编辑
                                 </a>
-                                <button class="btn btn-outline-danger delete-btn" 
+                                <!-- 修复：明确传递布尔值为字符串，避免渲染歧义 -->
+                                <button class="btn {% if user.is_active %}btn-outline-danger{% else %}btn-outline-success{% endif %} status-toggle-btn" 
                                         data-user-id="{{ user.id }}" 
-                                        data-user-code="{{ user.user_code }}">
-                                    禁用
+                                        data-user-code="{{ user.user_code }}"
+                                        data-is-active="{% if user.is_active %}1{% else %}0{% endif %}">
+                                    {% if user.is_active %}禁用{% else %}启用{% endif %}
                                 </button>
                             </div>
                         </td>
@@ -116,28 +121,56 @@
 
 {% block extra_js %}
 <script>
-// 删除/禁用用户确认
-$(document).on('click', '.delete-btn', function() {
+// 修复：鲁棒的CSRF Token获取函数（兼容meta标签和cookie）
+function getCsrfToken() {
+    // 优先从meta标签获取
+    const metaTag = document.querySelector('meta[name="csrf-token"]');
+    if (metaTag) {
+        return metaTag.content;
+    }
+    // 备用：从cookie获取（Django默认的csrftoken cookie）
+    const cookies = document.cookie.split(';');
+    for (let cookie of cookies) {
+        const [name, value] = cookie.trim().split('=');
+        if (name === 'csrftoken') {
+            return value;
+        }
+    }
+    return '';
+}
+
+// 切换用户状态（启用/禁用）确认
+$(document).on('click', '.status-toggle-btn', function() {
     const userId = $(this).data('user-id');
     const userCode = $(this).data('user-code');
+    // 修复：将1/0转换为布尔值，解决提示文字错误
+    const isActive = $(this).data('is-active') === 1;
     
-    if (confirm(`确定要禁用用户【${userCode}】吗？禁用后该用户将无法登录系统！`)) {
+    // 根据当前状态显示不同的确认提示
+    const actionText = isActive ? '禁用' : '启用';
+    const confirmMsg = isActive 
+        ? `确定要${actionText}用户【${userCode}】吗？${actionText}后该用户将无法登录系统！`
+        : `确定要${actionText}用户【${userCode}】吗？${actionText}后该用户可以正常登录系统！`;
+    
+    if (confirm(confirmMsg)) {
         $.ajax({
-            url: `/accounts/user-delete/${userId}/`,
+            url: `/accounts/user-toggle-status/${userId}/`,
             type: 'POST',
             headers: {
                 'X-CSRFToken': getCsrfToken()
             },
+            dataType: 'json',
             success: function(res) {
                 if (res.code === 1) {
                     alert(res.msg);
                     window.location.reload();
                 } else {
-                    alert(res.msg);
+                    alert('操作失败：' + res.msg);
                 }
             },
-            error: function() {
-                alert('操作失败，请重试！');
+            error: function(xhr, status, error) {
+                console.error('AJAX错误：', status, error);
+                alert(`请求失败：${xhr.status} - ${xhr.statusText}`);
             }
         });
     }
