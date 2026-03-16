@@ -665,6 +665,18 @@
 
         // ========== 8. 初始化和事件绑定 ==========
         document.addEventListener('DOMContentLoaded', function() {
+            // 核心新增：自动聚焦到商品管理的搜索框
+            const searchInput = document.getElementById('search-keyword');
+            if (searchInput) {
+                searchInput.focus(); // 自动聚焦
+                // 可选优化：光标移到输入框末尾（如果有默认值）
+                const inputValue = searchInput.value;
+                if (inputValue) {
+                    searchInput.value = '';
+                    searchInput.value = inputValue;
+                }
+            }
+
             // 加载商品列表（仅调用一次，无无限循环）
             loadProductList();
 
@@ -685,7 +697,7 @@
             document.getElementById('btn-add-alias').addEventListener('click', addAlias);
         });
         
-                // ========== 9. 商品导入功能 ==========
+        // ========== 9. 商品导入功能 ==========
         document.getElementById('btn-import-product').addEventListener('click', importProduct);
 
         async function importProduct() {

@@ -26,7 +26,13 @@
             </select>
         </div>
         <div class="col-auto">
-            <input type="text" name="customer_name" class="form-control form-control-sm" placeholder="客户名称" value="{{ customer_name }}">
+            <!-- 核心修改：添加唯一ID用于JS定位 -->
+            <input type="text" 
+                   id="customerNameInput" 
+                   name="customer_name" 
+                   class="form-control form-control-sm" 
+                   placeholder="客户名称" 
+                   value="{{ customer_name }}">
         </div>
         <div class="col-auto">
             <button type="submit" class="btn btn-sm btn-primary">筛选</button>
@@ -88,4 +94,28 @@
         {% endfor %}
     </tbody>
 </table>
+{% endblock %}
+
+<!-- 新增：自动聚焦的JS代码 -->
+{% block extra_js %}
+<script>
+// 页面DOM加载完成后执行
+$(document).ready(function() {
+    // 定位客户名称输入框
+    const customerInput = $('#customerNameInput');
+    
+    // 确保输入框存在再执行聚焦（避免报错）
+    if (customerInput.length > 0) {
+        // 自动聚焦到输入框
+        customerInput.focus();
+        
+        // 可选优化：如果输入框有默认值，将光标移到内容末尾
+        const inputValue = customerInput.val();
+        if (inputValue) {
+            customerInput.val(''); // 清空
+            customerInput.val(inputValue); // 重新赋值，光标到末尾
+        }
+    }
+});
+</script>
 {% endblock %}

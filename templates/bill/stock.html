@@ -159,6 +159,18 @@
 
         // ========== 初始化 ==========
         document.addEventListener('DOMContentLoaded', function() {
+            // 核心新增：自动聚焦到库存查询输入框
+            const searchInput = document.getElementById('productSearchInput');
+            if (searchInput) {
+                searchInput.focus(); // 自动聚焦
+                // 可选优化：光标移到输入框末尾（如果有默认值）
+                const inputValue = searchInput.value;
+                if (inputValue) {
+                    searchInput.value = '';
+                    searchInput.value = inputValue;
+                }
+            }
+
             initSuggestBox();
             initProductSearchInput();
             window.addEventListener('click', hideAllSuggest);
