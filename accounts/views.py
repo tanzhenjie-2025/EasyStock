@@ -8,6 +8,41 @@ from django.contrib import messages
 from django.db import IntegrityError
 from .models import User
 
+# 新增：导入日志模型和时间工具
+from operation_log.models import OperationLog
+from django.utils import timezone
+
+
+# ========== 新增：通用日志记录函数（核心） ==========
+def create_operation_log(request, operation_type, object_type, object_id=None, object_name=None, operation_detail=None):
+    """
+    封装操作日志记录逻辑，容错处理（日志失败不影响主业务）
+    :param request: 请求对象（获取用户/IP）
+    :param operation_type: 操作类型（对应OperationLog的OPERATION_TYPE_CHOICES）
+    :param object_type: 操作对象类型（对应OperationLog的OBJECT_TYPE_CHOICES）
+    :param object_id: 操作对象ID（用户ID）
+    :param object_name: 操作对象名称（用户编号+用户名）
+    :param operation_detail: 操作详情（修改前后对比、权限组等关键信息）
+    """
+    # 获取客户端IP（兼容代理场景）
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    ip_address = x_forwarded_for.split(',')[0] if x_forwarded_for else request.META.get('REMOTE_ADDR', '')
+
+    # 容错处理：日志记录失败仅打印错误，不中断用户管理功能
+    try:
+        OperationLog.objects.create(
+            operator=request.user if request.user.is_authenticated else None,  # 当前登录用户（操作人）
+            operation_time=timezone.now(),
+            operation_type=operation_type,
+            object_type=object_type,
+            object_id=str(object_id) if object_id else None,
+            object_name=object_name,
+            operation_detail=operation_detail,
+            ip_address=ip_address
+        )
+    except Exception as e:
+        print(f"【用户管理日志记录失败】：{str(e)}")
+
 
 # ========== 权限校验函数（用于装饰器） ==========
 def is_boss(user):
@@ -60,6 +95,17 @@ def login_view(request):
             # 记录登录态
             request.session['user_code'] = user.user_code
             request.session['user_name'] = user.name
+
+            # ========== 新增：记录用户登录日志 ==========
+            create_operation_log(
+                request=request,
+                operation_type='query',  # 登录归类为查询类操作
+                object_type='user',
+                object_id=user.id,
+                object_name=f"{user.user_code}-{user.username}",
+                operation_detail=f"用户登录：编号={user.user_code}，用户名={user.username}，IP={request.META.get('REMOTE_ADDR', '')}"
+            )
+
             # 2. 登录成功：跳转到next参数（优先），无则跳转到/bill/
             next_url = request.POST.get('next', request.GET.get('next', '/bill/'))
             return redirect(next_url)
@@ -75,6 +121,17 @@ def login_view(request):
 
 def logout_view(request):
     """登出（清除session）"""
+    # ========== 新增：记录用户登出日志 ==========
+    if request.user.is_authenticated:
+        create_operation_log(
+            request=request,
+            operation_type='query',  # 登出归类为查询类操作
+            object_type='user',
+            object_id=request.user.id,
+            object_name=f"{request.user.user_code}-{request.user.username}",
+            operation_detail=f"用户登出：编号={request.user.user_code}，用户名={request.user.username}，IP={request.META.get('REMOTE_ADDR', '')}"
+        )
+
     logout(request)
     return redirect('/accounts/login/')
 
@@ -86,6 +143,15 @@ def profile(request):
     user = request.user
     if request.method == 'POST':
         try:
+            # 保存修改前的信息（用于日志对比）
+            old_info = {
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'phone': user.phone,
+                'address': user.address,
+                'email': user.email
+            }
+
             # 可修改的拓展字段（按需扩展）
             user.first_name = request.POST.get('first_name', user.first_name).strip()
             user.last_name = request.POST.get('last_name', user.last_name).strip()
@@ -95,10 +161,31 @@ def profile(request):
 
             # 密码修改（可选）
             new_password = request.POST.get('new_password', '').strip()
+            password_changed = False
             if new_password:
-                user.set_password(new_password)  # Django自动加密
+                user.set_password(new_password)
+                password_changed = True
 
             user.save()
+
+            # ========== 新增：记录个人信息修改日志 ==========
+            operation_detail = (
+                f"修改个人信息：编号={user.user_code}，用户名={user.username}，"
+                f"原姓名={old_info['first_name'] + old_info['last_name']}→新姓名={user.first_name + user.last_name}，"
+                f"原电话={old_info['phone']}→新电话={user.phone}，"
+                f"原邮箱={old_info['email']}→新邮箱={user.email}，"
+                f"原地址={old_info['address']}→新地址={user.address}，"
+                f"密码是否修改：{'是' if password_changed else '否'}"
+            )
+            create_operation_log(
+                request=request,
+                operation_type='update',
+                object_type='user',
+                object_id=user.id,
+                object_name=f"{user.user_code}-{user.username}",
+                operation_detail=operation_detail
+            )
+
             messages.success(request, '个人信息修改成功！')
             # 重新登录（密码修改后）
             if new_password:
@@ -185,9 +272,25 @@ def user_add(request):
             )
 
             # 关联权限组
+            group_name = '无'
             if group_id:
-                user.groups.clear()
-                user.groups.add(Group.objects.get(id=group_id))
+                group = Group.objects.get(id=group_id)
+                user.groups.add(group)
+                group_name = group.name
+
+            # ========== 新增：记录新增用户日志 ==========
+            operation_detail = (
+                f"新增用户：编号={user_code}，用户名={username}，电话={phone if phone else '无'}，"
+                f"权限组={group_name}，状态={'启用' if is_active else '禁用'}，是否后台管理员={'是' if is_staff else '否'}"
+            )
+            create_operation_log(
+                request=request,
+                operation_type='create',
+                object_type='user',
+                object_id=user.id,
+                object_name=f"{user_code}-{username}",
+                operation_detail=operation_detail
+            )
 
             messages.success(request, f'用户 {user_code} - {username} 创建成功！')
             return redirect('/accounts/user-list/')
@@ -223,6 +326,16 @@ def user_edit(request, user_id):
 
     if request.method == 'POST':
         try:
+            # 保存修改前的信息（用于日志对比）
+            old_info = {
+                'username': user.username,
+                'user_code': user.user_code,
+                'phone': user.phone,
+                'is_active': user.is_active,
+                'is_staff': user.is_staff,
+                'group': user.groups.first().name if user.groups.first() else '无'
+            }
+
             # 基础信息
             user.username = request.POST.get('username', user.username).strip()
             user.user_code = request.POST.get('user_code', user.user_code).strip()
@@ -235,19 +348,42 @@ def user_edit(request, user_id):
             # 先清空所有组
             user.groups.clear()
             # 如果选了组，就添加
+            new_group_name = '无'
             if group_id and group_id.isdigit():
                 try:
                     group = Group.objects.get(id=group_id)
                     user.groups.add(group)
+                    new_group_name = group.name
                 except Group.DoesNotExist:
                     messages.warning(request, '所选权限组不存在，已忽略')
 
             # 密码修改（可选）
             new_password = request.POST.get('new_password', '').strip()
+            password_changed = False
             if new_password:
                 user.set_password(new_password)
+                password_changed = True
 
             user.save()
+
+            # ========== 新增：记录编辑用户日志 ==========
+            operation_detail = (
+                f"编辑用户：原编号={old_info['user_code']}→新编号={user.user_code}，原用户名={old_info['username']}→新用户名={user.username}，"
+                f"原电话={old_info['phone']}→新电话={user.phone if user.phone else '无'}，"
+                f"原权限组={old_info['group']}→新权限组={new_group_name}，"
+                f"原状态={'启用' if old_info['is_active'] else '禁用'}→新状态={'启用' if user.is_active else '禁用'}，"
+                f"原后台管理员={'是' if old_info['is_staff'] else '否'}→新后台管理员={'是' if user.is_staff else '否'}，"
+                f"密码是否修改：{'是' if password_changed else '否'}"
+            )
+            create_operation_log(
+                request=request,
+                operation_type='update',
+                object_type='user',
+                object_id=user.id,
+                object_name=f"{user.user_code}-{user.username}",
+                operation_detail=operation_detail
+            )
+
             messages.success(request, f'用户 {user.user_code} - {user.username} 修改成功！')
             return redirect('/accounts/user-list/')
         except IntegrityError:
@@ -276,13 +412,36 @@ def user_delete(request, user_id):
     if request.method == 'POST':
         try:
             user = get_object_or_404(User, id=user_id)
+            # 保存禁用前的信息
+            old_info = {
+                'user_code': user.user_code,
+                'username': user.username,
+                'is_active': user.is_active
+            }
+
             # 逻辑删除：禁用账户（保留数据）
             user.is_active = False
             user.save()
+
+            # ========== 新增：记录禁用用户日志 ==========
+            operation_detail = (
+                f"禁用用户：编号={old_info['user_code']}，用户名={old_info['username']}，"
+                f"原状态={'启用' if old_info['is_active'] else '禁用'}→新状态=禁用"
+            )
+            create_operation_log(
+                request=request,
+                operation_type='disable_user',  # 匹配日志模型的disable_user类型
+                object_type='user',
+                object_id=user.id,
+                object_name=f"{user.user_code}-{user.username}",
+                operation_detail=operation_detail
+            )
+
             return JsonResponse({'code': 1, 'msg': f'用户 {user.user_code} 已禁用！'})
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'操作失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
+
 
 # ========== 新增：无权限提示页 ==========
 @login_required
