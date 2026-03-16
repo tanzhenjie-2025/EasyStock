@@ -1,7 +1,43 @@
 from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from bill.models import Customer, Area, ProductAlias  # 导入客户和区域模型
+# 新增：导入日志模型和时间工具
+from operation_log.models import OperationLog
+from django.utils import timezone
+
+# 复用bill里的模型（表仍在bill，无需重复建）
+from bill.models import Customer, Area, ProductAlias, CustomerPrice, Product
+
+
+# ========== 新增：通用日志记录函数（核心） ==========
+def create_operation_log(request, operation_type, object_type, object_id=None, object_name=None, operation_detail=None):
+    """
+    封装操作日志记录逻辑，容错处理（日志失败不影响主业务）
+    :param request: 请求对象（获取用户/IP）
+    :param operation_type: 操作类型（对应OperationLog的OPERATION_TYPE_CHOICES）
+    :param object_type: 操作对象类型（对应OperationLog的OBJECT_TYPE_CHOICES）
+    :param object_id: 操作对象ID
+    :param object_name: 操作对象名称
+    :param operation_detail: 操作详情（便于追溯）
+    """
+    # 获取客户端IP（兼容代理场景）
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    ip_address = x_forwarded_for.split(',')[0] if x_forwarded_for else request.META.get('REMOTE_ADDR', '')
+
+    # 容错处理：日志记录失败仅打印错误，不中断主流程
+    try:
+        OperationLog.objects.create(
+            operator=request.user if request.user.is_authenticated else None,  # 当前登录用户
+            operation_time=timezone.now(),
+            operation_type=operation_type,
+            object_type=object_type,
+            object_id=str(object_id) if object_id else None,
+            object_name=object_name,
+            operation_detail=operation_detail,
+            ip_address=ip_address
+        )
+    except Exception as e:
+        print(f"【客户管理日志记录失败】：{str(e)}")
 
 
 # ===================== 客户管理CRUD =====================
@@ -56,14 +92,26 @@ def customer_add(request):
 
             # 校验区域是否存在
             area = get_object_or_404(Area, id=area_id)
+            area_name = area.name
 
             # 创建客户
-            Customer.objects.create(
+            customer = Customer.objects.create(
                 name=name,
                 area=area,
                 phone=phone,
                 remark=remark
             )
+
+            # ========== 新增：记录新增客户日志 ==========
+            create_operation_log(
+                request=request,
+                operation_type='create',
+                object_type='customer',
+                object_id=customer.id,
+                object_name=customer.name,
+                operation_detail=f"新增客户：名称={customer.name}，所属区域={area_name}，联系电话={phone}，备注={remark if remark else '无'}"
+            )
+
             return JsonResponse({'code': 1, 'msg': '新增客户成功'}, content_type='application/json')
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'新增失败：{str(e)}'}, content_type='application/json')
@@ -98,6 +146,13 @@ def customer_edit(request, pk):
 
             # 校验区域
             area = get_object_or_404(Area, id=area_id)
+            new_area_name = area.name
+
+            # 保存修改前的信息（用于日志对比）
+            old_name = customer.name
+            old_area = customer.area.name if customer.area else '无'
+            old_phone = customer.phone
+            old_remark = customer.remark if customer.remark else '无'
 
             # 更新客户信息
             customer.name = name
@@ -105,6 +160,16 @@ def customer_edit(request, pk):
             customer.phone = phone
             customer.remark = remark
             customer.save()
+
+            # ========== 新增：记录编辑客户日志 ==========
+            create_operation_log(
+                request=request,
+                operation_type='update',
+                object_type='customer',
+                object_id=customer.id,
+                object_name=customer.name,
+                operation_detail=f"编辑客户：原名称={old_name}→新名称={name}，原区域={old_area}→新区域={new_area_name}，原电话={old_phone}→新电话={phone}，原备注={old_remark}→新备注={remark if remark else '无'}"
+            )
 
             return JsonResponse({'code': 1, 'msg': '编辑客户成功'}, content_type='application/json')
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
@@ -117,7 +182,25 @@ def customer_delete(request, pk):
     """删除客户接口"""
     try:
         customer = get_object_or_404(Customer, pk=pk)
+        # 保存删除前的信息（删除后无法获取）
+        customer_name = customer.name
+        customer_area = customer.area.name if customer.area else '无'
+        customer_phone = customer.phone
+        customer_remark = customer.remark if customer.remark else '无'
+
+        # 删除客户
         customer.delete()
+
+        # ========== 新增：记录删除客户日志 ==========
+        create_operation_log(
+            request=request,
+            operation_type='delete',
+            object_type='customer',
+            object_id=pk,
+            object_name=customer_name,
+            operation_detail=f"删除客户：ID={pk}，名称={customer_name}，所属区域={customer_area}，联系电话={customer_phone}，备注={customer_remark}"
+        )
+
         return JsonResponse({'code': 1, 'msg': '删除客户成功'}, content_type='application/json')
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'删除失败：{str(e)}'}, content_type='application/json')
@@ -143,10 +226,6 @@ def area_list_for_customer(request):
 def customer_page(request):
     """客户管理页面"""
     return render(request, 'customer_manage/customer.html')
-
-
-# customer_manage/views.py 新增以下函数
-from bill.models import CustomerPrice, Product, Customer
 
 
 # ===================== 客户专属价格CRUD =====================
@@ -201,18 +280,30 @@ def customer_price_add(request):
             # 校验客户和商品存在
             customer = get_object_or_404(Customer, id=customer_id)
             product = get_object_or_404(Product, id=product_id)
+            product_standard_price = float(product.price)
 
             # 校验是否已存在该客户-商品的专属价
             if CustomerPrice.objects.filter(customer=customer, product=product).exists():
                 return JsonResponse({'code': 0, 'msg': '该客户已设置过此商品的专属价'}, content_type='application/json')
 
             # 创建专属价
-            CustomerPrice.objects.create(
+            cp = CustomerPrice.objects.create(
                 customer=customer,
                 product=product,
                 custom_price=custom_price,
                 remark=remark
             )
+
+            # ========== 新增：记录新增客户专属价日志 ==========
+            create_operation_log(
+                request=request,
+                operation_type='create',
+                object_type='customer_price',
+                object_id=cp.id,
+                object_name=f"{customer.name}-{product.name}",
+                operation_detail=f"新增客户专属价：客户={customer.name}，商品={product.name}，标准价={product_standard_price}元，专属价={custom_price}元，备注={remark if remark else '无'}"
+            )
+
             return JsonResponse({'code': 1, 'msg': '新增专属价成功'}, content_type='application/json')
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'新增失败：{str(e)}'}, content_type='application/json')
@@ -238,10 +329,28 @@ def customer_price_edit(request, pk):
             except:
                 return JsonResponse({'code': 0, 'msg': '专属价必须是数字'}, content_type='application/json')
 
+            # 保存修改前的信息
+            old_price = float(cp.custom_price)
+            old_remark = cp.remark if cp.remark else '无'
+            customer_name = cp.customer.name
+            product_name = cp.product.name
+            product_standard_price = float(cp.product.price)
+
             # 更新
             cp.custom_price = custom_price
             cp.remark = remark
             cp.save()
+
+            # ========== 新增：记录编辑客户专属价日志 ==========
+            create_operation_log(
+                request=request,
+                operation_type='update',
+                object_type='customer_price',
+                object_id=cp.id,
+                object_name=f"{customer_name}-{product_name}",
+                operation_detail=f"编辑客户专属价：客户={customer_name}，商品={product_name}，标准价={product_standard_price}元，原专属价={old_price}元→新专属价={custom_price}元，原备注={old_remark}→新备注={remark if remark else '无'}"
+            )
+
             return JsonResponse({'code': 1, 'msg': '编辑专属价成功'}, content_type='application/json')
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
     except Exception as e:
@@ -253,7 +362,26 @@ def customer_price_delete(request, pk):
     """删除客户专属价格"""
     try:
         cp = get_object_or_404(CustomerPrice, pk=pk)
+        # 保存删除前的信息
+        customer_name = cp.customer.name
+        product_name = cp.product.name
+        custom_price = float(cp.custom_price)
+        product_standard_price = float(cp.product.price)
+        remark = cp.remark if cp.remark else '无'
+
+        # 删除专属价
         cp.delete()
+
+        # ========== 新增：记录删除客户专属价日志 ==========
+        create_operation_log(
+            request=request,
+            operation_type='delete',
+            object_type='customer_price',
+            object_id=pk,
+            object_name=f"{customer_name}-{product_name}",
+            operation_detail=f"删除客户专属价：ID={pk}，客户={customer_name}，商品={product_name}，标准价={product_standard_price}元，专属价={custom_price}元，备注={remark}"
+        )
+
         return JsonResponse({'code': 1, 'msg': '删除专属价成功'}, content_type='application/json')
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'删除失败：{str(e)}'}, content_type='application/json')
@@ -264,7 +392,7 @@ def customer_price_page(request):
     """客户专属价格管理页面"""
     return render(request, 'customer_manage/customer_price.html')
 
-# customer_manage/views.py 新增
+
 @csrf_exempt
 def product_list_for_price(request):
     """供客户价格管理页面获取商品列表"""
@@ -279,8 +407,10 @@ def product_list_for_price(request):
             content_type='application/json'
         )
 
+
 from django.db.models import Q
 from difflib import SequenceMatcher
+
 
 # ===================== 客户搜索接口（输入法式选择） =====================
 @csrf_exempt
@@ -312,6 +442,7 @@ def search_customer_for_price(request):
         })
 
     return JsonResponse({'code': 1, 'data': data}, content_type='application/json')
+
 
 # ===================== 商品搜索接口（输入法式选择） =====================
 @csrf_exempt
