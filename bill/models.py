@@ -1,10 +1,10 @@
 from django.db import models
+from django.utils import timezone
 from pypinyin import lazy_pinyin
 import datetime
 # 新增：关联accounts的User模型
 from accounts.models import User
 from django.urls import reverse
-
 
 
 class Product(models.Model):
@@ -32,6 +32,7 @@ class Product(models.Model):
         verbose_name = '商品'
         verbose_name_plural = '商品管理'
 
+
 # 新增：商品别名表
 class ProductAlias(models.Model):
     """商品别名表（一个商品可对应多个别名）"""
@@ -40,10 +41,8 @@ class ProductAlias(models.Model):
         on_delete=models.CASCADE,
         verbose_name='关联商品',
         related_name='aliases',  # 反向关联：商品对象.aliases 可获取所有别名
-    # ========== 新增：临时允许为空 ==========
-    null = True,
-    blank = True
-
+        null=True,
+        blank=True
     )
     alias_name = models.CharField('别名', max_length=100, unique=True)  # 别名唯一，避免重复
     alias_pinyin_full = models.CharField('别名全拼', max_length=200, blank=True)
@@ -62,7 +61,6 @@ class ProductAlias(models.Model):
     class Meta:
         verbose_name = '商品别名'
         verbose_name_plural = '商品别名管理'
-
 
 
 # ===================== 区域 & 汇总分组 模块 =====================
@@ -94,7 +92,7 @@ class AreaGroup(models.Model):
         verbose_name = '区域组'
         verbose_name_plural = '区域组管理'
 
-# bill/models.py 末尾新增
+
 class Customer(models.Model):
     """客户信息表"""
     name = models.CharField('客户名称', max_length=100, unique=True)  # 客户名唯一
@@ -117,7 +115,7 @@ class Customer(models.Model):
         verbose_name_plural = '客户管理'
         ordering = ['-create_time']  # 按创建时间倒序
 
-# bill/models.py 末尾新增
+
 class CustomerPrice(models.Model):
     """客户商品专属价格表"""
     customer = models.ForeignKey(
@@ -144,11 +142,8 @@ class CustomerPrice(models.Model):
         unique_together = ('customer', 'product')  # 核心约束：一个客户一个商品只能有一个专属价
         ordering = ['-create_time']
 
-# ===================== 给原有 Order 加区域 =====================
-# 请把你原来的 Order 替换成下面这个
-# 修改原有Order模型，新增customer外键
 
-# 其他模型保持不变，重点修改Order模型
+# ===================== 订单模型（核心修改） =====================
 class Order(models.Model):
     """订单表（三联单主表）- 新增作废/重开字段"""
     # 扩展订单状态选项
@@ -226,6 +221,27 @@ class Order(models.Model):
     unsettled_time = models.DateTimeField('撤销结清时间', null=True, blank=True)
     unsettled_remark = models.TextField('撤销结清备注', null=True, blank=True)
 
+    # 新增：计算逾期天数的方法（核心修改）
+    def get_overdue_days(self):
+        """
+        计算订单逾期天数：
+        - 已结清订单：返回0
+        - 未结清订单：当前日期 - 开单日期（开单次日开始算逾期）
+        """
+        if self.is_settled:  # 已结清订单不计算逾期
+            return 0
+
+        # 开单日期（仅取日期部分）
+        order_date = self.create_time.date()
+        # 当前日期
+        today = datetime.date.today()
+
+        # 计算逾期天数：当前日期 - 开单日期（开单当天逾期0天，次日开始算1天）
+        overdue_days = (today - order_date).days
+
+        # 确保返回非负数
+        return max(overdue_days, 0)
+
     def save(self, *args, **kwargs):
         """自动生成订单编号（年月日+随机数）"""
         if not self.order_no:
@@ -265,6 +281,7 @@ class Order(models.Model):
         verbose_name = '订单'
         verbose_name_plural = '订单管理'
 
+
 class OrderItem(models.Model):
     """订单明细表（三联单明细）"""
     order = models.ForeignKey(Order, on_delete=models.CASCADE, verbose_name='关联订单', related_name='items')
@@ -272,7 +289,6 @@ class OrderItem(models.Model):
         Product,
         on_delete=models.CASCADE,
         verbose_name='商品',
-        # ========== 新增：临时允许为空 ==========
         null=True,
         blank=True
     )
@@ -295,6 +311,7 @@ class OrderItem(models.Model):
         verbose_name = '订单明细'
         verbose_name_plural = '订单明细管理'
 
+
 # ========== 新增：每日销售汇总模型（极简版） ==========
 class DailySalesSummary(models.Model):
     """每日销售汇总表（仅统计订单销售数据，适配补货）"""
@@ -304,7 +321,6 @@ class DailySalesSummary(models.Model):
         on_delete=models.CASCADE,
         verbose_name='商品',
         related_name='daily_summaries',
-        # ========== 临时允许为空 ==========
         null=True,
         blank=True
     )
@@ -326,3 +342,32 @@ class DailySalesSummary(models.Model):
         product_unit = self.product.unit if self.product else ""
         return f'{self.summary_date} - {product_name} - 销售{self.sale_quantity}{product_unit}'
 
+
+# 在bill/models.py 末尾新增
+class RepaymentRecord(models.Model):
+    """还款记录表（核心：记录每笔还款）"""
+    customer = models.ForeignKey(
+        Customer,
+        on_delete=models.CASCADE,
+        verbose_name='还款客户'
+    )
+    repayment_amount = models.DecimalField('还款金额', max_digits=12, decimal_places=2)
+    repayment_time = models.DateTimeField('还款时间', default=timezone.now)
+    repayment_remark = models.TextField('还款备注', blank=True, null=True)
+    operator = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name='登记人'
+    )
+    create_time = models.DateTimeField('登记时间', auto_now_add=True)
+    update_time = models.DateTimeField('更新时间', auto_now=True)
+
+    def __str__(self):
+        return f'{self.customer.name} - 还款¥{self.repayment_amount} - {self.repayment_time.strftime("%Y-%m-%d")}'
+
+    class Meta:
+        verbose_name = '还款记录'
+        verbose_name_plural = '还款记录管理'
+        ordering = ['-repayment_time']

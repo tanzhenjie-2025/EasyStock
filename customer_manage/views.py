@@ -41,20 +41,44 @@ def create_operation_log(request, operation_type, object_type, object_id=None, o
 
 
 # ===================== 客户管理CRUD =====================
+# 新增导入
+from django.db.models import Sum, F, Q
+from bill.models import Order, RepaymentRecord
+from django.utils import timezone
+import datetime
+
+
+# ========== 1. 拓展客户列表接口：新增总欠款计算 ==========
 @csrf_exempt
 def customer_list(request):
-    """获取客户列表接口"""
+    """获取客户列表接口（新增总欠款字段）"""
     try:
-        customers = Customer.objects.all().select_related('area')  # 关联查询区域，提升性能
+        customers = Customer.objects.all().select_related('area')
         result = []
         for c in customers:
+            # 计算客户总欠款：未结清订单的总金额之和
+            unpaid_amount = Order.objects.filter(
+                customer=c,
+                is_settled=False
+            ).aggregate(total=Sum('total_amount'))['total'] or 0
+
+            # 计算客户已还款总额
+            paid_amount = RepaymentRecord.objects.filter(
+                customer=c
+            ).aggregate(total=Sum('repayment_amount'))['total'] or 0
+
+            # 实际欠款 = 未结清订单总额 - 已还款总额
+            total_debt = float(unpaid_amount) - float(paid_amount)
+            total_debt = max(total_debt, 0)  # 避免负数（还款超支）
+
             result.append({
                 'id': c.id,
                 'name': c.name,
                 'area_id': c.area.id if c.area else '',
                 'area_name': c.area.name if c.area else '',
                 'phone': c.phone,
-                'remark': c.remark or ''
+                'remark': c.remark or '',
+                'total_debt': total_debt  # 新增：总欠款
             })
         return JsonResponse(result, safe=False, content_type='application/json')
     except Exception as e:
@@ -63,6 +87,154 @@ def customer_list(request):
             safe=False,
             content_type='application/json'
         )
+
+
+# ========== 2. 新增客户详情接口（核心修改） ==========
+@csrf_exempt
+def customer_detail(request, pk):
+    """客户详情接口：返回欠款、订单、还款记录等信息"""
+    try:
+        customer = get_object_or_404(Customer, pk=pk)
+
+        # 1. 计算核心数据
+        # 未结清订单
+        unpaid_orders = Order.objects.filter(customer=customer, is_settled=False).select_related('creator')
+        unpaid_order_count = unpaid_orders.count()
+
+        # 计算总欠款
+        unpaid_amount = unpaid_orders.aggregate(total=Sum('total_amount'))['total'] or 0
+        paid_amount = RepaymentRecord.objects.filter(customer=customer).aggregate(total=Sum('repayment_amount'))[
+                          'total'] or 0
+        total_debt = float(unpaid_amount) - float(paid_amount)
+        total_debt = max(total_debt, 0)  # 避免负数（还款超支）
+
+        # 2. 未结清订单详情
+        order_list = []
+        for order in unpaid_orders:
+            # 增强容错：确保每个字段都有默认值
+            order_list.append({
+                'order_no': order.order_no or '',
+                'create_time': order.create_time.strftime('%Y-%m-%d %H:%M') if order.create_time else '',
+                'total_amount': float(order.total_amount) if order.total_amount else 0.0,
+                'overdue_days': order.get_overdue_days(),
+                'order_date': order.create_time.strftime('%Y-%m-%d') if order.create_time else ''
+            })
+
+        # 3. 还款记录
+        repayment_list = []
+        repayments = RepaymentRecord.objects.filter(customer=customer).select_related('operator')
+        for repay in repayments:
+            repayment_list.append({
+                'id': repay.id,
+                'repayment_amount': float(repay.repayment_amount) if repay.repayment_amount else 0.0,
+                'repayment_time': repay.repayment_time.strftime('%Y-%m-%d %H:%M') if repay.repayment_time else '',
+                'repayment_remark': repay.repayment_remark or '',
+                'operator': repay.operator.username if (repay.operator and repay.operator.username) else '未知',
+                'create_time': repay.create_time.strftime('%Y-%m-%d %H:%M') if repay.create_time else ''
+            })
+
+        # 组装返回数据
+        result = {
+            'code': 1,  # 新增：返回状态码
+            'msg': '查询成功',
+            'customer_info': {
+                'id': customer.id,
+                'name': customer.name,
+                'area_name': customer.area.name if customer.area else '',
+                'phone': customer.phone,
+                'remark': customer.remark or ''
+            },
+            'debt_info': {
+                'total_debt': total_debt,
+                'unpaid_order_count': unpaid_order_count,
+                'unpaid_amount': float(unpaid_amount),
+                'paid_amount': float(paid_amount)
+            },
+            'unpaid_orders': order_list,
+            'repayments': repayment_list
+        }
+
+        return JsonResponse(result, safe=False, content_type='application/json')
+    except Exception as e:
+        return JsonResponse(
+            {'code': 0, 'msg': f'查询失败：{str(e)}'},
+            safe=False,
+            content_type='application/json'
+        )
+
+
+# ========== 3. 新增还款登记接口 ==========
+@csrf_exempt
+def repayment_register(request):
+    """还款登记接口"""
+    if request.method == 'POST':
+        try:
+            # 获取参数
+            customer_id = request.POST.get('customer_id', '').strip()
+            repayment_amount = request.POST.get('repayment_amount', '').strip()
+            repayment_time = request.POST.get('repayment_time', '').strip()
+            repayment_remark = request.POST.get('repayment_remark', '').strip()
+
+            # 校验必填项
+            if not customer_id or not repayment_amount:
+                return JsonResponse({'code': 0, 'msg': '客户和还款金额不能为空'}, content_type='application/json')
+
+            # 校验金额
+            try:
+                repayment_amount = float(repayment_amount)
+                if repayment_amount <= 0:
+                    return JsonResponse({'code': 0, 'msg': '还款金额必须大于0'}, content_type='application/json')
+            except:
+                return JsonResponse({'code': 0, 'msg': '还款金额必须是数字'}, content_type='application/json')
+
+            # 校验客户
+            customer = get_object_or_404(Customer, id=customer_id)
+
+            # 处理还款时间
+            if repayment_time:
+                try:
+                    repayment_time = timezone.make_aware(datetime.datetime.strptime(repayment_time, '%Y-%m-%d %H:%M'))
+                except:
+                    return JsonResponse({'code': 0, 'msg': '还款时间格式错误（正确格式：YYYY-MM-DD HH:MM）'},
+                                        content_type='application/json')
+            else:
+                repayment_time = timezone.now()
+
+            # 创建还款记录
+            repayment = RepaymentRecord.objects.create(
+                customer=customer,
+                repayment_amount=repayment_amount,
+                repayment_time=repayment_time,
+                repayment_remark=repayment_remark,
+                operator=request.user if request.user.is_authenticated else None
+            )
+
+            # 记录操作日志
+            create_operation_log(
+                request=request,
+                operation_type='repayment_register',
+                object_type='repayment',
+                object_id=repayment.id,
+                object_name=f'{customer.name} - 还款¥{repayment_amount}',
+                operation_detail=f"为客户{customer.name}登记还款：金额¥{repayment_amount}，时间{repayment_time.strftime('%Y-%m-%d %H:%M')}，备注：{repayment_remark if repayment_remark else '无'}"
+            )
+
+            return JsonResponse({'code': 1, 'msg': '还款登记成功'}, content_type='application/json')
+        except Exception as e:
+            return JsonResponse({'code': 0, 'msg': f'登记失败：{str(e)}'}, content_type='application/json')
+    return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
+
+
+# ========== 4. 新增客户详情页面入口 ==========
+def customer_detail_page(request, pk):
+    """客户详情页面"""
+    return render(request, 'customer_manage/customer_detail.html', {'customer_id': pk})
+
+
+# ========== 5. 新增还款登记页面入口（弹窗式，也可单独页面） ==========
+def repayment_page(request):
+    """还款登记页面"""
+    return render(request, 'customer_manage/repayment.html')
 
 
 @csrf_exempt

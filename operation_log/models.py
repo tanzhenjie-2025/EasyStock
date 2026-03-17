@@ -23,6 +23,7 @@ class OperationLog(models.Model):
         ('settle_order', '标记订单结清'),
         ('unsettle_order', '撤销订单结清'),
         ('batch_settle_order', '批量结清订单'),
+        ('repayment_register', '还款登记'),
     )
 
     # 操作对象类型（明确操作的是哪个模块的内容）
@@ -36,6 +37,7 @@ class OperationLog(models.Model):
         ('user', '用户'),
         ('order', '订单'),
         ('daily_summary', '销售汇总'),
+        ('repayment', '还款记录'),
 
     )
 

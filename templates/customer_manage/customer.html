@@ -6,7 +6,7 @@
 <!-- 页面专属样式 -->
 {% block extra_css %}
 <style>
-    /* 表单弹窗样式（新增/编辑） */
+    /* 原有样式保持不变 */
     .modal-overlay {
         position: fixed;
         top: 0;
@@ -34,7 +34,7 @@
         margin-bottom: 5px;
         font-weight: bold;
     }
-    .form-group input, .form-group select {
+    .form-group input, .form-group select, .form-group textarea {
         width: 100%;
         padding: 8px;
         border: 1px solid #ddd;
@@ -62,6 +62,41 @@
         border-radius: 4px;
         cursor: pointer;
     }
+
+    /* 新增：还款弹窗样式 */
+    .repayment-modal {
+        width: 600px;
+    }
+    .quick-tag {
+        display: inline-block;
+        padding: 4px 8px;
+        margin: 0 4px 4px 0;
+        background: #e9ecef;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+    .quick-tag:hover {
+        background: #007bff;
+        color: white;
+    }
+    .debt-red {
+        color: red;
+        font-weight: bold;
+    }
+    /* 客户搜索建议列表样式 */
+    #customerSuggest {
+        position: absolute;
+        background: white;
+        width: calc(100% - 16px);
+        z-index: 1001;
+    }
+    #customerSuggest div {
+        padding: 6px 8px;
+        border-bottom: 1px solid #eee;
+    }
+    #customerSuggest div:hover {
+        background: #f8f9fa;
+    }
 </style>
 {% endblock %}
 
@@ -71,6 +106,7 @@
     <h3>客户管理</h3>
     <div class="my-3">
         <button class="btn btn-sm btn-primary" onclick="openAddModal()">新增客户</button>
+        <button class="btn btn-sm btn-success ms-2" onclick="openRepaymentModal()">还款登记</button>
     </div>
     <table class="table table-sm table-bordered">
         <thead class="table-light">
@@ -79,6 +115,7 @@
                 <th>客户名称</th>
                 <th>所属区域</th>
                 <th>联系电话</th>
+                <th>总欠款</th>
                 <th>备注</th>
                 <th>操作</th>
             </tr>
@@ -89,7 +126,7 @@
     </table>
 </div>
 
-<!-- 新增/编辑客户弹窗 -->
+<!-- 原有新增/编辑客户弹窗 -->
 <div class="modal-overlay" id="customerModal">
     <div class="modal-content">
         <h4 id="modalTitle">新增客户</h4>
@@ -121,6 +158,44 @@
         </form>
     </div>
 </div>
+
+<!-- 新增：还款登记弹窗 -->
+<div class="modal-overlay" id="repaymentModal">
+    <div class="modal-content repayment-modal">
+        <h4>还款登记</h4>
+        <form id="repaymentForm">
+            <div class="form-group" style="position: relative;">
+                <label for="repayCustomer">选择客户 <span style="color:red">*</span></label>
+                <input type="text" id="repayCustomer" placeholder="输入客户名称搜索" oninput="searchCustomer(this.value)">
+                <div id="customerSuggest" style="max-height: 150px; overflow-y: auto; border: 1px solid #ddd; border-radius: 4px; margin-top: 4px; display: none;"></div>
+                <input type="hidden" id="repayCustomerId" value="">
+            </div>
+            <div class="form-group">
+                <label for="repaymentAmount">还款金额 <span style="color:red">*</span></label>
+                <input type="number" id="repaymentAmount" placeholder="请输入还款金额" step="0.01" min="0.01">
+            </div>
+            <div class="form-group">
+                <label for="repaymentTime">还款时间</label>
+                <input type="datetime-local" id="repaymentTime" value="">
+            </div>
+            <div class="form-group">
+                <label>快捷备注</label>
+                <div>
+                    <span class="quick-tag" onclick="addRemark('还款方式：微信转账。')">微信转账</span>
+                    <span class="quick-tag" onclick="addRemark('还款方式：现金还款。')">现金还款</span>
+                    <span class="quick-tag" onclick="addRemark('还款方式：支付宝转账。')">支付宝转账</span>
+                    <span class="quick-tag" onclick="addRemark('还款时间：' + new Date().toLocaleDateString() + '。')">今日还款</span>
+                </div>
+                <label for="repaymentRemark" class="mt-2">还款备注</label>
+                <textarea id="repaymentRemark" rows="3" placeholder="可手动输入或点击上方快捷标签"></textarea>
+            </div>
+            <div class="btn-group">
+                <button type="button" class="btn-cancel" onclick="closeRepaymentModal()">取消</button>
+                <button type="button" class="btn-save" onclick="saveRepayment()">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
 {% endblock %}
 
 <!-- 页面专属JS -->
@@ -128,12 +203,25 @@
 <script>
     let currentCustomerId = '';  // 当前编辑的客户ID
     let areaList = [];           // 区域列表缓存
+    let customerSuggestList = []; // 还款登记的客户搜索列表
 
     // 页面加载初始化
     $(document).ready(function() {
         loadAreaList();  // 加载区域下拉列表
         loadCustomerList();  // 加载客户列表
     });
+
+    // 新增：获取CSRF Token（关键，确保POST请求正常）
+    function getCsrfToken() {
+        const cookies = document.cookie.split(';');
+        for (let cookie of cookies) {
+            const [name, value] = cookie.trim().split('=');
+            if (name === 'csrftoken') {
+                return value;
+            }
+        }
+        return '';
+    }
 
     // 1. 加载区域列表（用于下拉选择）
     function loadAreaList() {
@@ -153,27 +241,31 @@
         });
     }
 
-    // 2. 加载客户列表
+    // 2. 加载客户列表（修改：新增总欠款列和详情按钮）
     function loadCustomerList() {
         $.get('/customer-manage/customer/list/', function(res) {
             console.log('客户列表：', res);
             let html = '';
             if (Array.isArray(res) && res.length > 0) {
                 res.forEach(customer => {
+                    // 格式化欠款金额，保留2位小数
+                    const totalDebt = customer.total_debt ? customer.total_debt.toFixed(2) : '0.00';
                     html += `<tr>
                         <td>${customer.id}</td>
                         <td>${customer.name}</td>
                         <td>${customer.area_name || '无'}</td>
                         <td>${customer.phone}</td>
+                        <td class="debt-red">¥${totalDebt}</td>
                         <td>${customer.remark || '无'}</td>
                         <td>
+                            <button class="btn btn-sm btn-info me-1" onclick="openCustomerDetail(${customer.id})">详情</button>
                             <button class="btn btn-sm btn-warning me-1" onclick="openEditModal(${customer.id})">编辑</button>
                             <button class="btn btn-sm btn-danger" onclick="deleteCustomer(${customer.id})">删除</button>
                         </td>
                     </tr>`;
                 });
             } else {
-                html = '<tr><td colspan="6" class="text-center">暂无客户数据</td></tr>';
+                html = '<tr><td colspan="7" class="text-center">暂无客户数据</td></tr>';
             }
             $('#customerList').html(html);
         }, 'json').fail(function(xhr, status, error) {
@@ -218,7 +310,7 @@
         });
     }
 
-    // 5. 关闭弹窗
+    // 5. 关闭新增/编辑弹窗
     function closeModal() {
         $('#customerModal').css('display', 'none');
         // 重置表单
@@ -304,6 +396,137 @@
                 alert('删除客户失败！\n' + xhr.responseText);
             }
         });
+    }
+
+    // ===================== 新增：还款登记相关功能 =====================
+    // 8. 打开还款登记弹窗
+    function openRepaymentModal() {
+        // 初始化时间为当前时间
+        const now = new Date();
+        const datetimeStr = now.toISOString().slice(0, 16);
+        $('#repaymentTime').val(datetimeStr);
+        // 清空表单
+        $('#repaymentForm')[0].reset();
+        $('#repayCustomerId').val('');
+        $('#customerSuggest').hide();
+        // 显示弹窗
+        $('#repaymentModal').css('display', 'flex');
+    }
+
+    // 9. 关闭还款登记弹窗
+    function closeRepaymentModal() {
+        $('#repaymentModal').css('display', 'none');
+        $('#customerSuggest').hide();
+    }
+
+    // 10. 搜索客户（还款登记弹窗用）
+    function searchCustomer(keyword) {
+        if (!keyword || keyword.trim() === '') {
+            $('#customerSuggest').hide();
+            return;
+        }
+        $.get('/customer-manage/customer/list/', function(res) {
+            // 模糊匹配客户名称
+            const filtered = res.filter(item => item.name.includes(keyword.trim()));
+            customerSuggestList = filtered;
+            let html = '';
+            if (filtered.length > 0) {
+                filtered.forEach(item => {
+                    const totalDebt = item.total_debt ? item.total_debt.toFixed(2) : '0.00';
+                    html += `<div style="padding: 4px 8px; cursor: pointer;" onclick="selectCustomer(${item.id}, '${item.name}')">
+                        ${item.name} (欠款¥${totalDebt})
+                    </div>`;
+                });
+                $('#customerSuggest').html(html).show();
+            } else {
+                html = '<div style="padding: 4px 8px; color: #999;">未找到匹配客户</div>';
+                $('#customerSuggest').html(html).show();
+            }
+        }, 'json').fail(function(xhr, status, error) {
+            console.error('搜索客户失败：', xhr.responseText);
+            alert('搜索客户失败！\n' + error);
+            $('#customerSuggest').hide();
+        });
+    }
+
+    // 11. 选择搜索结果中的客户
+    function selectCustomer(customerId, customerName) {
+        // 填充客户信息到表单
+        $('#repayCustomer').val(customerName);
+        $('#repayCustomerId').val(customerId);
+        // 隐藏搜索建议列表
+        $('#customerSuggest').hide();
+    }
+
+    // 12. 快捷添加备注
+    function addRemark(remarkText) {
+        const currentRemark = $('#repaymentRemark').val();
+        // 如果已有备注，换行后添加；否则直接添加
+        if (currentRemark) {
+            $('#repaymentRemark').val(currentRemark + '\n' + remarkText);
+        } else {
+            $('#repaymentRemark').val(remarkText);
+        }
+    }
+
+    // 13. 保存还款记录（修复：URL改为后端实际接口地址）
+    function saveRepayment() {
+        // 获取表单数据
+        const customerId = $('#repayCustomerId').val().trim();
+        const amount = parseFloat($('#repaymentAmount').val().trim());
+        const repaymentTime = $('#repaymentTime').val().trim();
+        const remark = $('#repaymentRemark').val().trim();
+
+        // 表单验证
+        if (!customerId) {
+            alert('请先选择客户！');
+            $('#repayCustomer').focus();
+            return;
+        }
+        if (isNaN(amount) || amount <= 0) {
+            alert('请输入有效的还款金额（大于0）！');
+            $('#repaymentAmount').focus();
+            return;
+        }
+        if (!repaymentTime) {
+            alert('请选择还款时间！');
+            $('#repaymentTime').focus();
+            return;
+        }
+
+        // 组装提交数据
+        const data = {
+            customer_id: customerId,
+            repayment_amount: amount,  // 修复：字段名与后端一致
+            repayment_time: repaymentTime,
+            repayment_remark: remark
+        };
+
+        // 发送保存请求（修复：URL改为后端实际接口）
+        $.ajax({
+            url: '/customer-manage/repayment/register/',
+            type: 'POST',
+            data: data,
+            headers: {'X-CSRFToken': getCsrfToken()},
+            dataType: 'json',
+            success: function(res) {
+                alert(res.msg);
+                if (res.code === 1) {
+                    closeRepaymentModal();  // 关闭弹窗
+                    loadCustomerList();     // 刷新客户列表（更新欠款金额）
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('保存还款记录失败：', xhr.responseText);
+                alert('保存还款记录失败！\n' + xhr.responseText);
+            }
+        });
+    }
+
+    // 14. 打开客户详情页面（核心修改：跳转到详情页，而非alert）
+    function openCustomerDetail(id) {
+        // 跳转到客户详情页面
+        window.location.href = `/customer-manage/customer/detail/page/${id}/`;
     }
 </script>
 {% endblock %}

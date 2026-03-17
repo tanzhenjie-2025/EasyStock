@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+
+{% block title %}客户详情 - EasyStock{% endblock %}
+
+{% block extra_css %}
+<style>
+    .detail-card {
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 16px;
+    }
+    .overdue {
+        color: red;
+        font-weight: bold;
+    }
+    .detail-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="content-container">
+    <div class="detail-header">
+        <h3 id="customerName">客户详情</h3>
+        <button class="btn btn-sm btn-secondary" onclick="history.back()">返回客户列表</button>
+    </div>
+    
+    <!-- 客户基本信息 -->
+    <div class="detail-card">
+        <h5>基本信息</h5>
+        <table class="table table-sm">
+            <tr>
+                <td width="150px">客户名称</td>
+                <td id="name">-</td>
+            </tr>
+            <tr>
+                <td>所属区域</td>
+                <td id="area">-</td>
+            </tr>
+            <tr>
+                <td>联系电话</td>
+                <td id="phone">-</td>
+            </tr>
+            <tr>
+                <td>未结清订单总额</td>
+                <td id="unpaidAmount">-</td>
+            </tr>
+            <tr>
+                <td>已还款总额</td>
+                <td id="paidAmount">-</td>
+            </tr>
+            <tr>
+                <td>当前总欠款</td>
+                <td id="totalDebt" class="overdue">-</td>
+            </tr>
+            <tr>
+                <td>未结清订单数</td>
+                <td id="unpaidCount">-</td>
+            </tr>
+            <tr>
+                <td>备注</td>
+                <td id="remark">-</td>
+            </tr>
+        </table>
+    </div>
+    
+    <!-- 未结清订单 -->
+    <div class="detail-card">
+        <h5>未结清订单</h5>
+        <table class="table table-sm table-bordered">
+            <thead class="table-light">
+                <tr>
+                    <th>订单编号</th>
+                    <th>开单时间</th>
+                    <th>订单金额</th>
+                    <th>开单日期</th>
+                    <th>逾期天数</th>
+                </tr>
+            </thead>
+            <tbody id="unpaidOrders">
+                <tr><td colspan="5" class="text-center">加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- 还款记录 -->
+    <div class="detail-card">
+        <h5>还款记录</h5>
+        <table class="table table-sm table-bordered">
+            <thead class="table-light">
+                <tr>
+                    <th>还款金额</th>
+                    <th>还款时间</th>
+                    <th>登记人</th>
+                    <th>备注</th>
+                </tr>
+            </thead>
+            <tbody id="repaymentRecords">
+                <tr><td colspan="4" class="text-center">加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // 获取客户ID（从URL中提取）
+    const customerId = '{{ customer_id }}';
+    
+    // 页面加载时获取客户详情
+    $(document).ready(function() {
+        loadCustomerDetail();
+    });
+    
+    function loadCustomerDetail() {
+        $.get(`/customer-manage/customer/detail/${customerId}/`, function(res) {
+            // 填充基本信息
+            $('#customerName').text(res.customer_info.name + ' - 客户详情');
+            $('#name').text(res.customer_info.name);
+            $('#area').text(res.customer_info.area_name || '无');
+            $('#phone').text(res.customer_info.phone);
+            $('#unpaidAmount').text('¥' + res.debt_info.unpaid_amount.toFixed(2));
+            $('#paidAmount').text('¥' + res.debt_info.paid_amount.toFixed(2));
+            $('#totalDebt').text('¥' + res.debt_info.total_debt.toFixed(2));
+            $('#unpaidCount').text(res.debt_info.unpaid_order_count);
+            $('#remark').text(res.customer_info.remark || '无');
+            
+            // 填充未结清订单
+            let orderHtml = '';
+            if (res.unpaid_orders && res.unpaid_orders.length > 0) {
+                res.unpaid_orders.forEach(order => {
+                    const overdueClass = order.overdue_days > 0 ? 'overdue' : '';
+                    const overdueText = order.overdue_days > 0 ? `${order.overdue_days}天` : '未逾期';
+                    orderHtml += `<tr>
+                        <td>${order.order_no || '-'}</td>
+                        <td>${order.create_time || '-'}</td>
+                        <td>¥${order.total_amount.toFixed(2)}</td>
+                        <td>${order.order_date || '-'}</td>
+                        <td class="${overdueClass}">${overdueText}</td>
+                    </tr>`;
+                });
+            } else {
+                orderHtml = '<tr><td colspan="5" class="text-center">暂无未结清订单</td></tr>';
+            }
+            $('#unpaidOrders').html(orderHtml);
+            
+            // 填充还款记录
+            let repayHtml = '';
+            if (res.repayments && res.repayments.length > 0) {
+                res.repayments.forEach(repay => {
+                    repayHtml += `<tr>
+                        <td>¥${repay.repayment_amount.toFixed(2)}</td>
+                        <td>${repay.repayment_time || '-'}</td>
+                        <td>${repay.operator || '未知'}</td>
+                        <td>${repay.repayment_remark || '无'}</td>
+                    </tr>`;
+                });
+            } else {
+                repayHtml = '<tr><td colspan="4" class="text-center">暂无还款记录</td></tr>';
+            }
+            $('#repaymentRecords').html(repayHtml);
+        }, 'json').fail(function(xhr) {
+            alert('加载客户详情失败：' + (xhr.responseJSON?.msg || xhr.responseText || '未知错误'));
+            // 清空加载状态
+            $('#unpaidOrders').html('<tr><td colspan="5" class="text-center text-danger">加载失败</td></tr>');
+            $('#repaymentRecords').html('<tr><td colspan="4" class="text-center text-danger">加载失败</td></tr>');
+        });
+    }
+</script>
+{% endblock %}

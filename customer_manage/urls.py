@@ -21,5 +21,13 @@ path('price/delete/<int:pk>/', views.customer_price_delete, name='customer_price
 path('product/list/', views.product_list_for_price, name='product_list_for_price'),
 path('customer/search/', views.search_customer_for_price, name='search_customer_for_price'),
     path('product/search/', views.search_product_for_price, name='search_product_for_price'),
+
+    # 新增客户详情
+    path('customer/detail/<int:pk>/', views.customer_detail, name='customer_detail'),
+    path('customer/detail/page/<int:pk>/', views.customer_detail_page, name='customer_detail_page'),
+
+    # 还款登记
+    path('repayment/register/', views.repayment_register, name='repayment_register'),
+    path('repayment/page/', views.repayment_page, name='repayment_page'),
 ]
 
