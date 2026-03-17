@@ -68,8 +68,8 @@
         {% for order in orders %}
         <tr {% if order.status == 'cancelled' %}class="table-danger"{% elif order.status == 'reopened' %}class="table-warning"{% endif %}>
             <td>
-                <!-- 批量选择框（作废订单不可选） -->
-                <input type="checkbox" class="orderCheckbox" value="{{ order.order_no }}" {% if order.status == 'cancelled' %}disabled{% endif %}>
+                <!-- 批量选择框（作废/已结清订单不可选）【关键修改1：添加order.is_settled判断】 -->
+                <input type="checkbox" class="orderCheckbox" value="{{ order.order_no }}" {% if order.status == 'cancelled' or order.is_settled %}disabled{% endif %}>
             </td>
             <td>
                 {{ order.order_no }}
@@ -208,7 +208,8 @@
 // 1. 全选/取消全选
 $(document).ready(function() {
     $('#selectAll').change(function() {
-        $('.orderCheckbox').prop('checked', this.checked);
+        // 【关键修改2：全选只作用于未禁用的复选框】
+        $('.orderCheckbox:not(:disabled)').prop('checked', this.checked);
         updateBatchBtnStatus();
     });
     
@@ -233,7 +234,7 @@ $(document).ready(function() {
     
     // 批量结清按钮点击事件
     $('#batchSettleBtn').click(function() {
-        // 收集选中的订单号
+        // 收集选中的订单号（自动过滤禁用的复选框）
         const selectedOrders = $('.orderCheckbox:checked').map(function() {
             return $(this).val();
         }).get();
@@ -255,7 +256,8 @@ $(document).ready(function() {
 
 // 2. 更新批量按钮状态
 function updateBatchBtnStatus() {
-    const checkedCount = $('.orderCheckbox:checked').length;
+    // 【关键修改3：只统计未禁用且被选中的复选框】
+    const checkedCount = $('.orderCheckbox:not(:disabled):checked').length;
     $('#batchSettleBtn').prop('disabled', checkedCount === 0);
 }
 
