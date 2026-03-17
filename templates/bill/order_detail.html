@@ -158,15 +158,87 @@
 </div>
 {% endif %}
 
-<!-- 原有作废模态框保持不变... -->
+<!-- 作废订单模态框 -->
+<div class="modal fade" id="cancelModal" tabindex="-1" aria-labelledby="cancelModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="cancelModalLabel">作废订单 {{ order.order_no }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label for="cancelReason" class="form-label">作废原因（必填）</label>
+                    <!-- 快捷回复按钮组 -->
+                    <div class="d-flex flex-wrap gap-2 mb-2">
+                        <button type="button" class="btn btn-sm btn-outline-primary quick-reply" data-reason="价格填写错误">价格填写错误</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary quick-reply" data-reason="客户不想要了">客户不想要了</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary quick-reply" data-reason="商品数量填写错误">商品数量填写错误</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary quick-reply" data-reason="客户信息填写错误">客户信息填写错误</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary quick-reply" data-reason="商品选择错误">商品选择错误</button>
+                    </div>
+                    <textarea class="form-control" id="cancelReason" rows="3" placeholder="请填写作废原因，或点击上方快捷回复..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-danger" onclick="submitCancel()">确认作废</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-// 原有作废订单函数保持不变...
-function cancelOrder() { /* 原有逻辑 */ }
+// 快捷回复按钮点击事件
+$(document).ready(function() {
+    $('.quick-reply').click(function() {
+        const reason = $(this).data('reason');
+        $('#cancelReason').val(reason); // 将快捷回复填入输入框
+    });
+});
 
-// 新增：提交标记结清
+// 提交作废订单
+function submitCancel() {
+    const reason = document.getElementById('cancelReason').value.trim();
+    if (!reason) {
+        alert('请填写作废原因');
+        return;
+    }
+
+    fetch(`/bill/orders/cancel/{{ order.order_no }}/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken(),
+            'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify({ reason: reason })
+    })
+    .then(res => {
+        if (!res.ok) {
+            return res.text().then(text => {
+                throw new Error(`请求失败（状态码：${res.status}）：${text.substring(0, 100)}`);
+            });
+        }
+        return res.json();
+    })
+    .then(data => {
+        if (data.code === 1) {
+            alert('订单作废成功');
+            window.location.reload();
+        } else {
+            alert('作废失败：' + data.msg);
+        }
+    })
+    .catch(err => {
+        alert('作废失败：' + err.message);
+        console.error('作废订单错误详情：', err);
+    });
+}
+
+// 提交标记结清（修正参数错误：reason → remark）
 function submitSettle() {
     const remark = document.getElementById('settleRemark').value.trim();
     if (!remark) {
@@ -178,11 +250,19 @@ function submitSettle() {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'X-CSRFToken': getCsrfToken()
+            'X-CSRFToken': getCsrfToken(),
+            'X-Requested-With': 'XMLHttpRequest'
         },
-        body: JSON.stringify({ reason: remark })
+        body: JSON.stringify({ remark: remark })
     })
-    .then(res => res.json())
+    .then(res => {
+        if (!res.ok) {
+            return res.text().then(text => {
+                throw new Error(`请求失败（状态码：${res.status}）：${text.substring(0, 100)}`);
+            });
+        }
+        return res.json();
+    })
     .then(data => {
         if (data.code === 1) {
             alert('标记结清成功');
@@ -193,10 +273,11 @@ function submitSettle() {
     })
     .catch(err => {
         alert('标记失败：' + err.message);
+        console.error('标记结清错误详情：', err);
     });
 }
 
-// 新增：提交撤销结清
+// 提交撤销结清（修正参数错误：reason → remark）
 function submitUnsettle() {
     const remark = document.getElementById('unsettleRemark').value.trim();
     if (!remark) {
@@ -208,11 +289,19 @@ function submitUnsettle() {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'X-CSRFToken': getCsrfToken()
+            'X-CSRFToken': getCsrfToken(),
+            'X-Requested-With': 'XMLHttpRequest'
         },
-        body: JSON.stringify({ reason: remark })
+        body: JSON.stringify({ remark: remark })
     })
-    .then(res => res.json())
+    .then(res => {
+        if (!res.ok) {
+            return res.text().then(text => {
+                throw new Error(`请求失败（状态码：${res.status}）：${text.substring(0, 100)}`);
+            });
+        }
+        return res.json();
+    })
     .then(data => {
         if (data.code === 1) {
             alert('撤销结清成功');
@@ -223,10 +312,24 @@ function submitUnsettle() {
     })
     .catch(err => {
         alert('撤销失败：' + err.message);
+        console.error('撤销结清错误详情：', err);
     });
 }
 
-// 原有getCsrfToken函数保持不变...
-function getCsrfToken() { /* 原有逻辑 */ }
+// 获取CSRF Token
+function getCsrfToken() {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, 10) === 'csrftoken=') {
+                cookieValue = decodeURIComponent(cookie.substring(10));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
 </script>
 {% endblock %}

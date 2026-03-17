@@ -113,6 +113,7 @@
             <td>
                 <a href="{% url 'print_order' order.order_no %}" class="btn btn-sm btn-primary {% if order.status == 'cancelled' %}disabled{% endif %}">打印</a>
                 <a href="{% url 'order_detail' order.order_no %}" class="btn btn-sm btn-info">详情</a>
+            
                 
                 <!-- 标记结清按钮（未结清+非作废订单可见） -->
                 {% if not order.is_settled and order.status != 'cancelled' %}
@@ -123,6 +124,10 @@
                 {% if is_boss and order.is_settled %}
                     <button class="btn btn-sm btn-warning mt-1 unsettleBtn" data-order-no="{{ order.order_no }}">撤销结清</button>
                 {% endif %}
+            <!-- 作废订单按钮（仅老板+未作废订单可见） -->
+{% if is_boss and order.status != 'cancelled' %}
+<button class="btn btn-sm btn-danger mt-1 cancelBtn" data-order-no="{{ order.order_no }}">作废订单</button>
+{% endif %}
             </td>
         </tr>
         {% empty %}
@@ -197,6 +202,37 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
                 <button type="button" class="btn btn-success" onclick="submitBatchSettle()">确认批量结清</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 4. 作废订单模态框 -->
+<div class="modal fade" id="cancelModal" tabindex="-1" aria-labelledby="cancelModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="cancelModalLabel">作废订单</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="cancelOrderNo">
+                <div class="mb-3">
+                    <label for="cancelReason" class="form-label">作废原因（必填）</label>
+                    <!-- 快捷回复按钮组 -->
+                    <div class="d-flex flex-wrap gap-2 mb-2">
+                        <button type="button" class="btn btn-sm btn-outline-primary quick-reply" data-reason="价格填写错误">价格填写错误</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary quick-reply" data-reason="客户不想要了">客户不想要了</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary quick-reply" data-reason="商品数量填写错误">商品数量填写错误</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary quick-reply" data-reason="客户信息填写错误">客户信息填写错误</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary quick-reply" data-reason="商品选择错误">商品选择错误</button>
+                    </div>
+                    <textarea class="form-control" id="cancelReason" rows="3" placeholder="请填写作废原因，或点击上方快捷回复..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-danger" onclick="submitCancel()">确认作废</button>
             </div>
         </div>
     </div>
@@ -276,6 +312,8 @@ function getCsrfToken() {
     }
     return cookieValue;
 }
+
+
 
 // 4. 提交标记结清（修复版）
 function submitSettle() {
@@ -414,6 +452,61 @@ function submitBatchSettle() {
     .catch(err => {
         alert('批量结清失败：' + err.message);
         console.error('批量结清错误详情：', err);
+    });
+}
+
+// 作废订单按钮点击事件
+$('.cancelBtn').click(function() {
+    const orderNo = $(this).data('order-no');
+    $('#cancelOrderNo').val(orderNo);
+    $('#cancelReason').val(''); // 清空原有内容
+    $('#cancelModal').modal('show');
+});
+
+// 快捷回复按钮点击事件
+$('.quick-reply').click(function() {
+    const reason = $(this).data('reason');
+    $('#cancelReason').val(reason); // 将快捷回复填入输入框
+});
+
+// 7. 提交作废订单
+function submitCancel() {
+    const orderNo = $('#cancelOrderNo').val();
+    const reason = $('#cancelReason').val().trim();
+    
+    if (!reason) {
+        alert('请填写作废原因');
+        return;
+    }
+    
+    fetch(`/bill/orders/cancel/${orderNo}/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken(),
+            'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify({ reason: reason })
+    })
+    .then(res => {
+        if (!res.ok) {
+            return res.text().then(text => {
+                throw new Error(`请求失败（状态码：${res.status}）：${text.substring(0, 100)}`);
+            });
+        }
+        return res.json();
+    })
+    .then(data => {
+        if (data.code === 1) {
+            alert('订单作废成功');
+            window.location.reload();
+        } else {
+            alert('作废失败：' + data.msg);
+        }
+    })
+    .catch(err => {
+        alert('作废失败：' + err.message);
+        console.error('作废订单错误详情：', err);
     });
 }
 
