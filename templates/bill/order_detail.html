@@ -110,7 +110,7 @@
     </div>
 </div>
 
-<!-- 新增：标记结清模态框 -->
+<!-- 新增：标记结清模态框（带快捷选项） -->
 {% if not order.is_settled and order.status != 'cancelled' %}
 <div class="modal fade" id="settleModal" tabindex="-1" aria-labelledby="settleModalLabel" aria-hidden="true">
     <div class="modal-dialog">
@@ -122,7 +122,41 @@
             <div class="modal-body">
                 <div class="mb-3">
                     <label for="settleRemark" class="form-label">结清备注（必填）</label>
-                    <textarea class="form-control" id="settleRemark" rows="3" placeholder="收款方式、转账账户、转账时间等..."></textarea>
+                    
+                    <!-- 快捷选项区 -->
+                    <div class="mb-3">
+                        <!-- 收款方式 -->
+                        <div class="mb-2">
+                            <label class="form-label-sm text-muted">收款方式：</label>
+                            <div class="d-flex flex-wrap gap-2">
+                                <button type="button" class="btn btn-sm btn-outline-primary quick-option" data-type="pay_type" data-value="微信收款">微信收款</button>
+                                <button type="button" class="btn btn-sm btn-outline-primary quick-option" data-type="pay_type" data-value="现金收款">现金收款</button>
+                                <button type="button" class="btn btn-sm btn-outline-primary quick-option" data-type="pay_type" data-value="支付宝收款">支付宝收款</button>
+                            </div>
+                        </div>
+                        
+                        <!-- 转账账户 -->
+                        <div class="mb-2">
+                            <label class="form-label-sm text-muted">转账账户：</label>
+                            <div class="d-flex flex-wrap gap-2">
+                                {% for i in "12345678"|make_list %}
+                                <button type="button" class="btn btn-sm btn-outline-primary quick-option" data-type="account" data-value="00{{i}}">00{{i}}</button>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        
+                        <!-- 转账时间 -->
+                        <div class="mb-2">
+                            <label class="form-label-sm text-muted">转账时间：</label>
+                            <div class="d-flex flex-wrap gap-2 align-items-center">
+                                
+                                <input type="date" class="form-control form-control-sm w-auto" id="customTime" placeholder="自定义日期">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="applyCustomTime">确认日期</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <textarea class="form-control" id="settleRemark" rows="3" placeholder="收款方式：XXX。转账账户：XXX。转账时间：XXX"></textarea>
                 </div>
             </div>
             <div class="modal-footer">
@@ -191,6 +225,55 @@
 
 {% block extra_js %}
 <script>
+
+// ========== 结清快捷选项逻辑 ==========
+$(document).ready(function() {
+    // 1. 快捷选项点击
+    $('.quick-option').click(function() {
+        const type = $(this).data('type');
+        const value = $(this).data('value');
+        const $remark = $('#settleRemark');
+        updateRemarkText($remark, type, value);
+    });
+    
+    // 2. 自定义时间应用
+    $('#applyCustomTime').click(function() {
+        const customTime = $('#customTime').val();
+        if (customTime) {
+            const $remark = $('#settleRemark');
+            updateRemarkText($remark, 'time', customTime);
+        } else {
+            alert('请选择自定义日期');
+        }
+    });
+});
+
+// 核心：更新备注文本（叠加逻辑）
+function updateRemarkText($remarkElem, type, value) {
+    let currentText = $remarkElem.val().trim() || '';
+    const typeLabels = {
+        'pay_type': '收款方式',
+        'account': '转账账户',
+        'time': '转账时间'
+    };
+    const label = typeLabels[type];
+    
+    // 正则匹配已有内容，替换或新增
+    const regex = new RegExp(`${label}：[^。]*`, 'g');
+    if (regex.test(currentText)) {
+        // 替换已有内容
+        currentText = currentText.replace(regex, `${label}：${value}`);
+    } else {
+        // 新增内容（有原有内容则加句号分隔）
+        if (currentText) {
+            currentText += `。${label}：${value}`;
+        } else {
+            currentText = `${label}：${value}`;
+        }
+    }
+    
+    $remarkElem.val(currentText);
+}
 // 快捷回复按钮点击事件
 $(document).ready(function() {
     $('.quick-reply').click(function() {

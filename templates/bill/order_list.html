@@ -138,7 +138,7 @@
     </tbody>
 </table>
 
-<!-- 1. 标记结清模态框 -->
+<!-- 1. 标记结清模态框（新增快捷选项） -->
 <div class="modal fade" id="settleModal" tabindex="-1" aria-labelledby="settleModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -150,7 +150,40 @@
                 <input type="hidden" id="settleOrderNo">
                 <div class="mb-3">
                     <label for="settleRemark" class="form-label">结清备注（必填）</label>
-                    <textarea class="form-control" id="settleRemark" rows="3" placeholder="请填写收款方式、转账账户、转账时间等信息..."></textarea>
+                    
+                    <!-- 快捷选项区 -->
+                    <div class="mb-3">
+                        <!-- 收款方式 -->
+                        <div class="mb-2">
+                            <label class="form-label-sm text-muted">收款方式：</label>
+                            <div class="d-flex flex-wrap gap-2">
+                                <button type="button" class="btn btn-sm btn-outline-primary quick-option" data-type="pay_type" data-value="微信收款">微信收款</button>
+                                <button type="button" class="btn btn-sm btn-outline-primary quick-option" data-type="pay_type" data-value="现金收款">现金收款</button>
+                                <button type="button" class="btn btn-sm btn-outline-primary quick-option" data-type="pay_type" data-value="支付宝收款">支付宝收款</button>
+                            </div>
+                        </div>
+                        
+                        <!-- 转账账户 -->
+                        <div class="mb-2">
+                            <label class="form-label-sm text-muted">转账账户：</label>
+                            <div class="d-flex flex-wrap gap-2">
+                                {% for i in "12345678"|make_list %}
+                                <button type="button" class="btn btn-sm btn-outline-primary quick-option" data-type="account" data-value="00{{i}}">00{{i}}</button>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        
+                        <!-- 转账时间 -->
+                        <div class="mb-2">
+                            <label class="form-label-sm text-muted">转账时间：</label>
+                            <div class="d-flex flex-wrap gap-2 align-items-center">
+                               <input type="date" class="form-control form-control-sm w-auto" id="customTime" placeholder="自定义日期">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" id="applyCustomTime">确认日期</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <textarea class="form-control" id="settleRemark" rows="3" placeholder="收款方式：XXX。转账账户：XXX。转账时间：XXX"></textarea>
                 </div>
             </div>
             <div class="modal-footer">
@@ -160,7 +193,6 @@
         </div>
     </div>
 </div>
-
 <!-- 2. 撤销结清模态框（仅老板可见） -->
 {% if is_boss %}
 <div class="modal fade" id="unsettleModal" tabindex="-1" aria-labelledby="unsettleModalLabel" aria-hidden="true">
@@ -186,7 +218,7 @@
 </div>
 {% endif %}
 
-<!-- 3. 批量结清模态框 -->
+<!-- 3. 批量结清模态框（新增快捷选项） -->
 <div class="modal fade" id="batchSettleModal" tabindex="-1" aria-labelledby="batchSettleModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -195,6 +227,43 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
+                <!-- 批量订单快捷选项（全局） -->
+                <div class="mb-3 p-3 border rounded bg-light">
+                    <h6 class="mb-2">批量快捷填充</h6>
+                    <!-- 收款方式 -->
+                    <div class="mb-2">
+                        <label class="form-label-sm text-muted">收款方式：</label>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button type="button" class="btn btn-sm btn-outline-primary batch-quick-option" data-type="pay_type" data-value="微信收款">微信收款</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary batch-quick-option" data-type="pay_type" data-value="现金收款">现金收款</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary batch-quick-option" data-type="pay_type" data-value="支付宝收款">支付宝收款</button>
+                        </div>
+                    </div>
+                    
+                    <!-- 转账账户 -->
+                    <div class="mb-2">
+                        <label class="form-label-sm text-muted">转账账户：</label>
+                        <div class="d-flex flex-wrap gap-2">
+                            {% for i in "12345678"|make_list %}
+                            <button type="button" class="btn btn-sm btn-outline-primary batch-quick-option" data-type="account" data-value="00{{i}}">00{{i}}</button>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    
+                    <!-- 转账时间 -->
+                    <div class="mb-2">
+                        <label class="form-label-sm text-muted">转账时间：</label>
+                        <div class="d-flex flex-wrap gap-2 align-items-center">
+                            <button type="button" class="btn btn-sm btn-outline-primary batch-quick-option" data-type="time" data-value="{{ date.today|date:'Y-m-d' }}">今日</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary batch-quick-option" data-type="time" data-value="{{ date.today|date:'Y-m-d'|add:'-1 day' }}">昨日</button>
+                            <button type="button" class="btn btn-sm btn-outline-primary batch-quick-option" data-type="time" data-value="{{ date.today|date:'Y-m-d'|add:'-7 day' }}">近7天</button>
+                            <input type="date" class="form-control form-control-sm w-auto" id="batchCustomTime" placeholder="自定义日期">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="applyBatchCustomTime">确认日期</button>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-warning" id="clearBatchQuick">清空所有备注</button>
+                </div>
+                
                 <div id="batchOrderList" class="mb-3">
                     <!-- 动态生成选中订单的备注输入框 -->
                 </div>
@@ -206,7 +275,6 @@
         </div>
     </div>
 </div>
-
 <!-- 4. 作废订单模态框 -->
 <div class="modal fade" id="cancelModal" tabindex="-1" aria-labelledby="cancelModalLabel" aria-hidden="true">
     <div class="modal-dialog">
@@ -241,6 +309,125 @@
 
 {% block extra_js %}
 <script>
+
+// ========== 快捷选项拼接逻辑 ==========
+$(document).ready(function() {
+    // 1. 单个订单快捷选项点击
+    $('.quick-option').click(function() {
+        const type = $(this).data('type');
+        const value = $(this).data('value');
+        const $remark = $('#settleRemark');
+        updateRemarkText($remark, type, value);
+    });
+    
+    // 2. 自定义时间应用
+    $('#applyCustomTime').click(function() {
+        const customTime = $('#customTime').val();
+        if (customTime) {
+            const $remark = $('#settleRemark');
+            updateRemarkText($remark, 'time', customTime);
+        } else {
+            alert('请选择自定义日期');
+        }
+    });
+    
+    // 3. 批量订单全局快捷选项点击
+    $('.batch-quick-option').click(function() {
+        const type = $(this).data('type');
+        const value = $(this).data('value');
+        $('.batchRemark').each(function() {
+            updateRemarkText($(this), type, value);
+        });
+    });
+    
+    // 4. 批量自定义时间应用
+    $('#applyBatchCustomTime').click(function() {
+        const customTime = $('#batchCustomTime').val();
+        if (customTime) {
+            $('.batchRemark').each(function() {
+                updateRemarkText($(this), 'time', customTime);
+            });
+        } else {
+            alert('请选择自定义日期');
+        }
+    });
+    
+    // 5. 清空批量备注
+    $('#clearBatchQuick').click(function() {
+        $('.batchRemark').val('');
+    });
+});
+
+// 核心：更新备注文本（叠加逻辑）
+function updateRemarkText($remarkElem, type, value) {
+    let currentText = $remarkElem.val().trim() || '';
+    const typeLabels = {
+        'pay_type': '收款方式',
+        'account': '转账账户',
+        'time': '转账时间'
+    };
+    const label = typeLabels[type];
+    
+    // 正则匹配已有内容，替换或新增
+    const regex = new RegExp(`${label}：[^。]*`, 'g');
+    if (regex.test(currentText)) {
+        // 替换已有内容
+        currentText = currentText.replace(regex, `${label}：${value}`);
+    } else {
+        // 新增内容（有原有内容则加句号分隔）
+        if (currentText) {
+            currentText += `。${label}：${value}`;
+        } else {
+            currentText = `${label}：${value}`;
+        }
+    }
+    
+    $remarkElem.val(currentText);
+}
+
+// 批量结清弹窗打开时初始化备注框
+$('#batchSettleBtn').click(function() {
+    // 收集选中的订单号
+    const selectedOrders = $('.orderCheckbox:checked').map(function() {
+        return $(this).val();
+    }).get();
+    
+    // 生成批量备注输入框（带快捷选项）
+    let html = '<div class="alert alert-info">请为每个订单填写结清备注：</div>';
+    selectedOrders.forEach(orderNo => {
+        html += `
+            <div class="mb-3 p-2 border rounded">
+                <label class="form-label">订单 ${orderNo} 备注：</label>
+                <!-- 单个订单快捷选项 -->
+                <div class="d-flex flex-wrap gap-1 mb-2">
+                    <button type="button" class="btn btn-xs btn-outline-primary order-quick-option" data-type="pay_type" data-value="微信收款">微信</button>
+                    <button type="button" class="btn btn-xs btn-outline-primary order-quick-option" data-type="pay_type" data-value="现金收款">现金</button>
+                    <button type="button" class="btn btn-xs btn-outline-primary order-quick-option" data-type="pay_type" data-value="支付宝收款">支付宝</button>
+                    {% for i in "12345678"|make_list %}
+                    <button type="button" class="btn btn-xs btn-outline-primary order-quick-option" data-type="account" data-value="00{{i}}">00{{i}}</button>
+                    {% endfor %}
+                    <button type="button" class="btn btn-xs btn-outline-primary order-quick-option" data-type="time" data-value="{{ date.today|date:'Y-m-d' }}">今日</button>
+                    <button type="button" class="btn btn-xs btn-outline-danger clear-order-remark">清空</button>
+                </div>
+                <textarea class="form-control batchRemark" data-order-no="${orderNo}" rows="2" placeholder="收款方式：XXX。转账账户：XXX。转账时间：XXX"></textarea>
+            </div>
+        `;
+    });
+    $('#batchOrderList').html(html);
+    
+    // 绑定单个订单快捷选项事件
+    $('.order-quick-option').click(function() {
+        const type = $(this).data('type');
+        const value = $(this).data('value');
+        const $remark = $(this).closest('.mb-3').find('.batchRemark');
+        updateRemarkText($remark, type, value);
+    });
+    
+    // 绑定清空按钮事件
+    $('.clear-order-remark').click(function() {
+        $(this).closest('.mb-3').find('.batchRemark').val('');
+    });
+});
 // 1. 全选/取消全选
 $(document).ready(function() {
     $('#selectAll').change(function() {
