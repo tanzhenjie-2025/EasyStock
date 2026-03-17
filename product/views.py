@@ -420,3 +420,97 @@ def product_import(request):
 
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'导入失败：{str(e)}'})
+
+
+from django.shortcuts import render, redirect, get_object_or_404
+from django.http import JsonResponse
+from django.db import IntegrityError, transaction
+from django.views.decorators.csrf import csrf_exempt
+from bill.models import Product, ProductAlias
+from operation_log.models import OperationLog
+from django.utils import timezone
+import os
+import io
+from django.views.decorators.http import require_POST
+from django.core.files.uploadedfile import InMemoryUploadedFile
+import openpyxl
+import xlrd
+import json
+
+
+# ========== 原有函数保留，新增以下函数 ==========
+@csrf_exempt
+@require_POST
+def quick_stock_operation(request):
+    """
+    快速出入库操作接口
+    接收参数：items = [{"product_id": "", "in_quantity": 0, "out_quantity": 0}, ...]
+    """
+    try:
+        # 解析请求数据
+        data = json.loads(request.body)
+        items = data.get('items', [])
+
+        if not items:
+            return JsonResponse({'code': 0, 'msg': '无有效出入库数据'})
+
+        # 事务处理：确保所有库存更新要么都成功，要么都失败
+        with transaction.atomic():
+            operation_details = []
+            success_count = 0
+
+            for item in items:
+                product_id = item.get('product_id')
+                in_quantity = int(item.get('in_quantity', 0))
+                out_quantity = int(item.get('out_quantity', 0))
+
+                # 验证参数
+                if not product_id or (in_quantity <= 0 and out_quantity <= 0):
+                    continue
+
+                # 获取商品
+                product = get_object_or_404(Product, pk=product_id)
+                product_name = product.name
+
+                # 验证出库数量
+                if out_quantity > product.stock:
+                    raise Exception(f'商品【{product_name}】出库数量{out_quantity}超过当前库存{product.stock}')
+
+                # 更新库存
+                old_stock = product.stock
+                product.stock += in_quantity
+                product.stock -= out_quantity
+                product.save()
+
+                # 记录操作详情
+                operation_detail = f"商品【{product_name}】："
+                if in_quantity > 0:
+                    operation_detail += f"入库{in_quantity}{product.unit}，"
+                if out_quantity > 0:
+                    operation_detail += f"出库{out_quantity}{product.unit}，"
+                operation_detail += f"库存从{old_stock}变更为{product.stock}"
+
+                operation_details.append(operation_detail)
+                success_count += 1
+
+            # 记录操作日志
+            if success_count > 0:
+                create_operation_log(
+                    request=request,
+                    operation_type='stock_operation',
+                    object_type='product',
+                    operation_detail=f"快速出入库操作：共处理{success_count}个商品。详情：{' | '.join(operation_details)}"
+                )
+
+                return JsonResponse({
+                    'code': 1,
+                    'msg': f'出入库操作成功！共处理{success_count}个商品',
+                    'data': {'success_count': success_count}
+                })
+            else:
+                return JsonResponse({'code': 0, 'msg': '无有效出入库数据'})
+
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': f'出入库操作失败：{str(e)}'})
+
+
