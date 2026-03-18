@@ -1,4 +1,4 @@
-{##}
+{#order_list.html#}
 {% extends "base.html" %}
 
 {% block title %}订单列表 - EasyStock{% endblock %}
@@ -10,8 +10,25 @@
     {% endif %}
 </h3>
 
+<!-- 新增：订单号搜索框（放在筛选表单上方） -->
+<form method="get" class="mb-3">
+    <div class="row g-2 align-items-center">
+        <div class="col-auto">
+            <label class="form-label-sm mb-0">订单号搜索：</label>
+        </div>
+        <div class="col-auto">
+            <input type="text" name="order_no" class="form-control form-control-sm" placeholder="请输入订单编号" value="{{ order_no }}">
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-outline-primary">搜索</button>
+        </div>
+    </div>
+</form>
+
 <!-- 筛选表单（新增结清状态筛选 + 金额筛选） -->
 <form method="get" class="mb-4">
+    <!-- 新增：筛选栏提示词 -->
+    <div class="mb-1"><small class="text-muted">订单筛选：</small></div>
     <div class="row g-2">
         <div class="col-auto">
             <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
@@ -48,7 +65,7 @@
         </div>
         <div class="col-auto">
             <div class="input-group input-group-sm">
-                <input type="number" name="amount_value" class="form-control form-control-sm" id="amountValueInput" 
+                <input type="number" name="amount_value" class="form-control form-control-sm" id="amountValueInput"
                        placeholder="自定义金额" value="{{ amount_value }}" min="0" step="0.01">
                 <div class="input-group-append">
                     <div class="btn-group btn-group-sm">
@@ -137,13 +154,13 @@
             <td>
                 <a href="{% url 'print_order' order.order_no %}" class="btn btn-sm btn-primary {% if order.status == 'cancelled' %}disabled{% endif %}">打印</a>
                 <a href="{% url 'order_detail' order.order_no %}" class="btn btn-sm btn-info">详情</a>
-            
-                
+
+
                 <!-- 标记结清按钮（未结清+非作废订单可见） -->
                 {% if not order.is_settled and order.status != 'cancelled' %}
                     <button class="btn btn-sm btn-success mt-1 settleBtn" data-order-no="{{ order.order_no }}">标记结清</button>
                 {% endif %}
-                
+
                 <!-- 撤销结清按钮（仅老板+已结清订单可见） -->
                 {% if is_boss and order.is_settled %}
                     <button class="btn btn-sm btn-warning mt-1 unsettleBtn" data-order-no="{{ order.order_no }}">撤销结清</button>
@@ -162,6 +179,7 @@
     </tbody>
 </table>
 
+
 <!-- 1. 标记结清模态框（新增快捷选项） -->
 <div class="modal fade" id="settleModal" tabindex="-1" aria-labelledby="settleModalLabel" aria-hidden="true">
     <div class="modal-dialog">
@@ -174,7 +192,7 @@
                 <input type="hidden" id="settleOrderNo">
                 <div class="mb-3">
                     <label for="settleRemark" class="form-label">结清备注（必填）</label>
-                    
+
                     <!-- 快捷选项区 -->
                     <div class="mb-3">
                         <!-- 收款方式 -->
@@ -186,7 +204,7 @@
                                 <button type="button" class="btn btn-sm btn-outline-primary quick-option" data-type="pay_type" data-value="支付宝收款">支付宝收款</button>
                             </div>
                         </div>
-                        
+
                         <!-- 转账账户 -->
                         <div class="mb-2">
                             <label class="form-label-sm text-muted">转账账户：</label>
@@ -196,7 +214,7 @@
                                 {% endfor %}
                             </div>
                         </div>
-                        
+
                         <!-- 转账时间 -->
                         <div class="mb-2">
                             <label class="form-label-sm text-muted">转账时间：</label>
@@ -206,7 +224,7 @@
                             </div>
                         </div>
                     </div>
-                    
+
                     <textarea class="form-control" id="settleRemark" rows="3" placeholder="收款方式：XXX。转账账户：XXX。转账时间：XXX"></textarea>
                 </div>
             </div>
@@ -263,7 +281,7 @@
                             <button type="button" class="btn btn-sm btn-outline-primary batch-quick-option" data-type="pay_type" data-value="支付宝收款">支付宝收款</button>
                         </div>
                     </div>
-                    
+
                     <!-- 转账账户 -->
                     <div class="mb-2">
                         <label class="form-label-sm text-muted">转账账户：</label>
@@ -273,7 +291,7 @@
                             {% endfor %}
                         </div>
                     </div>
-                    
+
                     <!-- 转账时间 -->
                     <div class="mb-2">
                         <label class="form-label-sm text-muted">转账时间：</label>
@@ -287,7 +305,7 @@
                     </div>
                     <button type="button" class="btn btn-sm btn-outline-warning" id="clearBatchQuick">清空所有备注</button>
                 </div>
-                
+
                 <div id="batchOrderList" class="mb-3">
                     <!-- 动态生成选中订单的备注输入框 -->
                 </div>

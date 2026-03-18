@@ -246,7 +246,9 @@ def stock_list(request):
 
 @login_required
 def order_list(request):
-    """订单列表页（修复金额筛选）"""
+    """订单列表页（新增订单号搜索 + 修复金额筛选）"""
+    # 新增：获取订单号搜索参数
+    order_no = request.GET.get('order_no', '').strip()
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
     area_id = request.GET.get('area_id', '')
@@ -260,6 +262,10 @@ def order_list(request):
 
     if not is_boss(request.user):
         orders = orders.filter(creator=request.user)
+
+    # 新增：订单号模糊筛选（核心逻辑）
+    if order_no:
+        orders = orders.filter(order_no__contains=order_no)
 
     # 日期筛选
     if date_from:
@@ -289,7 +295,7 @@ def order_list(request):
     elif settled_status == 'unsettled':
         orders = orders.filter(is_settled=False)
 
-    # 新增：金额筛选核心逻辑
+    # 金额筛选核心逻辑
     if amount_operator in ['gt', 'lt'] and amount_value:
         try:
             # 转换为Decimal类型（匹配Order.total_amount的字段类型）
@@ -314,10 +320,11 @@ def order_list(request):
         'area_id': area_id,
         'customer_name': customer_name,
         'settled_status': settled_status,
-        # 新增：传递金额筛选参数到前端（保留选中状态）
         'amount_operator': amount_operator,
         'amount_value': amount_value,
-        'is_boss': is_boss(request.user)
+        'is_boss': is_boss(request.user),
+        # 新增：传递订单号参数到模板（实现搜索框回显）
+        'order_no': order_no
     }
     return render(request, 'bill/order_list.html', context)
 
