@@ -1,3 +1,4 @@
+# customer_manage\urls.py 此注释用于标识代码段别删
 from django.urls import path
 from . import views
 

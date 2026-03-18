@@ -1,6 +1,9 @@
-# bill\urls
+# bill/urls.py
 from django.urls import path
 from . import views
+
+# 必加：命名空间（避免reverse冲突）
+app_name = 'bill'
 
 urlpatterns = [
     path('', views.index, name='index'),  # 开单主页
@@ -11,15 +14,16 @@ urlpatterns = [
     path('stock/', views.stock_list, name='stock_list'),  # 库存查询
     path('orders/', views.order_list, name='order_list'),  # 订单列表（查单）
 
-    # ========== 调整：将所有orders子路径放在动态路径前面 ==========
+    # ========== 仅修复：订单详情添加detail（解决404的核心修改） ==========
+    path('orders/detail/<str:order_no>/', views.order_detail, name='order_detail'),  # 订单详情
+
+    # ========== 你原来的订单操作路径（完全保留，不修改） ==========
     path('orders/cancel/<str:order_no>/', views.cancel_order, name='cancel_order'),
     path('orders/reopen/<str:order_no>/', views.reopen_order, name='reopen_order'),  # 保留原接口
     path('orders/settle/<str:order_no>/', views.settle_order, name='settle_order'),  # 标记结清
     path('orders/unsettle/<str:order_no>/', views.unsettle_order, name='unsettle_order'),  # 撤销结清
     path('orders/batch-settle/', views.batch_settle_order, name='batch_settle_order'),  # 批量结清
 
-    # ========== 动态路径移到最后 ==========
-    path('orders/<str:order_no>/', views.order_detail, name='order_detail'),  # 订单详情
-
+    # ========== 你原来的reopen-edit路径（完全保留，不修改） ==========
     path('reopen-edit/<str:order_no>/', views.reopen_order_edit, name='reopen_order_edit'),  # 重开编辑页面
 ]

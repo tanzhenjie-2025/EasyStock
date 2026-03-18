@@ -1,12 +1,15 @@
+# customer_manage\views.py 此注释用于标识代码段别删
 from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-# 新增：导入日志模型和时间工具
 from operation_log.models import OperationLog
 from django.utils import timezone
-
-# 复用bill里的模型（表仍在bill，无需重复建）
-from bill.models import Customer, Area, ProductAlias, CustomerPrice, Product
+from bill.models import Customer, Area, ProductAlias, CustomerPrice, Product, OrderItem
+from django.db.models import Sum, F, Q, Max, Count
+from django.db.models.functions import Coalesce
+from bill.models import Order, RepaymentRecord
+from django.utils import timezone
+import datetime
 
 
 # ========== 新增：通用日志记录函数（核心） ==========
@@ -90,37 +93,52 @@ def customer_list(request):
 
 
 # ========== 2. 新增客户详情接口（核心修改） ==========
+# ========== 核心修改：客户详情接口 ==========
 @csrf_exempt
 def customer_detail(request, pk):
-    """客户详情接口：返回欠款、订单、还款记录等信息"""
+    """客户详情接口：支持订单筛选 + 商品统计"""
     try:
         customer = get_object_or_404(Customer, pk=pk)
 
-        # 1. 计算核心数据
-        # 未结清订单
-        unpaid_orders = Order.objects.filter(customer=customer, is_settled=False).select_related('creator')
-        unpaid_order_count = unpaid_orders.count()
+        # 获取订单筛选参数（all/settled/unsettled）
+        settle_status = request.GET.get('settle_status', 'all')
 
-        # 计算总欠款
+        # 1. 基础订单查询（所有该客户的订单）
+        base_orders = Order.objects.filter(customer=customer).select_related('creator')
+
+        # 按结清状态筛选订单
+        if settle_status == 'settled':
+            orders_query = base_orders.filter(is_settled=True)
+        elif settle_status == 'unsettled':
+            orders_query = base_orders.filter(is_settled=False)
+        else:
+            orders_query = base_orders
+
+        # 2. 欠款计算（保留原有逻辑）
+        unpaid_orders = base_orders.filter(is_settled=False)
+        unpaid_order_count = unpaid_orders.count()
         unpaid_amount = unpaid_orders.aggregate(total=Sum('total_amount'))['total'] or 0
         paid_amount = RepaymentRecord.objects.filter(customer=customer).aggregate(total=Sum('repayment_amount'))[
                           'total'] or 0
         total_debt = float(unpaid_amount) - float(paid_amount)
-        total_debt = max(total_debt, 0)  # 避免负数（还款超支）
+        total_debt = max(total_debt, 0)
 
-        # 2. 未结清订单详情
+        # 3. 筛选后的订单列表（新增：包含所有状态）
         order_list = []
-        for order in unpaid_orders:
-            # 增强容错：确保每个字段都有默认值
+        orders = orders_query.order_by('-create_time')
+        for order in orders:
             order_list.append({
                 'order_no': order.order_no or '',
                 'create_time': order.create_time.strftime('%Y-%m-%d %H:%M') if order.create_time else '',
                 'total_amount': float(order.total_amount) if order.total_amount else 0.0,
+                'is_settled': order.is_settled,
+                'status': order.status,
+                'status_text': dict(Order.ORDER_STATUS).get(order.status, '未知'),
                 'overdue_days': order.get_overdue_days(),
                 'order_date': order.create_time.strftime('%Y-%m-%d') if order.create_time else ''
             })
 
-        # 3. 还款记录
+        # 4. 还款记录（保留原有）
         repayment_list = []
         repayments = RepaymentRecord.objects.filter(customer=customer).select_related('operator')
         for repay in repayments:
@@ -133,9 +151,30 @@ def customer_detail(request, pk):
                 'create_time': repay.create_time.strftime('%Y-%m-%d %H:%M') if repay.create_time else ''
             })
 
+        # 5. 新增：客户购买商品统计（去重、总数量、最近购买时间）
+        product_stats = OrderItem.objects.filter(
+            order__customer=customer,
+            product__isnull=False
+        ).values(
+            'product__id', 'product__name', 'product__unit'
+        ).annotate(
+            total_quantity=Coalesce(Sum('quantity'), 0),
+            last_purchase_time=Coalesce(Max('order__create_time'), None)
+        ).order_by('-total_quantity')
+
+        product_stats_list = []
+        for stat in product_stats:
+            last_time = stat['last_purchase_time'].strftime('%Y-%m-%d') if stat['last_purchase_time'] else '无'
+            product_stats_list.append({
+                'product_name': stat['product__name'],
+                'total_quantity': stat['total_quantity'],
+                'unit': stat['product__unit'],
+                'last_purchase_time': last_time
+            })
+
         # 组装返回数据
         result = {
-            'code': 1,  # 新增：返回状态码
+            'code': 1,
             'msg': '查询成功',
             'customer_info': {
                 'id': customer.id,
@@ -150,8 +189,9 @@ def customer_detail(request, pk):
                 'unpaid_amount': float(unpaid_amount),
                 'paid_amount': float(paid_amount)
             },
-            'unpaid_orders': order_list,
-            'repayments': repayment_list
+            'orders': order_list,  # 替换原有unpaid_orders
+            'repayments': repayment_list,
+            'product_stats': product_stats_list  # 新增商品统计
         }
 
         return JsonResponse(result, safe=False, content_type='application/json')

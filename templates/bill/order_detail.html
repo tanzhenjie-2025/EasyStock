@@ -2,8 +2,31 @@
 
 {% block title %}订单详情 - {{ order.order_no }} - EasyStock{% endblock %}
 
+{% block extra_css %}
+<style>
+    .back-btn {
+        margin-bottom: 16px;
+    }
+    .product-table {
+        margin: 16px 0;
+    }
+    .total-row {
+        font-weight: bold;
+        background-color: #f8f9fa;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container mt-4">
+    <!-- 智能返回：从客户详情来→返回客户，否则→返回订单列表 -->
+    {% if request.GET.from_customer %}
+    <a href="/customer-manage/customer/detail/page/{{ request.GET.from_customer }}/" class="btn btn-sm btn-secondary back-btn">← 返回客户详情</a>
+    {% else %}
+    <!-- 修复1：添加bill命名空间 -->
+    <a href="{% url 'bill:order_list' %}" class="btn btn-sm btn-secondary back-btn">← 返回订单列表</a>
+    {% endif %}
+
     <div class="card">
         <div class="card-header">
             <h4>订单详情
@@ -13,7 +36,6 @@
                 {% if order.status == 'cancelled' %}
                 <span class="badge bg-danger ms-2">已作废</span>
                 {% endif %}
-                <!-- 新增：结清状态标识 -->
                 {% if order.is_settled %}
                 <span class="badge bg-success ms-2">已结清</span>
                 {% else %}
@@ -22,13 +44,12 @@
             </h4>
         </div>
         <div class="card-body">
-            <!-- 订单基本信息（新增结清信息） -->
+            <!-- 订单基本信息 -->
             <div class="row mb-4">
                 <div class="col-md-6">
                     <p><strong>订单编号：</strong> {{ order.order_no }}</p>
                     <p><strong>开单时间：</strong> {{ order.create_time|date:"Y-m-d H:i:s" }}</p>
                     <p><strong>开单人：</strong> {{ order.creator.name|default:"未知" }}</p>
-                    <!-- 新增：结清信息 -->
                     <p>
                         <strong>结清状态：</strong> 
                         {% if order.is_settled %}
@@ -36,13 +57,13 @@
                             <br><small class="text-success">
                                 结清人：{{ order.settled_by.name|default:"未知" }} | 结清时间：{{ order.settled_time|date:"Y-m-d H:i" }}
                                 <br>结清备注：{{ order.settled_remark|default:"无" }}
-                            </small>
-                            {% if order.unsettled_time %}
+                                {% if order.unsettled_time %}
                                 <br><small class="text-danger">
                                     撤销结清：{{ order.unsettled_by.name|default:"未知" }} | {{ order.unsettled_time|date:"Y-m-d H:i" }}
                                     <br>撤销备注：{{ order.unsettled_remark|default:"无" }}
                                 </small>
-                            {% endif %}
+                                {% endif %}
+                            </small>
                         {% else %}
                             <span class="badge bg-danger">未结清</span>
                         {% endif %}
@@ -69,39 +90,77 @@
                 </div>
             </div>
 
-            <!-- 原有内容保持不变... -->
+            <!-- 新增：商品销售明细表格 -->
+            <div class="mb-4">
+                <h5>商品销售明细</h5>
+                <table class="table table-sm table-bordered product-table">
+                    <thead class="table-light">
+                        <tr>
+                            <th>序号</th>
+                            <th>商品名称</th>
+                            <th>销售数量</th>
+                            <th>单位</th>
+                            <th>销售金额</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in order.items.all %}
+                        <tr>
+                            <td>{{ forloop.counter }}</td>
+                            <td>{{ item.product.name|default:"未知商品" }}</td>
+                            <td>{{ item.quantity }}</td>
+                            <td>{{ item.product.unit|default:"件" }}</td>
+                            <td>¥{{ item.amount|default:"0.00" }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="5" class="text-center">暂无商品明细</td>
+                        </tr>
+                        {% endfor %}
+                        <!-- 销售总金额 -->
+                        <tr class="total-row">
+                            <td colspan="4" class="text-end">销售总金额：</td>
+                            <td>¥{{ order.total_amount|default:"0.00" }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
 
-            <!-- 操作按钮（新增结清/撤销结清按钮） -->
+            <!-- 操作按钮 -->
             <div class="mt-4">
-                <a href="{% url 'print_order' order.order_no %}" class="btn btn-primary {% if order.status == 'cancelled' %}disabled{% endif %}">
-                    打印订单
-                </a>
-                <a href="{% url 'order_list' %}" class="btn btn-secondary">返回列表</a>
+{#                <!-- 修复2：添加bill命名空间 -->#}
+{#                <a href="{% url 'bill:print_order' order.order_no %}" class="btn btn-primary {% if order.status == 'cancelled' %}disabled{% endif %}">#}
+{#                    打印订单#}
+{#                </a>#}
+                <!-- 智能返回按钮 -->
+                {% if request.GET.from_customer %}
+                <a href="/customer-manage/customer/detail/page/{{ request.GET.from_customer }}/" class="btn btn-secondary">返回客户详情</a>
+                {% else %}
+                <!-- 修复3：添加bill命名空间 -->
+                <a href="{% url 'bill:order_list' %}" class="btn btn-secondary">返回列表</a>
+                {% endif %}
                 
-                <!-- 标记结清按钮（未结清+非作废订单可见） -->
                 {% if not order.is_settled and order.status != 'cancelled' %}
                 <button class="btn btn-success ms-2" data-bs-toggle="modal" data-bs-target="#settleModal">
                     标记结清
                 </button>
                 {% endif %}
                 
-                <!-- 撤销结清按钮（仅老板+已结清订单可见） -->
                 {% if is_boss and order.is_settled %}
                 <button class="btn btn-warning ms-2" data-bs-toggle="modal" data-bs-target="#unsettleModal">
                     撤销结清
                 </button>
                 {% endif %}
                 
-                <!-- 作废按钮（原有） -->
                 {% if is_boss and order.status != 'cancelled' %}
                 <button class="btn btn-danger ms-2" data-bs-toggle="modal" data-bs-target="#cancelModal">
                     作废订单
                 </button>
                 {% endif %}
 
-                <!-- 重开按钮（原有） -->
                 {% if order.status == 'cancelled' %}
-                <a href="{% url 'reopen_order_edit' order.order_no %}" class="btn btn-warning ms-2">
+                <!-- 修复4：核心错误 - 添加bill命名空间 -->
+                <a href="{% url 'bill:reopen_order_edit' order.order_no %}" class="btn btn-warning ms-2">
                     重开此订单
                 </a>
                 {% endif %}
@@ -110,7 +169,7 @@
     </div>
 </div>
 
-<!-- 新增：标记结清模态框（带快捷选项） -->
+<!-- 标记结清模态框 -->
 {% if not order.is_settled and order.status != 'cancelled' %}
 <div class="modal fade" id="settleModal" tabindex="-1" aria-labelledby="settleModalLabel" aria-hidden="true">
     <div class="modal-dialog">
@@ -122,10 +181,7 @@
             <div class="modal-body">
                 <div class="mb-3">
                     <label for="settleRemark" class="form-label">结清备注（必填）</label>
-                    
-                    <!-- 快捷选项区 -->
                     <div class="mb-3">
-                        <!-- 收款方式 -->
                         <div class="mb-2">
                             <label class="form-label-sm text-muted">收款方式：</label>
                             <div class="d-flex flex-wrap gap-2">
@@ -134,8 +190,6 @@
                                 <button type="button" class="btn btn-sm btn-outline-primary quick-option" data-type="pay_type" data-value="支付宝收款">支付宝收款</button>
                             </div>
                         </div>
-                        
-                        <!-- 转账账户 -->
                         <div class="mb-2">
                             <label class="form-label-sm text-muted">转账账户：</label>
                             <div class="d-flex flex-wrap gap-2">
@@ -144,18 +198,14 @@
                                 {% endfor %}
                             </div>
                         </div>
-                        
-                        <!-- 转账时间 -->
                         <div class="mb-2">
                             <label class="form-label-sm text-muted">转账时间：</label>
                             <div class="d-flex flex-wrap gap-2 align-items-center">
-                                
-                                <input type="date" class="form-control form-control-sm w-auto" id="customTime" placeholder="自定义日期">
+                                <input type="date" class="form-control form-control-sm w-auto" id="customTime">
                                 <button type="button" class="btn btn-sm btn-outline-secondary" id="applyCustomTime">确认日期</button>
                             </div>
                         </div>
                     </div>
-                    
                     <textarea class="form-control" id="settleRemark" rows="3" placeholder="收款方式：XXX。转账账户：XXX。转账时间：XXX"></textarea>
                 </div>
             </div>
@@ -168,7 +218,7 @@
 </div>
 {% endif %}
 
-<!-- 新增：撤销结清模态框（仅老板可见） -->
+<!-- 撤销结清模态框 -->
 {% if is_boss and order.is_settled %}
 <div class="modal fade" id="unsettleModal" tabindex="-1" aria-labelledby="unsettleModalLabel" aria-hidden="true">
     <div class="modal-dialog">
@@ -203,15 +253,13 @@
             <div class="modal-body">
                 <div class="mb-3">
                     <label for="cancelReason" class="form-label">作废原因（必填）</label>
-                    <!-- 快捷回复按钮组 -->
                     <div class="d-flex flex-wrap gap-2 mb-2">
                         <button type="button" class="btn btn-sm btn-outline-primary quick-reply" data-reason="价格填写错误">价格填写错误</button>
                         <button type="button" class="btn btn-sm btn-outline-primary quick-reply" data-reason="客户不想要了">客户不想要了</button>
-                        <button type="button" class="btn btn-sm btn-outline-primary quick-reply" data-reason="商品数量填写错误">商品数量填写错误</button>
-                        <button type="button" class="btn btn-sm btn-outline-primary quick-reply" data-reason="客户信息填写错误">客户信息填写错误</button>
-                        <button type="button" class="btn btn-sm btn-outline-primary quick-reply" data-reason="商品选择错误">商品选择错误</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary quick-reply" data-reason="商品数量填写错误">商品数量错误</button>
+                        <button type="button" class="btn btn-sm btn-outline-primary quick-reply" data-reason="客户信息填写错误">客户信息错误</button>
                     </div>
-                    <textarea class="form-control" id="cancelReason" rows="3" placeholder="请填写作废原因，或点击上方快捷回复..."></textarea>
+                    <textarea class="form-control" id="cancelReason" rows="3" placeholder="请填写作废原因"></textarea>
                 </div>
             </div>
             <div class="modal-footer">
@@ -225,194 +273,79 @@
 
 {% block extra_js %}
 <script>
-
-// ========== 结清快捷选项逻辑 ==========
+// 快捷备注
 $(document).ready(function() {
-    // 1. 快捷选项点击
+    $('.quick-reply').click(function() {
+        $('#cancelReason').val($(this).data('reason'));
+    });
     $('.quick-option').click(function() {
         const type = $(this).data('type');
         const value = $(this).data('value');
-        const $remark = $('#settleRemark');
-        updateRemarkText($remark, type, value);
+        updateRemarkText($('#settleRemark'), type, value);
     });
-    
-    // 2. 自定义时间应用
     $('#applyCustomTime').click(function() {
-        const customTime = $('#customTime').val();
-        if (customTime) {
-            const $remark = $('#settleRemark');
-            updateRemarkText($remark, 'time', customTime);
-        } else {
-            alert('请选择自定义日期');
-        }
+        const t = $('#customTime').val();
+        if(t) updateRemarkText($('#settleRemark'), 'time', t);
     });
 });
 
-// 核心：更新备注文本（叠加逻辑）
-function updateRemarkText($remarkElem, type, value) {
-    let currentText = $remarkElem.val().trim() || '';
-    const typeLabels = {
-        'pay_type': '收款方式',
-        'account': '转账账户',
-        'time': '转账时间'
-    };
-    const label = typeLabels[type];
-    
-    // 正则匹配已有内容，替换或新增
-    const regex = new RegExp(`${label}：[^。]*`, 'g');
-    if (regex.test(currentText)) {
-        // 替换已有内容
-        currentText = currentText.replace(regex, `${label}：${value}`);
-    } else {
-        // 新增内容（有原有内容则加句号分隔）
-        if (currentText) {
-            currentText += `。${label}：${value}`;
-        } else {
-            currentText = `${label}：${value}`;
-        }
-    }
-    
-    $remarkElem.val(currentText);
+// 拼接备注
+function updateRemarkText($elem, type, value) {
+    const map = {pay_type:'收款方式', account:'转账账户', time:'转账时间'};
+    const key = map[type];
+    let txt = $elem.val().trim();
+    const reg = new RegExp(`${key}：[^。]*`, 'g');
+    if(reg.test(txt)) txt = txt.replace(reg, `${key}：${value}`);
+    else txt = txt ? txt + `。${key}：${value}` : `${key}：${value}`;
+    $elem.val(txt);
 }
-// 快捷回复按钮点击事件
-$(document).ready(function() {
-    $('.quick-reply').click(function() {
-        const reason = $(this).data('reason');
-        $('#cancelReason').val(reason); // 将快捷回复填入输入框
-    });
-});
 
-// 提交作废订单
+// 作废订单
 function submitCancel() {
-    const reason = document.getElementById('cancelReason').value.trim();
-    if (!reason) {
-        alert('请填写作废原因');
-        return;
-    }
-
+    const r = $('#cancelReason').val().trim();
+    if(!r) return alert('请填写作废原因');
     fetch(`/bill/orders/cancel/{{ order.order_no }}/`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': getCsrfToken(),
-            'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: JSON.stringify({ reason: reason })
-    })
-    .then(res => {
-        if (!res.ok) {
-            return res.text().then(text => {
-                throw new Error(`请求失败（状态码：${res.status}）：${text.substring(0, 100)}`);
-            });
-        }
-        return res.json();
-    })
-    .then(data => {
-        if (data.code === 1) {
-            alert('订单作废成功');
-            window.location.reload();
-        } else {
-            alert('作废失败：' + data.msg);
-        }
-    })
-    .catch(err => {
-        alert('作废失败：' + err.message);
-        console.error('作废订单错误详情：', err);
-    });
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-CSRFToken':getCsrfToken()},
+        body:JSON.stringify({reason:r})
+    }).then(r=>r.json()).then(d=>{
+        if(d.code===1){alert('作废成功');location.reload();}
+        else alert('失败：'+d.msg);
+    }).catch(e=>alert('错误：'+e.message));
 }
 
-// 提交标记结清（修正参数错误：reason → remark）
+// 标记结清
 function submitSettle() {
-    const remark = document.getElementById('settleRemark').value.trim();
-    if (!remark) {
-        alert('请填写结清备注');
-        return;
-    }
-
+    const r = $('#settleRemark').val().trim();
+    if(!r) return alert('请填写结清备注');
     fetch(`/bill/orders/settle/{{ order.order_no }}/`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': getCsrfToken(),
-            'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: JSON.stringify({ remark: remark })
-    })
-    .then(res => {
-        if (!res.ok) {
-            return res.text().then(text => {
-                throw new Error(`请求失败（状态码：${res.status}）：${text.substring(0, 100)}`);
-            });
-        }
-        return res.json();
-    })
-    .then(data => {
-        if (data.code === 1) {
-            alert('标记结清成功');
-            window.location.reload();
-        } else {
-            alert('标记失败：' + data.msg);
-        }
-    })
-    .catch(err => {
-        alert('标记失败：' + err.message);
-        console.error('标记结清错误详情：', err);
-    });
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-CSRFToken':getCsrfToken()},
+        body:JSON.stringify({remark:r})
+    }).then(r=>r.json()).then(d=>{
+        if(d.code===1){alert('结清成功');location.reload();}
+        else alert('失败：'+d.msg);
+    }).catch(e=>alert('错误：'+e.message));
 }
 
-// 提交撤销结清（修正参数错误：reason → remark）
+// 撤销结清
 function submitUnsettle() {
-    const remark = document.getElementById('unsettleRemark').value.trim();
-    if (!remark) {
-        alert('请填写撤销结清备注');
-        return;
-    }
-
+    const r = $('#unsettleRemark').val().trim();
+    if(!r) return alert('请填写撤销原因');
     fetch(`/bill/orders/unsettle/{{ order.order_no }}/`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': getCsrfToken(),
-            'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: JSON.stringify({ remark: remark })
-    })
-    .then(res => {
-        if (!res.ok) {
-            return res.text().then(text => {
-                throw new Error(`请求失败（状态码：${res.status}）：${text.substring(0, 100)}`);
-            });
-        }
-        return res.json();
-    })
-    .then(data => {
-        if (data.code === 1) {
-            alert('撤销结清成功');
-            window.location.reload();
-        } else {
-            alert('撤销失败：' + data.msg);
-        }
-    })
-    .catch(err => {
-        alert('撤销失败：' + err.message);
-        console.error('撤销结清错误详情：', err);
-    });
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-CSRFToken':getCsrfToken()},
+        body:JSON.stringify({remark:r})
+    }).then(r=>r.json()).then(d=>{
+        if(d.code===1){alert('撤销成功');location.reload();}
+        else alert('失败：'+d.msg);
+    }).catch(e=>alert('错误：'+e.message));
 }
 
-// 获取CSRF Token
-function getCsrfToken() {
-    let cookieValue = null;
-    if (document.cookie && document.cookie !== '') {
-        const cookies = document.cookie.split(';');
-        for (let i = 0; i < cookies.length; i++) {
-            const cookie = cookies[i].trim();
-            if (cookie.substring(0, 10) === 'csrftoken=') {
-                cookieValue = decodeURIComponent(cookie.substring(10));
-                break;
-            }
-        }
-    }
-    return cookieValue;
+// CSRF
+function getCsrfToken(){
+    const c = document.cookie.split('; ').find(row=>row.startsWith('csrftoken='));
+    return c ? c.split('=')[1] : '';
 }
 </script>
 {% endblock %}

@@ -152,8 +152,8 @@
                 {% endif %}
             </td>
             <td>
-                <a href="{% url 'print_order' order.order_no %}" class="btn btn-sm btn-primary {% if order.status == 'cancelled' %}disabled{% endif %}">打印</a>
-                <a href="{% url 'order_detail' order.order_no %}" class="btn btn-sm btn-info">详情</a>
+                <a href="{% url 'bill:print_order' order.order_no %}" class="btn btn-sm btn-primary {% if order.status == 'cancelled' %}disabled{% endif %}">打印</a>
+                <a href="{% url 'bill:order_detail' order.order_no %}" class="btn btn-sm btn-info">详情</a>
 
 
                 <!-- 标记结清按钮（未结清+非作废订单可见） -->
@@ -370,7 +370,7 @@ $(document).ready(function() {
         const $remark = $('#settleRemark');
         updateRemarkText($remark, type, value);
     });
-    
+
     // 2. 自定义时间应用
     $('#applyCustomTime').click(function() {
         const customTime = $('#customTime').val();
@@ -381,7 +381,7 @@ $(document).ready(function() {
             alert('请选择自定义日期');
         }
     });
-    
+
     // 3. 批量订单全局快捷选项点击
     $('.batch-quick-option').click(function() {
         const type = $(this).data('type');
@@ -390,7 +390,7 @@ $(document).ready(function() {
             updateRemarkText($(this), type, value);
         });
     });
-    
+
     // 4. 批量自定义时间应用
     $('#applyBatchCustomTime').click(function() {
         const customTime = $('#batchCustomTime').val();
@@ -402,7 +402,7 @@ $(document).ready(function() {
             alert('请选择自定义日期');
         }
     });
-    
+
     // 5. 清空批量备注
     $('#clearBatchQuick').click(function() {
         $('.batchRemark').val('');
@@ -418,7 +418,7 @@ function updateRemarkText($remarkElem, type, value) {
         'time': '转账时间'
     };
     const label = typeLabels[type];
-    
+
     // 正则匹配已有内容，替换或新增
     const regex = new RegExp(`${label}：[^。]*`, 'g');
     if (regex.test(currentText)) {
@@ -432,7 +432,7 @@ function updateRemarkText($remarkElem, type, value) {
             currentText = `${label}：${value}`;
         }
     }
-    
+
     $remarkElem.val(currentText);
 }
 
@@ -442,7 +442,7 @@ $('#batchSettleBtn').click(function() {
     const selectedOrders = $('.orderCheckbox:checked').map(function() {
         return $(this).val();
     }).get();
-    
+
     // 生成批量备注输入框（带快捷选项）
     let html = '<div class="alert alert-info">请为每个订单填写结清备注：</div>';
     selectedOrders.forEach(orderNo => {
@@ -465,7 +465,7 @@ $('#batchSettleBtn').click(function() {
         `;
     });
     $('#batchOrderList').html(html);
-    
+
     // 绑定单个订单快捷选项事件
     $('.order-quick-option').click(function() {
         const type = $(this).data('type');
@@ -473,7 +473,7 @@ $('#batchSettleBtn').click(function() {
         const $remark = $(this).closest('.mb-3').find('.batchRemark');
         updateRemarkText($remark, type, value);
     });
-    
+
     // 绑定清空按钮事件
     $('.clear-order-remark').click(function() {
         $(this).closest('.mb-3').find('.batchRemark').val('');
@@ -486,10 +486,10 @@ $(document).ready(function() {
         $('.orderCheckbox:not(:disabled)').prop('checked', this.checked);
         updateBatchBtnStatus();
     });
-    
+
     // 单个选择框变化时更新批量按钮状态
     $('.orderCheckbox').change(updateBatchBtnStatus);
-    
+
     // 标记结清按钮点击事件
     $('.settleBtn').click(function() {
         const orderNo = $(this).data('order-no');
@@ -497,7 +497,7 @@ $(document).ready(function() {
         $('#settleRemark').val('');
         $('#settleModal').modal('show');
     });
-    
+
     // 撤销结清按钮点击事件（仅老板可见）
     $('.unsettleBtn').click(function() {
         const orderNo = $(this).data('order-no');
@@ -505,14 +505,14 @@ $(document).ready(function() {
         $('#unsettleRemark').val('');
         $('#unsettleModal').modal('show');
     });
-    
+
     // 批量结清按钮点击事件
     $('#batchSettleBtn').click(function() {
         // 收集选中的订单号（自动过滤禁用的复选框）
         const selectedOrders = $('.orderCheckbox:checked').map(function() {
             return $(this).val();
         }).get();
-        
+
         // 生成批量备注输入框
         let html = '<div class="alert alert-info">请为每个订单填写结清备注：</div>';
         selectedOrders.forEach(orderNo => {
@@ -557,12 +557,12 @@ function getCsrfToken() {
 function submitSettle() {
     const orderNo = $('#settleOrderNo').val();
     const remark = $('#settleRemark').val().trim();
-    
+
     if (!remark) {
         alert('请填写结清备注');
         return;
     }
-    
+
     fetch(`/bill/orders/settle/${orderNo}/`, {
         method: 'POST',
         headers: {
@@ -599,12 +599,12 @@ function submitSettle() {
 function submitUnsettle() {
     const orderNo = $('#unsettleOrderNo').val();
     const remark = $('#unsettleRemark').val().trim();
-    
+
     if (!remark) {
         alert('请填写撤销结清备注');
         return;
     }
-    
+
     fetch(`/bill/orders/unsettle/${orderNo}/`, {
         method: 'POST',
         headers: {
@@ -641,28 +641,28 @@ function submitBatchSettle() {
     // 收集订单号和备注
     const orderList = [];
     let hasEmptyRemark = false;
-    
+
     $('.batchRemark').each(function() {
         const orderNo = $(this).data('order-no');
         const remark = $(this).val().trim();
-        
+
         if (!remark) {
             hasEmptyRemark = true;
             alert(`订单 ${orderNo} 的备注不能为空`);
             return false;
         }
-        
+
         orderList.push({
             order_no: orderNo,
             remark: remark
         });
     });
-    
+
     if (hasEmptyRemark || orderList.length === 0) {
         alert('请选择至少一个订单并填写备注');
         return;
     }
-    
+
     fetch('/bill/orders/batch-settle/', {
         method: 'POST',
         headers: {
@@ -711,12 +711,12 @@ $('.quick-reply').click(function() {
 function submitCancel() {
     const orderNo = $('#cancelOrderNo').val();
     const reason = $('#cancelReason').val().trim();
-    
+
     if (!reason) {
         alert('请填写作废原因');
         return;
     }
-    
+
     fetch(`/bill/orders/cancel/${orderNo}/`, {
         method: 'POST',
         headers: {

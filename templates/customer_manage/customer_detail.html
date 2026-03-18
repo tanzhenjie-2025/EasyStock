@@ -1,3 +1,4 @@
+{#customer_detail.html#}
 {% extends "base.html" %}
 
 {% block title %}客户详情 - EasyStock{% endblock %}
@@ -20,6 +21,38 @@
         align-items: center;
         margin-bottom: 20px;
     }
+    .filter-btn-group {
+        margin-bottom: 12px;
+    }
+    .filter-btn {
+        padding: 4px 12px;
+        margin-right: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background: #f8f9fa;
+        cursor: pointer;
+    }
+    .filter-btn.active {
+        background: #007bff;
+        color: white;
+        border-color: #007bff;
+    }
+    .status-tag {
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-size: 12px;
+    }
+    .status-settled {
+        background: #d4edda;
+        color: #155724;
+    }
+    .status-unsettled {
+        background: #f8d7da;
+        color: #721c24;
+    }
+    .product-stat-table td {
+        vertical-align: middle;
+    }
 </style>
 {% endblock %}
 
@@ -30,7 +63,7 @@
         <button class="btn btn-sm btn-secondary" onclick="history.back()">返回客户列表</button>
     </div>
     
-    <!-- 客户基本信息 -->
+    <!-- 客户基本信息（保留原有） -->
     <div class="detail-card">
         <h5>基本信息</h5>
         <table class="table table-sm">
@@ -69,26 +102,51 @@
         </table>
     </div>
     
-    <!-- 未结清订单 -->
+    <!-- 新增：客户全部订单（带筛选） -->
     <div class="detail-card">
-        <h5>未结清订单</h5>
+        <h5>客户全部订单</h5>
+        <!-- 筛选按钮 -->
+        <div class="filter-btn-group">
+            <button class="filter-btn active" onclick="loadOrders('all')">全部</button>
+            <button class="filter-btn" onclick="loadOrders('settled')">已结清</button>
+            <button class="filter-btn" onclick="loadOrders('unsettled')">未结清</button>
+        </div>
+        <!-- 订单列表 -->
         <table class="table table-sm table-bordered">
             <thead class="table-light">
                 <tr>
                     <th>订单编号</th>
                     <th>开单时间</th>
                     <th>订单金额</th>
-                    <th>开单日期</th>
-                    <th>逾期天数</th>
+                    <th>结清状态</th>
+                    <th>订单状态</th>
+                    <th>操作</th>
                 </tr>
             </thead>
-            <tbody id="unpaidOrders">
-                <tr><td colspan="5" class="text-center">加载中...</td></tr>
+            <tbody id="orderList">
+                <tr><td colspan="6" class="text-center">加载中...</td></tr>
             </tbody>
         </table>
     </div>
     
-    <!-- 还款记录 -->
+    <!-- 新增：客户购买商品统计 -->
+    <div class="detail-card">
+        <h5>购买商品统计</h5>
+        <table class="table table-sm table-bordered product-stat-table">
+            <thead class="table-light">
+                <tr>
+                    <th>商品名称</th>
+                    <th>总购买数量</th>
+                    <th>最近购买时间</th>
+                </tr>
+            </thead>
+            <tbody id="productStats">
+                <tr><td colspan="3" class="text-center">加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- 还款记录（保留原有） -->
     <div class="detail-card">
         <h5>还款记录</h5>
         <table class="table table-sm table-bordered">
@@ -110,16 +168,24 @@
 
 {% block extra_js %}
 <script>
-    // 获取客户ID（从URL中提取）
+    // 获取客户ID
     const customerId = '{{ customer_id }}';
+    let currentSettleStatus = 'all';  // 当前筛选状态
     
-    // 页面加载时获取客户详情
+    // 页面加载初始化
     $(document).ready(function() {
         loadCustomerDetail();
+        loadOrders(currentSettleStatus);
     });
     
+    // 加载客户基本信息
     function loadCustomerDetail() {
         $.get(`/customer-manage/customer/detail/${customerId}/`, function(res) {
+            if (res.code !== 1) {
+                alert(res.msg);
+                return;
+            }
+            
             // 填充基本信息
             $('#customerName').text(res.customer_info.name + ' - 客户详情');
             $('#name').text(res.customer_info.name);
@@ -130,25 +196,6 @@
             $('#totalDebt').text('¥' + res.debt_info.total_debt.toFixed(2));
             $('#unpaidCount').text(res.debt_info.unpaid_order_count);
             $('#remark').text(res.customer_info.remark || '无');
-            
-            // 填充未结清订单
-            let orderHtml = '';
-            if (res.unpaid_orders && res.unpaid_orders.length > 0) {
-                res.unpaid_orders.forEach(order => {
-                    const overdueClass = order.overdue_days > 0 ? 'overdue' : '';
-                    const overdueText = order.overdue_days > 0 ? `${order.overdue_days}天` : '未逾期';
-                    orderHtml += `<tr>
-                        <td>${order.order_no || '-'}</td>
-                        <td>${order.create_time || '-'}</td>
-                        <td>¥${order.total_amount.toFixed(2)}</td>
-                        <td>${order.order_date || '-'}</td>
-                        <td class="${overdueClass}">${overdueText}</td>
-                    </tr>`;
-                });
-            } else {
-                orderHtml = '<tr><td colspan="5" class="text-center">暂无未结清订单</td></tr>';
-            }
-            $('#unpaidOrders').html(orderHtml);
             
             // 填充还款记录
             let repayHtml = '';
@@ -165,12 +212,78 @@
                 repayHtml = '<tr><td colspan="4" class="text-center">暂无还款记录</td></tr>';
             }
             $('#repaymentRecords').html(repayHtml);
+            
+            // 填充商品统计
+            loadProductStats(res);
         }, 'json').fail(function(xhr) {
             alert('加载客户详情失败：' + (xhr.responseJSON?.msg || xhr.responseText || '未知错误'));
-            // 清空加载状态
-            $('#unpaidOrders').html('<tr><td colspan="5" class="text-center text-danger">加载失败</td></tr>');
-            $('#repaymentRecords').html('<tr><td colspan="4" class="text-center text-danger">加载失败</td></tr>');
         });
+    }
+    
+    // 加载订单列表（带筛选）
+    function loadOrders(settleStatus) {
+        // 更新筛选按钮状态
+        $('.filter-btn').removeClass('active');
+        $(`.filter-btn[onclick="loadOrders('${settleStatus}')"]`).addClass('active');
+        currentSettleStatus = settleStatus;
+        
+        // 请求订单数据
+        $.get(`/customer-manage/customer/detail/${customerId}/?settle_status=${settleStatus}`, function(res) {
+            if (res.code !== 1) {
+                alert(res.msg);
+                return;
+            }
+            
+            let orderHtml = '';
+            if (res.orders && res.orders.length > 0) {
+                res.orders.forEach(order => {
+                    // 结清状态标签
+                    const settleTag = order.is_settled 
+                        ? '<span class="status-tag status-settled">已结清</span>' 
+                        : '<span class="status-tag status-unsettled">未结清</span>';
+                    
+                    // 订单状态文本
+                    const statusText = order.status_text || '未知';
+                    
+                    // 操作按钮（跳订单详情，带返回标识）
+                    const operateBtn = `<a href="/bill/orders/detail/${order.order_no}/?from_customer=${customerId}" class="btn btn-sm btn-info">查看详情</a>`;
+                    
+                    orderHtml += `<tr>
+                        <td>${order.order_no || '-'}</td>
+                        <td>${order.create_time || '-'}</td>
+                        <td>¥${order.total_amount.toFixed(2)}</td>
+                        <td>${settleTag}</td>
+                        <td>${statusText}</td>
+                        <td>${operateBtn}</td>
+                    </tr>`;
+                });
+            } else {
+                const emptyText = settleStatus === 'all' ? '' : (settleStatus === 'settled' ? '已结清' : '未结清');
+                orderHtml = `<tr><td colspan="6" class="text-center">暂无${emptyText}订单</td></tr>`;
+            }
+            $('#orderList').html(orderHtml);
+        }, 'json').fail(function(xhr) {
+            alert('加载订单失败：' + (xhr.responseJSON?.msg || xhr.responseText || '未知错误'));
+            $('#orderList').html('<tr><td colspan="6" class="text-center text-danger">加载失败</td></tr>');
+        });
+    }
+    
+    // 加载商品统计
+    function loadProductStats(res) {
+        let statHtml = '';
+        if (res.product_stats && res.product_stats.length > 0) {
+            res.product_stats.forEach(stat => {
+                const totalQuantity = `${stat.total_quantity} ${stat.unit}`;
+                statHtml += `<tr>
+                    <td>${stat.product_name}</td>
+                    <td>总计 ${totalQuantity}</td>
+                    <td>最近 ${stat.last_purchase_time}</td>
+                </tr>`;
+            });
+        } else {
+            statHtml = '<tr><td colspan="3" class="text-center">暂无购买商品记录</td></tr>';
+        }
+        $('#productStats').html(statHtml);
     }
 </script>
 {% endblock %}
