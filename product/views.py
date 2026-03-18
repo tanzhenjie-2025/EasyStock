@@ -1,3 +1,4 @@
+# product\views.py 此注释用于标识代码段别删
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse
 from django.db import IntegrityError
@@ -514,3 +515,84 @@ def quick_stock_operation(request):
         return JsonResponse({'code': 0, 'msg': f'出入库操作失败：{str(e)}'})
 
 
+# ====================== 商品详情页面 ======================
+from django.db.models import Sum, Count, F, Q
+from datetime import datetime, timedelta
+from bill.models import Order, OrderItem, CustomerPrice
+
+
+def product_detail(request, pk):
+    """商品详情页面"""
+    # 1. 获取商品基本信息
+    product = get_object_or_404(Product, pk=pk)
+
+    # 2. 获取客户专属价（取前5条展示）
+    custom_prices = CustomerPrice.objects.filter(product=product).select_related('customer')[:5]
+
+    # 3. 销量统计相关查询
+    # 基础查询：所有包含该商品的有效订单明细（排除作废订单）
+    base_order_items = OrderItem.objects.filter(
+        product=product,
+        order__status__in=['pending', 'printed', 'reopened']  # 排除作废订单
+    ).select_related('order', 'order__customer')
+
+    # 3.1 总销量
+    total_sales = base_order_items.aggregate(total=Sum('quantity'))['total'] or 0
+
+    # 3.2 近7天销量
+    seven_days_ago = timezone.now() - timedelta(days=7)
+    sales_7d = base_order_items.filter(
+        order__create_time__gte=seven_days_ago
+    ).aggregate(total=Sum('quantity'))['total'] or 0
+
+    # 3.3 近30天销量
+    thirty_days_ago = timezone.now() - timedelta(days=30)
+    sales_30d = base_order_items.filter(
+        order__create_time__gte=thirty_days_ago
+    ).aggregate(total=Sum('quantity'))['total'] or 0
+
+    # 4. 最近销售记录（最近10条）- 关键修改：提前计算单价
+    recent_sales_raw = base_order_items.filter(
+        order__create_time__isnull=False
+    ).order_by('-order__create_time')[:10]
+
+    # 处理每条销售记录，计算单价（避免除以0）
+    recent_sales = []
+    for item in recent_sales_raw:
+        # 计算单价：amount / quantity（处理quantity为0的异常）
+        unit_price = 0.0
+        if item.quantity > 0 and item.amount:
+            unit_price = float(item.amount) / item.quantity
+
+        recent_sales.append({
+            'order_no': item.order.order_no,
+            'customer_name': item.order.customer.name if item.order.customer else '未知客户',
+            'quantity': item.quantity,
+            'unit_price': unit_price,  # 提前计算好的单价
+            'create_time': item.order.create_time,
+            'is_settled': item.order.is_settled
+        })
+
+    # 5. 熟客统计（按购买数量降序，取前10）
+    customer_sales = base_order_items.values(
+        'order__customer__id', 'order__customer__name'
+    ).annotate(
+        buy_count=Count('id'),  # 购买次数
+        buy_quantity=Sum('quantity')  # 购买总量
+    ).filter(
+        order__customer__isnull=False
+    ).order_by('-buy_quantity')[:10]
+
+    # 组装模板数据
+    context = {
+        'product': product,
+        'custom_prices': custom_prices,
+        'total_sales': total_sales,
+        'sales_7d': sales_7d,
+        'sales_30d': sales_30d,
+        'recent_sales': recent_sales,  # 替换为处理后的列表
+        'customer_sales': customer_sales,
+        'product_unit': product.unit or '件'
+    }
+
+    return render(request, 'product/product_detail.html', context)

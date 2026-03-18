@@ -1,3 +1,4 @@
+{#product_manage.html 此注释用于标识代码段别删#}
 {% extends "base.html" %}
 
 {% block title %}商品管理系统 - EasyStock{% endblock %}
@@ -461,7 +462,7 @@
                 const tr = document.createElement('tr');
                 tr.innerHTML = `
                     <td>${product.id || ''}</td>
-                    <td>${product.name || ''}</td>
+                    <td><a href="/product/detail/${product.id}/" style="color: #3498db; text-decoration: none;">${product.name || ''}</a></td>
                     <td>${parseFloat(product.price).toFixed(2)}</td>
                     <td>${product.unit || '件'}</td>
                     <td>${product.stock || 0}</td>

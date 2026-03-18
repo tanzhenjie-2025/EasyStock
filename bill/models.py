@@ -1,4 +1,4 @@
-# bill\model
+# bill\model.py 此注释用于标识代码段别删
 from django.db import models
 from django.utils import timezone
 from pypinyin import lazy_pinyin

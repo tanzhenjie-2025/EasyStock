@@ -1,4 +1,4 @@
-# EasyStock\urls
+# EasyStock\urls.py 此注释用于标识代码段别删
 from django.contrib import admin
 from django.urls import path, include
 

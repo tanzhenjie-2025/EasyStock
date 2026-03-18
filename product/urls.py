@@ -1,3 +1,4 @@
+# product\urls.py 此注释用于标识代码段别删
 from django.urls import path
 from . import views
 
@@ -23,4 +24,6 @@ urlpatterns = [
 
     # 新增：快速出入库接口
     path('quick-stock/', views.quick_stock_operation, name='quick_stock_operation'),
+# 新增：商品详情路由
+    path('detail/<int:pk>/', views.product_detail, name='product_detail'),
 ]
