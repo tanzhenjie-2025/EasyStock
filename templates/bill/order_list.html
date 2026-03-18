@@ -1,3 +1,4 @@
+{##}
 {% extends "base.html" %}
 
 {% block title %}订单列表 - EasyStock{% endblock %}
@@ -9,7 +10,7 @@
     {% endif %}
 </h3>
 
-<!-- 筛选表单（新增结清状态筛选） -->
+<!-- 筛选表单（新增结清状态筛选 + 金额筛选） -->
 <form method="get" class="mb-4">
     <div class="row g-2">
         <div class="col-auto">
@@ -37,6 +38,29 @@
                 <option value="unsettled" {% if settled_status == "unsettled" %}selected{% endif %}>未结清</option>
             </select>
         </div>
+        <!-- ========== 新增：金额筛选模块 ========== -->
+        <div class="col-auto">
+            <select name="amount_operator" class="form-select form-select-sm">
+                <option value="" {% if amount_operator == "" %}selected{% endif %}>金额</option>
+                <option value="gt" {% if amount_operator == "gt" %}selected{% endif %}>大于</option>
+                <option value="lt" {% if amount_operator == "lt" %}selected{% endif %}>小于</option>
+            </select>
+        </div>
+        <div class="col-auto">
+            <div class="input-group input-group-sm">
+                <input type="number" name="amount_value" class="form-control form-control-sm" id="amountValueInput" 
+                       placeholder="自定义金额" value="{{ amount_value }}" min="0" step="0.01">
+                <div class="input-group-append">
+                    <div class="btn-group btn-group-sm">
+                        <button type="button" class="btn btn-outline-secondary amount-quick-btn" data-value="100">100</button>
+                        <button type="button" class="btn btn-outline-secondary amount-quick-btn" data-value="500">500</button>
+                        <button type="button" class="btn btn-outline-secondary amount-quick-btn" data-value="1000">1000</button>
+                        <button type="button" class="btn btn-outline-secondary amount-quick-btn" data-value="2000">2000</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- ========== 金额筛选模块结束 ========== -->
         <div class="col-auto">
             <button type="submit" class="btn btn-sm btn-primary">筛选</button>
         </div>
@@ -309,6 +333,15 @@
 
 {% block extra_js %}
 <script>
+
+// ========== 新增：金额筛选快捷按钮逻辑 ==========
+$(document).ready(function() {
+    // 金额快捷按钮点击 - 填充到输入框
+    $('.amount-quick-btn').click(function() {
+        const value = $(this).data('value');
+        $('#amountValueInput').val(value);
+    });
+});
 
 // ========== 快捷选项拼接逻辑 ==========
 $(document).ready(function() {

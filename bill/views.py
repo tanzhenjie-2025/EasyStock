@@ -1,3 +1,4 @@
+# bill\views
 # ========== 先导入所有必要模块（统一开头，避免重复） ==========
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse
@@ -13,6 +14,8 @@ from accounts.views import is_boss, is_operator
 from operation_log.models import OperationLog
 import socket
 from functools import wraps
+import decimal  # 新增：导入decimal模块处理金额
+
 
 # ========== 自定义AJAX装饰器（移到最前面，确保先定义后使用） ==========
 def get_client_ip(request):
@@ -24,36 +27,46 @@ def get_client_ip(request):
         ip = request.META.get('REMOTE_ADDR', 'unknown')
     return ip
 
+
 def ajax_login_required(view_func):
     """AJAX登录验证装饰器：未登录返回JSON，而非重定向HTML"""
+
     @wraps(view_func)
     def wrapper(request, *args, **kwargs):
         if request.user.is_authenticated:
             return view_func(request, *args, **kwargs)
         # 识别AJAX请求，返回JSON错误
-        if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or 'application/json' in request.headers.get('Content-Type', ''):
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or 'application/json' in request.headers.get(
+                'Content-Type', ''):
             return JsonResponse({'code': 0, 'msg': '请先登录系统'}, status=401)
         # 非AJAX请求仍重定向登录页
         return login_required(view_func)(request, *args, **kwargs)
+
     # 关键修复：返回包装函数
     return wrapper
 
+
 def ajax_user_passes_test(test_func, login_url=None):
     """AJAX权限验证装饰器：无权限返回JSON，而非重定向HTML"""
+
     def decorator(view_func):
         @wraps(view_func)
         def wrapper(request, *args, **kwargs):
             if test_func(request.user):
                 return view_func(request, *args, **kwargs)
             # 识别AJAX请求，返回JSON错误
-            if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or 'application/json' in request.headers.get('Content-Type', ''):
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or 'application/json' in request.headers.get(
+                    'Content-Type', ''):
                 return JsonResponse({'code': 0, 'msg': '无操作权限，请联系管理员'}, status=403)
             # 非AJAX请求仍重定向无权限页
             return user_passes_test(test_func, login_url=login_url)(view_func)(request, *args, **kwargs)
+
         # 关键修复1：返回wrapper函数
         return wrapper
+
     # 关键修复2：返回decorator函数
     return decorator
+
 
 # ========== 以下是原有视图函数（保持不变，仅替换装饰器） ==========
 @login_required
@@ -67,6 +80,7 @@ def index(request):
         'areas': areas,
         'is_boss': is_boss(request.user)
     })
+
 
 @login_required
 def search_product(request):
@@ -112,6 +126,7 @@ def search_product(request):
         })
 
     return JsonResponse({'code': 1, 'data': data})
+
 
 @login_required
 @user_passes_test(is_operator, login_url='/accounts/no-permission/', redirect_field_name=None)
@@ -206,6 +221,7 @@ def save_order(request):
 
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
+
 @login_required
 def print_order(request, order_no):
     """订单打印页面"""
@@ -217,6 +233,7 @@ def print_order(request, order_no):
         'is_boss': is_boss(request.user)
     })
 
+
 @login_required
 def stock_list(request):
     """库存查询页面"""
@@ -226,20 +243,25 @@ def stock_list(request):
         'is_boss': is_boss(request.user)
     })
 
+
 @login_required
 def order_list(request):
-    """订单列表页"""
+    """订单列表页（修复金额筛选）"""
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
     area_id = request.GET.get('area_id', '')
     customer_name = request.GET.get('customer_name', '').strip()
     settled_status = request.GET.get('settled_status', '')
+    # 新增：获取金额筛选参数
+    amount_operator = request.GET.get('amount_operator', '')
+    amount_value = request.GET.get('amount_value', '').strip()
 
     orders = Order.objects.select_related('area', 'customer', 'creator').order_by('-create_time')
 
     if not is_boss(request.user):
         orders = orders.filter(creator=request.user)
 
+    # 日期筛选
     if date_from:
         try:
             start_date = datetime.strptime(date_from, '%Y-%m-%d').date()
@@ -252,15 +274,35 @@ def order_list(request):
             orders = orders.filter(create_time__date__lte=end_date)
         except:
             pass
+
+    # 区域筛选
     if area_id and area_id.isdigit():
         orders = orders.filter(area_id=area_id)
+
+    # 客户名称筛选
     if customer_name:
         orders = orders.filter(customer__name__icontains=customer_name)
 
+    # 结清状态筛选
     if settled_status == 'settled':
         orders = orders.filter(is_settled=True)
     elif settled_status == 'unsettled':
         orders = orders.filter(is_settled=False)
+
+    # 新增：金额筛选核心逻辑
+    if amount_operator in ['gt', 'lt'] and amount_value:
+        try:
+            # 转换为Decimal类型（匹配Order.total_amount的字段类型）
+            amount = decimal.Decimal(amount_value)
+            if amount_operator == 'gt':
+                # 大于指定金额
+                orders = orders.filter(total_amount__gt=amount)
+            elif amount_operator == 'lt':
+                # 小于指定金额
+                orders = orders.filter(total_amount__lt=amount)
+        except decimal.InvalidOperation:
+            # 金额格式错误时，跳过金额筛选（避免报错）
+            pass
 
     areas = Area.objects.all().order_by('name')
 
@@ -272,9 +314,13 @@ def order_list(request):
         'area_id': area_id,
         'customer_name': customer_name,
         'settled_status': settled_status,
+        # 新增：传递金额筛选参数到前端（保留选中状态）
+        'amount_operator': amount_operator,
+        'amount_value': amount_value,
         'is_boss': is_boss(request.user)
     }
     return render(request, 'bill/order_list.html', context)
+
 
 @login_required
 def order_detail(request, order_no):
@@ -292,6 +338,7 @@ def order_detail(request, order_no):
         'is_boss': is_boss(request.user)
     }
     return render(request, 'bill/order_detail.html', context)
+
 
 @login_required
 @user_passes_test(is_boss)
@@ -321,6 +368,7 @@ def summary_list(request):
         'is_boss': is_boss(request.user)
     })
 
+
 @login_required
 @user_passes_test(is_boss)
 def manual_summary(request):
@@ -339,6 +387,7 @@ def manual_summary(request):
             return JsonResponse({'code': 0, 'msg': f'汇总失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
+
 def auto_summary_task(request):
     """自动汇总昨天数据"""
     try:
@@ -346,6 +395,7 @@ def auto_summary_task(request):
         return JsonResponse({'code': 1, 'msg': f'自动汇总完成：{count}个商品'})
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'自动汇总失败：{str(e)}'})
+
 
 @login_required
 def search_customer(request):
@@ -372,6 +422,7 @@ def search_customer(request):
         })
 
     return JsonResponse({'code': 1, 'data': data})
+
 
 @login_required
 @user_passes_test(is_boss, login_url='/accounts/no-permission/', redirect_field_name=None)
@@ -419,6 +470,7 @@ def cancel_order(request, order_no):
             return JsonResponse({'code': 0, 'msg': f'作废失败：{str(e)}'})
 
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
+
 
 @login_required
 @user_passes_test(is_operator, login_url='/accounts/no-permission/', redirect_field_name=None)
@@ -490,6 +542,7 @@ def reopen_order(request, order_no):
 
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
+
 @login_required
 @user_passes_test(is_operator, login_url='/accounts/no-permission/', redirect_field_name=None)
 def reopen_order_edit(request, order_no):
@@ -505,7 +558,7 @@ def reopen_order_edit(request, order_no):
         'order_no': original_order.order_no,
         'customer_id': original_order.customer.id if original_order.customer else '',
         'customer_name': f"{original_order.area.name} | {original_order.customer.name}" if (
-                    original_order.customer and original_order.area) else '',
+                original_order.customer and original_order.area) else '',
         'items': [
             {
                 'id': item.product.id if item.product else '',
@@ -528,6 +581,7 @@ def reopen_order_edit(request, order_no):
         'is_boss': is_boss(request.user),
         'reopen_order_data': order_data
     })
+
 
 # ========== 修复后的结清相关视图（使用自定义AJAX装饰器） ==========
 @ajax_login_required
@@ -573,6 +627,7 @@ def settle_order(request, order_no):
             return JsonResponse({'code': 0, 'msg': f'标记结清失败：{str(e)}'}, status=500)
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, status=405)
 
+
 @ajax_login_required
 @ajax_user_passes_test(is_boss, login_url='/accounts/no-permission/')
 def unsettle_order(request, order_no):
@@ -613,6 +668,7 @@ def unsettle_order(request, order_no):
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'撤销结清失败：{str(e)}'}, status=500)
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, status=405)
+
 
 @ajax_login_required
 @ajax_user_passes_test(is_operator, login_url='/accounts/no-permission/')

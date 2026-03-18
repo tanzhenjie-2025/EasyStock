@@ -1,3 +1,4 @@
+# bill\model
 from django.db import models
 from django.utils import timezone
 from pypinyin import lazy_pinyin
