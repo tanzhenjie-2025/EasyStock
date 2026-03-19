@@ -1,0 +1,54 @@
+{% extends 'base.html' %}
+{% block title %}配置{{ role.name }}权限 - 系统管理{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">配置 {{ role.name }} 权限</h5>
+        <a href="{% url 'accounts:role_list' %}" class="btn btn-outline-secondary btn-sm">返回角色列表</a>
+    </div>
+    <div class="card-body">
+        {% if is_super_admin %}
+            <div class="alert alert-info">
+                <i class="bi bi-info-circle"></i> 超级管理员默认拥有所有权限，无需手动配置！
+            </div>
+        {% else %}
+            <form method="post">
+                {% csrf_token %}
+                <!-- 权限分组展示 -->
+                {% for category_code, category_info in perm_groups.items() %}
+                    <div class="card mb-3">
+                        <div class="card-header">
+                            <h6 class="mb-0">{{ category_info.name }}</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                {% for perm in category_info.permissions %}
+                                    <div class="col-md-4 mb-2">
+                                        <div class="form-check">
+                                            <input type="checkbox" name="permissions" class="form-check-input" 
+                                                   id="perm_{{ perm.id }}" value="{{ perm.id }}"
+                                                   {% if perm.id in selected_perm_ids %}checked{% endif %}>
+                                            <label class="form-check-label" for="perm_{{ perm.id }}">
+                                                {{ perm.name }} ({{ perm.code }})
+                                                {% if perm.description %}
+                                                    <small class="text-muted">({{ perm.description }})</small>
+                                                {% endif %}
+                                            </label>
+                                        </div>
+                                    </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+
+                <!-- 提交按钮 -->
+                <div class="mt-4">
+                    <button type="submit" class="btn btn-primary">保存权限配置</button>
+                </div>
+            </form>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -23,7 +23,8 @@
         // 加载区域列表（添加详细日志）
         function load(){
             console.log('开始加载区域列表...');
-            $.get('/area-manage/area/list/', function(res){
+            // 修正：URL增加/api/层级
+            $.get('/area-manage/api/area/list/', function(res){
                 console.log('接口返回数据：', res); // 打印返回数据，方便排查
                 let html='';
                 // 处理接口返回错误的情况
@@ -60,7 +61,8 @@
             if(!name)return;
             let remark=prompt('备注：')||'';
             $.ajax({
-                url: '/area-manage/area/add/',
+                // 修正：URL增加/api/层级
+                url: '/area-manage/api/area/add/',
                 type: 'POST',
                 data: {name, remark},
                 headers: {'X-CSRFToken': getCsrfToken()},
@@ -78,7 +80,8 @@
 
         // 编辑区域
         function edit(id){
-            $.get('/area-manage/area/list/',function(areas){
+            // 修正：URL增加/api/层级
+            $.get('/area-manage/api/area/list/',function(areas){
                 console.log('所有区域：', areas);
                 let a=areas.find(x=>x.id==id);
                 if(!a){
@@ -89,7 +92,8 @@
                 if(!name)return;
                 let remark=prompt('备注：',a.remark)||'';
                 $.ajax({
-                    url: `/area-manage/area/edit/${id}/`,
+                    // 修正：URL增加/api/层级
+                    url: `/area-manage/api/area/edit/${id}/`,
                     type: 'POST',
                     data: {name, remark},
                     headers: {'X-CSRFToken': getCsrfToken()},
@@ -113,7 +117,8 @@
         function del(id){
             if(!confirm('确定删除？'))return;
             $.ajax({
-                url: `/area-manage/area/delete/${id}/`,
+                // 修正：URL增加/api/层级
+                url: `/area-manage/api/area/delete/${id}/`,
                 type: 'POST',
                 headers: {'X-CSRFToken': getCsrfToken()},
                 dataType: 'json',

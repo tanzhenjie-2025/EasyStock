@@ -1,53 +1,32 @@
-# product\views.py 此注释用于标识代码段别删
+# product\views.py
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.views.decorators.csrf import csrf_exempt
-from bill.models import Product, ProductAlias
-# 新增：导入日志模型和时间工具
-from operation_log.models import OperationLog
-from django.utils import timezone
-# 新增：导入文件和Excel处理相关（原有）
-import os
-import io
 from django.views.decorators.http import require_POST
 from django.core.files.uploadedfile import InMemoryUploadedFile
+import os
+import io
 import openpyxl
 import xlrd
+import json
+from datetime import datetime, timedelta
+from django.db.models import Sum, Count, Q
 
+# ========== 核心导入：RBAC权限组件 ==========
+from accounts.views import permission_required, create_operation_log  # 复用用户模块的日志函数
+from accounts.models import (
+    PERM_PRODUCT_VIEW, PERM_PRODUCT_ADD, PERM_PRODUCT_EDIT,
+    PERM_PRODUCT_DELETE, PERM_PRODUCT_ALIAS_ADD, PERM_PRODUCT_ALIAS_DELETE,
+    PERM_PRODUCT_IMPORT, PERM_PRODUCT_STOCK_OP, PERM_PRODUCT_DETAIL
+)
 
-# ========== 新增：日志记录辅助函数（核心） ==========
-def create_operation_log(request, operation_type, object_type, object_id=None, object_name=None, operation_detail=None):
-    """
-    创建操作日志的通用函数
-    :param request: 请求对象（用于获取用户和IP）
-    :param operation_type: 操作类型（对应OperationLog的OPERATION_TYPE_CHOICES）
-    :param object_type: 操作对象类型（对应OperationLog的OBJECT_TYPE_CHOICES）
-    :param object_id: 操作对象ID
-    :param object_name: 操作对象名称
-    :param operation_detail: 操作详情
-    """
-    # 获取客户端IP地址
-    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-    ip_address = x_forwarded_for.split(',')[0] if x_forwarded_for else request.META.get('REMOTE_ADDR', '')
-
-    # 容错处理：避免日志记录失败影响主业务
-    try:
-        OperationLog.objects.create(
-            operator=request.user if request.user.is_authenticated else None,  # 当前登录用户
-            operation_time=timezone.now(),
-            operation_type=operation_type,
-            object_type=object_type,
-            object_id=str(object_id) if object_id else None,
-            object_name=object_name,
-            operation_detail=operation_detail,
-            ip_address=ip_address
-        )
-    except Exception as e:
-        print(f"【日志记录失败】：{str(e)}")  # 仅打印错误，不中断主流程
+# 业务模型导入
+from bill.models import Product, ProductAlias, Order, OrderItem, CustomerPrice
 
 
 # ====================== 商品管理主页面 ======================
+@permission_required(PERM_PRODUCT_VIEW)  # 需"查看商品"权限
 def product_manage(request):
     """商品管理主页面（展示所有商品+别名）"""
     products = Product.objects.all().order_by('name')
@@ -63,11 +42,20 @@ def product_manage(request):
             'stock': product.stock,
             'aliases': [{'id': a.id, 'alias_name': a.alias_name} for a in aliases]
         })
-    return render(request, 'product/product_manage.html', {'products': product_list})
+    return render(request, 'product/product_manage.html', {
+        'products': product_list,
+        # 传递权限标识给前端（控制按钮显示/隐藏）
+        'can_add_product': request.user.has_permission(PERM_PRODUCT_ADD),
+        'can_edit_product': request.user.has_permission(PERM_PRODUCT_EDIT),
+        'can_delete_product': request.user.has_permission(PERM_PRODUCT_DELETE),
+        'can_import_product': request.user.has_permission(PERM_PRODUCT_IMPORT),
+        'can_stock_operation': request.user.has_permission(PERM_PRODUCT_STOCK_OP)
+    })
 
 
 # ====================== 商品CRUD ======================
 @csrf_exempt
+@permission_required(PERM_PRODUCT_ADD)  # 需"新增商品"权限
 def product_add(request):
     """新增商品（AJAX接口）"""
     if request.method == 'POST':
@@ -83,7 +71,7 @@ def product_add(request):
             if not price or float(price) < 0:
                 return JsonResponse({'code': 0, 'msg': '请输入有效的单价'})
 
-            # 创建商品（拼音字段自动生成）
+            # 创建商品
             product = Product.objects.create(
                 name=name,
                 price=float(price),
@@ -91,14 +79,14 @@ def product_add(request):
                 stock=int(stock) if stock.isdigit() else 77
             )
 
-            # ========== 新增：记录新增商品日志 ==========
+            # 记录操作日志（复用用户模块的日志函数）
             create_operation_log(
                 request=request,
-                operation_type='create',
-                object_type='product',
-                object_id=product.id,
-                object_name=product.name,
-                operation_detail=f"新增商品：名称={product.name}，单价={product.price}，单位={product.unit}，库存={product.stock}"
+                op_type='create',
+                obj_type='product',
+                obj_id=product.id,
+                obj_name=product.name,
+                detail=f"新增商品：名称={product.name}，单价={product.price}，单位={product.unit}，库存={product.stock}"
             )
 
             return JsonResponse({'code': 1, 'msg': '商品新增成功', 'data': {
@@ -117,6 +105,7 @@ def product_add(request):
 
 
 @csrf_exempt
+@permission_required(PERM_PRODUCT_EDIT)  # 需"编辑商品"权限
 def product_edit(request, pk):
     """编辑商品（AJAX接口）"""
     product = get_object_or_404(Product, pk=pk)
@@ -137,25 +126,28 @@ def product_edit(request, pk):
             if Product.objects.filter(name=name).exclude(id=pk).exists():
                 return JsonResponse({'code': 0, 'msg': '商品名称已存在'})
 
+            # 保存原始信息（日志用）
+            old_info = f"名称={product.name}，单价={product.price}，单位={product.unit}，库存={product.stock}"
+
             # 更新商品
             product.name = name
             product.price = float(price)
             product.unit = unit
             product.stock = int(stock) if stock.isdigit() else 77
-            product.save()  # 自动更新拼音字段
+            product.save()
+
+            # 记录操作日志
+            create_operation_log(
+                request=request,
+                op_type='update',
+                obj_type='product',
+                obj_id=product.id,
+                obj_name=product.name,
+                detail=f"编辑商品：原信息[{old_info}] → 新信息[名称={product.name}，单价={product.price}，单位={product.unit}，库存={product.stock}]"
+            )
 
             # 获取更新后的别名
             aliases = [{'id': a.id, 'alias_name': a.alias_name} for a in product.aliases.all()]
-
-            # ========== 新增：记录编辑商品日志 ==========
-            create_operation_log(
-                request=request,
-                operation_type='update',
-                object_type='product',
-                object_id=product.id,
-                object_name=product.name,
-                operation_detail=f"编辑商品：名称={product.name}，单价={product.price}，单位={product.unit}，库存={product.stock}"
-            )
 
             return JsonResponse({'code': 1, 'msg': '商品编辑成功', 'data': {
                 'id': product.id,
@@ -171,21 +163,24 @@ def product_edit(request, pk):
 
 
 @csrf_exempt
+@permission_required(PERM_PRODUCT_DELETE)  # 需"删除商品"权限
 def product_delete(request, pk):
     """删除商品（AJAX接口）"""
     try:
         product = get_object_or_404(Product, pk=pk)
         product_name = product.name  # 先保存名称（删除后无法获取）
+
+        # 删除商品（级联删除别名）
         product.delete()
 
-        # ========== 新增：记录删除商品日志 ==========
+        # 记录操作日志
         create_operation_log(
             request=request,
-            operation_type='delete',
-            object_type='product',
-            object_id=pk,
-            object_name=product_name,
-            operation_detail=f"删除商品：名称={product_name}，ID={pk}"
+            op_type='delete',
+            obj_type='product',
+            obj_id=pk,
+            obj_name=product_name,
+            detail=f"删除商品：名称={product_name}，ID={pk}"
         )
 
         return JsonResponse({'code': 1, 'msg': '商品删除成功'})
@@ -195,6 +190,7 @@ def product_delete(request, pk):
 
 # ====================== 别名CRUD ======================
 @csrf_exempt
+@permission_required(PERM_PRODUCT_ALIAS_ADD)  # 需"新增别名"权限
 def alias_add(request):
     """新增商品别名（AJAX接口）"""
     if request.method == 'POST':
@@ -207,20 +203,20 @@ def alias_add(request):
                 return JsonResponse({'code': 0, 'msg': '商品ID和别名不能为空'})
             product = get_object_or_404(Product, pk=product_id)
 
-            # 创建别名（拼音字段自动生成）
+            # 创建别名
             alias = ProductAlias.objects.create(
                 product=product,
                 alias_name=alias_name
             )
 
-            # ========== 新增：记录新增别名日志 ==========
+            # 记录操作日志
             create_operation_log(
                 request=request,
-                operation_type='create',
-                object_type='product_alias',
-                object_id=alias.id,
-                object_name=f"{product.name}-{alias.alias_name}",
-                operation_detail=f"为商品【{product.name}】新增别名：{alias.alias_name}"
+                op_type='create',
+                obj_type='product_alias',
+                obj_id=alias.id,
+                obj_name=f"{product.name}-{alias.alias_name}",
+                detail=f"为商品【{product.name}】新增别名：{alias.alias_name}"
             )
 
             return JsonResponse({'code': 1, 'msg': '别名新增成功', 'data': {
@@ -235,22 +231,25 @@ def alias_add(request):
 
 
 @csrf_exempt
+@permission_required(PERM_PRODUCT_ALIAS_DELETE)  # 需"删除别名"权限
 def alias_delete(request, pk):
     """删除商品别名（AJAX接口）"""
     try:
         alias = get_object_or_404(ProductAlias, pk=pk)
-        product_name = alias.product.name  # 保存关联商品名称
-        alias_name = alias.alias_name  # 保存别名
+        product_name = alias.product.name
+        alias_name = alias.alias_name
+
+        # 删除别名
         alias.delete()
 
-        # ========== 新增：记录删除别名日志 ==========
+        # 记录操作日志
         create_operation_log(
             request=request,
-            operation_type='delete',
-            object_type='product_alias',
-            object_id=pk,
-            object_name=f"{product_name}-{alias_name}",
-            operation_detail=f"删除商品【{product_name}】的别名：{alias_name}"
+            op_type='delete',
+            obj_type='product_alias',
+            obj_id=pk,
+            obj_name=f"{product_name}-{alias_name}",
+            detail=f"删除商品【{product_name}】的别名：{alias_name}"
         )
 
         return JsonResponse({'code': 1, 'msg': '别名删除成功'})
@@ -258,8 +257,9 @@ def alias_delete(request, pk):
         return JsonResponse({'code': 0, 'msg': f'删除失败：{str(e)}'})
 
 
-# ====================== 商品数据接口（原有） ======================
+# ====================== 商品数据接口 ======================
 @csrf_exempt
+@permission_required(PERM_PRODUCT_VIEW)  # 需"查看商品"权限
 def product_manage_data(request):
     """商品列表数据接口（AJAX）"""
     products = Product.objects.all().order_by('name')
@@ -278,6 +278,7 @@ def product_manage_data(request):
 
 
 @csrf_exempt
+@permission_required(PERM_PRODUCT_EDIT)  # 需"编辑商品"权限
 def product_edit_data(request, pk):
     """编辑商品数据接口（AJAX）"""
     product = get_object_or_404(Product, pk=pk)
@@ -295,12 +296,9 @@ def product_edit_data(request, pk):
 # ====================== 商品导入功能 ======================
 @csrf_exempt
 @require_POST
+@permission_required(PERM_PRODUCT_IMPORT)  # 需"导入商品"权限
 def product_import(request):
-    """
-    商品Excel导入接口
-    支持格式：xlsx、xls
-    解析字段：商品名称（必填）、零售价（price）、辅助单位（unit），其他字段忽略
-    """
+    """商品Excel导入接口"""
     try:
         # 1. 获取上传文件
         if 'file' not in request.FILES:
@@ -313,14 +311,14 @@ def product_import(request):
             return JsonResponse({'code': 0, 'msg': '仅支持xlsx/xls格式的Excel文件'})
 
         # 2. 解析Excel文件
-        success_count = 0  # 导入成功数量
-        fail_count = 0  # 导入失败数量
-        fail_reasons = []  # 失败原因
+        success_count = 0
+        fail_count = 0
+        fail_reasons = []
 
         # 处理xlsx格式
         if file_name.endswith('.xlsx'):
             wb = openpyxl.load_workbook(io.BytesIO(file.read()))
-            ws = wb.active  # 获取第一个工作表
+            ws = wb.active
             rows = list(ws.iter_rows(values_only=True))
         # 处理xls格式
         else:
@@ -330,11 +328,11 @@ def product_import(request):
             for row_idx in range(ws.nrows):
                 rows.append(ws.row_values(row_idx))
 
-        # 3. 解析表头，找到对应列索引
+        # 3. 解析表头
         header_row = rows[0] if rows else []
-        name_col_idx = -1  # 商品名称列
-        price_col_idx = -1  # 零售价列
-        unit_col_idx = -1  # 辅助单位列
+        name_col_idx = -1
+        price_col_idx = -1
+        unit_col_idx = -1
 
         for idx, header in enumerate(header_row):
             header = str(header).strip()
@@ -345,21 +343,20 @@ def product_import(request):
             elif '辅助单位' in header:
                 unit_col_idx = idx
 
-        # 验证关键列是否存在
+        # 验证关键列
         if name_col_idx == -1:
             return JsonResponse({'code': 0, 'msg': 'Excel中未找到"商品名称"列'})
 
-        # 4. 遍历数据行（跳过表头）
-        for row_num, row in enumerate(rows[1:], start=2):  # 行号从2开始（表头是1）
+        # 4. 遍历数据行
+        for row_num, row in enumerate(rows[1:], start=2):
             try:
-                # 获取商品名称（必填）
                 product_name = str(row[name_col_idx]).strip() if len(row) > name_col_idx else ''
                 if not product_name:
                     fail_count += 1
                     fail_reasons.append(f'第{row_num}行：商品名称为空')
                     continue
 
-                # 获取零售价（可选，默认0）
+                # 获取零售价
                 if price_col_idx != -1 and len(row) > price_col_idx and row[price_col_idx]:
                     try:
                         price = float(row[price_col_idx])
@@ -368,13 +365,13 @@ def product_import(request):
                 else:
                     price = 0.0
 
-                # 获取辅助单位（可选，默认件）
+                # 获取辅助单位
                 if unit_col_idx != -1 and len(row) > unit_col_idx and row[unit_col_idx]:
                     unit = str(row[unit_col_idx]).strip()
                 else:
                     unit = '件'
 
-                # 5. 保存商品（去重：名称重复则跳过）
+                # 去重检查
                 if Product.objects.filter(name=product_name).exists():
                     fail_count += 1
                     fail_reasons.append(f'第{row_num}行：商品"{product_name}"已存在')
@@ -385,7 +382,7 @@ def product_import(request):
                     name=product_name,
                     price=price,
                     unit=unit,
-                    stock=77  # 库存默认77
+                    stock=77
                 )
                 success_count += 1
 
@@ -393,18 +390,18 @@ def product_import(request):
                 fail_count += 1
                 fail_reasons.append(f'第{row_num}行：导入失败 - {str(e)}')
 
-        # ========== 新增：记录导入商品日志 ==========
+        # 记录操作日志
         import_detail = f"批量导入商品：成功{success_count}条，失败{fail_count}条。"
         if fail_reasons:
             import_detail += f" 失败原因：{' | '.join(fail_reasons[:5])}{'...' if len(fail_reasons) > 5 else ''}"
         create_operation_log(
             request=request,
-            operation_type='import',
-            object_type='product',
-            operation_detail=import_detail
+            op_type='import',
+            obj_type='product',
+            detail=import_detail
         )
 
-        # 6. 返回导入结果
+        # 5. 返回结果
         msg = f'导入完成！成功{success_count}条，失败{fail_count}条'
         if fail_reasons:
             msg += f'。失败原因：{" | ".join(fail_reasons[:5])}{"..." if len(fail_reasons) > 5 else ""}'
@@ -423,30 +420,12 @@ def product_import(request):
         return JsonResponse({'code': 0, 'msg': f'导入失败：{str(e)}'})
 
 
-from django.shortcuts import render, redirect, get_object_or_404
-from django.http import JsonResponse
-from django.db import IntegrityError, transaction
-from django.views.decorators.csrf import csrf_exempt
-from bill.models import Product, ProductAlias
-from operation_log.models import OperationLog
-from django.utils import timezone
-import os
-import io
-from django.views.decorators.http import require_POST
-from django.core.files.uploadedfile import InMemoryUploadedFile
-import openpyxl
-import xlrd
-import json
-
-
-# ========== 原有函数保留，新增以下函数 ==========
+# ====================== 快速出入库操作 ======================
 @csrf_exempt
 @require_POST
+@permission_required(PERM_PRODUCT_STOCK_OP)  # 需"商品出入库"权限
 def quick_stock_operation(request):
-    """
-    快速出入库操作接口
-    接收参数：items = [{"product_id": "", "in_quantity": 0, "out_quantity": 0}, ...]
-    """
+    """快速出入库操作接口"""
     try:
         # 解析请求数据
         data = json.loads(request.body)
@@ -455,7 +434,7 @@ def quick_stock_operation(request):
         if not items:
             return JsonResponse({'code': 0, 'msg': '无有效出入库数据'})
 
-        # 事务处理：确保所有库存更新要么都成功，要么都失败
+        # 事务处理
         with transaction.atomic():
             operation_details = []
             success_count = 0
@@ -498,9 +477,9 @@ def quick_stock_operation(request):
             if success_count > 0:
                 create_operation_log(
                     request=request,
-                    operation_type='stock_operation',
-                    object_type='product',
-                    operation_detail=f"快速出入库操作：共处理{success_count}个商品。详情：{' | '.join(operation_details)}"
+                    op_type='stock_operation',
+                    obj_type='product',
+                    detail=f"快速出入库操作：共处理{success_count}个商品。详情：{' | '.join(operation_details)}"
                 )
 
                 return JsonResponse({
@@ -516,11 +495,7 @@ def quick_stock_operation(request):
 
 
 # ====================== 商品详情页面 ======================
-from django.db.models import Sum, Count, F, Q
-from datetime import datetime, timedelta
-from bill.models import Order, OrderItem, CustomerPrice
-
-
+@permission_required(PERM_PRODUCT_DETAIL)  # 需"商品详情"权限
 def product_detail(request, pk):
     """商品详情页面"""
     # 1. 获取商品基本信息
@@ -529,37 +504,34 @@ def product_detail(request, pk):
     # 2. 获取客户专属价（取前5条展示）
     custom_prices = CustomerPrice.objects.filter(product=product).select_related('customer')[:5]
 
-    # 3. 销量统计相关查询
-    # 基础查询：所有包含该商品的有效订单明细（排除作废订单）
+    # 3. 销量统计
     base_order_items = OrderItem.objects.filter(
         product=product,
-        order__status__in=['pending', 'printed', 'reopened']  # 排除作废订单
+        order__status__in=['pending', 'printed', 'reopened']
     ).select_related('order', 'order__customer')
 
     # 3.1 总销量
     total_sales = base_order_items.aggregate(total=Sum('quantity'))['total'] or 0
 
     # 3.2 近7天销量
-    seven_days_ago = timezone.now() - timedelta(days=7)
+    seven_days_ago = datetime.now() - timedelta(days=7)
     sales_7d = base_order_items.filter(
         order__create_time__gte=seven_days_ago
     ).aggregate(total=Sum('quantity'))['total'] or 0
 
     # 3.3 近30天销量
-    thirty_days_ago = timezone.now() - timedelta(days=30)
+    thirty_days_ago = datetime.now() - timedelta(days=30)
     sales_30d = base_order_items.filter(
         order__create_time__gte=thirty_days_ago
     ).aggregate(total=Sum('quantity'))['total'] or 0
 
-    # 4. 最近销售记录（最近10条）- 关键修改：提前计算单价
+    # 4. 最近销售记录
     recent_sales_raw = base_order_items.filter(
         order__create_time__isnull=False
     ).order_by('-order__create_time')[:10]
 
-    # 处理每条销售记录，计算单价（避免除以0）
     recent_sales = []
     for item in recent_sales_raw:
-        # 计算单价：amount / quantity（处理quantity为0的异常）
         unit_price = 0.0
         if item.quantity > 0 and item.amount:
             unit_price = float(item.amount) / item.quantity
@@ -568,17 +540,17 @@ def product_detail(request, pk):
             'order_no': item.order.order_no,
             'customer_name': item.order.customer.name if item.order.customer else '未知客户',
             'quantity': item.quantity,
-            'unit_price': unit_price,  # 提前计算好的单价
+            'unit_price': unit_price,
             'create_time': item.order.create_time,
             'is_settled': item.order.is_settled
         })
 
-    # 5. 熟客统计（按购买数量降序，取前10）
+    # 5. 熟客统计
     customer_sales = base_order_items.values(
         'order__customer__id', 'order__customer__name'
     ).annotate(
-        buy_count=Count('id'),  # 购买次数
-        buy_quantity=Sum('quantity')  # 购买总量
+        buy_count=Count('id'),
+        buy_quantity=Sum('quantity')
     ).filter(
         order__customer__isnull=False
     ).order_by('-buy_quantity')[:10]
@@ -590,9 +562,12 @@ def product_detail(request, pk):
         'total_sales': total_sales,
         'sales_7d': sales_7d,
         'sales_30d': sales_30d,
-        'recent_sales': recent_sales,  # 替换为处理后的列表
+        'recent_sales': recent_sales,
         'customer_sales': customer_sales,
-        'product_unit': product.unit or '件'
+        'product_unit': product.unit or '件',
+        # 权限标识
+        'can_edit_product': request.user.has_permission(PERM_PRODUCT_EDIT),
+        'can_stock_operation': request.user.has_permission(PERM_PRODUCT_STOCK_OP)
     }
 
     return render(request, 'product/product_detail.html', context)

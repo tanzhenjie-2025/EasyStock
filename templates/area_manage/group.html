@@ -24,7 +24,8 @@
         // 加载区域列表（添加详细日志）
         function loadArea(){ 
             console.log('加载区域列表（用于区域组）...');
-            $.get('/area-manage/area/list/', function(res){
+            // 修正：URL增加/api/层级
+            $.get('/area-manage/api/area/list/', function(res){
                 console.log('区域列表返回：', res);
                 if(res.code === 0){
                     alert(res.msg);
@@ -40,7 +41,8 @@
         // 加载区域组列表（添加详细日志）
         function loadGroup(){
             console.log('加载区域组列表...');
-            $.get('/area-manage/group/list/', function(res){
+            // 修正：URL增加/api/层级
+            $.get('/area-manage/api/group/list/', function(res){
                 console.log('区域组接口返回：', res);
                 let html='';
                 if(res.code === 0){
@@ -89,7 +91,8 @@
             }
 
             $.ajax({
-                url: '/area-manage/group/add/',
+                // 修正：URL增加/api/层级
+                url: '/area-manage/api/group/add/',
                 type: 'POST',
                 data: {name, remark, 'area_ids[]': areaIds},
                 headers: {'X-CSRFToken': getCsrfToken()},
@@ -107,7 +110,8 @@
 
         // 编辑区域组
         function edit(id){
-            $.get('/area-manage/group/list/', function(groups){
+            // 修正：URL增加/api/层级
+            $.get('/area-manage/api/group/list/', function(groups){
                 console.log('所有区域组：', groups);
                 let g=groups.find(x=>x.id == id);
                 if(!g){
@@ -129,7 +133,8 @@
                 }
 
                 $.ajax({
-                    url: `/area-manage/group/edit/${id}/`,
+                    // 修正：URL增加/api/层级
+                    url: `/area-manage/api/group/edit/${id}/`,
                     type: 'POST',
                     data: {name, remark, 'area_ids[]': areaIds},
                     headers: {'X-CSRFToken': getCsrfToken()},
@@ -153,7 +158,8 @@
         function del(id){
             if(!confirm('确定要删除该区域组吗？')) return;
             $.ajax({
-                url: `/area-manage/group/delete/${id}/`,
+                // 修正：URL增加/api/层级
+                url: `/area-manage/api/group/delete/${id}/`,
                 type: 'POST',
                 headers: {'X-CSRFToken': getCsrfToken()},
                 dataType: 'json',

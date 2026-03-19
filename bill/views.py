@@ -9,25 +9,31 @@ from django.db.models import Q, Sum
 import json
 from datetime import date, datetime, timedelta
 from .utils import generate_daily_summary, auto_summary_yesterday
-from django.contrib.auth.decorators import login_required, user_passes_test
-from accounts.views import is_boss, is_operator
-from operation_log.models import OperationLog
-import socket
+from django.contrib.auth.decorators import login_required
 from functools import wraps
 import decimal  # 新增：导入decimal模块处理金额
 
+# ========== 导入用户模块的RBAC核心组件 ==========
+from accounts.models import ROLE_SUPER_ADMIN
+from accounts.views import (
+    permission_required,  # RBAC权限装饰器
+    create_operation_log,  # 统一日志记录
+    get_client_ip  # 获取客户端IP
+)
 
-# ========== 自定义AJAX装饰器（移到最前面，确保先定义后使用） ==========
-def get_client_ip(request):
-    """获取客户端IP地址"""
-    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-    if x_forwarded_for:
-        ip = x_forwarded_for.split(',')[0]
-    else:
-        ip = request.META.get('REMOTE_ADDR', 'unknown')
-    return ip
+# ========== 开单模块权限常量（和用户模块保持一致） ==========
+PERM_ORDER_CREATE = 'order_create'
+PERM_ORDER_VIEW = 'order_view'
+PERM_ORDER_PRINT = 'order_print'
+PERM_ORDER_CANCEL = 'order_cancel'
+PERM_ORDER_REOPEN = 'order_reopen'
+PERM_ORDER_SETTLE = 'order_settle'
+PERM_ORDER_UNSETTLE = 'order_unsettle'
+PERM_ORDER_SUMMARY = 'order_summary'
+PERM_PRODUCT_SEARCH = 'product_search'
 
 
+# ========== 重构：自定义AJAX装饰器（适配RBAC） ==========
 def ajax_login_required(view_func):
     """AJAX登录验证装饰器：未登录返回JSON，而非重定向HTML"""
 
@@ -42,47 +48,58 @@ def ajax_login_required(view_func):
         # 非AJAX请求仍重定向登录页
         return login_required(view_func)(request, *args, **kwargs)
 
-    # 关键修复：返回包装函数
     return wrapper
 
 
-def ajax_user_passes_test(test_func, login_url=None):
-    """AJAX权限验证装饰器：无权限返回JSON，而非重定向HTML"""
+def ajax_permission_required(permission_code):
+    """重构：AJAX RBAC权限验证装饰器"""
 
     def decorator(view_func):
         @wraps(view_func)
         def wrapper(request, *args, **kwargs):
-            if test_func(request.user):
-                return view_func(request, *args, **kwargs)
-            # 识别AJAX请求，返回JSON错误
-            if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or 'application/json' in request.headers.get(
-                    'Content-Type', ''):
-                return JsonResponse({'code': 0, 'msg': '无操作权限，请联系管理员'}, status=403)
-            # 非AJAX请求仍重定向无权限页
-            return user_passes_test(test_func, login_url=login_url)(view_func)(request, *args, **kwargs)
+            # 未登录→返回JSON
+            if not request.user.is_authenticated:
+                return JsonResponse({'code': 0, 'msg': '请先登录系统'}, status=401)
 
-        # 关键修复1：返回wrapper函数
+            # 超级管理员→直接放行
+            if request.user.role and request.user.role.code == ROLE_SUPER_ADMIN:
+                return view_func(request, *args, **kwargs)
+
+            # 检查RBAC权限
+            if not request.user.has_permission(permission_code):
+                # AJAX请求返回JSON
+                if request.headers.get(
+                        'X-Requested-With') == 'XMLHttpRequest' or 'application/json' in request.headers.get(
+                        'Content-Type', ''):
+                    return JsonResponse({'code': 0, 'msg': '无操作权限，请联系管理员'}, status=403)
+                # 非AJAX请求重定向无权限页
+                return redirect('/accounts/no-permission/')
+
+            return view_func(request, *args, **kwargs)
+
         return wrapper
 
-    # 关键修复2：返回decorator函数
     return decorator
 
 
-# ========== 以下是原有视图函数（保持不变，仅替换装饰器） ==========
+# ========== 重构：视图函数（替换所有权限装饰器） ==========
 @login_required
-@user_passes_test(is_operator, login_url='/accounts/no-permission/', redirect_field_name=None)
+@permission_required(PERM_ORDER_CREATE)  # 替换原user_passes_test(is_operator)
 def index(request):
     """开单主页面（三联单填写页）"""
     customers = Customer.objects.all().order_by('name')
     areas = Area.objects.all().order_by('name')
+    # 重构：RBAC判断是否为超级管理员
+    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
     return render(request, 'bill/index.html', {
         'customers': customers,
         'areas': areas,
-        'is_boss': is_boss(request.user)
+        'is_super_admin': is_super_admin  # 替换原is_boss
     })
 
 
 @login_required
+@permission_required(PERM_PRODUCT_SEARCH)
 def search_product(request):
     """商品搜索：匹配 名称 / 别名 / 全拼 / 首字母"""
     keyword = request.GET.get('keyword', '').strip()
@@ -129,7 +146,7 @@ def search_product(request):
 
 
 @login_required
-@user_passes_test(is_operator, login_url='/accounts/no-permission/', redirect_field_name=None)
+@permission_required(PERM_ORDER_CREATE)
 def save_order(request):
     """保存订单（开单提交）"""
     if request.method == 'POST':
@@ -198,14 +215,14 @@ def save_order(request):
                 valid_item['product'].save()
 
             customer_name = order.customer.name if order.customer else '无'
-            OperationLog.objects.create(
-                operator=request.user,
-                operation_type='create_order',
-                object_type='order',
-                object_id=str(order.id),
-                object_name=f"订单-{order.order_no}",
-                operation_detail=f"创建订单{order.order_no}，客户：{customer_name}，总金额：{order.total_amount}元，商品数量：{len(valid_items)}个",
-                ip_address=get_client_ip(request)
+            # 重构：使用用户模块的统一日志记录
+            create_operation_log(
+                request=request,
+                op_type='create_order',
+                obj_type='order',
+                obj_id=str(order.id),
+                obj_name=f"订单-{order.order_no}",
+                detail=f"创建订单{order.order_no}，客户：{customer_name}，总金额：{order.total_amount}元，商品数量：{len(valid_items)}个"
             )
 
             return JsonResponse({'code': 1, 'msg': '开单成功', 'order_no': order.order_no})
@@ -223,28 +240,34 @@ def save_order(request):
 
 
 @login_required
+@permission_required(PERM_ORDER_PRINT)
 def print_order(request, order_no):
     """订单打印页面"""
     order = get_object_or_404(Order, order_no=order_no)
     items = order.items.all()
+    # 重构：RBAC判断超级管理员
+    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
     return render(request, 'bill/print.html', {
         'order': order,
         'items': items,
-        'is_boss': is_boss(request.user)
+        'is_super_admin': is_super_admin
     })
 
 
 @login_required
+@permission_required(PERM_ORDER_VIEW)
 def stock_list(request):
     """库存查询页面"""
     products = Product.objects.all()
+    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
     return render(request, 'bill/stock.html', {
         'products': products,
-        'is_boss': is_boss(request.user)
+        'is_super_admin': is_super_admin
     })
 
 
 @login_required
+@permission_required(PERM_ORDER_VIEW)
 def order_list(request):
     """订单列表页（新增订单号搜索 + 修复金额筛选 + 新增数据统计）"""
     # 新增：获取订单号搜索参数
@@ -260,7 +283,9 @@ def order_list(request):
 
     orders = Order.objects.select_related('area', 'customer', 'creator').order_by('-create_time')
 
-    if not is_boss(request.user):
+    # 重构：RBAC权限控制（非超级管理员只能看自己的订单）
+    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+    if not is_super_admin:
         orders = orders.filter(creator=request.user)
 
     # 新增：订单号模糊筛选（核心逻辑）
@@ -318,7 +343,8 @@ def order_list(request):
     # 3. 总结清订单数
     settled_orders = orders.filter(is_settled=True).count()
     # 4. 总欠款金额（未结清订单的金额总和）
-    total_debt = orders.filter(is_settled=False).aggregate(total=Sum('total_amount'))['total'] or decimal.Decimal('0.00')
+    total_debt = orders.filter(is_settled=False).aggregate(total=Sum('total_amount'))['total'] or decimal.Decimal(
+        '0.00')
 
     areas = Area.objects.all().order_by('name')
 
@@ -332,7 +358,7 @@ def order_list(request):
         'settled_status': settled_status,
         'amount_operator': amount_operator,
         'amount_value': amount_value,
-        'is_boss': is_boss(request.user),
+        'is_super_admin': is_super_admin,
         # 新增：传递订单号参数到模板（实现搜索框回显）
         'order_no': order_no,
         # ========== 新增：统计数据传入模板 ==========
@@ -345,11 +371,14 @@ def order_list(request):
 
 
 @login_required
+@permission_required(PERM_ORDER_VIEW)
 def order_detail(request, order_no):
     """订单详情页"""
     order = get_object_or_404(Order, order_no=order_no)
+    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
 
-    if not is_boss(request.user) and order.creator != request.user:
+    # 重构：RBAC权限控制（非超级管理员只能看自己的订单）
+    if not is_super_admin and order.creator != request.user:
         return redirect('/bill/orders/')
 
     items = OrderItem.objects.select_related('product').filter(order=order)
@@ -357,13 +386,13 @@ def order_detail(request, order_no):
     context = {
         'order': order,
         'items': items,
-        'is_boss': is_boss(request.user)
+        'is_super_admin': is_super_admin
     }
     return render(request, 'bill/order_detail.html', context)
 
 
 @login_required
-@user_passes_test(is_boss)
+@permission_required(PERM_ORDER_SUMMARY)
 def summary_list(request):
     """销售汇总列表页"""
     target_date_str = request.GET.get('date')
@@ -381,18 +410,19 @@ def summary_list(request):
 
     total_product = summary_data.count()
     total_quantity = summary_data.aggregate(total=Sum('sale_quantity'))['total'] or 0
+    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
 
     return render(request, 'bill/summary_list.html', {
         'summary_data': summary_data,
         'target_date': target_date,
         'total_product': total_product,
         'total_quantity': total_quantity,
-        'is_boss': is_boss(request.user)
+        'is_super_admin': is_super_admin
     })
 
 
 @login_required
-@user_passes_test(is_boss)
+@permission_required(PERM_ORDER_SUMMARY)
 def manual_summary(request):
     """手动生成/重置汇总接口"""
     if request.method == 'POST':
@@ -404,6 +434,16 @@ def manual_summary(request):
 
             target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
             count = generate_daily_summary(target_date=target_date, is_manual=True)
+
+            # 重构：统一日志记录
+            create_operation_log(
+                request=request,
+                op_type='manual_summary',
+                obj_type='daily_sales_summary',
+                obj_name=f"销售汇总-{target_date}",
+                detail=f"手动生成{target_date}销售汇总，共统计{count}个商品"
+            )
+
             return JsonResponse({'code': 1, 'msg': f'汇总完成！共统计{count}个商品'})
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'汇总失败：{str(e)}'})
@@ -420,6 +460,7 @@ def auto_summary_task(request):
 
 
 @login_required
+@permission_required(PERM_PRODUCT_SEARCH)
 def search_customer(request):
     """客户搜索"""
     keyword = request.GET.get('keyword', '').strip()
@@ -447,7 +488,7 @@ def search_customer(request):
 
 
 @login_required
-@user_passes_test(is_boss, login_url='/accounts/no-permission/', redirect_field_name=None)
+@permission_required(PERM_ORDER_CANCEL)
 def cancel_order(request, order_no):
     """作废订单"""
     if request.method == 'POST':
@@ -476,14 +517,14 @@ def cancel_order(request, order_no):
                     item.product.save()
                     item_count += 1
 
-            OperationLog.objects.create(
-                operator=request.user,
-                operation_type='cancel_order',
-                object_type='order',
-                object_id=str(order.id),
-                object_name=f"订单-{order.order_no}",
-                operation_detail=f"作废订单{order.order_no}，原因：{reason}，恢复{item_count}个商品库存",
-                ip_address=get_client_ip(request)
+            # 重构：统一日志记录
+            create_operation_log(
+                request=request,
+                op_type='cancel_order',
+                obj_type='order',
+                obj_id=str(order.id),
+                obj_name=f"订单-{order.order_no}",
+                detail=f"作废订单{order.order_no}，原因：{reason}，恢复{item_count}个商品库存"
             )
 
             return JsonResponse({'code': 1, 'msg': '订单作废成功', 'order_no': order_no})
@@ -495,7 +536,7 @@ def cancel_order(request, order_no):
 
 
 @login_required
-@user_passes_test(is_operator, login_url='/accounts/no-permission/', redirect_field_name=None)
+@permission_required(PERM_ORDER_REOPEN)
 def reopen_order(request, order_no):
     """重开订单"""
     if request.method == 'POST':
@@ -542,14 +583,14 @@ def reopen_order(request, order_no):
             new_order.save()
 
             customer_name = new_order.customer.name if new_order.customer else '无'
-            OperationLog.objects.create(
-                operator=request.user,
-                operation_type='reopen_order',
-                object_type='order',
-                object_id=str(new_order.id),
-                object_name=f"订单-{new_order.order_no}",
-                operation_detail=f"重开订单{new_order.order_no}，原作废订单：{original_order.order_no}，客户：{customer_name}，总金额：{new_order.total_amount}元，商品数量：{item_count}个",
-                ip_address=get_client_ip(request)
+            # 重构：统一日志记录
+            create_operation_log(
+                request=request,
+                op_type='reopen_order',
+                obj_type='order',
+                obj_id=str(new_order.id),
+                obj_name=f"订单-{new_order.order_no}",
+                detail=f"重开订单{new_order.order_no}，原作废订单：{original_order.order_no}，客户：{customer_name}，总金额：{new_order.total_amount}元，商品数量：{item_count}个"
             )
 
             return JsonResponse({
@@ -566,13 +607,14 @@ def reopen_order(request, order_no):
 
 
 @login_required
-@user_passes_test(is_operator, login_url='/accounts/no-permission/', redirect_field_name=None)
+@permission_required(PERM_ORDER_REOPEN)
 def reopen_order_edit(request, order_no):
     """重开订单编辑页面"""
     original_order = get_object_or_404(Order, order_no=order_no)
+    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
 
     if original_order.status != 'cancelled':
-        return redirect('order_detail', order_no=order_no)
+        return redirect('bill:order_detail', order_no=order_no)
 
     items = OrderItem.objects.select_related('product').filter(order=original_order)
 
@@ -600,14 +642,14 @@ def reopen_order_edit(request, order_no):
     return render(request, 'bill/index.html', {
         'customers': customers,
         'areas': areas,
-        'is_boss': is_boss(request.user),
+        'is_super_admin': is_super_admin,
         'reopen_order_data': order_data
     })
 
 
-# ========== 修复后的结清相关视图（使用自定义AJAX装饰器） ==========
+# ========== 重构：结清相关视图（适配RBAC） ==========
 @ajax_login_required
-@ajax_user_passes_test(is_operator, login_url='/accounts/no-permission/')
+@ajax_permission_required(PERM_ORDER_SETTLE)
 def settle_order(request, order_no):
     """标记订单结清"""
     if request.method == 'POST':
@@ -633,14 +675,14 @@ def settle_order(request, order_no):
             order.settled_remark = remark
             order.save()
 
-            OperationLog.objects.create(
-                operator=request.user,
-                operation_type='settle_order',
-                object_type='order',
-                object_id=str(order.id),
-                object_name=f"订单-{order.order_no}",
-                operation_detail=f"标记订单{order.order_no}结清，备注：{remark}",
-                ip_address=get_client_ip(request)
+            # 重构：统一日志记录
+            create_operation_log(
+                request=request,
+                op_type='settle_order',
+                obj_type='order',
+                obj_id=str(order.id),
+                obj_name=f"订单-{order.order_no}",
+                detail=f"标记订单{order.order_no}结清，备注：{remark}"
             )
 
             return JsonResponse({'code': 1, 'msg': '订单标记结清成功', 'order_no': order_no})
@@ -651,7 +693,7 @@ def settle_order(request, order_no):
 
 
 @ajax_login_required
-@ajax_user_passes_test(is_boss, login_url='/accounts/no-permission/')
+@ajax_permission_required(PERM_ORDER_UNSETTLE)
 def unsettle_order(request, order_no):
     """撤销订单结清"""
     if request.method == 'POST':
@@ -675,14 +717,14 @@ def unsettle_order(request, order_no):
             order.unsettled_remark = remark
             order.save()
 
-            OperationLog.objects.create(
-                operator=request.user,
-                operation_type='unsettle_order',
-                object_type='order',
-                object_id=str(order.id),
-                object_name=f"订单-{order.order_no}",
-                operation_detail=f"撤销订单{order.order_no}结清状态，备注：{remark}",
-                ip_address=get_client_ip(request)
+            # 重构：统一日志记录
+            create_operation_log(
+                request=request,
+                op_type='unsettle_order',
+                obj_type='order',
+                obj_id=str(order.id),
+                obj_name=f"订单-{order.order_no}",
+                detail=f"撤销订单{order.order_no}结清状态，备注：{remark}"
             )
 
             return JsonResponse({'code': 1, 'msg': '撤销订单结清成功', 'order_no': order_no})
@@ -693,7 +735,7 @@ def unsettle_order(request, order_no):
 
 
 @ajax_login_required
-@ajax_user_passes_test(is_operator, login_url='/accounts/no-permission/')
+@ajax_permission_required(PERM_ORDER_SETTLE)
 def batch_settle_order(request):
     """批量标记订单结清"""
     if request.method == 'POST':
@@ -734,14 +776,14 @@ def batch_settle_order(request):
                     order.settled_remark = remark
                     order.save()
 
-                    OperationLog.objects.create(
-                        operator=request.user,
-                        operation_type='batch_settle_order',
-                        object_type='order',
-                        object_id=str(order.id),
-                        object_name=f"订单-{order.order_no}",
-                        operation_detail=f"批量结清订单{order.order_no}，备注：{remark}",
-                        ip_address=get_client_ip(request)
+                    # 重构：统一日志记录
+                    create_operation_log(
+                        request=request,
+                        op_type='batch_settle_order',
+                        obj_type='order',
+                        obj_id=str(order.id),
+                        obj_name=f"订单-{order.order_no}",
+                        detail=f"批量结清订单{order.order_no}，备注：{remark}"
                     )
 
                     success_count += 1

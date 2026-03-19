@@ -2,57 +2,56 @@ from django.shortcuts import render
 from django.http import JsonResponse, HttpResponse
 from django.db.models import Sum
 from django.views.decorators.csrf import csrf_exempt
-from bill.models import Product, Order, OrderItem, AreaGroup, Area
+from django.contrib.auth.decorators import login_required
 from datetime import datetime, date
 import openpyxl
 from openpyxl.styles import Font, Alignment
 from io import BytesIO
 import json
 
-# 新增：导入日志模型和时间工具
+# ========== 核心导入：用户管理模块的RBAC体系 ==========
+from accounts.models import (
+    User, Role, Permission,
+    ROLE_SUPER_ADMIN, PERM_ORDER_SUMMARY, PERM_PRODUCT_VIEW
+)
+from accounts.views import permission_required, create_operation_log, get_client_ip
+
+# ========== 原有模型导入 ==========
+from bill.models import Product, Order, OrderItem, AreaGroup, Area
 from operation_log.models import OperationLog
 from django.utils import timezone
 
 
-# ========== 新增：通用日志记录函数（核心） ==========
-def create_operation_log(request, operation_type, object_type, object_id=None, object_name=None, operation_detail=None):
-    """
-    封装操作日志记录逻辑，容错处理（日志失败不影响主业务）
-    :param request: 请求对象（获取用户/IP）
-    :param operation_type: 操作类型（对应OperationLog的OPERATION_TYPE_CHOICES）
-    :param object_type: 操作对象类型（对应OperationLog的OBJECT_TYPE_CHOICES）
-    :param object_id: 操作对象ID（汇总导出无具体ID，传空）
-    :param object_name: 操作对象名称（如“商品汇总”/“客户汇总”）
-    :param operation_detail: 操作详情（导出范围、时间、字段等关键信息）
-    """
-    # 获取客户端IP（兼容代理场景）
-    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-    ip_address = x_forwarded_for.split(',')[0] if x_forwarded_for else request.META.get('REMOTE_ADDR', '')
-
-    # 容错处理：日志记录失败仅打印错误，不中断导出功能
-    try:
-        OperationLog.objects.create(
-            operator=request.user if request.user.is_authenticated else None,  # 当前登录用户
-            operation_time=timezone.now(),
-            operation_type=operation_type,
-            object_type=object_type,
-            object_id=str(object_id) if object_id else None,
-            object_name=object_name,
-            operation_detail=operation_detail,
-            ip_address=ip_address
-        )
-    except Exception as e:
-        print(f"【汇总模块日志记录失败】：{str(e)}")
+# ========== 通用日志记录函数（对齐用户管理模块规范） ==========
+# 注：复用accounts的create_operation_log，确保日志格式统一
+def create_summary_operation_log(request, operation_type, object_type, object_id=None, object_name=None,
+                                 operation_detail=None):
+    """汇总模块专用日志（复用用户管理模块的日志逻辑）"""
+    create_operation_log(
+        request=request,
+        op_type=operation_type,
+        obj_type=object_type,
+        obj_id=object_id,
+        obj_name=object_name,
+        detail=operation_detail
+    )
 
 
-# 汇总页面
+# ========== 核心业务视图（添加RBAC权限控制） ==========
+# 1. 汇总页面（需销售汇总权限）
+@login_required
+@permission_required(PERM_ORDER_SUMMARY)
 def summary_page(request):
+    """商品汇总页面 - 需【销售汇总】权限"""
     return render(request, 'summary/summary.html')
 
 
-# 核心接口：按区域组 + 精准时间段汇总
+# 2. 核心接口：按区域组 + 精准时间段汇总（需销售汇总权限）
+@login_required
+@permission_required(PERM_ORDER_SUMMARY)
 @csrf_exempt
 def summary_by_group(request):
+    """商品汇总接口 - 需【销售汇总】权限"""
     group_id = request.GET.get('group_id')
     start_datetime = request.GET.get('start_date')
     end_datetime = request.GET.get('end_date')
@@ -109,28 +108,53 @@ def summary_by_group(request):
             'remark': ''  # 手动添加空的备注字段
         })
 
+    # 记录查询日志
+    create_summary_operation_log(
+        request=request,
+        operation_type='query',
+        object_type='product_summary',
+        object_name=f'商品汇总-{group_name}',
+        operation_detail=f'查询区域组{group_name} {start.strftime("%Y-%m-%d %H:%M")}至{end.strftime("%Y-%m-%d %H:%M")}的商品汇总，返回{len(data)}条数据'
+    )
+
     return JsonResponse({'code': 1, 'data': data})
 
 
-# 加载所有区域组列表（添加全部区域选项）
+# 3. 加载所有区域组列表（内部接口，随主接口权限控制）
+@login_required
+@permission_required(PERM_ORDER_SUMMARY)
 def group_list(request):
+    """区域组列表接口 - 依赖销售汇总权限"""
     try:
         groups = AreaGroup.objects.all().order_by('name')
         group_list = [{'id': '0', 'name': '全部区域'}]  # 新增全部区域选项
         group_list.extend([{'id': group.id, 'name': group.name} for group in groups])
         return JsonResponse(group_list, safe=False)
     except Exception as e:
+        # 记录异常日志
+        create_summary_operation_log(
+            request=request,
+            operation_type='error',
+            object_type='group_list',
+            operation_detail=f'加载区域组列表失败：{str(e)}'
+        )
         return JsonResponse({'code': 0, 'msg': f'加载组列表失败：{str(e)}'}, status=400)
 
 
-# 客户金额汇总页面
+# 4. 客户金额汇总页面（需销售汇总权限）
+@login_required
+@permission_required(PERM_ORDER_SUMMARY)
 def customer_summary_page(request):
+    """客户汇总页面 - 需【销售汇总】权限"""
     return render(request, 'summary/customer_summary.html')
 
 
-# 按区域组+精准时间段汇总客户消费金额
+# 5. 按区域组+精准时间段汇总客户消费金额（需销售汇总权限）
+@login_required
+@permission_required(PERM_ORDER_SUMMARY)
 @csrf_exempt
 def summary_customer_by_group(request):
+    """客户汇总接口 - 需【销售汇总】权限"""
     group_id = request.GET.get('group_id')
     start_datetime = request.GET.get('start_date')
     end_datetime = request.GET.get('end_date')
@@ -185,6 +209,15 @@ def summary_customer_by_group(request):
             'remark': item['customer__remark'] or ''
         })
 
+    # 记录查询日志
+    create_summary_operation_log(
+        request=request,
+        operation_type='query',
+        object_type='customer_summary',
+        object_name=f'客户汇总-{group_id}',
+        operation_detail=f'查询区域组{group_id} {start.strftime("%Y-%m-%d %H:%M")}至{end.strftime("%Y-%m-%d %H:%M")}的客户汇总，返回{len(data)}条数据'
+    )
+
     return JsonResponse({
         'code': 1,
         'data': data,
@@ -192,10 +225,10 @@ def summary_customer_by_group(request):
     })
 
 
-# ========== Excel导出核心函数（支持自定义字段） ==========
+# ========== Excel导出核心函数（无权限，仅内部调用） ==========
 def export_to_excel(data, title, headers, selected_fields, custom_fields, file_name):
     """
-    通用Excel导出函数
+    通用Excel导出函数（内部工具函数，不直接对外暴露）
     :param data: 基础数据列表
     :param title: 工作表标题
     :param headers: 基础表头映射
@@ -283,9 +316,12 @@ def export_to_excel(data, title, headers, selected_fields, custom_fields, file_n
     return response
 
 
-# ========== 商品汇总导出接口（添加日志记录） ==========
+# 6. 商品汇总导出接口（需销售汇总权限）
+@login_required
+@permission_required(PERM_ORDER_SUMMARY)
 @csrf_exempt
 def export_product_summary(request):
+    """商品汇总导出 - 需【销售汇总】权限"""
     if request.method == 'POST':
         try:
             # 获取请求参数
@@ -365,18 +401,16 @@ def export_product_summary(request):
                     'remark': ''  # 空的备注字段
                 })
 
-            # ========== 新增：记录商品汇总导出日志 ==========
-            # 拼接操作详情（包含关键导出信息）
+            # ========== 统一日志记录（对齐用户管理模块） ==========
             operation_detail = (
                 f"导出商品汇总：区域组={group_name}，时间范围={start.strftime('%Y-%m-%d %H:%M')}至{end.strftime('%Y-%m-%d %H:%M')}，"
                 f"选中字段={','.join(selected_fields)}，自定义字段={json.dumps(custom_fields, ensure_ascii=False)}，"
-                f"导出数据行数={len(export_data)}"
+                f"导出数据行数={len(export_data)}，操作人={request.user.user_code}-{request.user.username}"
             )
-            # 记录日志
-            create_operation_log(
+            create_summary_operation_log(
                 request=request,
-                operation_type='export',  # 导出操作
-                object_type='daily_summary',  # 销售汇总
+                operation_type='export',
+                object_type='product_summary',
                 object_name='商品汇总',
                 operation_detail=operation_detail
             )
@@ -392,13 +426,23 @@ def export_product_summary(request):
             )
 
         except Exception as e:
+            # 记录异常日志
+            create_summary_operation_log(
+                request=request,
+                operation_type='error',
+                object_type='product_summary_export',
+                operation_detail=f'商品汇总导出失败：{str(e)}，操作人={request.user.user_code}-{request.user.username}'
+            )
             # 异常时返回JSON错误信息
             return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'}, status=500)
 
 
-# ========== 客户汇总导出接口（添加日志记录） ==========
+# 7. 客户汇总导出接口（需销售汇总权限）
+@login_required
+@permission_required(PERM_ORDER_SUMMARY)
 @csrf_exempt
 def export_customer_summary(request):
+    """客户汇总导出 - 需【销售汇总】权限"""
     if request.method == 'POST':
         try:
             # 获取请求参数
@@ -471,18 +515,16 @@ def export_customer_summary(request):
                     'remark': item['customer__remark'] or ''
                 })
 
-            # ========== 新增：记录客户汇总导出日志 ==========
-            # 拼接操作详情（包含关键导出信息）
+            # ========== 统一日志记录（对齐用户管理模块） ==========
             operation_detail = (
                 f"导出客户汇总：区域组={group_name}，时间范围={start.strftime('%Y-%m-%d %H:%M')}至{end.strftime('%Y-%m-%d %H:%M')}，"
                 f"选中字段={','.join(selected_fields)}，自定义字段={json.dumps(custom_fields, ensure_ascii=False)}，"
-                f"导出数据行数={len(export_data)}"
+                f"导出数据行数={len(export_data)}，操作人={request.user.user_code}-{request.user.username}"
             )
-            # 记录日志
-            create_operation_log(
+            create_summary_operation_log(
                 request=request,
-                operation_type='export',  # 导出操作
-                object_type='daily_summary',  # 销售汇总
+                operation_type='export',
+                object_type='customer_summary',
                 object_name='客户汇总',
                 operation_detail=operation_detail
             )
@@ -498,18 +540,44 @@ def export_customer_summary(request):
             )
 
         except Exception as e:
+            # 记录异常日志
+            create_summary_operation_log(
+                request=request,
+                operation_type='error',
+                object_type='customer_summary_export',
+                operation_detail=f'客户汇总导出失败：{str(e)}，操作人={request.user.user_code}-{request.user.username}'
+            )
             return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'}, status=500)
 
 
-# ========== 新增：商品列表接口（供客户价格管理） ==========
+# 8. 商品列表接口（供客户价格管理，需商品查看权限）
+@login_required
+@permission_required(PERM_PRODUCT_VIEW)
 @csrf_exempt
 def product_list_for_price(request):
-    """供客户价格管理页面获取商品列表"""
+    """供客户价格管理页面获取商品列表 - 需【查看商品】权限"""
     try:
         products = Product.objects.all().order_by('name')
         result = [{'id': p.id, 'name': p.name, 'price': float(p.price)} for p in products]
+
+        # 记录查询日志
+        create_summary_operation_log(
+            request=request,
+            operation_type='query',
+            object_type='product_list',
+            object_name='商品列表',
+            operation_detail=f'查询商品列表，返回{len(result)}条数据，用于客户价格管理'
+        )
+
         return JsonResponse(result, safe=False, content_type='application/json')
     except Exception as e:
+        # 记录异常日志
+        create_summary_operation_log(
+            request=request,
+            operation_type='error',
+            object_type='product_list',
+            operation_detail=f'查询商品列表失败：{str(e)}，操作人={request.user.user_code}-{request.user.username}'
+        )
         return JsonResponse(
             {'code': 0, 'msg': f'查询商品失败：{str(e)}'},
             safe=False,

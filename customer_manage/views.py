@@ -1,57 +1,23 @@
-# customer_manage\views.py 此注释用于标识代码段别删
+# customer_manage\views.py
 from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
-from operation_log.models import OperationLog
 from django.utils import timezone
-from bill.models import Customer, Area, ProductAlias, CustomerPrice, Product, OrderItem
+from bill.models import Customer, Area, ProductAlias, CustomerPrice, Product, OrderItem, Order, RepaymentRecord
 from django.db.models import Sum, F, Q, Max, Count
 from django.db.models.functions import Coalesce
-from bill.models import Order, RepaymentRecord
-from django.utils import timezone
 import datetime
 
+# ========== 新增：导入用户模块的权限装饰器和日志函数 ==========
+from django.contrib.auth.decorators import login_required
+from accounts.views import permission_required, create_operation_log  # 复用用户模块的日志和权限装饰器
 
-# ========== 新增：通用日志记录函数（核心） ==========
-def create_operation_log(request, operation_type, object_type, object_id=None, object_name=None, operation_detail=None):
-    """
-    封装操作日志记录逻辑，容错处理（日志失败不影响主业务）
-    :param request: 请求对象（获取用户/IP）
-    :param operation_type: 操作类型（对应OperationLog的OPERATION_TYPE_CHOICES）
-    :param object_type: 操作对象类型（对应OperationLog的OBJECT_TYPE_CHOICES）
-    :param object_id: 操作对象ID
-    :param object_name: 操作对象名称
-    :param operation_detail: 操作详情（便于追溯）
-    """
-    # 获取客户端IP（兼容代理场景）
-    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-    ip_address = x_forwarded_for.split(',')[0] if x_forwarded_for else request.META.get('REMOTE_ADDR', '')
+# ========== 删除：重复的create_operation_log函数（改用accounts的） ==========
 
-    # 容错处理：日志记录失败仅打印错误，不中断主流程
-    try:
-        OperationLog.objects.create(
-            operator=request.user if request.user.is_authenticated else None,  # 当前登录用户
-            operation_time=timezone.now(),
-            operation_type=operation_type,
-            object_type=object_type,
-            object_id=str(object_id) if object_id else None,
-            object_name=object_name,
-            operation_detail=operation_detail,
-            ip_address=ip_address
-        )
-    except Exception as e:
-        print(f"【客户管理日志记录失败】：{str(e)}")
-
-
-# ===================== 客户管理CRUD =====================
-# 新增导入
-from django.db.models import Sum, F, Q
-from bill.models import Order, RepaymentRecord
-from django.utils import timezone
-import datetime
-
-
-# ========== 1. 拓展客户列表接口：新增总欠款计算 ==========
+# ===================== 客户管理CRUD（添加权限装饰器） =====================
+# 1. 客户列表（需customer_view权限）
+@login_required
+@permission_required('customer_view')
 @csrf_exempt
 def customer_list(request):
     """获取客户列表接口（新增总欠款字段）"""
@@ -91,9 +57,9 @@ def customer_list(request):
             content_type='application/json'
         )
 
-
-# ========== 2. 新增客户详情接口（核心修改） ==========
-# ========== 核心修改：客户详情接口 ==========
+# 2. 客户详情（需customer_view权限）
+@login_required
+@permission_required('customer_view')
 @csrf_exempt
 def customer_detail(request, pk):
     """客户详情接口：支持订单筛选 + 商品统计"""
@@ -202,8 +168,9 @@ def customer_detail(request, pk):
             content_type='application/json'
         )
 
-
-# ========== 3. 新增还款登记接口 ==========
+# 3. 还款登记（需customer_repayment权限）
+@login_required
+@permission_required('customer_repayment')
 @csrf_exempt
 def repayment_register(request):
     """还款登记接口"""
@@ -249,14 +216,14 @@ def repayment_register(request):
                 operator=request.user if request.user.is_authenticated else None
             )
 
-            # 记录操作日志
+            # 记录操作日志（复用accounts的函数）
             create_operation_log(
                 request=request,
-                operation_type='repayment_register',
-                object_type='repayment',
-                object_id=repayment.id,
-                object_name=f'{customer.name} - 还款¥{repayment_amount}',
-                operation_detail=f"为客户{customer.name}登记还款：金额¥{repayment_amount}，时间{repayment_time.strftime('%Y-%m-%d %H:%M')}，备注：{repayment_remark if repayment_remark else '无'}"
+                op_type='repayment_register',
+                obj_type='repayment',
+                obj_id=repayment.id,
+                obj_name=f'{customer.name} - 还款¥{repayment_amount}',
+                detail=f"为客户{customer.name}登记还款：金额¥{repayment_amount}，时间{repayment_time.strftime('%Y-%m-%d %H:%M')}，备注：{repayment_remark if repayment_remark else '无'}"
             )
 
             return JsonResponse({'code': 1, 'msg': '还款登记成功'}, content_type='application/json')
@@ -264,19 +231,23 @@ def repayment_register(request):
             return JsonResponse({'code': 0, 'msg': f'登记失败：{str(e)}'}, content_type='application/json')
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
 
-
-# ========== 4. 新增客户详情页面入口 ==========
+# 4. 客户详情页面入口（需customer_view权限）
+@login_required
+@permission_required('customer_view')
 def customer_detail_page(request, pk):
     """客户详情页面"""
     return render(request, 'customer_manage/customer_detail.html', {'customer_id': pk})
 
-
-# ========== 5. 新增还款登记页面入口（弹窗式，也可单独页面） ==========
+# 5. 还款登记页面入口（需customer_repayment权限）
+@login_required
+@permission_required('customer_repayment')
 def repayment_page(request):
     """还款登记页面"""
     return render(request, 'customer_manage/repayment.html')
 
-
+# 6. 新增客户（需customer_add权限）
+@login_required
+@permission_required('customer_add')
 @csrf_exempt
 def customer_add(request):
     """新增客户接口"""
@@ -314,14 +285,14 @@ def customer_add(request):
                 remark=remark
             )
 
-            # ========== 新增：记录新增客户日志 ==========
+            # 记录操作日志（复用accounts的函数）
             create_operation_log(
                 request=request,
-                operation_type='create',
-                object_type='customer',
-                object_id=customer.id,
-                object_name=customer.name,
-                operation_detail=f"新增客户：名称={customer.name}，所属区域={area_name}，联系电话={phone}，备注={remark if remark else '无'}"
+                op_type='create',
+                obj_type='customer',
+                obj_id=customer.id,
+                obj_name=customer.name,
+                detail=f"新增客户：名称={customer.name}，所属区域={area_name}，联系电话={phone}，备注={remark if remark else '无'}"
             )
 
             return JsonResponse({'code': 1, 'msg': '新增客户成功'}, content_type='application/json')
@@ -329,7 +300,9 @@ def customer_add(request):
             return JsonResponse({'code': 0, 'msg': f'新增失败：{str(e)}'}, content_type='application/json')
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
 
-
+# 7. 编辑客户（需customer_edit权限）
+@login_required
+@permission_required('customer_edit')
 @csrf_exempt
 def customer_edit(request, pk):
     """编辑客户接口"""
@@ -373,14 +346,14 @@ def customer_edit(request, pk):
             customer.remark = remark
             customer.save()
 
-            # ========== 新增：记录编辑客户日志 ==========
+            # 记录操作日志（复用accounts的函数）
             create_operation_log(
                 request=request,
-                operation_type='update',
-                object_type='customer',
-                object_id=customer.id,
-                object_name=customer.name,
-                operation_detail=f"编辑客户：原名称={old_name}→新名称={name}，原区域={old_area}→新区域={new_area_name}，原电话={old_phone}→新电话={phone}，原备注={old_remark}→新备注={remark if remark else '无'}"
+                op_type='update',
+                obj_type='customer',
+                obj_id=customer.id,
+                obj_name=customer.name,
+                detail=f"编辑客户：原名称={old_name}→新名称={name}，原区域={old_area}→新区域={new_area_name}，原电话={old_phone}→新电话={phone}，原备注={old_remark}→新备注={remark if remark else '无'}"
             )
 
             return JsonResponse({'code': 1, 'msg': '编辑客户成功'}, content_type='application/json')
@@ -388,7 +361,9 @@ def customer_edit(request, pk):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'编辑失败：{str(e)}'}, content_type='application/json')
 
-
+# 8. 删除客户（需customer_delete权限）
+@login_required
+@permission_required('customer_delete')
 @csrf_exempt
 def customer_delete(request, pk):
     """删除客户接口"""
@@ -403,22 +378,23 @@ def customer_delete(request, pk):
         # 删除客户
         customer.delete()
 
-        # ========== 新增：记录删除客户日志 ==========
+        # 记录操作日志（复用accounts的函数）
         create_operation_log(
             request=request,
-            operation_type='delete',
-            object_type='customer',
-            object_id=pk,
-            object_name=customer_name,
-            operation_detail=f"删除客户：ID={pk}，名称={customer_name}，所属区域={customer_area}，联系电话={customer_phone}，备注={customer_remark}"
+            op_type='delete',
+            obj_type='customer',
+            obj_id=pk,
+            obj_name=customer_name,
+            detail=f"删除客户：ID={pk}，名称={customer_name}，所属区域={customer_area}，联系电话={customer_phone}，备注={customer_remark}"
         )
 
         return JsonResponse({'code': 1, 'msg': '删除客户成功'}, content_type='application/json')
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'删除失败：{str(e)}'}, content_type='application/json')
 
-
-# ===================== 辅助接口：获取区域列表 =====================
+# ===================== 辅助接口：获取区域列表（需customer_view权限） =====================
+@login_required
+@permission_required('customer_view')
 @csrf_exempt
 def area_list_for_customer(request):
     """供客户管理页面获取区域下拉列表"""
@@ -433,14 +409,17 @@ def area_list_for_customer(request):
             content_type='application/json'
         )
 
-
-# ===================== 页面入口 =====================
+# ===================== 页面入口（需customer_view权限） =====================
+@login_required
+@permission_required('customer_view')
 def customer_page(request):
     """客户管理页面"""
     return render(request, 'customer_manage/customer.html')
 
-
-# ===================== 客户专属价格CRUD =====================
+# ===================== 客户专属价格CRUD（添加权限装饰器） =====================
+# 1. 客户价格列表（需customer_price_view权限）
+@login_required
+@permission_required('customer_price_view')
 @csrf_exempt
 def customer_price_list(request):
     """获取客户专属价格列表"""
@@ -466,7 +445,9 @@ def customer_price_list(request):
             content_type='application/json'
         )
 
-
+# 2. 新增客户价格（需customer_price_add权限）
+@login_required
+@permission_required('customer_price_add')
 @csrf_exempt
 def customer_price_add(request):
     """新增客户专属价格"""
@@ -506,14 +487,14 @@ def customer_price_add(request):
                 remark=remark
             )
 
-            # ========== 新增：记录新增客户专属价日志 ==========
+            # 记录操作日志（复用accounts的函数）
             create_operation_log(
                 request=request,
-                operation_type='create',
-                object_type='customer_price',
-                object_id=cp.id,
-                object_name=f"{customer.name}-{product.name}",
-                operation_detail=f"新增客户专属价：客户={customer.name}，商品={product.name}，标准价={product_standard_price}元，专属价={custom_price}元，备注={remark if remark else '无'}"
+                op_type='create',
+                obj_type='customer_price',
+                obj_id=cp.id,
+                obj_name=f"{customer.name}-{product.name}",
+                detail=f"新增客户专属价：客户={customer.name}，商品={product.name}，标准价={product_standard_price}元，专属价={custom_price}元，备注={remark if remark else '无'}"
             )
 
             return JsonResponse({'code': 1, 'msg': '新增专属价成功'}, content_type='application/json')
@@ -521,7 +502,9 @@ def customer_price_add(request):
             return JsonResponse({'code': 0, 'msg': f'新增失败：{str(e)}'}, content_type='application/json')
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
 
-
+# 3. 编辑客户价格（需customer_price_edit权限）
+@login_required
+@permission_required('customer_price_edit')
 @csrf_exempt
 def customer_price_edit(request, pk):
     """编辑客户专属价格"""
@@ -553,14 +536,14 @@ def customer_price_edit(request, pk):
             cp.remark = remark
             cp.save()
 
-            # ========== 新增：记录编辑客户专属价日志 ==========
+            # 记录操作日志（复用accounts的函数）
             create_operation_log(
                 request=request,
-                operation_type='update',
-                object_type='customer_price',
-                object_id=cp.id,
-                object_name=f"{customer_name}-{product_name}",
-                operation_detail=f"编辑客户专属价：客户={customer_name}，商品={product_name}，标准价={product_standard_price}元，原专属价={old_price}元→新专属价={custom_price}元，原备注={old_remark}→新备注={remark if remark else '无'}"
+                op_type='update',
+                obj_type='customer_price',
+                obj_id=cp.id,
+                obj_name=f"{customer_name}-{product_name}",
+                detail=f"编辑客户专属价：客户={customer_name}，商品={product_name}，标准价={product_standard_price}元，原专属价={old_price}元→新专属价={custom_price}元，原备注={old_remark}→新备注={remark if remark else '无'}"
             )
 
             return JsonResponse({'code': 1, 'msg': '编辑专属价成功'}, content_type='application/json')
@@ -568,7 +551,9 @@ def customer_price_edit(request, pk):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'编辑失败：{str(e)}'}, content_type='application/json')
 
-
+# 4. 删除客户价格（需customer_price_delete权限）
+@login_required
+@permission_required('customer_price_delete')
 @csrf_exempt
 def customer_price_delete(request, pk):
     """删除客户专属价格"""
@@ -584,27 +569,30 @@ def customer_price_delete(request, pk):
         # 删除专属价
         cp.delete()
 
-        # ========== 新增：记录删除客户专属价日志 ==========
+        # 记录操作日志（复用accounts的函数）
         create_operation_log(
             request=request,
-            operation_type='delete',
-            object_type='customer_price',
-            object_id=pk,
-            object_name=f"{customer_name}-{product_name}",
-            operation_detail=f"删除客户专属价：ID={pk}，客户={customer_name}，商品={product_name}，标准价={product_standard_price}元，专属价={custom_price}元，备注={remark}"
+            op_type='delete',
+            obj_type='customer_price',
+            obj_id=pk,
+            obj_name=f"{customer_name}-{product_name}",
+            detail=f"删除客户专属价：ID={pk}，客户={customer_name}，商品={product_name}，标准价={product_standard_price}元，专属价={custom_price}元，备注={remark}"
         )
 
         return JsonResponse({'code': 1, 'msg': '删除专属价成功'}, content_type='application/json')
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'删除失败：{str(e)}'}, content_type='application/json')
 
-
-# ===================== 页面入口 =====================
+# ===================== 页面入口（需customer_price_view权限） =====================
+@login_required
+@permission_required('customer_price_view')
 def customer_price_page(request):
     """客户专属价格管理页面"""
     return render(request, 'customer_manage/customer_price.html')
 
-
+# ===================== 辅助接口（商品/客户搜索，需customer_price_view权限） =====================
+@login_required
+@permission_required('customer_price_view')
 @csrf_exempt
 def product_list_for_price(request):
     """供客户价格管理页面获取商品列表"""
@@ -619,18 +607,11 @@ def product_list_for_price(request):
             content_type='application/json'
         )
 
-
-from django.db.models import Q
-from difflib import SequenceMatcher
-
-
-# ===================== 客户搜索接口（输入法式选择） =====================
+@login_required
+@permission_required('customer_price_view')
 @csrf_exempt
 def search_customer_for_price(request):
-    """
-    客户搜索：匹配名称/区域，返回输入法式候选数据
-    供客户专属价页面使用
-    """
+    """客户搜索：匹配名称/区域，返回输入法式候选数据"""
     keyword = request.GET.get('keyword', '').strip()
     if not keyword:
         return JsonResponse({'code': 0, 'data': []})
@@ -655,14 +636,11 @@ def search_customer_for_price(request):
 
     return JsonResponse({'code': 1, 'data': data}, content_type='application/json')
 
-
-# ===================== 商品搜索接口（输入法式选择） =====================
+@login_required
+@permission_required('customer_price_view')
 @csrf_exempt
 def search_product_for_price(request):
-    """
-    商品搜索：匹配名称/拼音/别名，返回输入法式候选数据
-    供客户专属价页面使用
-    """
+    """商品搜索：匹配名称/拼音/别名，返回输入法式候选数据"""
     keyword = request.GET.get('keyword', '').strip()
     if not keyword:
         return JsonResponse({'code': 0, 'data': []})

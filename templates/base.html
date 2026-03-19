@@ -1,3 +1,4 @@
+{% load permission_tags %}
 <!DOCTYPE html>
 <html>
 <head>
@@ -6,65 +7,48 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5/dist/css/bootstrap.min.css">
     <script src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js"></script>
     <style>
-        /* 核心优化：导航栏样式 */
+        /* 原有样式保留 */
         .navbar { 
             margin-bottom: 20px;
-            /* 防止导航栏内容溢出 */
             overflow-x: auto;
-            /* 取消横向滚动条（可选，保留则小屏幕可横向滑动） */
-            /* scrollbar-width: none; */
         }
-        /* 隐藏横向滚动条（兼容各浏览器） */
         .navbar::-webkit-scrollbar { display: none; }
-        
-        /* 导航容器：强制横向排列，不换行 */
         .navbar-collapse {
             display: flex;
             flex-wrap: nowrap !important;
             align-items: center;
             width: 100%;
         }
-        
-        /* 导航列表：强制横向排列，不换行，减小间距 */
         .navbar-nav.me-auto {
             display: flex;
             flex-wrap: nowrap !important;
-            gap: 8px !important; /* 减小导航项间距（默认16px） */
+            gap: 8px !important;
             margin-right: 1rem !important;
         }
-        
-        /* 单个导航项：文字不换行，减小内边距 */
         .nav-item .nav-link {
-            white-space: nowrap !important; /* 核心：禁止文字换行 */
-            padding: 0.5rem 0.75rem !important; /* 减小内边距，节省空间 */
-            font-size: 14px !important; /* 可选：缩小字体，进一步节省空间 */
+            white-space: nowrap !important;
+            padding: 0.5rem 0.75rem !important;
+            font-size: 14px !important;
         }
-        
-        /* 用户信息区域：紧凑布局，不换行 */
         .user-info { 
             color: white; 
             margin-right: 8px;
-            white-space: nowrap; /* 禁止用户信息换行 */
-            font-size: 14px; /* 缩小字体 */
+            white-space: nowrap;
+            font-size: 14px;
         }
-        /* 个人信息/退出等导航项：紧凑布局 */
         .navbar-nav .nav-link {
             padding: 0.5rem 0.75rem !important;
             font-size: 14px !important;
         }
-        
-        /* 响应式优化：小屏强制展开（可选，替代折叠按钮） */
         @media (max-width: 991px) {
             .navbar-collapse {
-                flex-wrap: wrap !important; /* 小屏允许折叠，避免横向滚动过长 */
+                flex-wrap: wrap !important;
             }
             .navbar-nav.me-auto {
                 width: 100%;
                 margin-bottom: 10px;
             }
         }
-
-        /* 原有样式保留 */
         .content-container { padding: 0 15px; }
     </style>
     {% block extra_css %}{% endblock %}
@@ -73,47 +57,72 @@
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
             <a class="navbar-brand" href="/bill/">EasyStock 系统</a>
-            <!-- 保留折叠按钮（小屏备用） -->
             <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse">
                 <span class="navbar-toggler-icon"></span>
             </button>
             <div class="collapse navbar-collapse">
                <ul class="navbar-nav me-auto">
 {% if user.is_authenticated %}
-    <li class="nav-item"><a class="nav-link" href="/bill/">开单</a></li>
-    <li class="nav-item"><a class="nav-link" href="/bill/orders/">订单</a></li>
-    <li class="nav-item"><a class="nav-link" href="/bill/stock/">库存</a></li>
-    {% if user.is_superuser or user.user_type == 'boss' %}
+    <!-- 基础权限：开单人必备（使用自定义过滤器） -->
+    {% if user|has_perm:"order_create" %}
+        <li class="nav-item"><a class="nav-link" href="/bill/">开单</a></li>
+    {% endif %}
+    {% if user|has_perm:"order_view" %}
+        <li class="nav-item"><a class="nav-link" href="/bill/orders/">订单</a></li>
+    {% endif %}
+    {% if user|has_perm:"product_view" %}
+        <li class="nav-item"><a class="nav-link" href="/bill/stock/">库存</a></li>
+    {% endif %}
+
+    <!-- 管理员权限：基于具体权限编码控制 -->
+    {% if user|has_perm:"product_view" %}
         <li class="nav-item"><a class="nav-link" href="/product/product-manage/">商品管理</a></li>
-        <li class="nav-item"><a class="nav-link" href="/area-manage/area/page/">区域管理</a></li>
-        <li class="nav-item"><a class="nav-link" href="/area-manage/group/page/">区域组管理</a></li>
+    {% endif %}
+    {% if user|has_perm:"area_view" %}
+    <li class="nav-item"><a class="nav-link" href="/area-manage/area/">区域管理</a></li>
+    <li class="nav-item"><a class="nav-link" href="/area-manage/group/">区域组管理</a></li>
+{% endif %}
+    {% if user|has_perm:"customer_view" %}
         <li class="nav-item"><a class="nav-link" href="/customer-manage/customer/page/">客户管理</a></li>
+    {% endif %}
+    {% if user|has_perm:"customer_price_view" %}
         <li class="nav-item"><a class="nav-link" href="/customer-manage/price/page/">客户专属价</a></li>
+    {% endif %}
+    {% if user|has_perm:"order_summary" %}
         <li class="nav-item"><a class="nav-link" href="/summary/page/">商品汇总</a></li>
         <li class="nav-item"><a class="nav-link" href="/summary/customer-page/">金额汇总</a></li>
+    {% endif %}
+    {% if user|has_perm:"user_view" %}
         <li class="nav-item"><a class="nav-link" href="/accounts/user-list/">用户管理</a></li>
-        <!-- 新增操作日志导航链接 -->
+    {% endif %}
+    {% if user|has_any_perm:"log_view,log_view_all" %}
         <li class="nav-item"><a class="nav-link" href="/operation-log/">操作日志</a></li>
     {% endif %}
 {% endif %}
 </ul>
-                <!-- 登录/个人信息区域 -->
-                <div class="navbar-nav">
-                    {% if user.is_authenticated %}
-                        <span class="nav-link user-info">
-                            欢迎：{{ user.name }} ({{ user.user_code }})
-                            {% if user.is_superuser or user.user_type == 'boss' %}
-                                <span class="badge bg-warning">管理员</span>
-                            {% else %}
-                                <span class="badge bg-secondary">开单人</span>
-                            {% endif %}
-                        </span>
-                        <li class="nav-item"><a class="nav-link" href="/accounts/profile/">个人信息</a></li>
-                        <li class="nav-item"><a class="nav-link" href="/accounts/logout/">退出登录</a></li>
-                    {% else %}
-                        <li class="nav-item"><a class="nav-link" href="/accounts/login/">登录</a></li>
-                    {% endif %}
-                </div>
+                <!-- 登录/个人信息区域（修复：去掉括号） -->
+<div class="navbar-nav">
+    {% if user.is_authenticated %}
+        <span class="nav-link user-info">
+            欢迎：{{ user.name }} ({{ user.user_code }})
+            {% if user.is_superuser or user.role and user.role.code == 'super_admin' %}
+                <span class="badge bg-danger">超级管理员</span>
+            {% elif user.role %}
+                {% if user.role.code == 'admin' %}
+                    <span class="badge bg-warning">管理员</span>
+                {% elif user.role.code == 'operator' %}
+                    <span class="badge bg-secondary">开单人</span>
+                {% endif %}
+            {% else %}
+                <span class="badge bg-light text-dark">未分配角色</span>
+            {% endif %}
+        </span>
+        <li class="nav-item"><a class="nav-link" href="/accounts/profile/">个人信息</a></li>
+        <li class="nav-item"><a class="nav-link" href="/accounts/logout/">退出登录</a></li>
+    {% else %}
+        <li class="nav-item"><a class="nav-link" href="/accounts/login/">登录</a></li>
+    {% endif %}
+</div>
             </div>
         </div>
     </nav>
@@ -149,4 +158,4 @@
     </script>
     {% block extra_js %}{% endblock %}
 </body>
-</html>
+</html> 

@@ -1,45 +1,29 @@
 {% extends 'base.html' %}
-
-{% block title %}用户管理 - EasyStock系统{% endblock %}
-
+{% block title %}用户管理 - 系统管理{% endblock %}
 {% block extra_css %}
 <style>
-    .user-table th, .user-table td {
-        vertical-align: middle;
-    }
-    .status-badge {
-        padding: 4px 8px;
-        border-radius: 4px;
-    }
-    .status-active {
-        background-color: #d1e7dd;
-        color: #0f5132;
-    }
-    .status-inactive {
-        background-color: #f8d7da;
-        color: #842029;
-    }
+    .status-badge { padding: 4px 8px; border-radius: 4px; }
+    .status-active { background: #d1e7dd; color: #0f5132; }
+    .status-inactive { background: #f8d7da; color: #842029; }
+    .role-tag { font-size: 0.85rem; padding: 2px 6px; }
 </style>
 {% endblock %}
 
 {% block content %}
-<!-- 新增：补充CSRF Meta标签（解决Token获取失败） -->
 <meta name="csrf-token" content="{{ csrf_token }}">
-
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="mb-0">开单人账户管理</h5>
-        <a href="/accounts/user-add/" class="btn btn-primary btn-sm">
-            <i class="bi bi-plus-circle"></i> 添加新用户
+        <h5 class="mb-0">系统用户管理</h5>
+        <a href="{% url 'accounts:user_add' %}" class="btn btn-primary btn-sm">
+            <i class="bi bi-plus-circle"></i> 添加用户
         </a>
     </div>
     <div class="card-body">
         <!-- 筛选表单 -->
         <form method="get" class="mb-4 row g-3">
             <div class="col-md-4">
-                <!-- 核心修改1：添加唯一ID用于JS定位 -->
-                <input type="text" id="userSearchInput" name="keyword" class="form-control form-control-sm" 
-                       placeholder="搜索编号/用户名/电话" value="{{ keyword }}">
+                <input type="text" name="keyword" class="form-control form-control-sm" 
+                       placeholder="搜索编号/用户名/电话/姓名" value="{{ keyword }}">
             </div>
             <div class="col-md-3">
                 <select name="status" class="form-select form-select-sm">
@@ -50,13 +34,13 @@
             </div>
             <div class="col-md-2">
                 <button type="submit" class="btn btn-sm btn-outline-primary">搜索</button>
-                <a href="/accounts/user-list/" class="btn btn-sm btn-outline-secondary">重置</a>
+                <a href="{% url 'accounts:user_list' %}" class="btn btn-sm btn-outline-secondary">重置</a>
             </div>
         </form>
 
         <!-- 用户列表 -->
         <div class="table-responsive">
-            <table class="table table-striped table-hover user-table">
+            <table class="table table-striped table-hover">
                 <thead class="table-light">
                     <tr>
                         <th>序号</th>
@@ -64,7 +48,7 @@
                         <th>用户名</th>
                         <th>姓名</th>
                         <th>联系电话</th>
-                        <th>权限组</th>
+                        <th>所属角色</th>
                         <th>状态</th>
                         <th>创建时间</th>
                         <th>操作</th>
@@ -79,11 +63,11 @@
                         <td>{{ user.name }}</td>
                         <td>{{ user.phone|default:"-" }}</td>
                         <td>
-                            {% for group in user.groups.all %}
-                                <span class="badge bg-secondary">{{ group.name }}</span>
-                            {% empty %}
+                            {% if user.role %}
+                                <span class="badge bg-secondary role-tag">{{ user.role.name }}</span>
+                            {% else %}
                                 <span class="text-muted">未分配</span>
-                            {% endfor %}
+                            {% endif %}
                         </td>
                         <td>
                             {% if user.is_active %}
@@ -95,17 +79,13 @@
                         <td>{{ user.date_joined|date:"Y-m-d H:i" }}</td>
                         <td>
                             <div class="btn-group btn-group-sm">
-                                <a href="/accounts/user-edit/{{ user.id }}/" class="btn btn-outline-primary">
-                                    编辑
-                                </a>
-                                <!-- 修复：明确传递布尔值为字符串，避免渲染歧义 -->
+                                <a href="{% url 'accounts:user_edit' user.id %}" class="btn btn-outline-primary">编辑</a>
                                 <button class="btn {% if user.is_active %}btn-outline-danger{% else %}btn-outline-success{% endif %} status-toggle-btn" 
                                         data-user-id="{{ user.id }}" 
                                         data-user-code="{{ user.user_code }}"
                                         data-is-active="{% if user.is_active %}1{% else %}0{% endif %}">
                                     {% if user.is_active %}禁用{% else %}启用{% endif %}
                                 </button>
-                                <!-- 新增：重置密码按钮 -->
                                 <button class="btn btn-outline-warning reset-password-btn"
                                         data-user-id="{{ user.id }}"
                                         data-user-code="{{ user.user_code }}">
@@ -128,62 +108,23 @@
 
 {% block extra_js %}
 <script>
-// 修复：鲁棒的CSRF Token获取函数（兼容meta标签和cookie）
+// 获取CSRF Token
 function getCsrfToken() {
-    // 优先从meta标签获取
-    const metaTag = document.querySelector('meta[name="csrf-token"]');
-    if (metaTag) {
-        return metaTag.content;
-    }
-    // 备用：从cookie获取（Django默认的csrftoken cookie）
-    const cookies = document.cookie.split(';');
-    for (let cookie of cookies) {
-        const [name, value] = cookie.trim().split('=');
-        if (name === 'csrftoken') {
-            return value;
-        }
-    }
-    return '';
+    return document.querySelector('meta[name="csrf-token"]').content;
 }
 
-// 核心修改2：页面加载完成后自动聚焦到搜索输入框
-$(document).ready(function() {
-    // 定位搜索输入框
-    const searchInput = $('#userSearchInput');
-    // 确保输入框存在再执行聚焦（避免报错）
-    if (searchInput.length > 0) {
-        // 自动聚焦到输入框
-        searchInput.focus();
-        
-        // 可选优化：如果输入框有默认值（比如之前的搜索关键词），将光标移到内容末尾
-        const inputValue = searchInput.val();
-        if (inputValue) {
-            searchInput.val(''); // 清空
-            searchInput.val(inputValue); // 重新赋值，光标到末尾
-        }
-    }
-});
-
-// 切换用户状态（启用/禁用）确认
+// 切换用户状态
 $(document).on('click', '.status-toggle-btn', function() {
     const userId = $(this).data('user-id');
     const userCode = $(this).data('user-code');
-    // 修复：将1/0转换为布尔值，解决提示文字错误
     const isActive = $(this).data('is-active') === 1;
+    const action = isActive ? '禁用' : '启用';
     
-    // 根据当前状态显示不同的确认提示
-    const actionText = isActive ? '禁用' : '启用';
-    const confirmMsg = isActive 
-        ? `确定要${actionText}用户【${userCode}】吗？${actionText}后该用户将无法登录系统！`
-        : `确定要${actionText}用户【${userCode}】吗？${actionText}后该用户可以正常登录系统！`;
-    
-    if (confirm(confirmMsg)) {
+    if (confirm(`确定要${action}用户【${userCode}】吗？`)) {
         $.ajax({
-            url: `/accounts/user-toggle-status/${userId}/`,
+            url: `{% url 'accounts:user_toggle_status' 0 %}`.replace('0', userId),
             type: 'POST',
-            headers: {
-                'X-CSRFToken': getCsrfToken()
-            },
+            headers: {'X-CSRFToken': getCsrfToken()},
             dataType: 'json',
             success: function(res) {
                 if (res.code === 1) {
@@ -193,44 +134,34 @@ $(document).on('click', '.status-toggle-btn', function() {
                     alert('操作失败：' + res.msg);
                 }
             },
-            error: function(xhr, status, error) {
-                console.error('AJAX错误：', status, error);
-                alert(`请求失败：${xhr.status} - ${xhr.statusText}`);
+            error: function() {
+                alert('请求失败，请重试！');
             }
         });
     }
 });
 
-// 新增：重置密码功能逻辑
+// 重置密码
 $(document).on('click', '.reset-password-btn', function() {
     const userId = $(this).data('user-id');
     const userCode = $(this).data('user-code');
     
-    // 确认弹窗：明确告知重置后的规则
-    const confirmMsg = `确定要重置用户【${userCode}】的密码吗？
-1. 重置后密码将设为临时密码：123456
-2. 该用户下次登录时会被强制修改密码
-3. 您将无法查看该用户的新密码`;
-    
-    if (confirm(confirmMsg)) {
+    if (confirm(`确定要重置用户【${userCode}】的密码吗？\n重置后密码为：123456（登录后强制修改）`)) {
         $.ajax({
-            url: `/accounts/reset-password/${userId}/`,
+            url: `{% url 'accounts:reset_password' 0 %}`.replace('0', userId),
             type: 'POST',
-            headers: {
-                'X-CSRFToken': getCsrfToken()
-            },
+            headers: {'X-CSRFToken': getCsrfToken()},
             dataType: 'json',
             success: function(res) {
                 if (res.code === 1) {
                     alert(res.msg);
-                    window.location.reload(); // 刷新页面确保状态同步
+                    window.location.reload();
                 } else {
                     alert('重置失败：' + res.msg);
                 }
             },
-            error: function(xhr, status, error) {
-                console.error('重置密码AJAX错误：', status, error);
-                alert(`请求失败：${xhr.status} - ${xhr.statusText}`);
+            error: function() {
+                alert('请求失败，请重试！');
             }
         });
     }

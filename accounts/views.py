@@ -1,327 +1,265 @@
 from django.db.models import Q
+from django.db.models.signals import post_migrate
+from django.dispatch import receiver
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse
 from django.contrib.auth import authenticate, login, logout
-from django.contrib.auth.decorators import login_required, user_passes_test
-from django.contrib.auth.models import Group
+from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db import IntegrityError
-from .models import User
-from operation_log.models import OperationLog
 from django.utils import timezone
 import logging
+
+# 导入模型和常量
+from .models import (
+    User, Role, Permission,
+    ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OPERATOR
+)
+from operation_log.models import OperationLog
 
 # 配置日志
 logger = logging.getLogger(__name__)
 
+# ========== 全局常量（去硬编码） ==========
+# 操作类型常量（日志用）
+OP_TYPE_LOGIN = 'login'
+OP_TYPE_LOGOUT = 'logout'
+OP_TYPE_CREATE = 'create'
+OP_TYPE_UPDATE = 'update'
+OP_TYPE_DELETE = 'delete'
+OP_TYPE_RESET_PASSWORD = 'reset_password'
+OP_TYPE_CHANGE_PASSWORD = 'change_password'
+OP_TYPE_ENABLE_USER = 'enable_user'
+OP_TYPE_DISABLE_USER = 'disable_user'
+OP_TYPE_UPDATE_ROLE_PERM = 'update_role_permission'
 
-# ========== 通用函数 ==========
-def create_operation_log(request, operation_type, object_type, object_id=None, object_name=None, operation_detail=None):
-    """封装操作日志记录逻辑，容错处理"""
+
+# ========== 通用工具函数 ==========
+def get_client_ip(request):
+    """获取客户端IP"""
     x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-    ip_address = x_forwarded_for.split(',')[0] if x_forwarded_for else request.META.get('REMOTE_ADDR', '')
+    return x_forwarded_for.split(',')[0] if x_forwarded_for else request.META.get('REMOTE_ADDR', '')
+
+
+def create_operation_log(request, op_type, obj_type, obj_id=None, obj_name=None, detail=None):
+    """统一日志记录（容错+规范化）"""
     try:
         OperationLog.objects.create(
             operator=request.user if request.user.is_authenticated else None,
             operation_time=timezone.now(),
-            operation_type=operation_type,
-            object_type=object_type,
-            object_id=str(object_id) if object_id else None,
-            object_name=object_name,
-            operation_detail=operation_detail,
-            ip_address=ip_address
+            operation_type=op_type,
+            object_type=obj_type,
+            object_id=str(obj_id) if obj_id else None,
+            object_name=obj_name,
+            operation_detail=detail,
+            ip_address=get_client_ip(request)
         )
     except Exception as e:
-        print(f"【日志记录失败】：{str(e)}")
+        logger.error(f"日志记录失败：{str(e)}")
 
 
-def is_boss(user):
-    """判断是否为老板（属于老板组）"""
-    return user.groups.filter(name='老板').exists() or user.is_superuser
+# ========== 核心权限装饰器（纯RBAC） ==========
+def permission_required(permission_code):
+    """
+    自定义RBAC权限装饰器
+    规则：超级管理员→放行；普通用户→检查权限；未登录→跳转登录
+    """
+
+    def decorator(view_func):
+        def wrapper(request, *args, **kwargs):
+            # 未登录→跳转登录
+            if not request.user.is_authenticated:
+                return redirect(f'/accounts/login/?next={request.path}')
+
+            # 超级管理员→直接放行
+            if request.user.role and request.user.role.code == ROLE_SUPER_ADMIN:
+                return view_func(request, *args, **kwargs)
+
+            # 普通用户→检查权限
+            if not request.user.has_permission(permission_code):
+                return redirect('/accounts/no-permission/')
+
+            return view_func(request, *args, **kwargs)
+
+        return wrapper
+
+    return decorator
 
 
-def is_operator(user):
-    """判断是否为开单人"""
-    logger.info(f"权限校验：用户名={user.username}，组={[g.name for g in user.groups.all()]}")
-    return user.groups.filter(name='开单人').exists() or user.groups.filter(name='老板').exists() or user.is_superuser
-
-
-# ========== 登录视图（新增强制改密码校验） ==========
+# ========== 认证相关视图 ==========
 def login_view(request):
-    """登录页 - 登录后检查是否需要强制改密码"""
+    """登录视图（RBAC版）"""
     if request.user.is_authenticated:
-        # 已登录且需要强制改密码：直接跳改密码页
+        # 强制改密码检查
         if request.user.force_password_change:
             return redirect('/accounts/force-change-password/')
-        next_url = request.GET.get('next', '/bill/')
-        return redirect(next_url)
+        return redirect(request.GET.get('next', '/bill/'))
 
     if request.method == 'POST':
         username = request.POST.get('username', '').strip()
         password = request.POST.get('password', '').strip()
         user = authenticate(request, username=username, password=password)
 
-        if user is not None and user.is_active:
+        if user and user.is_active:
             login(request, user)
-            request.session['user_code'] = user.user_code
-            request.session['user_name'] = user.name
+            # 保存用户信息到Session（RBAC版）
+            request.session.update({
+                'user_code': user.user_code,
+                'user_name': user.name,
+                'user_role_code': user.role.code if user.role else '',
+                'user_role_name': user.role.name if user.role else '无'
+            })
 
             # 记录登录日志
             create_operation_log(
                 request=request,
-                operation_type='login',
-                object_type='user',
-                object_id=user.id,
-                object_name=f"{user.user_code}-{user.username}",
-                operation_detail=f"用户登录：编号={user.user_code}，用户名={user.username}"
+                op_type=OP_TYPE_LOGIN,
+                obj_type='user',
+                obj_id=user.id,
+                obj_name=f"{user.user_code}-{user.username}",
+                detail=f"用户登录：编号={user.user_code}，用户名={user.username}，角色={user.role.name if user.role else '无'}"
             )
 
-            # 核心逻辑：检查是否需要强制改密码
+            # 强制改密码跳转
             if user.force_password_change:
                 return redirect('/accounts/force-change-password/')
 
-            next_url = request.POST.get('next', request.GET.get('next', '/bill/'))
-            return redirect(next_url)
+            return redirect(request.POST.get('next', request.GET.get('next', '/bill/')))
         else:
             messages.error(request, '用户名/密码错误或账户已禁用')
 
-    context = {'next': request.GET.get('next', '')}
-    return render(request, 'accounts/login.html', context)
+    return render(request, 'accounts/login.html', {
+        'next': request.GET.get('next', '')
+    })
 
 
-# ========== 老板重置密码视图（核心） ==========
-@login_required
-@user_passes_test(is_boss)
-def reset_password(request, user_id):
-    """老板重置员工密码为临时密码，标记强制改密码"""
-    if request.method == 'POST':
-        try:
-            user = get_object_or_404(User, id=user_id)
-            # 安全：老板永远看不到原密码（Django密码是哈希存储）
-            temp_password = "123456"  # 临时密码（可配置）
-
-            # 重置密码+标记强制改密码
-            user.set_password(temp_password)
-            user.force_password_change = True
-            user.save()
-
-            # 记录重置密码日志（不存储临时密码，仅记录操作）
-            create_operation_log(
-                request=request,
-                operation_type='reset_password',
-                object_type='user',
-                object_id=user.id,
-                object_name=f"{user.user_code}-{user.username}",
-                operation_detail=f"重置用户密码：编号={user.user_code}，用户名={user.username}，已生成临时密码并强制改密码"
-            )
-
-            return JsonResponse({
-                'code': 1,
-                'msg': f'用户 {user.user_code} 密码已重置为临时密码：{temp_password}，用户登录后将强制修改密码'
-            })
-        except Exception as e:
-            return JsonResponse({'code': 0, 'msg': f'重置失败：{str(e)}'})
-    return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
-
-
-# ========== 员工强制改密码视图 ==========
 @login_required
 def force_change_password(request):
-    """员工登录后强制改密码页面，必须修改才能进入系统"""
-    # 非强制改密码状态：直接跳首页
+    """强制改密码视图"""
     if not request.user.force_password_change:
         return redirect('/bill/')
 
     if request.method == 'POST':
-        old_password = request.POST.get('old_password', '').strip()
-        new_password = request.POST.get('new_password', '').strip()
-        confirm_password = request.POST.get('confirm_password', '').strip()
+        old_pwd = request.POST.get('old_password', '').strip()
+        new_pwd = request.POST.get('new_password', '').strip()
+        confirm_pwd = request.POST.get('confirm_password', '').strip()
 
         # 校验逻辑
-        if not old_password or not new_password or not confirm_password:
-            messages.error(request, '所有密码字段不能为空！')
-        elif new_password != confirm_password:
-            messages.error(request, '两次输入的新密码不一致！')
-        elif len(new_password) < 8:
-            messages.error(request, '新密码长度至少8位！')
-        elif not request.user.check_password(old_password):
-            messages.error(request, '原密码输入错误！')
+        errors = []
+        if not all([old_pwd, new_pwd, confirm_pwd]):
+            errors.append('所有密码字段不能为空')
+        if new_pwd != confirm_pwd:
+            errors.append('两次新密码不一致')
+        if len(new_pwd) < 8:
+            errors.append('新密码长度至少8位')
+        if not request.user.check_password(old_pwd):
+            errors.append('原密码输入错误')
+
+        if errors:
+            for err in errors:
+                messages.error(request, err)
         else:
-            # 修改密码并取消强制改密码标记
-            request.user.set_password(new_password)
+            # 修改密码
+            request.user.set_password(new_pwd)
             request.user.force_password_change = False
             request.user.save()
 
-            # 记录改密码日志
+            # 记录日志
             create_operation_log(
                 request=request,
-                operation_type='change_password',
-                object_type='user',
-                object_id=request.user.id,
-                object_name=f"{request.user.user_code}-{request.user.username}",
-                operation_detail=f"用户强制修改密码：编号={request.user.user_code}，用户名={request.user.username}"
+                op_type=OP_TYPE_CHANGE_PASSWORD,
+                obj_type='user',
+                obj_id=request.user.id,
+                obj_name=f"{request.user.user_code}-{request.user.username}",
+                detail=f"用户强制修改密码：编号={request.user.user_code}"
             )
 
-            # 重新登录（密码修改后）
+            # 重新登录
             login(request, request.user)
-            messages.success(request, '密码修改成功！请正常使用系统。')
+            messages.success(request, '密码修改成功！请正常使用系统')
             return redirect('/bill/')
 
     return render(request, 'accounts/force_change_password.html', {
-        'is_boss': is_boss(request.user),
         'user': request.user
     })
 
 
-# ========== 权限校验函数（用于装饰器） ==========
-def is_boss(user):
-    """判断是否为老板（属于老板组）"""
-    return user.groups.filter(name='老板').exists() or user.is_superuser
-
-
 def logout_view(request):
-    """登出（清除session）"""
-    # ========== 修改：日志操作类型从 query 改为 logout ==========
+    """登出视图"""
     if request.user.is_authenticated:
+        # 记录登出日志
         create_operation_log(
             request=request,
-            operation_type='logout',  # 关键修改：登出操作
-            object_type='user',
-            object_id=request.user.id,
-            object_name=f"{request.user.user_code}-{request.user.username}",
-            operation_detail=f"用户登出：编号={request.user.user_code}，用户名={request.user.username}，IP={request.META.get('REMOTE_ADDR', '')}"
+            op_type=OP_TYPE_LOGOUT,
+            obj_type='user',
+            obj_id=request.user.id,
+            obj_name=f"{request.user.user_code}-{request.user.username}",
+            detail=f"用户登出：编号={request.user.user_code}，IP={get_client_ip(request)}"
         )
-
     logout(request)
     return redirect('/accounts/login/')
 
 
-# ========== 以下代码无修改，保持原样 ==========
-# 个人信息管理
+# ========== 用户管理视图（RBAC版） ==========
 @login_required
-def profile(request):
-    """个人信息修改（所有登录用户可访问）"""
-    user = request.user
-    if request.method == 'POST':
-        try:
-            # 保存修改前的信息（用于日志对比）
-            old_info = {
-                'first_name': user.first_name,
-                'last_name': user.last_name,
-                'phone': user.phone,
-                'address': user.address,
-                'email': user.email
-            }
-
-            # 可修改的拓展字段（按需扩展）
-            user.first_name = request.POST.get('first_name', user.first_name).strip()
-            user.last_name = request.POST.get('last_name', user.last_name).strip()
-            user.phone = request.POST.get('phone', user.phone).strip()
-            user.address = request.POST.get('address', user.address).strip()
-            user.email = request.POST.get('email', user.email).strip()
-
-            # 密码修改（可选）
-            new_password = request.POST.get('new_password', '').strip()
-            password_changed = False
-            if new_password:
-                user.set_password(new_password)
-                password_changed = True
-
-            user.save()
-
-            # ========== 新增：记录个人信息修改日志 ==========
-            operation_detail = (
-                f"修改个人信息：编号={user.user_code}，用户名={user.username}，"
-                f"原姓名={old_info['first_name'] + old_info['last_name']}→新姓名={user.first_name + user.last_name}，"
-                f"原电话={old_info['phone']}→新电话={user.phone}，"
-                f"原邮箱={old_info['email']}→新邮箱={user.email}，"
-                f"原地址={old_info['address']}→新地址={user.address}，"
-                f"密码是否修改：{'是' if password_changed else '否'}"
-            )
-            create_operation_log(
-                request=request,
-                operation_type='update',
-                object_type='user',
-                object_id=user.id,
-                object_name=f"{user.user_code}-{user.username}",
-                operation_detail=operation_detail
-            )
-
-            messages.success(request, '个人信息修改成功！')
-            # 重新登录（密码修改后）
-            if new_password:
-                login(request, user)
-        except Exception as e:
-            messages.error(request, f'修改失败：{str(e)}')
-
-    return render(request, 'accounts/profile.html', {
-        'user': user,
-        'is_boss': is_boss(request.user)  # 传递变量
-    })
-
-
-# 用户管理（仅老板可访问）
-@login_required
-@user_passes_test(is_boss)
+@permission_required('user_view')
 def user_list(request):
-    """用户列表（老板权限）- 支持搜索和状态筛选"""
-    # 获取筛选参数
+    """用户列表（支持搜索/状态筛选）"""
+    # 筛选参数
     keyword = request.GET.get('keyword', '').strip()
-    status = request.GET.get('status', 'all')  # all/active/inactive
+    status = request.GET.get('status', 'all')
 
-    # 初始化查询集
-    users = User.objects.all().order_by('-date_joined')
+    # 基础查询
+    queryset = User.objects.all().order_by('-date_joined')
 
-    # 关键词筛选（编号/用户名/电话）
+    # 关键词筛选
     if keyword:
-        users = users.filter(
+        queryset = queryset.filter(
             Q(user_code__icontains=keyword) |
             Q(username__icontains=keyword) |
-            Q(phone__icontains=keyword)
+            Q(phone__icontains=keyword) |
+            Q(name__icontains=keyword)
         )
 
     # 状态筛选
     if status == 'active':
-        users = users.filter(is_active=True)
+        queryset = queryset.filter(is_active=True)
     elif status == 'inactive':
-        users = users.filter(is_active=False)
-
-    # 获取所有权限组
-    groups = Group.objects.all()
+        queryset = queryset.filter(is_active=False)
 
     return render(request, 'accounts/user_list.html', {
-        'users': users,
-        'groups': groups,
-        'is_boss': is_boss(request.user),
+        'users': queryset,
+        'roles': Role.objects.all(),
         'keyword': keyword,
-        'status': status
+        'status': status,
+        'current_user': request.user
     })
 
 
 @login_required
-@user_passes_test(is_boss)
+@permission_required('user_add')
 def user_add(request):
-    """添加新用户（老板权限）"""
+    """添加用户"""
     if request.method == 'POST':
+        # 获取表单数据
+        username = request.POST.get('username', '').strip()
+        user_code = request.POST.get('user_code', '').strip()
+        password = request.POST.get('password', '').strip()
+        phone = request.POST.get('phone', '').strip()
+        role_id = request.POST.get('role_id')
+        is_active = request.POST.get('is_active') == 'on'
+        is_staff = request.POST.get('is_staff') == 'on'
+
+        # 基础校验
+        if not all([username, user_code, password]):
+            messages.error(request, '用户名、用户编号、初始密码不能为空！')
+            return render(request, 'accounts/user_form.html', {
+                'roles': Role.objects.all(),
+                'form_data': request.POST,
+                'is_add': True
+            })
+
         try:
-            # 获取表单数据
-            username = request.POST.get('username', '').strip()
-            user_code = request.POST.get('user_code', '').strip()
-            password = request.POST.get('password', '').strip()
-            phone = request.POST.get('phone', '').strip()
-            group_id = request.POST.get('group_id')
-            is_active = request.POST.get('is_active') == 'on'
-            is_staff = request.POST.get('is_staff') == 'on'
-
-            # 必传字段校验
-            if not username or not user_code or not password:
-                messages.error(request, '用户名、用户编号、初始密码不能为空！')
-                return render(request, 'accounts/user_form.html', {
-                    'groups': Group.objects.all(),
-                    'is_boss': is_boss(request.user),
-                    'form_data': request.POST
-                })
-
             # 创建用户
             user = User.objects.create_user(
                 username=username,
@@ -332,25 +270,25 @@ def user_add(request):
                 is_staff=is_staff
             )
 
-            # 关联权限组
-            group_name = '无'
-            if group_id:
-                group = Group.objects.get(id=group_id)
-                user.groups.add(group)
-                group_name = group.name
+            # 绑定角色
+            role_name = '无'
+            if role_id:
+                role = get_object_or_404(Role, id=role_id)
+                user.role = role
+                user.save()
+                role_name = role.name
 
-            # ========== 新增：记录新增用户日志 ==========
-            operation_detail = (
-                f"新增用户：编号={user_code}，用户名={username}，电话={phone if phone else '无'}，"
-                f"权限组={group_name}，状态={'启用' if is_active else '禁用'}，是否后台管理员={'是' if is_staff else '否'}"
-            )
+            # 记录日志
             create_operation_log(
                 request=request,
-                operation_type='create',
-                object_type='user',
-                object_id=user.id,
-                object_name=f"{user_code}-{username}",
-                operation_detail=operation_detail
+                op_type=OP_TYPE_CREATE,
+                obj_type='user',
+                obj_id=user.id,
+                obj_name=f"{user_code}-{username}",
+                detail=(
+                    f"新增用户：编号={user_code}，用户名={username}，电话={phone or '无'}，"
+                    f"角色={role_name}，状态={'启用' if is_active else '禁用'}"
+                )
             )
 
             messages.success(request, f'用户 {user_code} - {username} 创建成功！')
@@ -358,168 +296,365 @@ def user_add(request):
 
         except IntegrityError:
             messages.error(request, '用户编号已存在！请更换编号。')
-            return render(request, 'accounts/user_form.html', {
-                'groups': Group.objects.all(),
-                'is_boss': is_boss(request.user),
-                'form_data': request.POST
-            })
         except Exception as e:
             messages.error(request, f'创建失败：{str(e)}')
-            return render(request, 'accounts/user_form.html', {
-                'groups': Group.objects.all(),
-                'is_boss': is_boss(request.user),
-                'form_data': request.POST
-            })
 
-    # GET请求：展示添加表单
+    # GET请求：展示表单
     return render(request, 'accounts/user_form.html', {
-        'groups': Group.objects.all(),
-        'is_boss': is_boss(request.user),
+        'roles': Role.objects.all(),
         'is_add': True
     })
 
 
 @login_required
-@user_passes_test(is_boss)
+@permission_required('user_edit')
 def user_edit(request, user_id):
-    """编辑用户（老板权限）- 修复组分配逻辑"""
+    """编辑用户"""
     user = get_object_or_404(User, id=user_id)
 
     if request.method == 'POST':
+        # 获取表单数据
+        username = request.POST.get('username', '').strip()
+        user_code = request.POST.get('user_code', '').strip()
+        phone = request.POST.get('phone', '').strip()
+        role_id = request.POST.get('role_id')
+        is_active = request.POST.get('is_active') == 'on'
+        is_staff = request.POST.get('is_staff') == 'on'
+        new_password = request.POST.get('new_password', '').strip()
+
+        # 保存原始信息（日志用）
+        old_info = {
+            'user_code': user.user_code,
+            'username': user.username,
+            'phone': user.phone,
+            'role': user.role.name if user.role else '无',
+            'is_active': user.is_active,
+            'is_staff': user.is_staff
+        }
+
         try:
-            # 保存修改前的信息（用于日志对比）
-            old_info = {
-                'username': user.username,
-                'user_code': user.user_code,
-                'phone': user.phone,
-                'is_active': user.is_active,
-                'is_staff': user.is_staff,
-                'group': user.groups.first().name if user.groups.first() else '无'
-            }
+            # 更新基础信息
+            user.username = username
+            user.user_code = user_code
+            user.phone = phone
+            user.is_active = is_active
+            user.is_staff = is_staff
 
-            # 基础信息
-            user.username = request.POST.get('username', user.username).strip()
-            user.user_code = request.POST.get('user_code', user.user_code).strip()
-            user.phone = request.POST.get('phone', user.phone).strip()
-            user.is_active = request.POST.get('is_active') == 'on'
-            user.is_staff = request.POST.get('is_staff') == 'on'
-
-            # 权限组 - 修复逻辑：无论是否选组，都显式处理
-            group_id = request.POST.get('group_id', '').strip()
-            # 先清空所有组
-            user.groups.clear()
-            # 如果选了组，就添加
-            new_group_name = '无'
-            if group_id and group_id.isdigit():
-                try:
-                    group = Group.objects.get(id=group_id)
-                    user.groups.add(group)
-                    new_group_name = group.name
-                except Group.DoesNotExist:
-                    messages.warning(request, '所选权限组不存在，已忽略')
-
-            # 密码修改（可选）
-            new_password = request.POST.get('new_password', '').strip()
-            password_changed = False
+            # 更新密码（可选）
+            pwd_changed = False
             if new_password:
                 user.set_password(new_password)
-                password_changed = True
+                pwd_changed = True
+
+            # 更新角色
+            new_role_name = old_info['role']
+            if role_id:
+                role = get_object_or_404(Role, id=role_id)
+                user.role = role
+                new_role_name = role.name
 
             user.save()
 
-            # ========== 新增：记录编辑用户日志 ==========
-            operation_detail = (
-                f"编辑用户：原编号={old_info['user_code']}→新编号={user.user_code}，原用户名={old_info['username']}→新用户名={user.username}，"
-                f"原电话={old_info['phone']}→新电话={user.phone if user.phone else '无'}，"
-                f"原权限组={old_info['group']}→新权限组={new_group_name}，"
-                f"原状态={'启用' if old_info['is_active'] else '禁用'}→新状态={'启用' if user.is_active else '禁用'}，"
-                f"原后台管理员={'是' if old_info['is_staff'] else '否'}→新后台管理员={'是' if user.is_staff else '否'}，"
-                f"密码是否修改：{'是' if password_changed else '否'}"
-            )
+            # 记录日志
             create_operation_log(
                 request=request,
-                operation_type='update',
-                object_type='user',
-                object_id=user.id,
-                object_name=f"{user.user_code}-{user.username}",
-                operation_detail=operation_detail
+                op_type=OP_TYPE_UPDATE,
+                obj_type='user',
+                obj_id=user.id,
+                obj_name=f"{user_code}-{username}",
+                detail=(
+                    f"编辑用户：原编号={old_info['user_code']}→新编号={user_code}，"
+                    f"原角色={old_info['role']}→新角色={new_role_name}，"
+                    f"状态={'启用' if is_active else '禁用'}，密码是否修改：{'是' if pwd_changed else '否'}"
+                )
             )
 
-            messages.success(request, f'用户 {user.user_code} - {user.username} 修改成功！')
+            messages.success(request, f'用户 {user_code} - {username} 修改成功！')
             return redirect('/accounts/user-list/')
+
         except IntegrityError:
             messages.error(request, '用户编号已存在！请更换编号。')
         except Exception as e:
             messages.error(request, f'修改失败：{str(e)}')
 
-    # 获取用户当前所属组
-    user_group = user.groups.first()
-    group_id = user_group.id if user_group else ''
-
-    # GET请求：展示编辑表单
+    # GET请求：展示表单
     return render(request, 'accounts/user_form.html', {
         'user': user,
-        'groups': Group.objects.all(),
-        'is_boss': is_boss(request.user),
-        'group_id': group_id,
+        'roles': Role.objects.all(),
+        'role_id': user.role.id if user.role else '',
         'is_edit': True
     })
 
 
 @login_required
-@user_passes_test(is_boss)
+@permission_required('user_toggle_status')
 def user_toggle_status(request, user_id):
-    """切换用户状态（启用/禁用）- 替代原来的固定禁用"""
+    """切换用户状态（启用/禁用）"""
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
+
+    try:
+        user = get_object_or_404(User, id=user_id)
+        # 切换状态
+        user.is_active = not user.is_active
+        user.save()
+
+        # 日志/返回信息
+        op_type = OP_TYPE_ENABLE_USER if user.is_active else OP_TYPE_DISABLE_USER
+        status_text = '启用' if user.is_active else '禁用'
+        create_operation_log(
+            request=request,
+            op_type=op_type,
+            obj_type='user',
+            obj_id=user.id,
+            obj_name=f"{user.user_code}-{user.username}",
+            detail=f"{status_text}用户：编号={user.user_code}，原状态={'启用' if not user.is_active else '禁用'}→新状态={status_text}"
+        )
+
+        return JsonResponse({
+            'code': 1,
+            'msg': f'用户 {user.user_code} 已{status_text}！'
+        })
+
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': f'操作失败：{str(e)}'})
+
+
+@login_required
+@permission_required('user_reset_password')
+def reset_password(request, user_id):
+    """重置密码"""
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
+
+    try:
+        user = get_object_or_404(User, id=user_id)
+        temp_pwd = "123456"
+
+        # 重置密码+标记强制修改
+        user.set_password(temp_pwd)
+        user.force_password_change = True
+        user.save()
+
+        # 记录日志
+        create_operation_log(
+            request=request,
+            op_type=OP_TYPE_RESET_PASSWORD,
+            obj_type='user',
+            obj_id=user.id,
+            obj_name=f"{user.user_code}-{user.username}",
+            detail=f"重置用户密码：编号={user.user_code}，临时密码={temp_pwd}，已标记强制改密码"
+        )
+
+        return JsonResponse({
+            'code': 1,
+            'msg': f'用户 {user.user_code} 密码已重置为：{temp_pwd}，登录后将强制修改密码！'
+        })
+
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': f'重置失败：{str(e)}'})
+
+
+# ========== 权限管理视图 ==========
+@login_required
+@permission_required('permission_view')
+def permission_list(request):
+    """权限列表"""
+    keyword = request.GET.get('keyword', '').strip()
+    category = request.GET.get('category', 'all')
+
+    # 基础查询
+    queryset = Permission.objects.filter(is_active=True).order_by('category', 'code')
+
+    # 筛选
+    if keyword:
+        queryset = queryset.filter(
+            Q(code__icontains=keyword) |
+            Q(name__icontains=keyword)
+        )
+    if category != 'all' and category in [c[0] for c in Permission.PERMISSION_CATEGORIES]:
+        queryset = queryset.filter(category=category)
+
+    return render(request, 'accounts/permission_list.html', {
+        'permissions': queryset,
+        'categories': Permission.PERMISSION_CATEGORIES,
+        'keyword': keyword,
+        'selected_category': category
+    })
+
+
+@login_required
+@permission_required('permission_add')
+def permission_add(request):
+    """添加权限"""
     if request.method == 'POST':
+        code = request.POST.get('code', '').strip()
+        name = request.POST.get('name', '').strip()
+        category = request.POST.get('category', 'system')
+        description = request.POST.get('description', '').strip()
+
+        # 基础校验
+        if not all([code, name]):
+            messages.error(request, '权限编码和名称不能为空！')
+            return render(request, 'accounts/permission_form.html', {
+                'categories': Permission.PERMISSION_CATEGORIES,
+                'form_data': request.POST,
+                'is_add': True
+            })
+
+        # 检查编码唯一性
+        if Permission.objects.filter(code=code).exists():
+            messages.error(request, '权限编码已存在！')
+            return render(request, 'accounts/permission_form.html', {
+                'categories': Permission.PERMISSION_CATEGORIES,
+                'form_data': request.POST,
+                'is_add': True
+            })
+
         try:
-            user = get_object_or_404(User, id=user_id)
-            # 保存修改前的信息
-            old_info = {
-                'user_code': user.user_code,
-                'username': user.username,
-                'is_active': user.is_active
-            }
-
-            # 切换状态：启用 ↔ 禁用
-            user.is_active = not user.is_active
-            user.save()
-
-            # 确定操作类型和详情
-            if user.is_active:
-                operation_type = 'enable_user'
-                operation_detail = (
-                    f"启用用户：编号={old_info['user_code']}，用户名={old_info['username']}，"
-                    f"原状态={'启用' if old_info['is_active'] else '禁用'}→新状态=启用"
-                )
-                msg = f'用户 {user.user_code} 已启用！'
-            else:
-                operation_type = 'disable_user'
-                operation_detail = (
-                    f"禁用用户：编号={old_info['user_code']}，用户名={old_info['username']}，"
-                    f"原状态={'启用' if old_info['is_active'] else '禁用'}→新状态=禁用"
-                )
-                msg = f'用户 {user.user_code} 已禁用！'
+            # 创建权限
+            perm = Permission.objects.create(
+                code=code,
+                name=name,
+                category=category,
+                description=description
+            )
 
             # 记录日志
             create_operation_log(
                 request=request,
-                operation_type=operation_type,
-                object_type='user',
-                object_id=user.id,
-                object_name=f"{user.user_code}-{user.username}",
-                operation_detail=operation_detail
+                op_type=OP_TYPE_CREATE,
+                obj_type='permission',
+                obj_id=perm.id,
+                obj_name=f"{perm.name} ({perm.code})",
+                detail=f"新增权限：编码={code}，名称={name}，分类={perm.get_category_display()}"
             )
 
-            return JsonResponse({'code': 1, 'msg': msg})
+            messages.success(request, f'权限 {name} ({code}) 创建成功！')
+            return redirect('/accounts/permission-list/')
+
         except Exception as e:
-            return JsonResponse({'code': 0, 'msg': f'操作失败：{str(e)}'})
-    return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
+            messages.error(request, f'创建失败：{str(e)}')
+
+    # GET请求：展示表单
+    return render(request, 'accounts/permission_form.html', {
+        'categories': Permission.PERMISSION_CATEGORIES,
+        'is_add': True
+    })
 
 
-# 新增：无权限提示页
+# ========== 角色管理视图 ==========
+@login_required
+@permission_required('role_view')
+def role_list(request):
+    """角色列表"""
+    return render(request, 'accounts/role_list.html', {
+        'roles': Role.objects.all()
+    })
+
+
+@login_required
+@permission_required('role_permission_config')
+def role_permission_config(request, role_code):
+    """角色权限配置（核心）"""
+    role = get_object_or_404(Role, code=role_code)
+    all_perms = Permission.objects.filter(is_active=True).order_by('category', 'code')
+
+    if request.method == 'POST':
+        try:
+            # 获取选中的权限ID
+            selected_perm_ids = request.POST.getlist('permissions', [])
+
+            # 清空原有权限，重新绑定
+            role.permissions.clear()
+            if selected_perm_ids:
+                selected_perms = Permission.objects.filter(id__in=selected_perm_ids)
+                role.permissions.add(*selected_perms)
+
+            # 记录日志
+            perm_names = [f"{p.name}({p.code})" for p in selected_perms] if selected_perm_ids else []
+            create_operation_log(
+                request=request,
+                op_type=OP_TYPE_UPDATE_ROLE_PERM,
+                obj_type='role',
+                obj_id=role.id,
+                obj_name=role.name,
+                detail=f"配置角色权限：角色={role.name}，选中权限={','.join(perm_names) or '无'}"
+            )
+
+            messages.success(request, f'角色 {role.name} 的权限配置成功！')
+            return redirect('/accounts/role-list/')
+
+        except Exception as e:
+            messages.error(request, f'配置失败：{str(e)}')
+
+    # 已选中的权限ID
+    selected_perm_ids = role.permissions.values_list('id', flat=True)
+
+    # 按分类分组权限（方便前端展示）
+    perm_groups = {}
+    for perm in all_perms:
+        if perm.category not in perm_groups:
+            perm_groups[perm.category] = {
+                'name': perm.get_category_display(),
+                'permissions': []
+            }
+        perm_groups[perm.category]['permissions'].append(perm)
+
+    return render(request, 'accounts/role_permission_config.html', {
+        'role': role,
+        'perm_groups': perm_groups,
+        'selected_perm_ids': selected_perm_ids,
+        'is_super_admin': role.is_super_admin
+    })
+
+
+# ========== 其他视图 ==========
+@login_required
+def profile(request):
+    """个人信息"""
+    user = request.user
+    if request.method == 'POST':
+        # 基础信息更新
+        user.first_name = request.POST.get('first_name', user.first_name).strip()
+        user.last_name = request.POST.get('last_name', user.last_name).strip()
+        user.phone = request.POST.get('phone', user.phone).strip()
+        user.address = request.POST.get('address', user.address).strip()
+        user.email = request.POST.get('email', user.email).strip()
+
+        # 密码修改（可选）
+        new_pwd = request.POST.get('new_password', '').strip()
+        pwd_changed = False
+        if new_pwd:
+            old_pwd = request.POST.get('old_password', '').strip()
+            if not user.check_password(old_pwd):
+                messages.error(request, '原密码输入错误！')
+                return render(request, 'accounts/profile.html', {'user': user})
+            user.set_password(new_pwd)
+            pwd_changed = True
+
+        user.save()
+
+        # 记录日志
+        create_operation_log(
+            request=request,
+            op_type=OP_TYPE_UPDATE,
+            obj_type='user',
+            obj_id=user.id,
+            obj_name=f"{user.user_code}-{user.username}",
+            detail=f"修改个人信息：姓名={user.name}，电话={user.phone}，密码是否修改：{'是' if pwd_changed else '否'}"
+        )
+
+        messages.success(request, '个人信息修改成功！')
+        if pwd_changed:
+            login(request, user)
+
+    return render(request, 'accounts/profile.html', {'user': user})
+
+
 @login_required
 def no_permission(request):
-    """权限不足提示页"""
-    return render(request, 'accounts/no_permission.html', {
-        'is_boss': is_boss(request.user)
-    })
+    """无权限提示"""
+    return render(request, 'accounts/no_permission.html')
+
+

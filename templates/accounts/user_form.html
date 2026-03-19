@@ -1,27 +1,10 @@
 {% extends 'base.html' %}
-
-{% block title %}
-    {% if is_add %}添加新用户{% else %}编辑用户{% endif %} - EasyStock系统
-{% endblock %}
-
-{% block extra_css %}
-<style>
-    .form-label-sm {
-        font-weight: 500;
-    }
-    .password-tip {
-        font-size: 0.85rem;
-        color: #6c757d;
-    }
-</style>
-{% endblock %}
+{% block title %}{% if is_add %}添加用户{% else %}编辑用户{% endif %} - 系统管理{% endblock %}
 
 {% block content %}
 <div class="card">
     <div class="card-header">
-        <h5 class="mb-0">
-            {% if is_add %}添加新用户{% else %}编辑用户：{{ user.user_code }} - {{ user.username }}{% endif %}
-        </h5>
+        <h5 class="mb-0">{% if is_add %}添加新用户{% else %}编辑用户：{{ user.user_code }} - {{ user.username }}{% endif %}</h5>
     </div>
     <div class="card-body">
         <form method="post" class="needs-validation" novalidate>
@@ -29,55 +12,43 @@
             <div class="row g-3">
                 <!-- 基础信息 -->
                 <div class="col-md-6">
-                    <label class="form-label form-label-sm" for="username">用户名 <span class="text-danger">*</span></label>
+                    <label class="form-label" for="username">用户名 <span class="text-danger">*</span></label>
                     <input type="text" class="form-control form-control-sm" id="username" name="username"
                            value="{% if is_edit %}{{ user.username }}{% else %}{{ form_data.username }}{% endif %}"
                            {% if is_edit %}readonly{% endif %} required>
-                    <div class="invalid-feedback">请输入用户名</div>
                 </div>
-
                 <div class="col-md-6">
-                    <label class="form-label form-label-sm" for="user_code">用户编号 <span class="text-danger">*</span></label>
+                    <label class="form-label" for="user_code">用户编号 <span class="text-danger">*</span></label>
                     <input type="text" class="form-control form-control-sm" id="user_code" name="user_code"
                            value="{% if is_edit %}{{ user.user_code }}{% else %}{{ form_data.user_code }}{% endif %}"
                            {% if is_edit %}readonly{% endif %} required>
-                    <div class="invalid-feedback">请输入用户编号（唯一）</div>
                 </div>
 
                 <!-- 密码 -->
                 <div class="col-md-6">
-                    <label class="form-label form-label-sm" for="password">
+                    <label class="form-label" for="password">
                         {% if is_add %}初始密码 <span class="text-danger">*</span>{% else %}新密码（可选）{% endif %}
                     </label>
-                    <input type="password" class="form-control form-control-sm" id="password" name="password"
-                           value="{{ form_data.password|default:'' }}"
-                           {% if is_add %}required{% endif %}>
-                    {% if is_add %}
-                        <div class="invalid-feedback">请设置初始密码</div>
-                        <div class="password-tip mt-1">密码长度至少8位，包含字母和数字</div>
-                    {% else %}
-                        <div class="password-tip mt-1">不修改密码请留空</div>
-                    {% endif %}
+                    <input type="password" class="form-control form-control-sm" id="password" name="password">
+                    <div class="form-text">{% if is_add %}密码长度至少8位{% else %}不修改请留空{% endif %}</div>
                 </div>
 
                 <!-- 联系电话 -->
                 <div class="col-md-6">
-                    <label class="form-label form-label-sm" for="phone">联系电话</label>
+                    <label class="form-label" for="phone">联系电话</label>
                     <input type="text" class="form-control form-control-sm" id="phone" name="phone"
                            value="{% if is_edit %}{{ user.phone }}{% else %}{{ form_data.phone }}{% endif %}">
                 </div>
 
-                <!-- 权限组 -->
+                <!-- 所属角色 -->
                 <div class="col-md-6">
-                    <label class="form-label form-label-sm" for="group_id">权限组</label>
-                    <select class="form-select form-select-sm" id="group_id" name="group_id">
-                        <option value="">-- 请选择 --</option>
-                        {% for group in groups %}
-                            <option value="{{ group.id }}" 
-                                    {% if is_edit and group_id == group.id|stringformat:"i" or form_data.group_id == group.id|stringformat:"i" %}
-                                        selected
-                                    {% endif %}>
-                                {{ group.name }}
+                    <label class="form-label" for="role_id">所属角色 <span class="text-danger">*</span></label>
+                    <select class="form-select form-control-sm" id="role_id" name="role_id" required>
+                        <option value="">-- 请选择角色 --</option>
+                        {% for role in roles %}
+                            <option value="{{ role.id }}" 
+                                    {% if is_edit and role_id == role.id|stringformat:"i" or form_data.role_id == role.id|stringformat:"i" %}selected{% endif %}>
+                                {{ role.name }}
                             </option>
                         {% endfor %}
                     </select>
@@ -85,13 +56,11 @@
 
                 <!-- 账户状态 -->
                 <div class="col-md-6">
-                    <label class="form-label form-label-sm">账户状态</label>
+                    <label class="form-label">账户状态</label>
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="is_active" name="is_active"
                                {% if is_edit and user.is_active or form_data.is_active or is_add %}checked{% endif %}>
-                        <label class="form-check-label" for="is_active">
-                            启用账户（取消勾选则禁用）
-                        </label>
+                        <label class="form-check-label" for="is_active">启用账户</label>
                     </div>
                 </div>
 
@@ -100,9 +69,7 @@
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="is_staff" name="is_staff"
                                {% if is_edit and user.is_staff or form_data.is_staff %}checked{% endif %}>
-                        <label class="form-check-label" for="is_staff">
-                            允许访问后台管理（admin）
-                        </label>
+                        <label class="form-check-label" for="is_staff">允许访问后台管理</label>
                     </div>
                 </div>
             </div>
@@ -110,7 +77,7 @@
             <!-- 操作按钮 -->
             <div class="mt-4">
                 <button type="submit" class="btn btn-primary">保存</button>
-                <a href="/accounts/user-list/" class="btn btn-outline-secondary ms-2">返回列表</a>
+                <a href="{% url 'accounts:user_list' %}" class="btn btn-outline-secondary ms-2">返回列表</a>
             </div>
         </form>
     </div>
