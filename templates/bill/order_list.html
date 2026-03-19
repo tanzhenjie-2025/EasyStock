@@ -84,6 +84,46 @@
     </div>
 </form>
 
+    <!-- ========== 新增：数据统计展示栏 ========== -->
+<div class="mb-4 p-3 bg-light rounded border">
+    <h6 class="mb-2">数据统计</h6>
+    <div class="row g-3">
+        <div class="col-md-3">
+            <div class="card bg-white shadow-sm">
+                <div class="card-body">
+                    <h6 class="card-title text-muted">总订单数</h6>
+                    <p class="card-text fs-4 fw-bold text-primary">{{ total_orders }}</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-white shadow-sm">
+                <div class="card-body">
+                    <h6 class="card-title text-muted">总销售金额</h6>
+                    <p class="card-text fs-4 fw-bold text-success">¥{{ total_sales|floatformat:2 }}</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-white shadow-sm">
+                <div class="card-body">
+                    <h6 class="card-title text-muted">总结清数</h6>
+                    <p class="card-text fs-4 fw-bold text-info">{{ settled_orders }}</p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-white shadow-sm">
+                <div class="card-body">
+                    <h6 class="card-title text-muted">总欠款</h6>
+                    <p class="card-text fs-4 fw-bold text-danger">¥{{ total_debt|floatformat:2 }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- ========== 统计展示栏结束 ========== -->
+    
 <!-- 批量操作按钮 -->
 <div class="mb-3">
     <button class="btn btn-sm btn-success" id="batchSettleBtn" disabled>批量结清选中订单</button>

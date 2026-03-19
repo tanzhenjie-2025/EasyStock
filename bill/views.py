@@ -246,7 +246,7 @@ def stock_list(request):
 
 @login_required
 def order_list(request):
-    """订单列表页（新增订单号搜索 + 修复金额筛选）"""
+    """订单列表页（新增订单号搜索 + 修复金额筛选 + 新增数据统计）"""
     # 新增：获取订单号搜索参数
     order_no = request.GET.get('order_no', '').strip()
     date_from = request.GET.get('date_from', '')
@@ -310,6 +310,16 @@ def order_list(request):
             # 金额格式错误时，跳过金额筛选（避免报错）
             pass
 
+    # ========== 新增：数据统计计算 ==========
+    # 1. 总订单数
+    total_orders = orders.count()
+    # 2. 总销售金额
+    total_sales = orders.aggregate(total=Sum('total_amount'))['total'] or decimal.Decimal('0.00')
+    # 3. 总结清订单数
+    settled_orders = orders.filter(is_settled=True).count()
+    # 4. 总欠款金额（未结清订单的金额总和）
+    total_debt = orders.filter(is_settled=False).aggregate(total=Sum('total_amount'))['total'] or decimal.Decimal('0.00')
+
     areas = Area.objects.all().order_by('name')
 
     context = {
@@ -324,7 +334,12 @@ def order_list(request):
         'amount_value': amount_value,
         'is_boss': is_boss(request.user),
         # 新增：传递订单号参数到模板（实现搜索框回显）
-        'order_no': order_no
+        'order_no': order_no,
+        # ========== 新增：统计数据传入模板 ==========
+        'total_orders': total_orders,
+        'total_sales': total_sales,
+        'settled_orders': settled_orders,
+        'total_debt': total_debt
     }
     return render(request, 'bill/order_list.html', context)
 
