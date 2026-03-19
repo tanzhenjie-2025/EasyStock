@@ -26,4 +26,6 @@ urlpatterns = [
 
     # ========== 你原来的reopen-edit路径（完全保留，不修改） ==========
     path('reopen-edit/<str:order_no>/', views.reopen_order_edit, name='reopen_order_edit'),  # 重开编辑页面
+
+path('get-customer-recent-products/', views.get_customer_recent_products, name='get_customer_recent_products'),
 ]

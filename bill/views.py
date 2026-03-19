@@ -804,3 +804,54 @@ def batch_settle_order(request):
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'批量结清失败：{str(e)}'}, status=500)
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, status=405)
+
+
+@login_required
+@permission_required(PERM_PRODUCT_SEARCH)
+def get_customer_recent_products(request):
+    """获取客户最近购买的商品（按购买时间倒序）"""
+    customer_id = request.GET.get('customer_id', '').strip()
+    if not customer_id:
+        return JsonResponse({'code': 0, 'msg': '请选择客户', 'data': []})
+
+    try:
+        # 获取该客户的有效订单（排除作废），按创建时间倒序
+        customer_orders = Order.objects.filter(
+            customer_id=customer_id,
+            status__in=['pending', 'printed', 'reopened'],
+        ).order_by('-create_time')[:50]  # 取最近50个订单
+
+        # 提取订单商品，去重并记录最后购买信息
+        product_dict = {}
+        for order in customer_orders:
+            order_items = OrderItem.objects.filter(order=order, product__isnull=False)
+            for item in order_items:
+                product = item.product
+                if product.id not in product_dict:
+                    # 获取客户专属价
+                    try:
+                        customer_price = CustomerPrice.objects.get(customer_id=customer_id, product_id=product.id)
+                        final_price = float(customer_price.custom_price)
+                    except CustomerPrice.DoesNotExist:
+                        final_price = float(product.price)
+
+                    product_dict[product.id] = {
+                        'id': product.id,
+                        'name': product.name,
+                        'price': final_price,
+                        'standard_price': float(product.price),
+                        'unit': product.unit,
+                        'last_purchase_time': order.create_time.strftime('%Y-%m-%d %H:%M'),
+                        'last_quantity': item.quantity
+                    }
+
+        # 按最后购买时间倒序排序
+        recent_products = sorted(
+            product_dict.values(),
+            key=lambda x: x['last_purchase_time'],
+            reverse=True
+        )
+
+        return JsonResponse({'code': 1, 'data': recent_products})
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': f'获取失败：{str(e)}', 'data': []})

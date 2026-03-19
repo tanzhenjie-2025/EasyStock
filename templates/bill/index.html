@@ -6,7 +6,7 @@
 <!-- 页面专属样式 -->
 {% block extra_css %}
     <style>
-        /* 原有样式保留，新增重开标识样式 */
+        /* 原有样式保留 */
         .reopen-tag {
             background: #ffc107;
             color: #000;
@@ -16,7 +16,6 @@
             margin-bottom: 10px;
             display: inline-block;
         }
-        /* 原有样式... */
         body { font-family: "Microsoft YaHei", sans-serif; margin: 0; }
         .content-container { 
             max-width: 1000px; 
@@ -39,14 +38,13 @@
         .btn-del:hover { background: #dd3300; }
         .total-row { background: #f0f0f0; font-weight: bold; }
 
-        /* 输入法式候选框 - 核心修改：解决文字换行问题 */
+        /* 输入法式候选框 */
         .suggest-dropdown {
             position: absolute;
             top: 100%; left: 0;
-            /* 关键1：最小宽度350px，避免过窄；宽度自动适配内容，最大不超过500px */
             min-width: 350px;
             max-width: 500px;
-            width: auto !important; /* 覆盖JS设置的固定宽度 */
+            width: auto !important;
             background: #fff;
             border: 1px solid #ccc;
             border-radius: 4px;
@@ -54,17 +52,13 @@
             z-index: 9999;
             font-size: 14px;
             text-align: left;
-            /* 关键2：强制文字不换行 */
             white-space: nowrap;
-            /* 关键3：溢出隐藏+省略号 */
             overflow: hidden;
         }
         .suggest-dropdown div {
             padding: 6px 12px;
             cursor: pointer;
-            /* 继承不换行样式 */
             white-space: nowrap;
-            /* 超长文字显示省略号 */
             text-overflow: ellipsis;
             overflow: hidden;
         }
@@ -84,34 +78,184 @@
             .bill-table input { border: none; }
             .btn-del { display: none; }
         }
+
+        /* ========== 新增：最近购买模态框样式 ========== */
+        .recent-buy-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 99999;
+            overflow: auto;
+        }
+        .modal-content {
+            background: #fff;
+            margin: 50px auto;
+            padding: 20px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 1200px;
+            position: relative;
+        }
+        .modal-close {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            font-size: 24px;
+            cursor: pointer;
+            color: #666;
+        }
+        .modal-close:hover { color: #ff4400; }
+        
+        .recent-search-box {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        .recent-search-input {
+            flex: 1;
+            padding: 8px 12px;
+            font-size: 14px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
+        .recent-products-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 30px;
+        }
+        .recent-products-table th,
+        .recent-products-table td {
+            border: 1px solid #ddd;
+            padding: 8px 12px;
+            text-align: center;
+        }
+        .recent-products-table th {
+            background: #f8f9fa;
+            font-weight: bold;
+        }
+        .btn-add-cart {
+            padding: 4px 8px;
+            background: #28a745;
+            color: #fff;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .btn-add-cart:hover { background: #218838; }
+        
+        .cart-container {
+            margin-top: 20px;
+        }
+        .cart-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 15px;
+        }
+        .cart-table th,
+        .cart-table td {
+            border: 1px solid #ddd;
+            padding: 8px 12px;
+            text-align: center;
+        }
+        .cart-table th {
+            background: #f8f9fa;
+            font-weight: bold;
+        }
+        .cart-quantity-input {
+            width: 80px;
+            padding: 4px;
+            text-align: center;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+        .cart-quantity-input.error {
+            border-color: #dc3545;
+            background: #fff5f5;
+        }
+        .cart-del-btn {
+            padding: 4px 8px;
+            background: #dc3545;
+            color: #fff;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .cart-del-btn:hover { background: #c82333; }
+        
+        .cart-total {
+            text-align: right;
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            padding-right: 10px;
+        }
+        .btn-batch-add {
+            padding: 10px 20px;
+            background: #0066cc;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        .btn-batch-add:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .highlight-row {
+            animation: highlight 1s ease;
+        }
+        @keyframes highlight {
+            0% { background: #d4edda; }
+            100% { background: transparent; }
+        }
     </style>
 {% endblock %}
 
-<!-- 页面主体内容：添加重开标识展示 -->
+<!-- 页面主体内容 -->
 {% block content %}
     <div class="content-container">
         <h1>快速开单工具（表格版）</h1>
         
-        <!-- 新增：重开订单标识 -->
+        <!-- 重开订单标识 -->
         {% if reopen_order_data %}
             <div class="reopen-tag">
                 🔄 重开订单：原作废单号 {{ reopen_order_data.order_no }}
             </div>
         {% endif %}
 
-    <!-- 仅保留客户输入框 -->
-    <div class="mb-3">
-        <label class="form-label me-2">选择客户：</label>
-        <input
-            type="text"
-            id="customerInput"
-            class="form-control form-control-sm"
-            style="width: 250px;"
-            placeholder="输入区域/客户名（输入法式选择）"
-        >
-    </div>
+        <!-- 客户输入框 + 最近购买按钮 -->
+        <div class="mb-3">
+            <label class="form-label me-2">选择客户：</label>
+            <input
+                type="text"
+                id="customerInput"
+                class="form-control form-control-sm"
+                style="width: 250px; display: inline-block;"
+                placeholder="输入区域/客户名（输入法式选择）"
+            >
+            <!-- 新增：最近购买按钮 -->
+            <button 
+                id="btnRecentBuy" 
+                class="btn btn-sm btn-outline-secondary ms-2"
+                style="vertical-align: middle;"
+                onclick="openRecentBuyModal()"
+                disabled
+            >
+                用户最近购买
+            </button>
+        </div>
 
-    <button class="btn-add-row" onclick="addBlankRow()">新增空白行</button>
+        <button class="btn-add-row" onclick="addBlankRow()">新增空白行</button>
 
         <table class="bill-table" id="bill-table">
             <thead>
@@ -140,9 +284,76 @@
             <button class="btn-print" onclick="printBill()">一键打印</button>
         </div>
     </div>
+
+    <!-- ========== 新增：最近购买模态框 ========== -->
+    <div class="recent-buy-modal" id="recentBuyModal">
+        <div class="modal-content">
+            <span class="modal-close" onclick="closeRecentBuyModal()">&times;</span>
+            <h4>客户最近购买商品</h4>
+            
+            <!-- 搜索框 -->
+            <div class="recent-search-box">
+                <input 
+                    type="text" 
+                    class="recent-search-input" 
+                    id="recentSearchInput"
+                    placeholder="搜索最近购买的商品..."
+                    oninput="filterRecentProducts()"
+                >
+            </div>
+            
+            <!-- 最近购买商品表格 -->
+            <table class="recent-products-table" id="recentProductsTable">
+                <thead>
+                    <tr>
+                        <th>商品名称</th>
+                        <th>单价（¥）</th>
+                        <th>单位</th>
+                        <th>最后购买时间</th>
+                        <th>最后购买数量</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="recentProductsTbody"></tbody>
+            </table>
+            
+            <!-- 加购商品小表格 -->
+            <div class="cart-container">
+                <h5>待加购商品</h5>
+                <table class="cart-table" id="cartTable">
+                    <thead>
+                        <tr>
+                            <th>序号</th>
+                            <th>商品名称</th>
+                            <th>商品数量</th>
+                            <th>单位</th>
+                            <th>单价（¥）</th>
+                            <th>金额（¥）</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="cartTbody"></tbody>
+                </table>
+                
+                <div class="cart-total">
+                    金额总计：<span id="cartTotalAmount">¥0.00</span>
+                </div>
+                
+                <button 
+                    class="btn-batch-add" 
+                    id="btnBatchAdd"
+                    onclick="batchAddToBill()"
+                    disabled
+                    title="请先添加商品"
+                >
+                    一键加购到开单页
+                </button>
+            </div>
+        </div>
+    </div>
 {% endblock %}
 
-<!-- 页面专属JS：修改保存逻辑，传递原废单号 -->
+<!-- 页面专属JS -->
 {% block extra_js %}
     <script>
         // ========== 全局配置 ==========
@@ -159,9 +370,25 @@
         // 新增：存储原废单号（重开场景）
         let originalOrderNo = {% if reopen_order_data %}"{{ reopen_order_data.order_no }}"{% else %}null{% endif %};
 
+        // ========== 新增：最近购买相关全局变量 ==========
+        let allRecentProducts = [];  // 所有最近购买商品
+        let cartItems = [];          // 加购车商品
+        let cartIdCounter = 0;       // 加购车ID计数器
+
         // ========== 初始化 ==========
         initSuggestBox();
         window.addEventListener('click', hideAllSuggest);
+        // 新增：监听ESC关闭模态框
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeRecentBuyModal();
+            }
+        });
+        // 新增：监听客户选择变化，启用/禁用最近购买按钮
+        document.getElementById('customerInput').addEventListener('change', function() {
+            const btn = document.getElementById('btnRecentBuy');
+            btn.disabled = !this.dataset.customerId;
+        });
 
         // ========== 1. 通用候选框初始化 ==========
         function initSuggestBox() {
@@ -210,8 +437,6 @@
             const rect = input.getBoundingClientRect();
             suggestBox.style.left = rect.left + 'px';
             suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
-            // 移除固定宽度设置，改用CSS的min-width/max-width
-            // suggestBox.style.width = rect.width + 'px';
             suggestBox.innerHTML = '';
 
             list.slice(0, 8).forEach((item, idx) => {
@@ -255,7 +480,7 @@
             if (e.key === 'Escape') hideSuggest();
         }
 
-        // ========== 3. 客户搜索逻辑（核心修改） ==========
+        // ========== 3. 客户搜索逻辑 ==========
         async function onCustomerInput(input) {
             const keyword = input.value.trim();
             if (!keyword) {
@@ -263,7 +488,6 @@
                 return;
             }
             currentCustomerInput = input;
-            // 移除区域ID相关逻辑
             try {
                 const res = await fetch(`/bill/search-customer/?keyword=${encodeURIComponent(keyword)}`);
                 const data = await res.json();
@@ -280,11 +504,8 @@
             const rect = input.getBoundingClientRect();
             suggestBox.style.left = rect.left + 'px';
             suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
-            // 移除固定宽度设置，改用CSS的min-width/max-width
-            // suggestBox.style.width = rect.width + 'px';
             suggestBox.innerHTML = '';
 
-            // 显示格式：1 区域 | 客户名（无括号）
             list.slice(0, 8).forEach((item, idx) => {
                 const div = document.createElement('div');
                 div.textContent = `${idx+1} ${item.full_name}`;
@@ -298,15 +519,14 @@
         function selectCustomerItem(index) {
             const item = currentCustomerList[index];
             if (!item || !currentCustomerInput) return;
-            // 显示格式：区域 | 客户名（无括号）
             currentCustomerInput.value = item.full_name;
             currentCustomerInput.dataset.customerId = item.id;
+            // 触发change事件，启用最近购买按钮
+            currentCustomerInput.dispatchEvent(new Event('change'));
             hideSuggest();
         }
 
-        // 客户输入框键盘事件：新增回车跳转逻辑
         function handleCustomerInputKey(e) {
-            // 如果有候选列表，优先处理候选选择
             if (currentCustomerList.length) {
                 if (e.key === ' ') {
                     e.preventDefault();
@@ -323,17 +543,15 @@
                 }
             }
             
-            // 核心新增：按回车跳转到第一个商品名称输入框
             if (e.key === 'Enter') {
                 e.preventDefault();
                 const firstProductInput = document.querySelector('#bill-tbody .name-input');
                 if (firstProductInput) {
                     firstProductInput.focus();
-                    firstProductInput.select(); // 选中输入框内容，方便直接输入
+                    firstProductInput.select();
                 }
             }
 
-            // Shift+Enter 保存提交（客户输入框也支持）
             if (e.shiftKey && e.key === 'Enter') {
                 e.preventDefault();
                 saveOrder();
@@ -376,7 +594,6 @@
 
         function bindInputKeyboardEvents(input) {
             input.addEventListener('keydown', e => {
-                // Shift+Enter 保存提交（表格输入框支持）
                 if (e.shiftKey && e.key === 'Enter') {
                     e.preventDefault();
                     saveOrder();
@@ -429,7 +646,6 @@
             }
         }
 
-        // 修复：删除行后聚焦到上一行对应输入框
         function handleDeleteRowByKey(input) {
             const tr = input.closest('tr');
             const tbody = document.getElementById('bill-tbody');
@@ -438,30 +654,24 @@
                 return;
             }
 
-            // 记录当前行位置和输入框位置
             const allTr = Array.from(tbody.querySelectorAll('tr'));
             const trIdx = allTr.indexOf(tr);
             const inputs = tr.querySelectorAll('input');
             const inputIdx = Array.from(inputs).indexOf(input);
 
-            // 删除当前行
             tr.remove();
             updateRowNumbers();
             calcTotalAmount();
 
-            // 聚焦到上一行的对应输入框
             const newAllTr = Array.from(tbody.querySelectorAll('tr'));
             if (newAllTr.length > 0) {
-                // 目标行：上一行（如果是第一行则取当前第一行）
                 const targetTrIdx = trIdx > 0 ? trIdx - 1 : 0;
                 const targetTr = newAllTr[targetTrIdx];
                 const targetInputs = targetTr.querySelectorAll('input');
 
-                // 目标输入框：原位置（超出则取最后一个输入框）
                 const targetInputIdx = inputIdx < targetInputs.length ? inputIdx : targetInputs.length - 1;
                 const targetInput = targetInputs[targetInputIdx];
 
-                // 聚焦并选中内容
                 targetInput.focus();
                 targetInput.select();
             }
@@ -509,7 +719,6 @@
             tbody.appendChild(tr);
             updateRowNumbers();
             calcTotalAmount();
-            // 移除商品输入框默认聚焦 ← 关键修改1
             const nameInput = tr.querySelector('.name-input');
             if (returnRow) return tr;
         }
@@ -521,14 +730,13 @@
             tr.remove(); updateRowNumbers(); calcTotalAmount();
         }
 
-        // 在saveOrder函数上方新增CSRF Token获取函数
+        // CSRF Token获取函数
         function getCsrfToken() {
             let cookieValue = null;
             if (document.cookie && document.cookie !== '') {
                 const cookies = document.cookie.split(';');
                 for (let i = 0; i < cookies.length; i++) {
                     const cookie = cookies[i].trim();
-                    // 查找csrftoken开头的cookie
                     if (cookie.substring(0, 10) === 'csrftoken=') {
                         cookieValue = decodeURIComponent(cookie.substring(10));
                         break;
@@ -538,7 +746,7 @@
             return cookieValue;
         }
 
-        // ========== 7. 保存/打印/重置（核心修改：传递原废单号） ==========
+        // ========== 7. 保存/打印/重置 ==========
         async function saveOrder() {
             const items = [];
             document.querySelectorAll('#bill-tbody tr').forEach(tr=>{
@@ -557,7 +765,6 @@
             if(!items.length){alert('请填写商品');return;}
             const total = items.reduce((s,i)=>s+parseFloat(i.amt),0).toFixed(2);
             
-            // 仅获取客户ID，删除区域ID相关逻辑
             const customerInput = document.getElementById('customerInput');
             const customerId = customerInput.dataset.customerId || '';
 
@@ -568,7 +775,6 @@
                     customer_id: customerId
                 };
                 
-                // 新增：如果是重开场景，添加原废单号
                 if (originalOrderNo) {
                     requestData.original_order_no = originalOrderNo;
                 }
@@ -589,38 +795,382 @@
             document.getElementById('bill-tbody').innerHTML='';
             rowIdCounter=0;
             addBlankRow();
-            // 仅清空客户输入框，删除区域选择框清空逻辑
             const customerInput = document.getElementById('customerInput');
             if (customerInput) {
                 customerInput.value = '';
                 delete customerInput.dataset.customerId;
+                // 禁用最近购买按钮
+                document.getElementById('btnRecentBuy').disabled = true;
             }
-            // 重置原废单号
             originalOrderNo = null;
         }
 
-        // ========== 页面加载初始化（合并重复定义，解决IDE警告） ==========
+        // ========== 新增：最近购买功能核心逻辑 ==========
+        /**
+         * 打开最近购买模态框
+         */
+        async function openRecentBuyModal() {
+            const customerId = document.getElementById('customerInput').dataset.customerId;
+            if (!customerId) {
+                alert('请先选择客户！');
+                return;
+            }
+
+            // 加载最近购买商品
+            try {
+                const res = await fetch(`/bill/get-customer-recent-products/?customer_id=${encodeURIComponent(customerId)}`);
+                const data = await res.json();
+                if (data.code === 1) {
+                    allRecentProducts = data.data;
+                    renderRecentProductsTable(allRecentProducts);
+                } else {
+                    alert(data.msg);
+                    allRecentProducts = [];
+                    renderRecentProductsTable([]);
+                }
+            } catch (e) {
+                alert('加载最近购买商品失败：' + e.message);
+                allRecentProducts = [];
+                renderRecentProductsTable([]);
+            }
+
+            // 显示模态框
+            document.getElementById('recentBuyModal').style.display = 'block';
+            // 聚焦搜索框
+            document.getElementById('recentSearchInput').focus();
+            // 保留之前的加购车数据
+            renderCartTable();
+        }
+
+        /**
+         * 关闭最近购买模态框
+         */
+        function closeRecentBuyModal() {
+            if (confirm('是否保留已选商品？')) {
+                // 保留加购车数据
+                document.getElementById('recentBuyModal').style.display = 'none';
+            } else {
+                // 清空加购车
+                cartItems = [];
+                cartIdCounter = 0;
+                renderCartTable();
+                document.getElementById('recentBuyModal').style.display = 'none';
+            }
+        }
+
+        /**
+         * 渲染最近购买商品表格
+         * @param {Array} products 商品列表
+         */
+        function renderRecentProductsTable(products) {
+            const tbody = document.getElementById('recentProductsTbody');
+            if (products.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6">暂无最近购买商品</td></tr>';
+                return;
+            }
+
+            let html = '';
+            products.forEach(product => {
+                html += `
+                    <tr>
+                        <td>${product.name}</td>
+                        <td>¥${product.price.toFixed(2)}</td>
+                        <td>${product.unit}</td>
+                        <td>${product.last_purchase_time}</td>
+                        <td>${product.last_quantity}</td>
+                        <td>
+                            <button class="btn-add-cart" onclick="addToCart(${product.id})">
+                                加购
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+            tbody.innerHTML = html;
+        }
+
+        /**
+         * 过滤最近购买商品
+         */
+        function filterRecentProducts() {
+            const keyword = document.getElementById('recentSearchInput').value.trim().toLowerCase();
+            if (!keyword) {
+                renderRecentProductsTable(allRecentProducts);
+                return;
+            }
+
+            const filtered = allRecentProducts.filter(product => 
+                product.name.toLowerCase().includes(keyword)
+            );
+            
+            if (filtered.length === 0) {
+                document.getElementById('recentProductsTbody').innerHTML = '<tr><td colspan="6">暂无匹配的最近购买商品</td></tr>';
+            } else {
+                renderRecentProductsTable(filtered);
+            }
+        }
+
+        /**
+         * 添加商品到加购车
+         * @param {Number} productId 商品ID
+         */
+        function addToCart(productId) {
+            const product = allRecentProducts.find(p => p.id === productId);
+            if (!product) return;
+
+            // 检查是否已存在，存在则数量+1，否则新增
+            const existingItem = cartItems.find(item => item.productId === productId);
+            if (existingItem) {
+                existingItem.quantity += 1;
+                // 更新金额
+                existingItem.amount = (existingItem.quantity * existingItem.price).toFixed(2);
+            } else {
+                cartIdCounter++;
+                cartItems.push({
+                    id: cartIdCounter,
+                    productId: product.id,
+                    name: product.name,
+                    quantity: 1,
+                    unit: product.unit,
+                    price: product.price,
+                    amount: (1 * product.price).toFixed(2)
+                });
+            }
+
+            // 重新渲染加购车
+            renderCartTable();
+            
+            // 找到对应的数量输入框并聚焦
+            const quantityInput = document.querySelector(`#cartTable [data-cart-id="${existingItem ? existingItem.id : cartIdCounter}"]`);
+            if (quantityInput) {
+                quantityInput.focus();
+                quantityInput.select();
+            }
+        }
+
+        /**
+         * 渲染加购车表格
+         */
+        function renderCartTable() {
+            const tbody = document.getElementById('cartTbody');
+            const batchBtn = document.getElementById('btnBatchAdd');
+            
+            if (cartItems.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7">暂无加购商品</td></tr>';
+                batchBtn.disabled = true;
+                batchBtn.title = '请先添加商品';
+                document.getElementById('cartTotalAmount').textContent = '¥0.00';
+                return;
+            }
+
+            // 启用批量加购按钮
+            batchBtn.disabled = false;
+            batchBtn.title = '';
+
+            // 渲染表格
+            let html = '';
+            let total = 0;
+            cartItems.forEach((item, index) => {
+                total += parseFloat(item.amount);
+                html += `
+                    <tr>
+                        <td>${index + 1}</td>
+                        <td>${item.name}</td>
+                        <td>
+                            <input 
+                                type="number" 
+                                class="cart-quantity-input"
+                                data-cart-id="${item.id}"
+                                value="${item.quantity}"
+                                min="1"
+                                oninput="updateCartItemQuantity(${item.id}, this)"
+                                onkeydown="handleCartKeydown(event, ${item.id}, this)"
+                            >
+                        </td>
+                        <td>${item.unit}</td>
+                        <td>¥${item.price.toFixed(2)}</td>
+                        <td>¥${item.amount}</td>
+                        <td>
+                            <button class="cart-del-btn" onclick="deleteCartItem(${item.id})">
+                                删除
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            tbody.innerHTML = html;
+            document.getElementById('cartTotalAmount').textContent = `¥${total.toFixed(2)}`;
+        }
+
+        /**
+         * 更新加购车商品数量
+         * @param {Number} cartId 加购项ID
+         * @param {HTMLElement} input 数量输入框
+         */
+        function updateCartItemQuantity(cartId, input) {
+            const item = cartItems.find(i => i.id === cartId);
+            if (!item) return;
+
+            // 验证数量
+            let quantity = parseInt(input.value);
+            if (isNaN(quantity) || quantity < 1) {
+                quantity = 1;
+                input.value = 1;
+                input.classList.add('error');
+                setTimeout(() => input.classList.remove('error'), 1000);
+            }
+
+            // 更新数量和金额
+            item.quantity = quantity;
+            item.amount = (quantity * item.price).toFixed(2);
+
+            // 重新渲染表格（保持光标位置）
+            const currentFocused = document.activeElement;
+            renderCartTable();
+            if (currentFocused && currentFocused.dataset.cartId == cartId) {
+                const newInput = document.querySelector(`[data-cart-id="${cartId}"]`);
+                if (newInput) {
+                    newInput.focus();
+                    newInput.value = quantity;
+                }
+            }
+        }
+
+        /**
+         * 处理加购车键盘事件
+         */
+        function handleCartKeydown(e, cartId, input) {
+            const itemIndex = cartItems.findIndex(i => i.id === cartId);
+            
+            // 上下键切换行
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                const prevIndex = itemIndex === 0 ? cartItems.length - 1 : itemIndex - 1;
+                const prevInput = document.querySelector(`[data-cart-id="${cartItems[prevIndex].id}"]`);
+                if (prevInput) {
+                    prevInput.focus();
+                    prevInput.select();
+                }
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                const nextIndex = itemIndex === cartItems.length - 1 ? 0 : itemIndex + 1;
+                const nextInput = document.querySelector(`[data-cart-id="${cartItems[nextIndex].id}"]`);
+                if (nextInput) {
+                    nextInput.focus();
+                    nextInput.select();
+                }
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                addToCart(cartItems.find(i => i.id === cartId).productId);
+            }
+        }
+
+        /**
+         * 删除加购车商品
+         * @param {Number} cartId 加购项ID
+         */
+        function deleteCartItem(cartId) {
+            cartItems = cartItems.filter(item => item.id !== cartId);
+            renderCartTable();
+        }
+
+        /**
+         * 批量加购到开单页
+         */
+        function batchAddToBill() {
+            // 验证数量
+            let hasError = false;
+            cartItems.forEach(item => {
+                if (item.quantity < 1) {
+                    hasError = true;
+                    const input = document.querySelector(`[data-cart-id="${item.id}"]`);
+                    if (input) {
+                        input.classList.add('error');
+                        setTimeout(() => input.classList.remove('error'), 2000);
+                    }
+                }
+            });
+
+            if (hasError) {
+                alert('请修正数量后重试！');
+                return;
+            }
+
+            // 批量添加到开单页
+            cartItems.forEach(item => {
+                // 检查开单页是否已有该商品
+                let existingRow = null;
+                document.querySelectorAll('#bill-tbody tr').forEach(tr => {
+                    const nameInput = tr.querySelector('.name-input');
+                    if (nameInput.dataset.productId == item.productId) {
+                        existingRow = tr;
+                    }
+                });
+
+                if (existingRow) {
+                    // 累加数量
+                    const quantityInput = existingRow.querySelector('.quantity-input');
+                    const currentQty = parseInt(quantityInput.value) || 0;
+                    quantityInput.value = currentQty + item.quantity;
+                    // 重新计算金额
+                    calcRowAmount(quantityInput);
+                    // 高亮行
+                    existingRow.classList.add('highlight-row');
+                    setTimeout(() => existingRow.classList.remove('highlight-row'), 1000);
+                } else {
+                    // 新增行
+                    const newRow = addBlankRow(true);
+                    const nameInput = newRow.querySelector('.name-input');
+                    nameInput.value = item.name;
+                    nameInput.dataset.productId = item.productId;
+                    newRow.querySelector('.quantity-input').value = item.quantity;
+                    newRow.querySelector('.unit-input').value = item.unit;
+                    newRow.querySelector('.price-input').value = item.price;
+                    calcRowAmount(newRow.querySelector('.price-input'));
+                    // 高亮行
+                    newRow.classList.add('highlight-row');
+                    setTimeout(() => newRow.classList.remove('highlight-row'), 1000);
+                }
+            });
+
+            // 清空加购车
+            cartItems = [];
+            cartIdCounter = 0;
+            renderCartTable();
+
+            // 关闭模态框
+            document.getElementById('recentBuyModal').style.display = 'none';
+
+            // 提示信息
+            alert(`已导入 ${arguments[0] ? arguments[0] : cartItems.length} 件商品`);
+            
+            // 聚焦到商品搜索框
+            const firstProductInput = document.querySelector('#bill-tbody .name-input');
+            if (firstProductInput) {
+                firstProductInput.focus();
+                firstProductInput.select();
+            }
+        }
+
+        // ========== 页面加载初始化 ==========
         window.onload = function() {
-            // 初始化客户输入框事件
             initCustomerInput();
             
-            // ========== 重开订单数据填充逻辑 ==========
             {% if reopen_order_data %}
-                // 1. 填充客户信息
                 const customerInput = document.getElementById('customerInput');
                 customerInput.value = "{{ reopen_order_data.customer_name }}";
                 customerInput.dataset.customerId = "{{ reopen_order_data.customer_id }}";
+                // 启用最近购买按钮
+                customerInput.dispatchEvent(new Event('change'));
                 
-                // 2. 清空默认行，重新填充商品明细
                 document.getElementById('bill-tbody').innerHTML = '';
                 rowIdCounter = 0;
                 
-                // 3. 填充作废订单的商品明细
                 const reopenItems = {{ reopen_order_data.items|safe }};
                 reopenItems.forEach(item => {
-                    const tr = addBlankRow(true); // 创建行并返回
+                    const tr = addBlankRow(true);
                     
-                    // 填充商品信息
                     const nameInput = tr.querySelector('.name-input');
                     nameInput.value = item.name;
                     nameInput.dataset.productId = item.id;
@@ -629,23 +1179,19 @@
                     tr.querySelector('.unit-input').value = item.unit;
                     tr.querySelector('.price-input').value = item.price;
                     
-                    // 计算行金额
                     calcRowAmount(tr.querySelector('.price-input'));
                 });
                 
-                // 4. 如果无商品，添加空白行
                 if (reopenItems.length === 0) {
                     addBlankRow();
                 }
                 
-                // 5. 聚焦到第一个商品输入框，方便修改
                 const firstProductInput = document.querySelector('#bill-tbody .name-input');
                 if (firstProductInput) {
                     firstProductInput.focus();
-                    firstProductInput.select(); // 选中内容，方便直接修改
+                    firstProductInput.select();
                 }
             {% else %}
-                // 普通开单：添加空白行并聚焦客户输入框
                 addBlankRow();
                 const customerInput = document.getElementById('customerInput');
                 if (customerInput) {
