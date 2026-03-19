@@ -105,6 +105,12 @@
                                         data-is-active="{% if user.is_active %}1{% else %}0{% endif %}">
                                     {% if user.is_active %}禁用{% else %}启用{% endif %}
                                 </button>
+                                <!-- 新增：重置密码按钮 -->
+                                <button class="btn btn-outline-warning reset-password-btn"
+                                        data-user-id="{{ user.id }}"
+                                        data-user-code="{{ user.user_code }}">
+                                    重置密码
+                                </button>
                             </div>
                         </td>
                     </tr>
@@ -189,6 +195,41 @@ $(document).on('click', '.status-toggle-btn', function() {
             },
             error: function(xhr, status, error) {
                 console.error('AJAX错误：', status, error);
+                alert(`请求失败：${xhr.status} - ${xhr.statusText}`);
+            }
+        });
+    }
+});
+
+// 新增：重置密码功能逻辑
+$(document).on('click', '.reset-password-btn', function() {
+    const userId = $(this).data('user-id');
+    const userCode = $(this).data('user-code');
+    
+    // 确认弹窗：明确告知重置后的规则
+    const confirmMsg = `确定要重置用户【${userCode}】的密码吗？
+1. 重置后密码将设为临时密码：123456
+2. 该用户下次登录时会被强制修改密码
+3. 您将无法查看该用户的新密码`;
+    
+    if (confirm(confirmMsg)) {
+        $.ajax({
+            url: `/accounts/reset-password/${userId}/`,
+            type: 'POST',
+            headers: {
+                'X-CSRFToken': getCsrfToken()
+            },
+            dataType: 'json',
+            success: function(res) {
+                if (res.code === 1) {
+                    alert(res.msg);
+                    window.location.reload(); // 刷新页面确保状态同步
+                } else {
+                    alert('重置失败：' + res.msg);
+                }
+            },
+            error: function(xhr, status, error) {
+                console.error('重置密码AJAX错误：', status, error);
                 alert(`请求失败：${xhr.status} - ${xhr.statusText}`);
             }
         });

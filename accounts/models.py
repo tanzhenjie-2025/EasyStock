@@ -7,13 +7,19 @@ class User(AbstractUser):
     """
     拓展用户模型（继承Django AbstractUser）
     保留原生字段：username/password/email/is_active/is_staff等
-    新增拓展字段：用户编号（追责）、电话、地址等
+    新增拓展字段：用户编号（追责）、电话、地址、强制改密码标记等
     """
     # 核心追责字段：用户编号（唯一）
     user_code = models.CharField('用户编号', max_length=20, unique=True, help_text='开单人唯一编号，用于追责')
     # 拓展字段
     phone = models.CharField('联系电话', max_length=20, blank=True, null=True)
     address = models.CharField('地址', max_length=200, blank=True, null=True)
+    # 新增：强制改密码标记（重置密码后设为True，改完后设为False）
+    force_password_change = models.BooleanField(
+        '强制修改密码',
+        default=False,
+        help_text='密码重置后强制用户登录时修改密码'
+    )
 
     # 权限关联（兼容Django原生权限体系）
     groups = models.ManyToManyField(

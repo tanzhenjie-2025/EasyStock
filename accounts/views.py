@@ -7,31 +7,22 @@ from django.contrib.auth.models import Group
 from django.contrib import messages
 from django.db import IntegrityError
 from .models import User
-
-# 新增：导入日志模型和时间工具
 from operation_log.models import OperationLog
 from django.utils import timezone
+import logging
+
+# 配置日志
+logger = logging.getLogger(__name__)
 
 
-# ========== 新增：通用日志记录函数（核心） ==========
+# ========== 通用函数 ==========
 def create_operation_log(request, operation_type, object_type, object_id=None, object_name=None, operation_detail=None):
-    """
-    封装操作日志记录逻辑，容错处理（日志失败不影响主业务）
-    :param request: 请求对象（获取用户/IP）
-    :param operation_type: 操作类型（对应OperationLog的OPERATION_TYPE_CHOICES）
-    :param object_type: 操作对象类型（对应OperationLog的OBJECT_TYPE_CHOICES）
-    :param object_id: 操作对象ID（用户ID）
-    :param object_name: 操作对象名称（用户编号+用户名）
-    :param operation_detail: 操作详情（修改前后对比、权限组等关键信息）
-    """
-    # 获取客户端IP（兼容代理场景）
+    """封装操作日志记录逻辑，容错处理"""
     x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
     ip_address = x_forwarded_for.split(',')[0] if x_forwarded_for else request.META.get('REMOTE_ADDR', '')
-
-    # 容错处理：日志记录失败仅打印错误，不中断用户管理功能
     try:
         OperationLog.objects.create(
-            operator=request.user if request.user.is_authenticated else None,  # 当前登录用户（操作人）
+            operator=request.user if request.user.is_authenticated else None,
             operation_time=timezone.now(),
             operation_type=operation_type,
             object_type=object_type,
@@ -41,82 +32,151 @@ def create_operation_log(request, operation_type, object_type, object_id=None, o
             ip_address=ip_address
         )
     except Exception as e:
-        print(f"【用户管理日志记录失败】：{str(e)}")
+        print(f"【日志记录失败】：{str(e)}")
 
 
-# ========== 权限校验函数（用于装饰器） ==========
 def is_boss(user):
     """判断是否为老板（属于老板组）"""
     return user.groups.filter(name='老板').exists() or user.is_superuser
 
 
-import logging  # 顶部导入日志模块
-
-# 配置日志
-logger = logging.getLogger(__name__)
-
-
 def is_operator(user):
-    """判断是否为开单人（属于开单人组）- 增加调试日志"""
-    # 打印用户信息和组信息
-    logger.info(f"=== 权限校验 ===")
-    logger.info(f"用户名：{user.username} | ID：{user.id} | 超级管理员：{user.is_superuser}")
-    logger.info(f"用户所属组：{[g.name for g in user.groups.all()]}")
-
-    # 核心逻辑
-    is_in_operator_group = user.groups.filter(name='开单人').exists()
-    logger.info(f"是否在「开单人」组：{is_in_operator_group}")
-
-    result = is_in_operator_group or user.is_superuser
-    logger.info(f"最终校验结果：{result}")
-    return (
-            user.groups.filter(name='开单人').exists() or
-            user.groups.filter(name='老板').exists() or
-            user.is_superuser
-    )
+    """判断是否为开单人"""
+    logger.info(f"权限校验：用户名={user.username}，组={[g.name for g in user.groups.all()]}")
+    return user.groups.filter(name='开单人').exists() or user.groups.filter(name='老板').exists() or user.is_superuser
 
 
-# ========== 登录/登出 ==========
+# ========== 登录视图（新增强制改密码校验） ==========
 def login_view(request):
-    """登录页（复用Django auth认证）- 修复重定向循环"""
-    # 1. 已登录用户：优先跳转到next参数，无则跳转到/bill/
+    """登录页 - 登录后检查是否需要强制改密码"""
     if request.user.is_authenticated:
+        # 已登录且需要强制改密码：直接跳改密码页
+        if request.user.force_password_change:
+            return redirect('/accounts/force-change-password/')
         next_url = request.GET.get('next', '/bill/')
         return redirect(next_url)
 
     if request.method == 'POST':
         username = request.POST.get('username', '').strip()
         password = request.POST.get('password', '').strip()
-
-        # 验证用户
         user = authenticate(request, username=username, password=password)
+
         if user is not None and user.is_active:
             login(request, user)
-            # 记录登录态
             request.session['user_code'] = user.user_code
             request.session['user_name'] = user.name
 
-            # ========== 修改：日志操作类型从 query 改为 login ==========
+            # 记录登录日志
             create_operation_log(
                 request=request,
-                operation_type='login',  # 关键修改：登录操作
+                operation_type='login',
                 object_type='user',
                 object_id=user.id,
                 object_name=f"{user.user_code}-{user.username}",
-                operation_detail=f"用户登录：编号={user.user_code}，用户名={user.username}，IP={request.META.get('REMOTE_ADDR', '')}"
+                operation_detail=f"用户登录：编号={user.user_code}，用户名={user.username}"
             )
 
-            # 2. 登录成功：跳转到next参数（优先），无则跳转到/bill/
+            # 核心逻辑：检查是否需要强制改密码
+            if user.force_password_change:
+                return redirect('/accounts/force-change-password/')
+
             next_url = request.POST.get('next', request.GET.get('next', '/bill/'))
             return redirect(next_url)
         else:
             messages.error(request, '用户名/密码错误或账户已禁用')
 
-    # 3. 把next参数传递给前端模板
-    context = {
-        'next': request.GET.get('next', '')
-    }
+    context = {'next': request.GET.get('next', '')}
     return render(request, 'accounts/login.html', context)
+
+
+# ========== 老板重置密码视图（核心） ==========
+@login_required
+@user_passes_test(is_boss)
+def reset_password(request, user_id):
+    """老板重置员工密码为临时密码，标记强制改密码"""
+    if request.method == 'POST':
+        try:
+            user = get_object_or_404(User, id=user_id)
+            # 安全：老板永远看不到原密码（Django密码是哈希存储）
+            temp_password = "123456"  # 临时密码（可配置）
+
+            # 重置密码+标记强制改密码
+            user.set_password(temp_password)
+            user.force_password_change = True
+            user.save()
+
+            # 记录重置密码日志（不存储临时密码，仅记录操作）
+            create_operation_log(
+                request=request,
+                operation_type='reset_password',
+                object_type='user',
+                object_id=user.id,
+                object_name=f"{user.user_code}-{user.username}",
+                operation_detail=f"重置用户密码：编号={user.user_code}，用户名={user.username}，已生成临时密码并强制改密码"
+            )
+
+            return JsonResponse({
+                'code': 1,
+                'msg': f'用户 {user.user_code} 密码已重置为临时密码：{temp_password}，用户登录后将强制修改密码'
+            })
+        except Exception as e:
+            return JsonResponse({'code': 0, 'msg': f'重置失败：{str(e)}'})
+    return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
+
+
+# ========== 员工强制改密码视图 ==========
+@login_required
+def force_change_password(request):
+    """员工登录后强制改密码页面，必须修改才能进入系统"""
+    # 非强制改密码状态：直接跳首页
+    if not request.user.force_password_change:
+        return redirect('/bill/')
+
+    if request.method == 'POST':
+        old_password = request.POST.get('old_password', '').strip()
+        new_password = request.POST.get('new_password', '').strip()
+        confirm_password = request.POST.get('confirm_password', '').strip()
+
+        # 校验逻辑
+        if not old_password or not new_password or not confirm_password:
+            messages.error(request, '所有密码字段不能为空！')
+        elif new_password != confirm_password:
+            messages.error(request, '两次输入的新密码不一致！')
+        elif len(new_password) < 8:
+            messages.error(request, '新密码长度至少8位！')
+        elif not request.user.check_password(old_password):
+            messages.error(request, '原密码输入错误！')
+        else:
+            # 修改密码并取消强制改密码标记
+            request.user.set_password(new_password)
+            request.user.force_password_change = False
+            request.user.save()
+
+            # 记录改密码日志
+            create_operation_log(
+                request=request,
+                operation_type='change_password',
+                object_type='user',
+                object_id=request.user.id,
+                object_name=f"{request.user.user_code}-{request.user.username}",
+                operation_detail=f"用户强制修改密码：编号={request.user.user_code}，用户名={request.user.username}"
+            )
+
+            # 重新登录（密码修改后）
+            login(request, request.user)
+            messages.success(request, '密码修改成功！请正常使用系统。')
+            return redirect('/bill/')
+
+    return render(request, 'accounts/force_change_password.html', {
+        'is_boss': is_boss(request.user),
+        'user': request.user
+    })
+
+
+# ========== 权限校验函数（用于装饰器） ==========
+def is_boss(user):
+    """判断是否为老板（属于老板组）"""
+    return user.groups.filter(name='老板').exists() or user.is_superuser
 
 
 def logout_view(request):
