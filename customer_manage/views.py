@@ -7,9 +7,31 @@ from bill.models import Customer, Area, ProductAlias, CustomerPrice, Product, Or
 from django.db.models import Sum, F, Q, Max, Count
 from django.db.models.functions import Coalesce
 import datetime
+import unicodedata  # 新增：处理全角半角转换
 # ========== 新增：导入用户模块的权限装饰器和日志函数 ==========
 from django.contrib.auth.decorators import login_required
 from accounts.views import permission_required, create_operation_log  # 复用用户模块的日志和权限装饰器
+
+
+# 新增：全角转半角函数（处理输入容错）
+def full_to_half(s):
+    """将全角字符转换为半角"""
+    if not s:
+        return s
+    result = []
+    for char in s:
+        code_point = ord(char)
+        # 全角空格转半角空格
+        if code_point == 0x3000:
+            code_point = 0x20
+        # 其他全角字符（除空格）转半角
+        elif 0xFF01 <= code_point <= 0xFF5E:
+            code_point -= 0xFEE0
+        result.append(chr(code_point))
+    return ''.join(result)
+
+
+
 
 # ===================== 客户管理CRUD（添加权限装饰器） =====================
 # 1. 客户列表（需customer_view权限）
@@ -427,31 +449,106 @@ def customer_page(request):
     """客户管理页面"""
     return render(request, 'customer_manage/customer.html')
 
-# ===================== 客户专属价格CRUD（添加权限装饰器） =====================
-# 1. 客户价格列表（需customer_price_view权限）
 @login_required
 @permission_required('customer_price_view')
 @csrf_exempt
 def customer_price_list(request):
-    """获取客户专属价格列表"""
+    """获取客户专属价格列表 - 新增多维度搜索+高级筛选"""
     try:
-        prices = CustomerPrice.objects.all().select_related('customer', 'product')
+        # 1. 获取所有筛选参数
+        keyword = request.GET.get('keyword', '').strip()
+        min_price = request.GET.get('min_price', '').strip()  # 价格区间最小值
+        max_price = request.GET.get('max_price', '').strip()  # 价格区间最大值
+        area_id = request.GET.get('area_id', '').strip()  # 所属区域ID
+
+        # 2. 基础查询（关联客户、商品、商品别名、客户区域）
+        prices = CustomerPrice.objects.all().select_related('customer__area', 'product')
+
+        # 3. 处理搜索关键词（容错+多维度匹配）
+        if keyword:
+            # 容错处理：全角转半角、去多余空格（移除中文无意义的lower()）
+            keyword = full_to_half(keyword).strip()
+            # 拆分多关键词（空格分隔）
+            keywords = [k for k in keyword.split() if k]
+
+            # 构建基础Q对象（所有关键词需同时匹配）
+            base_q = Q()
+            for kw in keywords:
+                # 客户维度：名称（模糊）、编号（精准）
+                customer_q = Q(customer__name__icontains=kw)
+                # 如果是数字，转int后精准匹配客户编号
+                if kw.isdigit():
+                    customer_q |= Q(customer__id=int(kw))
+
+                # 商品维度：名称、别名、编号（修复核心错误）
+                product_q = Q(product__name__icontains=kw)
+                # 如果是数字，转int后精准匹配商品编号
+                if kw.isdigit():
+                    product_q |= Q(product__id=int(kw))
+                # 匹配商品别名
+                alias_ids = ProductAlias.objects.filter(
+                    Q(alias_name__icontains=kw) |
+                    Q(alias_pinyin_full__icontains=kw) |
+                    Q(alias_pinyin_abbr__icontains=kw)
+                ).values_list('product_id', flat=True)
+                if alias_ids:  # 只有有别名匹配时才添加
+                    product_q |= Q(product__id__in=alias_ids)
+
+                # 合并当前关键词的匹配条件（客户或商品维度）
+                kw_q = customer_q | product_q
+                # 所有关键词需同时满足（AND关系）
+                base_q &= kw_q
+
+            # 应用关键词筛选
+            prices = prices.filter(base_q)
+
+        # 4. 高级筛选：价格区间
+        if min_price:
+            try:
+                min_price = float(min_price)
+                prices = prices.filter(custom_price__gte=min_price)
+            except:
+                pass
+        if max_price:
+            try:
+                max_price = float(max_price)
+                prices = prices.filter(custom_price__lte=max_price)
+            except:
+                pass
+
+        # 5. 高级筛选：所属区域
+        if area_id and area_id.isdigit():
+            prices = prices.filter(customer__area_id=int(area_id))
+
+        # 6. 构造返回数据
         result = []
         for cp in prices:
             result.append({
                 'id': cp.id,
                 'customer_id': cp.customer.id,
                 'customer_name': cp.customer.name,
+                'customer_area_id': cp.customer.area.id if cp.customer.area else '',
+                'customer_area_name': cp.customer.area.name if cp.customer.area else '',
                 'product_id': cp.product.id,
                 'product_name': cp.product.name,
+                # 新增：商品别名（用于前端匹配标红）
+                'product_aliases': [alias.alias_name for alias in cp.product.aliases.all()],
                 'custom_price': float(cp.custom_price),
                 'standard_price': float(cp.product.price),  # 商品标准价
                 'remark': cp.remark or ''
             })
-        return JsonResponse(result, safe=False, content_type='application/json')
+
+        # 返回搜索结果+匹配的关键词（用于前端标红）
+        return JsonResponse({
+            'code': 1,
+            'msg': '查询成功',
+            'data': result,
+            'keyword': keyword  # 返回处理后的关键词，用于前端标红
+        }, safe=False, content_type='application/json')
+
     except Exception as e:
         return JsonResponse(
-            {'code': 0, 'msg': f'查询失败：{str(e)}'},
+            {'code': 0, 'msg': f'查询失败：{str(e)}', 'data': []},
             safe=False,
             content_type='application/json'
         )
@@ -685,3 +782,18 @@ def search_product_for_price(request):
         })
 
     return JsonResponse({'code': 1, 'data': data}, content_type='application/json')
+
+@login_required
+@permission_required('customer_price_view')
+@csrf_exempt
+def area_list_for_price(request):
+    """供专属价高级筛选获取区域列表"""
+    try:
+        areas = Area.objects.all().order_by('name')
+        result = [{'id': a.id, 'name': a.name} for a in areas]
+        return JsonResponse({'code': 1, 'data': result}, content_type='application/json')
+    except Exception as e:
+        return JsonResponse(
+            {'code': 0, 'msg': f'查询区域失败：{str(e)}', 'data': []},
+            content_type='application/json'
+        )

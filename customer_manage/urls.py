@@ -30,5 +30,6 @@ path('customer/search/', views.search_customer_for_price, name='search_customer_
     # 还款登记
     path('repayment/register/', views.repayment_register, name='repayment_register'),
     path('repayment/page/', views.repayment_page, name='repayment_page'),
+path('area/list/for/price/', views.area_list_for_price, name='area_list_for_price'),
 ]
 
