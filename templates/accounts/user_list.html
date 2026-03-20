@@ -6,6 +6,7 @@
     .status-active { background: #d1e7dd; color: #0f5132; }
     .status-inactive { background: #f8d7da; color: #842029; }
     .role-tag { font-size: 0.85rem; padding: 2px 6px; }
+    .shop-stats { background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
 </style>
 {% endblock %}
 
@@ -19,6 +20,18 @@
         </a>
     </div>
     <div class="card-body">
+        <!-- 新增：全店销售统计（仅超级管理员可见） -->
+        {% if is_super_admin %}
+        <div class="shop-stats">
+            <h6 class="mb-2">【全店销售统计】</h6>
+            <p class="mb-0">
+                总开单：{{ shop_stats.total_orders }} 单 | 
+                总销售额：{{ shop_stats.total_sales }} 元 | 
+                总作废：{{ shop_stats.total_cancelled }} 单
+            </p>
+        </div>
+        {% endif %}
+
         <!-- 筛选表单 -->
         <form method="get" class="mb-4 row g-3">
             <div class="col-md-4">
@@ -50,6 +63,11 @@
                         <th>联系电话</th>
                         <th>所属角色</th>
                         <th>状态</th>
+                        {% if is_super_admin %}
+                        <th>开单量</th>
+                        <th>销售额</th>
+                        <th>占比</th>
+                        {% endif %}
                         <th>创建时间</th>
                         <th>操作</th>
                     </tr>
@@ -76,9 +94,16 @@
                                 <span class="status-badge status-inactive">禁用</span>
                             {% endif %}
                         </td>
+                        {% if is_super_admin %}
+                        <td>{{ user_stats_dict.user.id.orders|default:0 }}单</td>
+                        <td>{{ user_stats_dict.user.id.sales|default:0 }}元</td>
+                        <td>{{ user_stats_dict.user.id.ratio|default:0 }}%</td>
+                        {% endif %}
                         <td>{{ user.date_joined|date:"Y-m-d H:i" }}</td>
                         <td>
                             <div class="btn-group btn-group-sm">
+                                <!-- 新增：详情按钮 -->
+                                <a href="{% url 'accounts:user_detail' user.id %}" class="btn btn-outline-info">详情</a>
                                 <a href="{% url 'accounts:user_edit' user.id %}" class="btn btn-outline-primary">编辑</a>
                                 <button class="btn {% if user.is_active %}btn-outline-danger{% else %}btn-outline-success{% endif %} status-toggle-btn" 
                                         data-user-id="{{ user.id }}" 
@@ -96,7 +121,7 @@
                     </tr>
                     {% empty %}
                     <tr>
-                        <td colspan="9" class="text-center text-muted">暂无用户数据</td>
+                        <td colspan="{% if is_super_admin %}12{% else %}9{% endif %}" class="text-center text-muted">暂无用户数据</td>
                     </tr>
                     {% endfor %}
                 </tbody>

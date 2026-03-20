@@ -18,6 +18,7 @@ urlpatterns = [
     path('user-edit/<int:user_id>/', views.user_edit, name='user_edit'),
     path('user-toggle-status/<int:user_id>/', views.user_toggle_status, name='user_toggle_status'),
     path('reset-password/<int:user_id>/', views.reset_password, name='reset_password'),
+path('user-detail/<int:user_id>/', views.user_detail, name='user_detail'),
 
     # RBAC核心
     path('permission-list/', views.permission_list, name='permission_list'),

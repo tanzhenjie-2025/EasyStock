@@ -9,6 +9,9 @@ from django.contrib import messages
 from django.db import IntegrityError
 from django.utils import timezone
 import logging
+# 新增：导入订单模型
+from bill.models import Order
+from django.db.models import Sum, Count
 
 # 导入模型和常量
 from .models import (
@@ -204,7 +207,7 @@ def logout_view(request):
 @login_required
 @permission_required('user_view')
 def user_list(request):
-    """用户列表（支持搜索/状态筛选）"""
+    """用户列表（支持搜索/状态筛选 + 销售统计）"""
     # 筛选参数
     keyword = request.GET.get('keyword', '').strip()
     status = request.GET.get('status', 'all')
@@ -227,14 +230,62 @@ def user_list(request):
     elif status == 'inactive':
         queryset = queryset.filter(is_active=False)
 
+    # ========== 新增：销售统计逻辑 ==========
+    # 1. 判断是否为超级管理员（仅超级管理员可见统计数据）
+    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+
+    # 2. 全店销售统计（仅超级管理员计算）
+    shop_stats = {
+        'total_orders': 0,
+        'total_sales': 0,
+        'total_cancelled': 0
+    }
+    if is_super_admin:
+        # 正常订单（排除作废）
+        normal_orders = Order.objects.filter(status__in=['pending', 'printed', 'reopened'])
+        shop_stats['total_orders'] = normal_orders.count()
+        shop_stats['total_sales'] = normal_orders.aggregate(total=Sum('total_amount'))['total'] or 0
+        # 作废订单
+        shop_stats['total_cancelled'] = Order.objects.filter(status='cancelled').count()
+
+    # 3. 员工销售统计（仅超级管理员计算）
+    user_stats_dict = {}
+    if is_super_admin:
+        for user in queryset:
+            if not user.is_active:
+                # 已禁用员工统计数据全为0
+                user_stats_dict[user.id] = {
+                    'orders': 0,
+                    'sales': 0,
+                    'ratio': 0
+                }
+                continue
+
+            # 正常订单统计
+            normal_orders = Order.objects.filter(creator=user, status__in=['pending', 'printed', 'reopened'])
+            user_orders = normal_orders.count()
+            user_sales = normal_orders.aggregate(total=Sum('total_amount'))['total'] or 0
+
+            # 占比计算（防除零）
+            ratio = round((user_sales / shop_stats['total_sales']) * 100) if shop_stats['total_sales'] > 0 else 0
+
+            user_stats_dict[user.id] = {
+                'orders': user_orders,
+                'sales': user_sales,
+                'ratio': ratio
+            }
+
     return render(request, 'accounts/user_list.html', {
         'users': queryset,
         'roles': Role.objects.all(),
         'keyword': keyword,
         'status': status,
-        'current_user': request.user
+        'current_user': request.user,
+        # 新增统计数据
+        'is_super_admin': is_super_admin,
+        'shop_stats': shop_stats,
+        'user_stats_dict': user_stats_dict
     })
-
 
 @login_required
 @permission_required('user_add')
@@ -385,6 +436,56 @@ def user_edit(request, user_id):
         'is_edit': True
     })
 
+
+@login_required
+@permission_required('user_view')
+def user_detail(request, user_id):
+    """用户详情页（包含开单统计和最近订单）"""
+    user = get_object_or_404(User, id=user_id)
+    # 仅超级管理员可见统计数据
+    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+
+    # 初始化统计数据（默认0）
+    user_stats = {
+        'total_orders': 0,
+        'total_sales': 0,
+        'total_cancelled': 0,
+        'sales_ratio': 0
+    }
+
+    # 超级管理员计算统计数据
+    if is_super_admin:
+        # 全店总销售额（用于计算占比）
+        shop_total_sales = Order.objects.filter(status__in=['pending', 'printed', 'reopened']).aggregate(
+            total=Sum('total_amount'))['total'] or 0
+
+        # 员工统计（已禁用员工显示0）
+        if user.is_active:
+            # 正常订单统计
+            normal_orders = Order.objects.filter(creator=user, status__in=['pending', 'printed', 'reopened'])
+            user_stats['total_orders'] = normal_orders.count()
+            user_stats['total_sales'] = normal_orders.aggregate(total=Sum('total_amount'))['total'] or 0
+
+            # 作废订单数
+            user_stats['total_cancelled'] = Order.objects.filter(creator=user, status='cancelled').count()
+
+            # 占比计算（防除零）
+            user_stats['sales_ratio'] = round(
+                (user_stats['total_sales'] / shop_total_sales) * 100) if shop_total_sales > 0 else 0
+
+        # 最近15条订单（倒序）
+        recent_orders = Order.objects.filter(creator=user).order_by('-create_time')[:15]
+    else:
+        # 非超级管理员看不到订单数据
+        recent_orders = []
+
+    return render(request, 'accounts/user_detail.html', {
+        'user': user,
+        'is_super_admin': is_super_admin,
+        'user_stats': user_stats,
+        'recent_orders': recent_orders,
+        'roles': Role.objects.all()
+    })
 
 @login_required
 @permission_required('user_toggle_status')
