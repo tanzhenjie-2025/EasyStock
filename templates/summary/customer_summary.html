@@ -67,6 +67,13 @@
         display: flex;
         gap: 8px;
     }
+    /* 新增：总计行样式 */
+    .total-row {
+        background-color: #4472C4;
+        color: white;
+        font-weight: bold;
+        text-align: center;
+    }
 </style>
 {% endblock %}
 
@@ -102,6 +109,7 @@
 <table class="table table-sm table-bordered">
     <thead>
         <tr>
+            <th>序号</th> <!-- 新增：序号列 -->
             <th>客户名称</th><th>金额</th><th>备注</th>
         </tr>
     </thead>
@@ -213,18 +221,25 @@ function query(){
             return;
         }
         if (res.data.length === 0) {
-            $('#data').html('<tr><td colspan="3" class="empty-data">该时间段内无客户消费数据</td></tr>');
+            $('#data').html('<tr><td colspan="4" class="empty-data">该时间段内无客户消费数据</td></tr>');
             return;
         }
         // 渲染数据
         let html = '';
         res.data.forEach(i => {
             html += `<tr>
+                <td>${i.serial}</td> <!-- 显示序号 -->
                 <td>${i.customer_name}</td>
                 <td>${i.total_amount.toFixed(2)}</td>
                 <td>${i.remark}</td>
             </tr>`;
         });
+        // 添加总计行
+        html += `<tr class="total-row">
+            <td colspan="2">总计</td>
+            <td>${res.total_amount.toFixed(2)}</td>
+            <td></td>
+        </tr>`;
         $('#data').html(html);
     }).fail(function() {
         alert('查询失败，请检查网络或接口');

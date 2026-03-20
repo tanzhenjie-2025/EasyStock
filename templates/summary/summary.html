@@ -67,6 +67,13 @@
         display: flex;
         gap: 8px;
     }
+    /* 新增：总计行样式 */
+    .total-row {
+        background-color: #4472C4;
+        color: white;
+        font-weight: bold;
+        text-align: center;
+    }
 </style>
 {% endblock %}
 
@@ -102,6 +109,7 @@
 <table class="table table-sm table-bordered">
     <thead>
         <tr>
+            <th>序号</th> <!-- 新增：序号列 -->
             <th>商品</th><th>单位</th><th>单价</th><th>总销量</th><th>总金额</th>
         </tr>
     </thead>
@@ -225,13 +233,14 @@ function query(){
             return;
         }
         if (res.data.length === 0) {
-            $('#data').html('<tr><td colspan="5" class="empty-data">该时间段内无销售数据</td></tr>');
+            $('#data').html('<tr><td colspan="6" class="empty-data">该时间段内无销售数据</td></tr>');
             return;
         }
         // 渲染数据
         let html = '';
         res.data.forEach(i => {
             html += `<tr>
+                <td>${i.serial}</td> <!-- 显示序号 -->
                 <td>${i.name}</td>
                 <td>${i.unit}</td>
                 <td>${i.price.toFixed(2)}</td>
@@ -239,6 +248,11 @@ function query(){
                 <td>${i.total_amt.toFixed(2)}</td>
             </tr>`;
         });
+        // 添加总计行
+        html += `<tr class="total-row">
+            <td colspan="5">总计</td>
+            <td>${res.total_amount.toFixed(2)}</td>
+        </tr>`;
         $('#data').html(html);
     }).fail(function() {
         alert('查询失败，请检查网络或接口');

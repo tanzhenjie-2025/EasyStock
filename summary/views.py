@@ -5,7 +5,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
 from datetime import datetime, date
 import openpyxl
-from openpyxl.styles import Font, Alignment
+from openpyxl.styles import Font, Alignment, PatternFill
 from io import BytesIO
 import json
 
@@ -96,9 +96,13 @@ def summary_by_group(request):
         total_amt=Sum('amount')
     ).order_by('-total_qty')
 
+    # 1. 计算商品汇总总金额
+    total_amount = sum(item['total_amt'] or 0 for item in items)
+    # 2. 为每条数据添加序号
     data = []
-    for item in items:
+    for idx, item in enumerate(items, 1):
         data.append({
+            'serial': idx,  # 添加序号字段
             'pid': item['product__id'],
             'name': item['product__name'],
             'unit': item['product__unit'],
@@ -117,7 +121,12 @@ def summary_by_group(request):
         operation_detail=f'查询区域组{group_name} {start.strftime("%Y-%m-%d %H:%M")}至{end.strftime("%Y-%m-%d %H:%M")}的商品汇总，返回{len(data)}条数据'
     )
 
-    return JsonResponse({'code': 1, 'data': data})
+    # 3. 返回数据包含总金额
+    return JsonResponse({
+        'code': 1,
+        'data': data,
+        'total_amount': float(total_amount)  # 新增总金额字段
+    })
 
 
 # 3. 加载所有区域组列表（内部接口，随主接口权限控制）
@@ -199,10 +208,13 @@ def summary_customer_by_group(request):
         total_amount=Sum('total_amount')
     ).order_by('-total_amount')
 
-    # 5. 构造返回数据
+    # 5. 计算客户汇总总金额
+    total_amount = sum(item['total_amount'] or 0 for item in customer_summary)
+    # 6. 为每条数据添加序号
     data = []
-    for item in customer_summary:
+    for idx, item in enumerate(customer_summary, 1):
         data.append({
+            'serial': idx,  # 添加序号字段
             'customer_id': item['customer__id'],
             'customer_name': item['customer__name'],
             'total_amount': float(item['total_amount'] or 0),
@@ -218,15 +230,17 @@ def summary_customer_by_group(request):
         operation_detail=f'查询区域组{group_id} {start.strftime("%Y-%m-%d %H:%M")}至{end.strftime("%Y-%m-%d %H:%M")}的客户汇总，返回{len(data)}条数据'
     )
 
+    # 7. 返回数据包含总金额
     return JsonResponse({
         'code': 1,
         'data': data,
+        'total_amount': float(total_amount),  # 新增总金额字段
         'msg': '查询成功' if data else '该时间段内无客户消费数据'
     })
 
 
 # ========== Excel导出核心函数（无权限，仅内部调用） ==========
-def export_to_excel(data, title, headers, selected_fields, custom_fields, file_name):
+def export_to_excel(data, title, headers, selected_fields, custom_fields, file_name, total_row=None):
     """
     通用Excel导出函数（内部工具函数，不直接对外暴露）
     :param data: 基础数据列表
@@ -235,6 +249,7 @@ def export_to_excel(data, title, headers, selected_fields, custom_fields, file_n
     :param selected_fields: 选中的基础字段列表
     :param custom_fields: 自定义字段配置 [{name: '字段名', position: 'after/before', target: '目标字段'}]
     :param file_name: 导出文件名
+    :param total_row: 总计行数据 {字段名: 总计值}
     :return: HttpResponse
     """
     # 创建工作簿
@@ -297,6 +312,26 @@ def export_to_excel(data, title, headers, selected_fields, custom_fields, file_n
                 if isinstance(value, float):
                     value = round(value, 2)
             ws.cell(row=row, column=col, value=value)
+
+    # 8. 添加总计行（核心修改）
+    if total_row:
+        total_row_num = len(data) + 2
+        # 设置总计行样式
+        total_font = Font(bold=True, color="FFFFFF")
+        total_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+
+        # 写入总计行标题
+        ws.cell(row=total_row_num, column=1, value="总计")
+        ws.cell(row=total_row_num, column=1).font = total_font
+        ws.cell(row=total_row_num, column=1).fill = total_fill
+
+        # 写入总计金额
+        for col, field in enumerate(final_fields, 1):
+            if field in total_row:
+                cell = ws.cell(row=total_row_num, column=col, value=round(total_row[field], 2))
+                cell.font = total_font
+                cell.fill = total_fill
+                cell.alignment = Alignment(horizontal='center')
 
     # 调整列宽
     for col in range(1, len(selected_headers) + 1):
@@ -378,6 +413,9 @@ def export_product_summary(request):
                 total_amt=Sum('amount')
             ).order_by('-total_qty')
 
+            # 计算商品汇总总金额
+            total_amount = sum(item['total_amt'] or 0 for item in items)
+
             # 构建导出数据
             export_data = []
             product_headers = {
@@ -401,11 +439,16 @@ def export_product_summary(request):
                     'remark': ''  # 空的备注字段
                 })
 
+            # 构建总计行数据
+            total_row = {
+                'total_amt': total_amount
+            }
+
             # ========== 统一日志记录（对齐用户管理模块） ==========
             operation_detail = (
                 f"导出商品汇总：区域组={group_name}，时间范围={start.strftime('%Y-%m-%d %H:%M')}至{end.strftime('%Y-%m-%d %H:%M')}，"
                 f"选中字段={','.join(selected_fields)}，自定义字段={json.dumps(custom_fields, ensure_ascii=False)}，"
-                f"导出数据行数={len(export_data)}，操作人={request.user.user_code}-{request.user.username}"
+                f"导出数据行数={len(export_data)}，总金额={total_amount}，操作人={request.user.user_code}-{request.user.username}"
             )
             create_summary_operation_log(
                 request=request,
@@ -415,14 +458,15 @@ def export_product_summary(request):
                 operation_detail=operation_detail
             )
 
-            # 导出Excel
+            # 导出Excel（传入总计行）
             return export_to_excel(
                 data=export_data,
                 title='商品汇总',
                 headers=product_headers,
                 selected_fields=selected_fields,
                 custom_fields=custom_fields,
-                file_name=file_name
+                file_name=file_name,
+                total_row=total_row  # 传入总计行
             )
 
         except Exception as e:
@@ -498,6 +542,9 @@ def export_customer_summary(request):
                 total_amount=Sum('total_amount')
             ).order_by('-total_amount')
 
+            # 计算客户汇总总金额
+            total_amount = sum(item['total_amount'] or 0 for item in customer_summary)
+
             # 构建导出数据
             export_data = []
             customer_headers = {
@@ -515,11 +562,16 @@ def export_customer_summary(request):
                     'remark': item['customer__remark'] or ''
                 })
 
+            # 构建总计行数据
+            total_row = {
+                'total_amount': total_amount
+            }
+
             # ========== 统一日志记录（对齐用户管理模块） ==========
             operation_detail = (
                 f"导出客户汇总：区域组={group_name}，时间范围={start.strftime('%Y-%m-%d %H:%M')}至{end.strftime('%Y-%m-%d %H:%M')}，"
                 f"选中字段={','.join(selected_fields)}，自定义字段={json.dumps(custom_fields, ensure_ascii=False)}，"
-                f"导出数据行数={len(export_data)}，操作人={request.user.user_code}-{request.user.username}"
+                f"导出数据行数={len(export_data)}，总金额={total_amount}，操作人={request.user.user_code}-{request.user.username}"
             )
             create_summary_operation_log(
                 request=request,
@@ -529,14 +581,15 @@ def export_customer_summary(request):
                 operation_detail=operation_detail
             )
 
-            # 导出Excel
+            # 导出Excel（传入总计行）
             return export_to_excel(
                 data=export_data,
                 title='客户汇总',
                 headers=customer_headers,
                 selected_fields=selected_fields,
                 custom_fields=custom_fields,
-                file_name=file_name
+                file_name=file_name,
+                total_row=total_row  # 传入总计行
             )
 
         except Exception as e:
