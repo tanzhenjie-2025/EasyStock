@@ -2,11 +2,44 @@
 {% block title %}用户管理 - 系统管理{% endblock %}
 {% block extra_css %}
 <style>
-    .status-badge { padding: 4px 8px; border-radius: 4px; }
+    /* 核心：表格固定布局 + 列宽分配（解决换行问题） */
+    .user-table {
+        table-layout: fixed;
+        width: 100%;
+    }
+    /* 易换行列的宽度设置（适配内容，强制不换行） */
+    .col-serial { width:50px; white-space: nowrap; }          /* 序号列 */
+    .col-user-code { width: 100px; white-space: nowrap; }     /* 用户编号列 */
+    .col-phone { width: 110px; white-space: nowrap; }         /* 联系电话列 */
+    .col-status { width: 60px; white-space: nowrap; }         /* 状态列 */
+    .col-order-count { width: 60px; white-space: nowrap; }    /* 开单量列 */
+    .col-sales { width: 70px; white-space: nowrap; }          /* 销售额列 */
+    .col-ratio { width: 50px; white-space: nowrap; }          /* 占比列 */
+    /* 其他列保持可换行，设置最小宽度避免过度挤压 */
+    .col-username { min-width: 80px; }
+    .col-name { min-width: 70px; }
+    .col-role { min-width: 50px; }
+    .col-create-time { min-width: 140px; }
+    .col-operation { min-width: 280px; }
+
+    /* 优化状态徽章样式，减少内边距确保单行 */
+    .status-badge { 
+        padding: 2px 6px; 
+        border-radius: 4px; 
+        display: inline-block; /* 确保单行 */
+        font-size: 0.85rem;
+    }
     .status-active { background: #d1e7dd; color: #0f5132; }
     .status-inactive { background: #f8d7da; color: #842029; }
+    
     .role-tag { font-size: 0.85rem; padding: 2px 6px; }
     .shop-stats { background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+    
+    /* 优化按钮组布局，避免挤压 */
+    .btn-group-sm .btn {
+        padding: 2px 8px;
+        font-size: 0.75rem;
+    }
 </style>
 {% endblock %}
 
@@ -15,15 +48,17 @@
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <h5 class="mb-0">系统用户管理</h5>
-        <a href="{% url 'accounts:user_add' %}" class="btn btn-primary btn-sm">
-            <i class="bi bi-plus-circle"></i> 添加用户
-        </a>
-        <!-- 权限管理按钮：仅超级管理员可见 -->
-        {% if is_super_admin %}
-        <a href="{% url 'accounts:role_permission_config' 'operator' %}" class="btn btn-outline-primary btn-sm ms-2">
-            <i class="bi bi-shield-lock"></i> 权限管理
-        </a>
-        {% endif %}
+        <div class="d-flex gap-2">
+            <a href="{% url 'accounts:user_add' %}" class="btn btn-primary btn-sm">
+                <i class="bi bi-plus-circle"></i> 添加用户
+            </a>
+            <!-- 权限管理按钮：仅超级管理员可见 -->
+            {% if is_super_admin %}
+            <a href="{% url 'accounts:role_permission_config' 'operator' %}" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-shield-lock"></i> 权限管理
+            </a>
+            {% endif %}
+        </div>
     </div>
     <div class="card-body">
         <!-- 新增：全店销售统计（仅超级管理员可见） -->
@@ -59,41 +94,41 @@
 
         <!-- 用户列表 -->
         <div class="table-responsive">
-            <table class="table table-striped table-hover">
+            <table class="table table-striped table-hover user-table">
                 <thead class="table-light">
                     <tr>
-                        <th>序号</th>
-                        <th>用户编号</th>
-                        <th>用户名</th>
-                        <th>姓名</th>
-                        <th>联系电话</th>
-                        <th>所属角色</th>
-                        <th>状态</th>
+                        <th class="col-serial">序号</th>
+                        <th class="col-user-code">用户编号</th>
+                        <th class="col-username">用户名</th>
+                        <th class="col-name">姓名</th>
+                        <th class="col-phone">联系电话</th>
+                        <th class="col-role">所属角色</th>
+                        <th class="col-status">状态</th>
                         {% if is_super_admin %}
-                        <th>开单量</th>
-                        <th>销售额</th>
-                        <th>占比</th>
+                        <th class="col-order-count">开单量</th>
+                        <th class="col-sales">销售额</th>
+                        <th class="col-ratio">占比</th>
                         {% endif %}
-                        <th>创建时间</th>
-                        <th>操作</th>
+                        <th class="col-create-time">创建时间</th>
+                        <th class="col-operation">操作</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for user in users %}
                     <tr>
-                        <td>{{ forloop.counter }}</td>
-                        <td>{{ user.user_code }}</td>
-                        <td>{{ user.username }}</td>
-                        <td>{{ user.name }}</td>
-                        <td>{{ user.phone|default:"-" }}</td>
-                        <td>
+                        <td class="col-serial">{{ forloop.counter }}</td>
+                        <td class="col-user-code">{{ user.user_code }}</td>
+                        <td class="col-username">{{ user.username }}</td>
+                        <td class="col-name">{{ user.name }}</td>
+                        <td class="col-phone">{{ user.phone|default:"-" }}</td>
+                        <td class="col-role">
                             {% if user.role %}
                                 <span class="badge bg-secondary role-tag">{{ user.role.name }}</span>
                             {% else %}
                                 <span class="text-muted">未分配</span>
                             {% endif %}
                         </td>
-                        <td>
+                        <td class="col-status">
                             {% if user.is_active %}
                                 <span class="status-badge status-active">正常</span>
                             {% else %}
@@ -101,12 +136,13 @@
                             {% endif %}
                         </td>
                         {% if is_super_admin %}
-                        <td>{{ user_stats_dict.user.id.orders|default:0 }}单</td>
-                        <td>{{ user_stats_dict.user.id.sales|default:0 }}元</td>
-                        <td>{{ user_stats_dict.user.id.ratio|default:0 }}%</td>
+                        <!-- 恢复你原本能运行的取值方式，移除自定义过滤器 -->
+                        <td class="col-order-count">{{ user_stats_dict.user.id.orders|default:0 }}单</td>
+                        <td class="col-sales">{{ user_stats_dict.user.id.sales|default:0 }}元</td>
+                        <td class="col-ratio">{{ user_stats_dict.user.id.ratio|default:0 }}%</td>
                         {% endif %}
-                        <td>{{ user.date_joined|date:"Y-m-d H:i" }}</td>
-                        <td>
+                        <td class="col-create-time">{{ user.date_joined|date:"Y-m-d H:i" }}</td>
+                        <td class="col-operation">
                             <div class="btn-group btn-group-sm">
                                 <!-- 新增：详情按钮 -->
                                 <a href="{% url 'accounts:user_detail' user.id %}" class="btn btn-outline-info">详情</a>

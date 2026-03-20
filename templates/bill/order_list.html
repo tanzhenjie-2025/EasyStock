@@ -1,7 +1,49 @@
-{#order_list.html#}
 {% extends "base.html" %}
 
 {% block title %}订单列表 - EasyStock{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* 核心：表格固定布局，防止列宽挤压 */
+    .table-fixed {
+        table-layout: fixed;
+        width: 100%;
+    }
+    /* 各列宽度设置（适配内容长度） */
+    .col-select { width: 30px; }          /* 选择框列 */
+    .col-order-no { width: 150px; }      /* 订单编号列 */
+    .col-create-time { width: 180px; }   /* 开单时间列（适配2026-03-20 15:24） */
+    .col-creator { width: 120px; }       /* 开单人列 */
+    .col-customer { width: 100px; }      /* 客户列（2-5个字） */
+    .col-area { width: 50px; }           /* 区域列（2个字） */
+    .col-amount { width: 100px; }        /* 总金额列 */
+    .col-status { width: 120px; }        /* 订单状态列 */
+    .col-settled { width: 140px; }       /* 结清状态列 */
+    .col-operation { width: 280px; }     /* 操作列（多个按钮） */
+
+    /* 单元格内容不换行，超出省略（可选） */
+
+    /* 状态文本紧凑展示（移除换行） */
+    .status-text {
+        font-size: 0.85rem;
+        display: inline-block;
+        margin-left: 5px;
+    }
+
+    /* 操作按钮紧凑排列 */
+    .op-btn-group .btn {
+        margin-right: 4px;
+        margin-bottom: 0 !important; /* 移除mt-1带来的垂直间距 */
+    }
+    /* 取消状态列的换行，用行内块展示 */
+    .status-badge-wrap {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+    }
+</style>
+{% endblock %}
 
 {% block content %}
 <h3>订单列表
@@ -123,92 +165,96 @@
     </div>
 </div>
 <!-- ========== 统计展示栏结束 ========== -->
-    
+
 <!-- 批量操作按钮 -->
 <div class="mb-3">
     <button class="btn btn-sm btn-success" id="batchSettleBtn" disabled>批量结清选中订单</button>
 </div>
 
 <!-- 订单表格（新增批量选择框、结清标识、操作按钮） -->
-<table class="table table-striped table-bordered">
+<table class="table table-striped table-bordered table-fixed">
     <thead>
         <tr>
-            <th><input type="checkbox" id="selectAll"></th>  <!-- 批量选择全选框 -->
-            <th>订单编号</th>
-            <th>开单时间</th>
-            <th>开单人</th>
-            <th>客户</th>
-            <th>区域</th>
-            <th>总金额</th>
-            <th>订单状态</th>
-            <th>结清状态</th>  <!-- 新增结清状态列 -->
-            <th>操作</th>
+            <th class="col-select"><input type="checkbox" id="selectAll"></th>  <!-- 批量选择全选框 -->
+            <th class="col-order-no">订单编号</th>
+            <th class="col-create-time">开单时间</th>
+            <th class="col-creator">开单人</th>
+            <th class="col-customer">客户</th>
+            <th class="col-area">区域</th>
+            <th class="col-amount">总金额</th>
+            <th class="col-status">订单状态</th>
+            <th class="col-settled">结清状态</th>  <!-- 新增结清状态列 -->
+            <th class="col-operation">操作</th>
         </tr>
     </thead>
     <tbody>
         {% for order in orders %}
         <tr {% if order.status == 'cancelled' %}class="table-danger"{% elif order.status == 'reopened' %}class="table-warning"{% endif %}>
-            <td>
+            <td class="col-select">
                 <!-- 批量选择框（作废/已结清订单不可选）【关键修改1：添加order.is_settled判断】 -->
                 <input type="checkbox" class="orderCheckbox" value="{{ order.order_no }}" {% if order.status == 'cancelled' or order.is_settled %}disabled{% endif %}>
             </td>
-            <td>
+            <td class="col-order-no">
                 {{ order.order_no }}
                 {% if order.original_order %}
-                    <br><small class="text-muted">重开自：{{ order.original_order.order_no }}</small>
+                    <span class="status-text text-muted">重开自：{{ order.original_order.order_no }}</span>
                 {% endif %}
             </td>
-            <td>{{ order.create_time|date:"Y-m-d H:i" }}</td>
-            <td>{% if order.creator %}{{ order.creator.name }} ({{ order.creator.user_code }}){% else %}未知{% endif %}</td>
-            <td>{{ order.customer.name|default:"无" }}</td>
-            <td>{{ order.area.name|default:"无" }}</td>
-            <td>¥{{ order.total_amount }}</td>
-            <td>
-                {% if order.status == 'pending' %}
-                    <span class="badge bg-secondary">未打印</span>
-                {% elif order.status == 'printed' %}
-                    <span class="badge bg-primary">已打印</span>
-                {% elif order.status == 'cancelled' %}
-                    <span class="badge bg-danger">作废</span>
-                    <br><small class="text-danger">
-                        {{ order.cancelled_time|date:"m-d H:i" }} {{ order.cancelled_by.name|default:"未知" }}
-                    </small>
-                {% elif order.status == 'reopened' %}
-                    <span class="badge bg-warning">重开</span>
-                {% endif %}
+            <td class="col-create-time">{{ order.create_time|date:"Y-m-d H:i" }}</td>
+            <td class="col-creator">{% if order.creator %}{{ order.creator.name }} ({{ order.creator.user_code }}){% else %}未知{% endif %}</td>
+            <td class="col-customer">{{ order.customer.name|default:"无" }}</td>
+            <td class="col-area">{{ order.area.name|default:"无" }}</td>
+            <td class="col-amount">¥{{ order.total_amount }}</td>
+            <td class="col-status">
+                <div class="status-badge-wrap">
+                    {% if order.status == 'pending' %}
+                        <span class="badge bg-secondary">未打印</span>
+                    {% elif order.status == 'printed' %}
+                        <span class="badge bg-primary">已打印</span>
+                    {% elif order.status == 'cancelled' %}
+                        <span class="badge bg-danger">作废</span>
+                        <span class="status-text text-danger">
+                            {{ order.cancelled_time|date:"m-d H:i" }} {{ order.cancelled_by.name|default:"未知" }}
+                        </span>
+                    {% elif order.status == 'reopened' %}
+                        <span class="badge bg-warning">重开</span>
+                    {% endif %}
+                </div>
             </td>
             <!-- 新增：结清状态展示 -->
-            <td>
-                {% if order.is_settled %}
-                    <span class="badge bg-success">已结清</span>
-                    <br><small class="text-success">
-                        {{ order.settled_time|date:"m-d H:i" }} {{ order.settled_by.name|default:"未知" }}
-                        {% if order.unsettled_time %}
-                            <br><span class="text-danger">已撤销：{{ order.unsettled_time|date:"m-d H:i" }}</span>
-                        {% endif %}
-                    </small>
-                {% else %}
-                    <span class="badge bg-danger">未结清</span>
-                {% endif %}
+            <td class="col-settled">
+                <div class="status-badge-wrap">
+                    {% if order.is_settled %}
+                        <span class="badge bg-success">已结清</span>
+                        <span class="status-text text-success">
+                            {{ order.settled_time|date:"m-d H:i" }} {{ order.settled_by.name|default:"未知" }}
+                            {% if order.unsettled_time %}
+                                <span class="text-danger">已撤销：{{ order.unsettled_time|date:"m-d H:i" }}</span>
+                            {% endif %}
+                        </span>
+                    {% else %}
+                        <span class="badge bg-danger">未结清</span>
+                    {% endif %}
+                </div>
             </td>
-            <td>
+            <td class="col-operation op-btn-group">
                 <a href="{% url 'bill:print_order' order.order_no %}" class="btn btn-sm btn-primary {% if order.status == 'cancelled' %}disabled{% endif %}">打印</a>
                 <a href="{% url 'bill:order_detail' order.order_no %}" class="btn btn-sm btn-info">详情</a>
 
-
                 <!-- 标记结清按钮（未结清+非作废订单可见） -->
                 {% if not order.is_settled and order.status != 'cancelled' %}
-                    <button class="btn btn-sm btn-success mt-1 settleBtn" data-order-no="{{ order.order_no }}">标记结清</button>
+                    <button class="btn btn-sm btn-success settleBtn" data-order-no="{{ order.order_no }}">标记结清</button>
                 {% endif %}
 
                 <!-- 撤销结清按钮（仅老板+已结清订单可见） -->
                 {% if is_boss and order.is_settled %}
-                    <button class="btn btn-sm btn-warning mt-1 unsettleBtn" data-order-no="{{ order.order_no }}">撤销结清</button>
+                    <button class="btn btn-sm btn-warning unsettleBtn" data-order-no="{{ order.order_no }}">撤销结清</button>
                 {% endif %}
-            <!-- 作废订单按钮（仅老板+未作废订单可见） -->
-{% if is_boss and order.status != 'cancelled' %}
-<button class="btn btn-sm btn-danger mt-1 cancelBtn" data-order-no="{{ order.order_no }}">作废订单</button>
-{% endif %}
+
+                <!-- 作废订单按钮（仅老板+未作废订单可见） -->
+                {% if is_boss and order.status != 'cancelled' %}
+                    <button class="btn btn-sm btn-danger cancelBtn" data-order-no="{{ order.order_no }}">作废订单</button>
+                {% endif %}
             </td>
         </tr>
         {% empty %}

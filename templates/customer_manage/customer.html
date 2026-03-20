@@ -98,6 +98,79 @@
     #customerSuggest div:hover {
         background: #f8f9fa;
     }
+
+    /* ========== 新增：搜索组件样式 ========== */
+    .search-container {
+        margin: 15px 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .search-input-wrapper {
+        position: relative;
+        width: 400px;
+        max-width: 100%;
+    }
+    .search-input {
+        width: 100%;
+        padding: 8px 12px 8px 12px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 14px;
+    }
+    .clear-btn {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        background: none;
+        border: none;
+        color: #999;
+        cursor: pointer;
+        font-size: 16px;
+        display: none;
+    }
+    .clear-btn:hover {
+        color: #333;
+    }
+    .search-btn {
+        padding: 8px 16px;
+        background: #007bff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+    }
+    .search-btn:hover {
+        background: #0056b3;
+    }
+    .recent-searches {
+        margin: 10px 0;
+        font-size: 13px;
+    }
+    .recent-tag {
+        display: inline-block;
+        padding: 4px 8px;
+        margin: 0 4px 4px 0;
+        background: #e9ecef;
+        border-radius: 4px;
+        cursor: pointer;
+        color: #666;
+    }
+    .recent-tag:hover {
+        background: #007bff;
+        color: white;
+    }
+    .highlight {
+        color: red;
+        font-weight: bold;
+    }
+    .no-result {
+        text-align: center;
+        color: #999;
+        padding: 20px;
+    }
 </style>
 {% endblock %}
 
@@ -105,6 +178,23 @@
 {% block content %}
 <div class="content-container">
     <h3>客户管理</h3>
+
+    <!-- ========== 新增：搜索组件 ========== -->
+    <div class="search-container">
+        <div class="search-input-wrapper">
+            <input type="text" class="search-input" id="searchInput" 
+                   placeholder="搜索客户名称 / 手机号 / 区域 / 编号" 
+                   oninput="handleSearchInput()" 
+                   onkeydown="if(event.keyCode===13) searchCustomers()">
+            <button class="clear-btn" id="clearBtn" onclick="clearSearch()">×</button>
+        </div>
+        <button class="search-btn" onclick="searchCustomers()">搜索</button>
+    </div>
+    <!-- 最近搜索记录 -->
+    <div class="recent-searches" id="recentSearches">
+        最近搜索：<span id="recentTags">暂无</span>
+    </div>
+
     <div class="my-3">
         <button class="btn btn-sm btn-primary" onclick="openAddModal()">新增客户</button>
         <button class="btn btn-sm btn-success ms-2" onclick="openRepaymentModal()">还款登记</button>
@@ -205,25 +295,157 @@
     let currentCustomerId = '';  // 当前编辑的客户ID
     let areaList = [];           // 区域列表缓存
     let customerSuggestList = []; // 还款登记的客户搜索列表
+    let searchTimer = null;      // 实时搜索防抖定时器
+    let currentKeyword = '';     // 当前搜索关键词
 
     // 页面加载初始化
     $(document).ready(function() {
         loadAreaList();  // 加载区域下拉列表
         loadCustomerList();  // 加载客户列表
+        loadRecentSearches(); // 加载最近搜索记录
     });
 
-    // 新增：获取CSRF Token（关键，确保POST请求正常）
-    function getCsrfToken() {
-        const cookies = document.cookie.split(';');
-        for (let cookie of cookies) {
-            const [name, value] = cookie.trim().split('=');
-            if (name === 'csrftoken') {
-                return value;
-            }
+    // ========== 新增：搜索相关核心函数 ==========
+    // 1. 加载最近搜索记录（localStorage）
+    function loadRecentSearches() {
+        const recent = localStorage.getItem('customerRecentSearches') || '[]';
+        const recentList = JSON.parse(recent);
+        const tagsContainer = $('#recentTags');
+        
+        if (recentList.length === 0) {
+            tagsContainer.text('暂无');
+            return;
         }
-        return '';
+        
+        let html = '';
+        recentList.forEach(keyword => {
+            html += `<span class="recent-tag" onclick="searchByRecent('${keyword}')">${keyword}</span>`;
+        });
+        tagsContainer.html(html);
     }
 
+    // 2. 保存最近搜索记录（最多5条）
+    function saveRecentSearch(keyword) {
+        if (!keyword || keyword.trim() === '') return;
+        
+        const recent = localStorage.getItem('customerRecentSearches') || '[]';
+        let recentList = JSON.parse(recent);
+        
+        // 去重：如果已存在，移到最前面
+        recentList = recentList.filter(item => item !== keyword);
+        recentList.unshift(keyword);
+        
+        // 限制最多5条
+        if (recentList.length > 5) {
+            recentList = recentList.slice(0, 5);
+        }
+        
+        localStorage.setItem('customerRecentSearches', JSON.stringify(recentList));
+        loadRecentSearches();
+    }
+
+    // 3. 搜索输入框输入处理（实时过滤 + 显示清空按钮）
+    function handleSearchInput() {
+        const keyword = $('#searchInput').val().trim();
+        currentKeyword = keyword;
+        
+        // 显示/隐藏清空按钮
+        if (keyword) {
+            $('#clearBtn').show();
+        } else {
+            $('#clearBtn').hide();
+        }
+        
+        // 实时过滤（防抖：300ms内只执行一次）
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => {
+            searchCustomers();
+        }, 300);
+    }
+
+    // 4. 清空搜索框
+    function clearSearch() {
+        $('#searchInput').val('');
+        $('#clearBtn').hide();
+        currentKeyword = '';
+        loadCustomerList(); // 恢复所有客户
+        $('#searchInput').focus(); // 光标回显
+    }
+
+    // 5. 执行客户搜索（核心）
+    function searchCustomers() {
+        const keyword = $('#searchInput').val().trim();
+        currentKeyword = keyword;
+        
+        // 保存最近搜索记录
+        if (keyword) {
+            saveRecentSearch(keyword);
+        }
+        
+        // 构造请求URL
+        let url = '/customer-manage/customer/list/';
+        if (keyword) {
+            url += `?keyword=${encodeURIComponent(keyword)}`;
+        }
+        
+        // 发送请求
+        $.get(url, function(res) {
+            console.log('搜索结果：', res);
+            let html = '';
+            if (Array.isArray(res) && res.length > 0) {
+                res.forEach(customer => {
+                    // 格式化欠款金额
+                    const totalDebt = customer.total_debt ? customer.total_debt.toFixed(2) : '0.00';
+                    
+                    // 关键词高亮处理
+                    let name = highlightKeyword(customer.name, keyword);
+                    let phone = highlightKeyword(customer.phone, keyword);
+                    let areaName = highlightKeyword(customer.area_name || '无', keyword);
+                    let id = highlightKeyword(customer.id.toString(), keyword);
+                    
+                    html += `<tr>
+                        <td>${id}</td>
+                        <td>${name}</td>
+                        <td>${areaName}</td>
+                        <td>${phone}</td>
+                        <td class="debt-red">¥${totalDebt}</td>
+                        <td>${customer.remark || '无'}</td>
+                        <td>
+                            <button class="btn btn-sm btn-info me-1" onclick="openCustomerDetail(${customer.id})">详情</button>
+                            <button class="btn btn-sm btn-warning me-1" onclick="openEditModal(${customer.id})">编辑</button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteCustomer(${customer.id})">删除</button>
+                        </td>
+                    </tr>`;
+                });
+            } else {
+                // 无结果提示
+                html = '<tr><td colspan="7" class="no-result">暂无匹配的客户，请更换关键词重试</td></tr>';
+            }
+            $('#customerList').html(html);
+            $('#searchInput').focus(); // 光标回显
+        }, 'json').fail(function(xhr, status, error) {
+            console.error('搜索客户失败：', xhr.responseText);
+            alert('搜索客户失败！\n' + error);
+            $('#searchInput').focus();
+        });
+    }
+
+    // 6. 关键词高亮函数
+    function highlightKeyword(text, keyword) {
+        if (!keyword || !text) return text;
+        const regex = new RegExp(`(${keyword})`, 'gi');
+        return text.replace(regex, '<span class="highlight">$1</span>');
+    }
+
+    // 7. 点击最近搜索记录重新搜索
+    function searchByRecent(keyword) {
+        $('#searchInput').val(keyword);
+        $('#clearBtn').show();
+        searchCustomers();
+        $('#searchInput').focus();
+    }
+
+    // ========== 原有函数保持不变，仅修改loadCustomerList为支持搜索 ==========
     // 1. 加载区域列表（用于下拉选择）
     function loadAreaList() {
         $.get('/customer-manage/area/list/', function(res) {
@@ -242,37 +464,9 @@
         });
     }
 
-    // 2. 加载客户列表（修改：新增总欠款列和详情按钮）
+    // 2. 加载客户列表（兼容搜索，无关键词时返回所有）
     function loadCustomerList() {
-        $.get('/customer-manage/customer/list/', function(res) {
-            console.log('客户列表：', res);
-            let html = '';
-            if (Array.isArray(res) && res.length > 0) {
-                res.forEach(customer => {
-                    // 格式化欠款金额，保留2位小数
-                    const totalDebt = customer.total_debt ? customer.total_debt.toFixed(2) : '0.00';
-                    html += `<tr>
-                        <td>${customer.id}</td>
-                        <td>${customer.name}</td>
-                        <td>${customer.area_name || '无'}</td>
-                        <td>${customer.phone}</td>
-                        <td class="debt-red">¥${totalDebt}</td>
-                        <td>${customer.remark || '无'}</td>
-                        <td>
-                            <button class="btn btn-sm btn-info me-1" onclick="openCustomerDetail(${customer.id})">详情</button>
-                            <button class="btn btn-sm btn-warning me-1" onclick="openEditModal(${customer.id})">编辑</button>
-                            <button class="btn btn-sm btn-danger" onclick="deleteCustomer(${customer.id})">删除</button>
-                        </td>
-                    </tr>`;
-                });
-            } else {
-                html = '<tr><td colspan="7" class="text-center">暂无客户数据</td></tr>';
-            }
-            $('#customerList').html(html);
-        }, 'json').fail(function(xhr, status, error) {
-            console.error('加载客户失败：', xhr.responseText);
-            alert('加载客户列表失败！\n' + error);
-        });
+        searchCustomers(); // 复用搜索函数，无关键词时返回所有客户
     }
 
     // 3. 打开新增客户弹窗
@@ -399,7 +593,7 @@
         });
     }
 
-    // ===================== 新增：还款登记相关功能 =====================
+    // ===================== 还款登记相关功能 =====================
     // 8. 打开还款登记弹窗
     function openRepaymentModal() {
         // 初始化时间为当前时间
@@ -470,7 +664,7 @@
         }
     }
 
-    // 13. 保存还款记录（修复：URL改为后端实际接口地址）
+    // 13. 保存还款记录
     function saveRepayment() {
         // 获取表单数据
         const customerId = $('#repayCustomerId').val().trim();
@@ -498,12 +692,12 @@
         // 组装提交数据
         const data = {
             customer_id: customerId,
-            repayment_amount: amount,  // 修复：字段名与后端一致
+            repayment_amount: amount,
             repayment_time: repaymentTime,
             repayment_remark: remark
         };
 
-        // 发送保存请求（修复：URL改为后端实际接口）
+        // 发送保存请求
         $.ajax({
             url: '/customer-manage/repayment/register/',
             type: 'POST',
@@ -524,10 +718,22 @@
         });
     }
 
-    // 14. 打开客户详情页面（核心修改：跳转到详情页，而非alert）
+    // 14. 打开客户详情页面
     function openCustomerDetail(id) {
         // 跳转到客户详情页面
         window.location.href = `/customer-manage/customer/detail/page/${id}/`;
+    }
+
+    // 15. 获取CSRF Token
+    function getCsrfToken() {
+        const cookies = document.cookie.split(';');
+        for (let cookie of cookies) {
+            const [name, value] = cookie.trim().split('=');
+            if (name === 'csrftoken') {
+                return value;
+            }
+        }
+        return '';
     }
 </script>
 {% endblock %}
