@@ -1,54 +1,255 @@
 {% extends 'base.html' %}
-{% block title %}配置{{ role.name }}权限 - 系统管理{% endblock %}
+{% block title %}权限管理 - {{ current_role.name }}{% endblock %}
+{% block extra_css %}
+<style>
+    /* 角色选项卡 */
+    .role-tabs .nav-link {
+        padding: 0.5rem 1rem;
+        font-weight: 500;
+    }
+    .role-tabs .nav-link.active {
+        background-color: #0d6efd;
+        color: white;
+        border-color: #0d6efd;
+    }
+    /* 权限分组折叠 */
+    .perm-group {
+        margin-bottom: 1rem;
+        border: 1px solid #e9ecef;
+        border-radius: 0.375rem;
+    }
+    .perm-group-header {
+        padding: 0.75rem 1rem;
+        background-color: #f8f9fa;
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .perm-group-body {
+        padding: 0 1rem;
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.3s ease;
+    }
+    .perm-group-body.show {
+        max-height: 500px;
+        padding: 1rem;
+    }
+    /* 权限项样式 */
+    .perm-item {
+        padding: 0.5rem 0;
+        border-bottom: 1px solid #f1f3f5;
+    }
+    .perm-item:last-child {
+        border-bottom: none;
+    }
+    .perm-description {
+        font-size: 0.85rem;
+        color: #6c757d;
+        margin-left: 1.5rem;
+        margin-top: 0.25rem;
+    }
+    /* 禁用权限置灰 */
+    .perm-item.disabled {
+        opacity: 0.5;
+        pointer-events: none;
+    }
+    /* 超级管理员权限禁用 */
+    .super-admin-lock {
+        color: #dc3545;
+        font-size: 0.85rem;
+        margin-left: 0.5rem;
+    }
+</style>
+{% endblock %}
 
 {% block content %}
+<meta name="csrf-token" content="{{ csrf_token }}">
 <div class="card">
-    <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="mb-0">配置 {{ role.name }} 权限</h5>
-        <a href="{% url 'accounts:role_list' %}" class="btn btn-outline-secondary btn-sm">返回角色列表</a>
+    <!-- 页面标题 + 超级管理员提示 -->
+    <div class="card-header">
+        <h5 class="mb-0">
+            角色权限配置
+            {% if is_super_admin_role %}
+            <span class="super-admin-lock">(超级管理员拥有全部权限，不可修改)</span>
+            {% endif %}
+        </h5>
     </div>
-    <div class="card-body">
-        {% if is_super_admin %}
-            <div class="alert alert-info">
-                <i class="bi bi-info-circle"></i> 超级管理员默认拥有所有权限，无需手动配置！
-            </div>
-        {% else %}
-            <form method="post">
-                {% csrf_token %}
-                <!-- 权限分组展示 -->
-                {% for category_code, category_info in perm_groups.items() %}
-                    <div class="card mb-3">
-                        <div class="card-header">
-                            <h6 class="mb-0">{{ category_info.name }}</h6>
-                        </div>
-                        <div class="card-body">
-                            <div class="row">
-                                {% for perm in category_info.permissions %}
-                                    <div class="col-md-4 mb-2">
-                                        <div class="form-check">
-                                            <input type="checkbox" name="permissions" class="form-check-input" 
-                                                   id="perm_{{ perm.id }}" value="{{ perm.id }}"
-                                                   {% if perm.id in selected_perm_ids %}checked{% endif %}>
-                                            <label class="form-check-label" for="perm_{{ perm.id }}">
-                                                {{ perm.name }} ({{ perm.code }})
-                                                {% if perm.description %}
-                                                    <small class="text-muted">({{ perm.description }})</small>
-                                                {% endif %}
-                                            </label>
-                                        </div>
-                                    </div>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    </div>
-                {% endfor %}
 
-                <!-- 提交按钮 -->
-                <div class="mt-4">
-                    <button type="submit" class="btn btn-primary">保存权限配置</button>
+    <div class="card-body">
+        <!-- 角色切换选项卡 -->
+        <ul class="nav role-tabs mb-4" id="roleTab" role="tablist">
+            {% for role in all_roles %}
+            <li class="nav-item" role="presentation">
+                <a class="nav-link {% if role.code == current_role.code %}active{% endif %}" 
+                   href="{% url 'accounts:role_permission_config' role.code %}"
+                   id="role-{{ role.code }}-tab">
+                    {{ role.name }}
+                </a>
+            </li>
+            {% endfor %}
+        </ul>
+
+        <!-- 权限配置表单 -->
+        <form id="permissionForm" method="post" action="{% url 'accounts:role_permission_config' current_role.code %}">
+            {% csrf_token %}
+            <input type="hidden" name="save" value="1">
+
+            <!-- 权限分组列表 -->
+            {% for category, group in perm_groups.items %}
+            <div class="perm-group">
+                <!-- 分组头部（折叠/展开） -->
+                <div class="perm-group-header" onclick="togglePermGroup('{{ category }}')">
+                    <div>
+                        <input type="checkbox" id="checkAll-{{ category }}" 
+                               class="check-all" data-category="{{ category }}"
+                               {% if is_super_admin_role %}disabled{% endif %}>
+                        <label for="checkAll-{{ category }}" class="ms-2 mb-0">
+                            {{ group.name }}（共{{ group.permissions|length }}项）
+                        </label>
+                    </div>
+                    <i class="bi bi-chevron-down" id="icon-{{ category }}"></i>
                 </div>
-            </form>
-        {% endif %}
+
+                <!-- 分组内容（权限列表） -->
+                <div class="perm-group-body" id="group-{{ category }}">
+                    {% for perm in group.permissions %}
+                    <div class="perm-item {% if not perm.is_active %}disabled{% endif %}">
+                        <div class="form-check">
+                            <input class="form-check-input perm-checkbox" 
+                                   type="checkbox" 
+                                   name="permissions" 
+                                   id="perm-{{ perm.id }}" 
+                                   value="{{ perm.id }}"
+                                   data-category="{{ category }}"
+                                   data-code="{{ perm.code }}"
+                                   {% if is_super_admin_role %}disabled checked{% endif %}
+                                   {% if perm.is_selected and not is_super_admin_role %}checked{% endif %}
+                                   {% if not perm.is_active or is_super_admin_role %}disabled{% endif %}>
+                            <label class="form-check-label" for="perm-{{ perm.id }}">
+                                {{ perm.name }}
+                            </label>
+                        </div>
+                        {% if perm.description %}
+                        <div class="perm-description" title="{{ perm.description }}">
+                            {{ perm.description }}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+
+            <!-- 底部按钮 -->
+            <div class="mt-4 d-flex justify-content-between">
+                <button type="submit" name="reset" class="btn btn-outline-secondary">
+                    <i class="bi bi-arrow-counterclockwise"></i> 重置
+                </button>
+                <button type="submit" name="save" class="btn btn-primary" {% if is_super_admin_role %}disabled{% endif %}>
+                    <i class="bi bi-save"></i> 保存权限配置
+                </button>
+            </div>
+        </form>
     </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// 标记是否有未保存的修改
+let hasUnsavedChanges = false;
+// CSRF Token
+const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+
+// 页面加载时展开第一个权限组
+document.addEventListener('DOMContentLoaded', function() {
+    const firstGroup = document.querySelector('.perm-group-body');
+    const firstIcon = document.querySelector('.bi-chevron-down');
+    const firstCheckAll = document.querySelector('.check-all');
+    if (firstGroup) {
+        firstGroup.classList.add('show');
+        firstIcon.classList.replace('bi-chevron-down', 'bi-chevron-up');
+    }
+    // 初始化全选框状态
+    initCheckAllStatus();
+});
+
+// 折叠/展开权限组
+function togglePermGroup(category) {
+    const group = document.getElementById(`group-${category}`);
+    const icon = document.getElementById(`icon-${category}`);
+    group.classList.toggle('show');
+    if (group.classList.contains('show')) {
+        icon.classList.replace('bi-chevron-down', 'bi-chevron-up');
+    } else {
+        icon.classList.replace('bi-chevron-up', 'bi-chevron-down');
+    }
+}
+
+// 初始化全选框状态
+function initCheckAllStatus() {
+    document.querySelectorAll('.check-all').forEach(checkAll => {
+        const category = checkAll.dataset.category;
+        const permCheckboxes = document.querySelectorAll(`.perm-checkbox[data-category="${category}"]:not(:disabled)`);
+        const allChecked = Array.from(permCheckboxes).every(checkbox => checkbox.checked);
+        checkAll.checked = allChecked;
+    });
+}
+
+// 全选/取消全选
+document.addEventListener('change', function(e) {
+    if (e.target.classList.contains('check-all')) {
+        const category = e.target.dataset.category;
+        const isChecked = e.target.checked;
+        document.querySelectorAll(`.perm-checkbox[data-category="${category}"]:not(:disabled)`).forEach(checkbox => {
+            checkbox.checked = isChecked;
+            hasUnsavedChanges = true;
+        });
+    }
+    // 权限勾选变化标记
+    if (e.target.classList.contains('perm-checkbox')) {
+        hasUnsavedChanges = true;
+        // 更新全选框状态
+        const category = e.target.dataset.category;
+        const permCheckboxes = document.querySelectorAll(`.perm-checkbox[data-category="${category}"]:not(:disabled)`);
+        const allChecked = Array.from(permCheckboxes).every(checkbox => checkbox.checked);
+        document.querySelector(`.check-all[data-category="${category}"]`).checked = allChecked;
+        
+        // ========== 权限前置约束 ==========
+        const permCode = e.target.dataset.code;
+        // 1. 勾选作废/重开订单 → 自动勾选查看订单
+        if ((permCode === 'order_cancel' || permCode === 'order_reopen') && isChecked) {
+            const orderViewCheckbox = document.querySelector('.perm-checkbox[data-code="order_view"]');
+            if (orderViewCheckbox && !orderViewCheckbox.disabled) {
+                orderViewCheckbox.checked = true;
+            }
+        }
+        // 2. 取消查看订单 → 取消该模块所有权限
+        if (permCode === 'order_view' && !isChecked) {
+            ['order_create', 'order_print', 'order_cancel', 'order_reopen', 'order_settle', 'order_unsettle'].forEach(code => {
+                const checkbox = document.querySelector(`.perm-checkbox[data-code="${code}"]`);
+                if (checkbox && !checkbox.disabled) {
+                    checkbox.checked = false;
+                }
+            });
+        }
+    }
+});
+
+// 未保存离开提醒
+window.addEventListener('beforeunload', function(e) {
+    if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = '权限已修改未保存，是否确认离开？';
+        return '权限已修改未保存，是否确认离开？';
+    }
+});
+
+// 表单提交时清除未保存标记
+document.getElementById('permissionForm').addEventListener('submit', function() {
+    hasUnsavedChanges = false;
+});
+</script>
 {% endblock %}

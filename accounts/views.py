@@ -556,115 +556,40 @@ def reset_password(request, user_id):
         return JsonResponse({'code': 0, 'msg': f'重置失败：{str(e)}'})
 
 
-# ========== 权限管理视图 ==========
-@login_required
-@permission_required('permission_view')
-def permission_list(request):
-    """权限列表"""
-    keyword = request.GET.get('keyword', '').strip()
-    category = request.GET.get('category', 'all')
-
-    # 基础查询
-    queryset = Permission.objects.filter(is_active=True).order_by('category', 'code')
-
-    # 筛选
-    if keyword:
-        queryset = queryset.filter(
-            Q(code__icontains=keyword) |
-            Q(name__icontains=keyword)
-        )
-    if category != 'all' and category in [c[0] for c in Permission.PERMISSION_CATEGORIES]:
-        queryset = queryset.filter(category=category)
-
-    return render(request, 'accounts/permission_list.html', {
-        'permissions': queryset,
-        'categories': Permission.PERMISSION_CATEGORIES,
-        'keyword': keyword,
-        'selected_category': category
-    })
-
-
-@login_required
-@permission_required('permission_add')
-def permission_add(request):
-    """添加权限"""
-    if request.method == 'POST':
-        code = request.POST.get('code', '').strip()
-        name = request.POST.get('name', '').strip()
-        category = request.POST.get('category', 'system')
-        description = request.POST.get('description', '').strip()
-
-        # 基础校验
-        if not all([code, name]):
-            messages.error(request, '权限编码和名称不能为空！')
-            return render(request, 'accounts/permission_form.html', {
-                'categories': Permission.PERMISSION_CATEGORIES,
-                'form_data': request.POST,
-                'is_add': True
-            })
-
-        # 检查编码唯一性
-        if Permission.objects.filter(code=code).exists():
-            messages.error(request, '权限编码已存在！')
-            return render(request, 'accounts/permission_form.html', {
-                'categories': Permission.PERMISSION_CATEGORIES,
-                'form_data': request.POST,
-                'is_add': True
-            })
-
-        try:
-            # 创建权限
-            perm = Permission.objects.create(
-                code=code,
-                name=name,
-                category=category,
-                description=description
-            )
-
-            # 记录日志
-            create_operation_log(
-                request=request,
-                op_type=OP_TYPE_CREATE,
-                obj_type='permission',
-                obj_id=perm.id,
-                obj_name=f"{perm.name} ({perm.code})",
-                detail=f"新增权限：编码={code}，名称={name}，分类={perm.get_category_display()}"
-            )
-
-            messages.success(request, f'权限 {name} ({code}) 创建成功！')
-            return redirect('/accounts/permission-list/')
-
-        except Exception as e:
-            messages.error(request, f'创建失败：{str(e)}')
-
-    # GET请求：展示表单
-    return render(request, 'accounts/permission_form.html', {
-        'categories': Permission.PERMISSION_CATEGORIES,
-        'is_add': True
-    })
-
-
-# ========== 角色管理视图 ==========
-@login_required
-@permission_required('role_view')
-def role_list(request):
-    """角色列表"""
-    return render(request, 'accounts/role_list.html', {
-        'roles': Role.objects.all()
-    })
-
-
 @login_required
 @permission_required('role_permission_config')
 def role_permission_config(request, role_code):
-    """角色权限配置（核心）"""
-    role = get_object_or_404(Role, code=role_code)
-    all_perms = Permission.objects.filter(is_active=True).order_by('category', 'code')
+    """角色权限配置（增强版）"""
+    # 仅超级管理员可访问
+    if not (request.user.role and request.user.role.code == ROLE_SUPER_ADMIN):
+        return redirect('/accounts/no-permission/')
 
-    if request.method == 'POST':
+    # 获取角色（固定3个）
+    role = get_object_or_404(Role, code=role_code)
+    # 所有启用的权限（按分类排序）
+    all_perms = Permission.objects.filter(is_active=True).order_by('category', 'code')
+    # 所有固定角色（用于选项卡）
+    all_roles = Role.objects.filter(code__in=[ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OPERATOR]).order_by('id')
+
+    # ========== 重置功能 ==========
+    if request.method == 'POST' and 'reset' in request.POST:
+        # 重置为数据库中保存的权限
+        return redirect(f'/accounts/role-permission/{role_code}/')
+
+    # ========== 保存权限 ==========
+    if request.method == 'POST' and 'save' in request.POST:
         try:
             # 获取选中的权限ID
             selected_perm_ids = request.POST.getlist('permissions', [])
+
+            # 校验：禁止空权限（超级管理员除外）
+            if not selected_perm_ids and role.code != ROLE_SUPER_ADMIN:
+                messages.error(request, '禁止配置空权限！至少保留基础查看权限')
+                return redirect(f'/accounts/role-permission/{role_code}/')
+
+            # 超级管理员强制全选（禁用修改）
+            if role.code == ROLE_SUPER_ADMIN:
+                selected_perm_ids = all_perms.values_list('id', flat=True)
 
             # 清空原有权限，重新绑定
             role.permissions.clear()
@@ -672,7 +597,7 @@ def role_permission_config(request, role_code):
                 selected_perms = Permission.objects.filter(id__in=selected_perm_ids)
                 role.permissions.add(*selected_perms)
 
-            # 记录日志
+            # 记录详细日志
             perm_names = [f"{p.name}({p.code})" for p in selected_perms] if selected_perm_ids else []
             create_operation_log(
                 request=request,
@@ -683,16 +608,20 @@ def role_permission_config(request, role_code):
                 detail=f"配置角色权限：角色={role.name}，选中权限={','.join(perm_names) or '无'}"
             )
 
-            messages.success(request, f'角色 {role.name} 的权限配置成功！')
-            return redirect('/accounts/role-list/')
+            messages.success(request, f'角色 {role.name} 的权限配置已保存！')
+            return redirect(f'/accounts/role-permission/{role_code}/')
 
         except Exception as e:
-            messages.error(request, f'配置失败：{str(e)}')
+            messages.error(request, f'保存失败：{str(e)}')
 
+    # ========== 数据准备 ==========
     # 已选中的权限ID
     selected_perm_ids = role.permissions.values_list('id', flat=True)
+    # 超级管理员强制全选
+    if role.code == ROLE_SUPER_ADMIN:
+        selected_perm_ids = all_perms.values_list('id', flat=True)
 
-    # 按分类分组权限（方便前端展示）
+    # 按分类分组权限（前端折叠展示）
     perm_groups = {}
     for perm in all_perms:
         if perm.category not in perm_groups:
@@ -700,13 +629,23 @@ def role_permission_config(request, role_code):
                 'name': perm.get_category_display(),
                 'permissions': []
             }
-        perm_groups[perm.category]['permissions'].append(perm)
+        perm_groups[perm.category]['permissions'].append({
+            'id': perm.id,
+            'code': perm.code,
+            'name': perm.name,
+            'description': perm.description,
+            'is_active': perm.is_active,
+            'is_selected': perm.id in selected_perm_ids
+        })
 
     return render(request, 'accounts/role_permission_config.html', {
-        'role': role,
+        'current_role': role,
+        'all_roles': all_roles,
         'perm_groups': perm_groups,
-        'selected_perm_ids': selected_perm_ids,
-        'is_super_admin': role.is_super_admin
+        'is_super_admin_role': role.code == ROLE_SUPER_ADMIN,
+        'ROLE_SUPER_ADMIN': ROLE_SUPER_ADMIN,
+        'ROLE_ADMIN': ROLE_ADMIN,
+        'ROLE_OPERATOR': ROLE_OPERATOR
     })
 
 

@@ -18,6 +18,12 @@
         <a href="{% url 'accounts:user_add' %}" class="btn btn-primary btn-sm">
             <i class="bi bi-plus-circle"></i> 添加用户
         </a>
+        <!-- 权限管理按钮：仅超级管理员可见 -->
+        {% if is_super_admin %}
+        <a href="{% url 'accounts:role_permission_config' 'operator' %}" class="btn btn-outline-primary btn-sm ms-2">
+            <i class="bi bi-shield-lock"></i> 权限管理
+        </a>
+        {% endif %}
     </div>
     <div class="card-body">
         <!-- 新增：全店销售统计（仅超级管理员可见） -->

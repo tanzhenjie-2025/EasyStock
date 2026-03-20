@@ -21,9 +21,7 @@ urlpatterns = [
 path('user-detail/<int:user_id>/', views.user_detail, name='user_detail'),
 
     # RBAC核心
-    path('permission-list/', views.permission_list, name='permission_list'),
-    path('permission-add/', views.permission_add, name='permission_add'),
-    path('role-list/', views.role_list, name='role_list'),
+
     path('role-permission/<str:role_code>/', views.role_permission_config, name='role_permission_config'),
 
     # 其他
