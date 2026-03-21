@@ -184,6 +184,26 @@
     #customerList tr td:last-child {
         cursor: default;
     }
+    
+    /* ========== 优化：整行hover浅灰色高亮样式 ========== */
+    #customerList tr {
+        transition: all 0.2s ease;
+        cursor: pointer; /* 提示行可点击 */
+        position: relative;
+    }
+    /* 关键：针对td设置背景色，确保整行内容高亮（覆盖Bootstrap默认样式） */
+    .table-bordered #customerList tr:hover td {
+        background-color: #f1f1f1 !important; /* 浅灰色，通用且不刺眼 */
+    }
+    /* 表头排除hover效果，保持原有样式 */
+    #customerList thead tr:hover th {
+        background-color: inherit !important;
+        cursor: default;
+    }
+    /* 操作列重置光标，避免误导 */
+    #customerList tr td:last-child {
+        cursor: default;
+    }
 </style>
 {% endblock %}
 

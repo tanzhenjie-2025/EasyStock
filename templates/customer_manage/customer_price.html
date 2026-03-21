@@ -232,18 +232,27 @@
         color: #0056b3;
     }
 
-    /* ========== 新增：整行hover高亮样式 ========== */
+    /* 基础行样式 */
     #priceList tr {
-        transition: background-color 0.2s ease;
-        cursor: pointer; /* 提示可点击 */
+        transition: all 0.2s ease;
+        cursor: pointer;
+        position: relative;
     }
-    #priceList tr:hover {
-        background-color: #f0f8ff; /* 浅蓝色高亮 */
+    /* 关键：对td设置背景色，实现整行内容高亮（解决只高亮边框问题） */
+    .table-bordered #priceList > tr:hover td {
+        background-color: #f1f1f1 !important; /* 浅灰色，!important 确保优先级 */
     }
-    /* 按钮区域hover不影响行样式 */
+    /* 表头排除hover效果 */
+    #priceList thead tr:hover td,
+    #priceList thead tr:hover th {
+        background-color: inherit !important;
+        cursor: default;
+    }
+    /* 操作列光标恢复默认 */
     #priceList tr td:last-child {
         cursor: default;
     }
+
 </style>
 {% endblock %}
 

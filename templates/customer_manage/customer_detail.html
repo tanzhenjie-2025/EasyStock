@@ -53,6 +53,26 @@
     .product-stat-table td {
         vertical-align: middle;
     }
+
+    /* ========== 新增：订单列表行高亮 + 点击样式 ========== */
+    #orderList tr {
+        transition: all 0.2s ease;
+        cursor: pointer; /* 提示行可点击 */
+        position: relative;
+    }
+    /* 整行浅灰色高亮（覆盖Bootstrap默认样式） */
+    .table-bordered #orderList tr:hover td {
+        background-color: #f1f1f1 !important; /* 浅灰色，视觉舒适 */
+    }
+    /* 表头排除hover效果 */
+    #orderList thead tr:hover th {
+        background-color: inherit !important;
+        cursor: default;
+    }
+    /* 操作列光标重置（可选，不影响点击） */
+    #orderList tr td:last-child {
+        cursor: default;
+    }
 </style>
 {% endblock %}
 
@@ -60,7 +80,8 @@
 <div class="content-container">
     <div class="detail-header">
         <h3 id="customerName">客户详情</h3>
-        <button class="btn btn-sm btn-secondary" onclick="history.back()">返回客户列表</button>
+        <!-- 核心修改：替换history.back()为直接跳转客户列表URL -->
+        <button class="btn btn-sm btn-secondary" onclick="window.location.href='/customer-manage/customer/page/'">返回客户列表</button>
     </div>
     
     <!-- 客户基本信息（保留原有） -->
@@ -245,10 +266,14 @@
                     // 订单状态文本
                     const statusText = order.status_text || '未知';
                     
-                    // 操作按钮（跳订单详情，带返回标识）
-                    const operateBtn = `<a href="/bill/orders/detail/${order.order_no}/?from_customer=${customerId}" class="btn btn-sm btn-info">查看详情</a>`;
+                    // 订单详情跳转链接
+                    const detailUrl = `/bill/orders/detail/${order.order_no}/?from_customer=${customerId}`;
                     
-                    orderHtml += `<tr>
+                    // 操作按钮（阻止事件冒泡，避免重复跳转）
+                    const operateBtn = `<a href="${detailUrl}" class="btn btn-sm btn-info" onclick="event.stopPropagation()">查看详情</a>`;
+                    
+                    // 核心修改：给tr添加点击事件，跳转订单详情
+                    orderHtml += `<tr onclick="window.location.href='${detailUrl}'">
                         <td>${order.order_no || '-'}</td>
                         <td>${order.create_time || '-'}</td>
                         <td>¥${order.total_amount.toFixed(2)}</td>
