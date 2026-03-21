@@ -171,6 +171,19 @@
         color: #999;
         padding: 20px;
     }
+
+    /* ========== 新增：整行hover高亮样式 ========== */
+    #customerList tr {
+        transition: background-color 0.2s ease;
+        cursor: pointer; /* 提示行可点击 */
+    }
+    #customerList tr:hover {
+        background-color: #f0f8ff; /* 浅蓝色高亮，可自定义 */
+    }
+    /* 操作列重置光标，避免误导 */
+    #customerList tr td:last-child {
+        cursor: default;
+    }
 </style>
 {% endblock %}
 
@@ -403,7 +416,8 @@
                     let areaName = highlightKeyword(customer.area_name || '无', keyword);
                     let id = highlightKeyword(customer.id.toString(), keyword);
                     
-                    html += `<tr>
+                    // ========== 关键修改：给tr加点击事件，按钮加阻止冒泡 ==========
+                    html += `<tr onclick="openCustomerDetail(${customer.id})">
                         <td>${id}</td>
                         <td>${name}</td>
                         <td>${areaName}</td>
@@ -411,9 +425,9 @@
                         <td class="debt-red">¥${totalDebt}</td>
                         <td>${customer.remark || '无'}</td>
                         <td>
-                            <button class="btn btn-sm btn-info me-1" onclick="openCustomerDetail(${customer.id})">详情</button>
-                            <button class="btn btn-sm btn-warning me-1" onclick="openEditModal(${customer.id})">编辑</button>
-                            <button class="btn btn-sm btn-danger" onclick="deleteCustomer(${customer.id})">删除</button>
+                            <button class="btn btn-sm btn-info me-1" onclick="openCustomerDetail(${customer.id}); event.stopPropagation();">详情</button>
+                            <button class="btn btn-sm btn-warning me-1" onclick="openEditModal(${customer.id}); event.stopPropagation();">编辑</button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteCustomer(${customer.id}); event.stopPropagation();">删除</button>
                         </td>
                     </tr>`;
                 });

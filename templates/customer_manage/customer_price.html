@@ -231,6 +231,19 @@
     .link-btn:hover {
         color: #0056b3;
     }
+
+    /* ========== 新增：整行hover高亮样式 ========== */
+    #priceList tr {
+        transition: background-color 0.2s ease;
+        cursor: pointer; /* 提示可点击 */
+    }
+    #priceList tr:hover {
+        background-color: #f0f8ff; /* 浅蓝色高亮 */
+    }
+    /* 按钮区域hover不影响行样式 */
+    #priceList tr td:last-child {
+        cursor: default;
+    }
 </style>
 {% endblock %}
 
@@ -389,6 +402,9 @@
         initAdvancedFilter();       // 初始化高级筛选
         loadAreaListForFilter();    // 加载区域列表
         loadSearchHistory();        // 加载最近搜索记录
+
+        // ========== 新增：页面加载时聚焦到搜索栏 ==========
+        $('#searchInput').focus();
     });
     
     // ========== 新增：价格输入框回车提交逻辑 ==========
@@ -646,7 +662,8 @@
                     let customerName = highlightKeyword(item.customer_name, currentSearchKeyword);
                     let productName = highlightKeyword(item.product_name, currentSearchKeyword);
                     
-                    html += `<tr>
+                    // ========== 新增：整行点击事件 + 按钮阻止冒泡 ==========
+                    html += `<tr onclick="openEditModal(${item.id})">
                         <td>${item.id}</td>
                         <td>${customerName}</td>
                         <td>${item.customer_area_name || '无'}</td>
@@ -655,8 +672,8 @@
                         <td>¥${item.custom_price.toFixed(2)}</td>
                         <td>${item.remark || '无'}</td>
                         <td>
-                            <button class="btn btn-sm btn-warning me-1" onclick="openEditModal(${item.id})">编辑</button>
-                            <button class="btn btn-sm btn-danger" onclick="deletePrice(${item.id})">删除</button>
+                            <button class="btn btn-sm btn-warning me-1" onclick="openEditModal(${item.id}); event.stopPropagation();">编辑</button>
+                            <button class="btn btn-sm btn-danger" onclick="deletePrice(${item.id}); event.stopPropagation();">删除</button>
                         </td>
                     </tr>`;
                 });
