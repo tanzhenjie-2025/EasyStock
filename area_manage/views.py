@@ -3,10 +3,11 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
 import logging
-
+from django.db import models
 # 复用用户模块的核心依赖
 from accounts.models import Permission
 from accounts.views import permission_required, create_operation_log, get_client_ip
+
 # 复用bill里的模型
 from bill.models import Area, AreaGroup
 
@@ -19,9 +20,19 @@ logger = logging.getLogger(__name__)
 @permission_required('area_view')
 @csrf_exempt
 def area_list(request):
-    """获取所有区域列表（需area_view权限）"""
+    """获取所有区域列表（支持关键词搜索）"""
     try:
+        # 获取搜索关键词
+        keyword = request.GET.get('keyword', '').strip()
+        # 基础查询
         areas = Area.objects.all().order_by('name')
+
+        # 关键词过滤（匹配区域名或备注）
+        if keyword:
+            areas = areas.filter(
+                models.Q(name__icontains=keyword) | models.Q(remark__icontains=keyword)
+            )
+
         result = []
         for a in areas:
             result.append({
@@ -149,9 +160,21 @@ def area_delete(request, pk):
 @permission_required('area_view')
 @csrf_exempt
 def group_list(request):
-    """获取所有区域组列表（需area_view权限）"""
+    """获取所有区域组列表（支持关键词搜索）"""
     try:
+        # 获取搜索关键词
+        keyword = request.GET.get('keyword', '').strip()
+        # 基础查询
         groups = AreaGroup.objects.all().order_by('name')
+
+        # 关键词过滤（匹配组名、备注、包含的区域名）
+        if keyword:
+            groups = groups.filter(
+                models.Q(name__icontains=keyword) |  # 匹配组名
+                models.Q(remark__icontains=keyword) |  # 匹配备注
+                models.Q(areas__name__icontains=keyword)  # 匹配包含的区域名
+            ).distinct()  # 多对多关联去重
+
         data = []
         for g in groups:
             data.append({
