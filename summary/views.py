@@ -21,7 +21,6 @@ from bill.models import Product, Order, OrderItem, AreaGroup, Area
 from operation_log.models import OperationLog
 from django.utils import timezone
 
-
 # ========== 通用日志记录函数（对齐用户管理模块规范） ==========
 # 注：复用accounts的create_operation_log，确保日志格式统一
 def create_summary_operation_log(request, operation_type, object_type, object_id=None, object_name=None,
@@ -36,7 +35,6 @@ def create_summary_operation_log(request, operation_type, object_type, object_id
         detail=operation_detail
     )
 
-
 # ========== 核心业务视图（添加RBAC权限控制） ==========
 # 1. 汇总页面（需销售汇总权限）
 @login_required
@@ -44,7 +42,6 @@ def create_summary_operation_log(request, operation_type, object_type, object_id
 def summary_page(request):
     """商品汇总页面 - 需【销售汇总】权限"""
     return render(request, 'summary/summary.html')
-
 
 # 2. 核心接口：按区域组 + 精准时间段汇总（需销售汇总权限）
 @login_required
@@ -85,7 +82,7 @@ def summary_by_group(request):
         order__create_time__gte=start,
         order__create_time__lte=end
     ).exclude(
-        order__status='cancelled'
+        order__status='cancelled'  # 仅排除作废订单，重开/未结清都计入
     ).values(
         'product__id',
         'product__name',
@@ -128,7 +125,6 @@ def summary_by_group(request):
         'total_amount': float(total_amount)  # 新增总金额字段
     })
 
-
 # 3. 加载所有区域组列表（内部接口，随主接口权限控制）
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
@@ -149,14 +145,12 @@ def group_list(request):
         )
         return JsonResponse({'code': 0, 'msg': f'加载组列表失败：{str(e)}'}, status=400)
 
-
 # 4. 客户金额汇总页面（需销售汇总权限）
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
 def customer_summary_page(request):
     """客户汇总页面 - 需【销售汇总】权限"""
     return render(request, 'summary/customer_summary.html')
-
 
 # 5. 按区域组+精准时间段汇总客户消费金额（需销售汇总权限）
 @login_required
@@ -192,14 +186,14 @@ def summary_customer_by_group(request):
         except AreaGroup.DoesNotExist:
             return JsonResponse({'code': 0, 'msg': '分组不存在'})
 
-    # 4. 查询客户数据
+    # 4. 查询客户数据（仅排除作废订单，其余状态都计入，不限制结清状态）
     customer_summary = Order.objects.filter(
         area_id__in=area_ids,
         create_time__gte=start,
         create_time__lte=end,
         customer__isnull=False
     ).exclude(
-        status='cancelled'
+        status='cancelled'  # 仅排除作废订单，重开/未结清都计入
     ).values(
         'customer__id',
         'customer__name',
@@ -237,7 +231,6 @@ def summary_customer_by_group(request):
         'total_amount': float(total_amount),  # 新增总金额字段
         'msg': '查询成功' if data else '该时间段内无客户消费数据'
     })
-
 
 # ========== Excel导出核心函数（无权限，仅内部调用） ==========
 def export_to_excel(data, title, headers, selected_fields, custom_fields, file_name, total_row=None):
@@ -350,7 +343,6 @@ def export_to_excel(data, title, headers, selected_fields, custom_fields, file_n
     response['Content-Disposition'] = f'attachment; filename="{file_name}.xlsx"'
     return response
 
-
 # 6. 商品汇总导出接口（需销售汇总权限）
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
@@ -396,13 +388,13 @@ def export_product_summary(request):
             today = date.today().strftime('%Y%m%d')
             file_name = f'{today}商品汇总_{group_name}'
 
-            # 查询商品汇总数据
+            # 查询商品汇总数据（仅排除作废订单）
             items = OrderItem.objects.filter(
                 order__area_id__in=area_ids,
                 order__create_time__gte=start,
                 order__create_time__lte=end
             ).exclude(
-                order__status='cancelled'
+                order__status='cancelled'  # 仅排除作废订单
             ).values(
                 'product__id',
                 'product__name',
@@ -480,7 +472,6 @@ def export_product_summary(request):
             # 异常时返回JSON错误信息
             return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'}, status=500)
 
-
 # 7. 客户汇总导出接口（需销售汇总权限）
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
@@ -526,14 +517,14 @@ def export_customer_summary(request):
             today = date.today().strftime('%Y%m%d')
             file_name = f'{today}{group_name}'
 
-            # 查询客户汇总数据
+            # 查询客户汇总数据（仅排除作废订单）
             customer_summary = Order.objects.filter(
                 area_id__in=area_ids,
                 create_time__gte=start,
                 create_time__lte=end,
                 customer__isnull=False
             ).exclude(
-                status='cancelled'
+                status='cancelled'  # 仅排除作废订单
             ).values(
                 'customer__id',
                 'customer__name',
@@ -602,7 +593,6 @@ def export_customer_summary(request):
             )
             return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'}, status=500)
 
-
 # 8. 商品列表接口（供客户价格管理，需商品查看权限）
 @login_required
 @permission_required(PERM_PRODUCT_VIEW)
@@ -637,13 +627,11 @@ def product_list_for_price(request):
             content_type='application/json'
         )
 
-
 from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from django.contrib.auth.decorators import login_required
 from django.db import models
 from bill.models import Customer, Order, OrderItem, AreaGroup
-
 
 # 原有视图保持不变，新增以下内容
 
@@ -680,12 +668,14 @@ def get_customer_order_source(request, customer_id):
         except ValueError:
             return JsonResponse({'code': 0, 'msg': '时间格式错误，请使用正确的时间格式'}, status=400)
 
-        # 查询该客户在指定时间范围内的所有订单（使用解析后的datetime对象）
+        # ========== 核心修改 ==========
+        # 查询该客户在指定时间范围内的所有订单（仅排除作废，包含重开/未结清）
         orders = Order.objects.filter(
             customer_id=customer_id,
             create_time__gte=start,
-            create_time__lte=end,
-            status__in=['pending', 'printed']  # 排除作废/重开订单
+            create_time__lte=end
+        ).exclude(
+            status='cancelled'  # 仅排除作废订单，其余状态（pending/printed/reopened）都计入
         ).order_by('-create_time')
 
         # 剩余代码保持不变...

@@ -495,6 +495,10 @@ def cancel_order(request, order_no):
         try:
             order = get_object_or_404(Order, order_no=order_no)
 
+            # 新增：已结清订单禁止作废
+            if order.is_settled:
+                return JsonResponse({'code': 0, 'msg': '已结清订单无法作废，请先撤销结清状态'})
+
             if order.status == 'cancelled':
                 return JsonResponse({'code': 0, 'msg': '该订单已作废，无需重复操作'})
 
@@ -517,7 +521,7 @@ def cancel_order(request, order_no):
                     item.product.save()
                     item_count += 1
 
-            # 重构：统一日志记录
+            # 统一日志记录
             create_operation_log(
                 request=request,
                 op_type='cancel_order',

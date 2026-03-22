@@ -23,7 +23,6 @@
     {% if request.GET.from_customer %}
     <a href="/customer-manage/customer/detail/page/{{ request.GET.from_customer }}/" class="btn btn-sm btn-secondary back-btn">← 返回客户详情</a>
     {% else %}
-    <!-- 修复1：添加bill命名空间 -->
     <a href="{% url 'bill:order_list' %}" class="btn btn-sm btn-secondary back-btn">← 返回订单列表</a>
     {% endif %}
 
@@ -90,7 +89,7 @@
                 </div>
             </div>
 
-            <!-- 新增：商品销售明细表格 -->
+            <!-- 商品销售明细表格 -->
             <div class="mb-4">
                 <h5>商品销售明细</h5>
                 <table class="table table-sm table-bordered product-table">
@@ -117,7 +116,6 @@
                             <td colspan="5" class="text-center">暂无商品明细</td>
                         </tr>
                         {% endfor %}
-                        <!-- 销售总金额 -->
                         <tr class="total-row">
                             <td colspan="4" class="text-end">销售总金额：</td>
                             <td>¥{{ order.total_amount|default:"0.00" }}</td>
@@ -128,15 +126,9 @@
 
             <!-- 操作按钮 -->
             <div class="mt-4">
-{#                <!-- 修复2：添加bill命名空间 -->#}
-{#                <a href="{% url 'bill:print_order' order.order_no %}" class="btn btn-primary {% if order.status == 'cancelled' %}disabled{% endif %}">#}
-{#                    打印订单#}
-{#                </a>#}
-                <!-- 智能返回按钮 -->
                 {% if request.GET.from_customer %}
                 <a href="/customer-manage/customer/detail/page/{{ request.GET.from_customer }}/" class="btn btn-secondary">返回客户详情</a>
                 {% else %}
-                <!-- 修复3：添加bill命名空间 -->
                 <a href="{% url 'bill:order_list' %}" class="btn btn-secondary">返回列表</a>
                 {% endif %}
                 
@@ -146,20 +138,21 @@
                 </button>
                 {% endif %}
                 
-                {% if is_boss and order.is_settled %}
+                <!-- 修正：is_boss → is_super_admin -->
+                {% if is_super_admin and order.is_settled %}
                 <button class="btn btn-warning ms-2" data-bs-toggle="modal" data-bs-target="#unsettleModal">
                     撤销结清
                 </button>
                 {% endif %}
                 
-                {% if is_boss and order.status != 'cancelled' %}
+                <!-- 修正：is_boss → is_super_admin，且排除已结清订单作废 -->
+                {% if is_super_admin and order.status != 'cancelled' and not order.is_settled %}
                 <button class="btn btn-danger ms-2" data-bs-toggle="modal" data-bs-target="#cancelModal">
                     作废订单
                 </button>
                 {% endif %}
 
                 {% if order.status == 'cancelled' %}
-                <!-- 修复4：核心错误 - 添加bill命名空间 -->
                 <a href="{% url 'bill:reopen_order_edit' order.order_no %}" class="btn btn-warning ms-2">
                     重开此订单
                 </a>
@@ -219,7 +212,7 @@
 {% endif %}
 
 <!-- 撤销结清模态框 -->
-{% if is_boss and order.is_settled %}
+{% if is_super_admin and order.is_settled %}
 <div class="modal fade" id="unsettleModal" tabindex="-1" aria-labelledby="unsettleModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -243,6 +236,7 @@
 {% endif %}
 
 <!-- 作废订单模态框 -->
+{% if is_super_admin and order.status != 'cancelled' and not order.is_settled %}
 <div class="modal fade" id="cancelModal" tabindex="-1" aria-labelledby="cancelModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -269,6 +263,7 @@
         </div>
     </div>
 </div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}

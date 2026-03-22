@@ -334,26 +334,26 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
                     {% endif %}
                 </div>
             </td>
-            <td class="col-operation op-btn-group">
-                <a href="{% url 'bill:print_order' order.order_no %}" class="btn btn-sm btn-primary {% if order.status == 'cancelled' %}disabled{% endif %}">打印</a>
-                <a href="{% url 'bill:order_detail' order.order_no %}" class="btn btn-sm btn-info">详情</a>
+            <!-- 操作列部分代码替换 -->
+<td class="col-operation op-btn-group">
+    <a href="{% url 'bill:print_order' order.order_no %}" class="btn btn-sm btn-primary {% if order.status == 'cancelled' %}disabled{% endif %}">打印</a>
+    <a href="{% url 'bill:order_detail' order.order_no %}" class="btn btn-sm btn-info">详情</a>
 
-                <!-- 标记结清按钮（未结清+非作废订单可见） -->
-                {% if not order.is_settled and order.status != 'cancelled' %}
-                    <button class="btn btn-sm btn-success settleBtn" data-order-no="{{ order.order_no }}">标记结清</button>
-                {% endif %}
+    <!-- 标记结清按钮（未结清+非作废订单可见） -->
+    {% if not order.is_settled and order.status != 'cancelled' %}
+        <button class="btn btn-sm btn-success settleBtn" data-order-no="{{ order.order_no }}">标记结清</button>
+    {% endif %}
 
-                <!-- 撤销结清按钮（仅老板+已结清订单可见） -->
-                {% if is_boss and order.is_settled %}
-                    <button class="btn btn-sm btn-warning unsettleBtn" data-order-no="{{ order.order_no }}">撤销结清</button>
-                {% endif %}
+    <!-- 撤销结清按钮（仅超级管理员+已结清订单可见） -->
+    {% if is_super_admin and order.is_settled %}
+        <button class="btn btn-sm btn-warning unsettleBtn" data-order-no="{{ order.order_no }}">撤销结清</button>
+    {% endif %}
 
-                <!-- 作废订单按钮（仅老板+未作废订单可见） -->
-                {% if is_boss and order.status != 'cancelled' %}
-                    <button class="btn btn-sm btn-danger cancelBtn" data-order-no="{{ order.order_no }}">作废订单</button>
-                {% endif %}
-               
-            </td>
+    <!-- 作废订单按钮（仅超级管理员+未作废+未结清订单可见） -->
+    {% if is_super_admin and order.status != 'cancelled' and not order.is_settled %}
+        <button class="btn btn-sm btn-danger cancelBtn" data-order-no="{{ order.order_no }}">作废订单</button>
+    {% endif %}
+</td>
         </tr>
         {% empty %}
         <tr>
