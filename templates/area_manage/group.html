@@ -69,6 +69,117 @@
         color: #999;
         padding: 20px;
     }
+
+    /* ========== 新增：吐司提示样式 ========== */
+    .toast-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+    .toast {
+        padding: 12px 20px;
+        border-radius: 4px;
+        color: white;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s;
+        opacity: 0;
+        transform: translateX(100%);
+    }
+    .toast-success { background-color: #28a745; } /* 成功 */
+    .toast-error { background-color: #dc3545; }   /* 错误 */
+    .toast-warning { background-color: #ffc107; color: #333; } /* 警告 */
+    .toast-info { background-color: #17a2b8; }   /* 提示 */
+
+    @keyframes slideIn {
+        from { opacity: 0; transform: translateX(100%); }
+        to { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes fadeOut {
+        from { opacity: 1; transform: translateX(0); }
+        to { opacity: 0; transform: translateX(100%); }
+    }
+
+    /* ========== 新增：自定义弹窗样式 ========== */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0,0,0,0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.3s ease, visibility 0.3s ease;
+    }
+    .modal-overlay.active {
+        opacity: 1;
+        visibility: visible;
+    }
+    .modal-box {
+        background-color: white;
+        padding: 20px;
+        border-radius: 8px;
+        width: 90%;
+        max-width: 400px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .modal-title {
+        font-size: 16px;
+        font-weight: 600;
+        margin-bottom: 15px;
+        color: #333;
+    }
+    .modal-input {
+        width: 100%;
+        padding: 8px 12px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        margin-bottom: 15px;
+        font-size: 14px;
+    }
+    .modal-buttons {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 20px;
+    }
+    .modal-btn {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+    }
+    .modal-btn-confirm {
+        background-color: #007bff;
+        color: white;
+    }
+    .modal-btn-cancel {
+        background-color: #6c757d;
+        color: white;
+    }
+    /* 确认弹窗专属样式 */
+    .confirm-modal .modal-box { max-width: 350px; }
+    .confirm-modal .modal-content { margin-bottom: 20px; color: #555; }
+    /* 区域选择弹窗专属样式 */
+    .area-select-modal .modal-box { max-width: 450px; }
+    .area-select-modal .modal-tips {
+        font-size: 12px;
+        color: #666;
+        margin-bottom: 10px;
+        line-height: 1.5;
+    }
 </style>
 {% endblock %}
 
@@ -106,19 +217,142 @@
         const SEARCH_HISTORY_KEY = 'groupSearchHistory'; // 区域组搜索记录本地存储key
         const MAX_HISTORY_COUNT = 5; // 最多保存5条搜索记录
 
+        // ========== 核心新增：吐司提示函数 ==========
+        function showToast(message, type = 'info', duration = 3000) {
+            // 创建吐司容器（不存在则创建）
+            let toastContainer = document.getElementById('toastContainer');
+            if (!toastContainer) {
+                toastContainer = document.createElement('div');
+                toastContainer.id = 'toastContainer';
+                toastContainer.className = 'toast-container';
+                document.body.appendChild(toastContainer);
+            }
+            // 创建吐司元素
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+            // 添加到容器并设置动画
+            toastContainer.appendChild(toast);
+            // 自动移除
+            setTimeout(() => toast.remove(), duration);
+        }
+
+        // ========== 核心新增：自定义输入弹窗（替代prompt） ==========
+        function showInputModal(title, defaultValue = '', callback, isAreaSelect = false) {
+            // 创建遮罩层
+            let overlay = document.createElement('div');
+            overlay.className = `modal-overlay ${isAreaSelect ? 'area-select-modal' : ''}`;
+            
+            // 区域选择弹窗额外提示
+            let tipsHtml = '';
+            if (isAreaSelect) {
+                tipsHtml = `<div class="modal-tips">${defaultValue}</div>`;
+            }
+
+            overlay.innerHTML = `
+                <div class="modal-box">
+                    <div class="modal-title">${title}</div>
+                    ${tipsHtml}
+                    <input type="text" class="modal-input" value="${isAreaSelect ? '' : defaultValue}">
+                    <div class="modal-buttons">
+                        <button class="modal-btn modal-btn-cancel">取消</button>
+                        <button class="modal-btn modal-btn-confirm">确认</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+            // 显示弹窗（延迟触发动画）
+            setTimeout(() => overlay.classList.add('active'), 10);
+            
+            // 获取元素
+            const input = overlay.querySelector('.modal-input');
+            const cancelBtn = overlay.querySelector('.modal-btn-cancel');
+            const confirmBtn = overlay.querySelector('.modal-btn-confirm');
+            
+            // 聚焦输入框
+            input.focus();
+
+            // 取消按钮事件
+            cancelBtn.addEventListener('click', () => {
+                overlay.remove();
+                callback(null);
+            });
+
+            // 确认按钮事件
+            confirmBtn.addEventListener('click', () => {
+                const value = input.value.trim();
+                overlay.remove();
+                callback(value);
+            });
+
+            // ESC键关闭
+            document.addEventListener('keydown', function escHandler(e) {
+                if (e.key === 'Escape') {
+                    overlay.remove();
+                    callback(null);
+                    document.removeEventListener('keydown', escHandler);
+                }
+            });
+        }
+
+        // ========== 核心新增：自定义确认弹窗（替代confirm） ==========
+        function showConfirmModal(message, callback) {
+            // 创建遮罩层
+            let overlay = document.createElement('div');
+            overlay.className = 'modal-overlay confirm-modal';
+            overlay.innerHTML = `
+                <div class="modal-box">
+                    <div class="modal-title">确认操作</div>
+                    <div class="modal-content">${message}</div>
+                    <div class="modal-buttons">
+                        <button class="modal-btn modal-btn-cancel">取消</button>
+                        <button class="modal-btn modal-btn-confirm">确认</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+            // 显示弹窗
+            setTimeout(() => overlay.classList.add('active'), 10);
+            
+            // 获取按钮
+            const cancelBtn = overlay.querySelector('.modal-btn-cancel');
+            const confirmBtn = overlay.querySelector('.modal-btn-confirm');
+
+            // 取消按钮
+            cancelBtn.addEventListener('click', () => {
+                overlay.remove();
+                callback(false);
+            });
+
+            // 确认按钮
+            confirmBtn.addEventListener('click', () => {
+                overlay.remove();
+                callback(true);
+            });
+
+            // ESC键关闭
+            document.addEventListener('keydown', function escHandler(e) {
+                if (e.key === 'Escape') {
+                    overlay.remove();
+                    callback(false);
+                    document.removeEventListener('keydown', escHandler);
+                }
+            });
+        }
+
         // 加载区域列表（用于区域组）
         function loadArea(){ 
             console.log('加载区域列表（用于区域组）...');
             $.get('/area-manage/api/area/list/', function(res){
                 console.log('区域列表返回：', res);
                 if(res.code === 0){
-                    alert(res.msg);
+                    showToast(res.msg, 'error'); // 替换alert
                     return;
                 }
                 allAreas=Array.isArray(res) ? res : [];
             },'json').fail(function(xhr, status, error){
                 console.error('加载区域失败：', xhr.responseText);
-                alert('加载区域列表失败！\n' + error);
+                showToast('加载区域列表失败！' + error, 'error'); // 替换alert
             });
         }
 
@@ -142,7 +376,7 @@
                 }
                 // 处理接口返回错误
                 if(res.code === 0){
-                    alert(res.msg);
+                    showToast(res.msg, 'error'); // 替换alert
                     return;
                 }
                 // 遍历数据（行点击调用edit，按钮阻止冒泡）
@@ -163,7 +397,7 @@
                 $('#list').html(html);
             },'json').fail(function(xhr, status, error){
                 console.error('加载区域组失败：', xhr.responseText);
-                alert(`加载区域组列表失败！\n错误：${error}\n返回内容：${xhr.responseText.substring(0, 100)}`);
+                showToast(`加载区域组列表失败！错误：${error}`, 'error'); // 替换alert
                 $('#list').html(`<tr><td colspan="5" class="no-result">加载失败</td></tr>`);
             });
         }
@@ -172,7 +406,7 @@
         function searchGroups(){
             const keyword = $('#searchInput').val().trim();
             if (!keyword) {
-                alert('请输入搜索关键词');
+                showToast('请输入搜索关键词', 'warning'); // 替换alert
                 $('#searchInput').focus();
                 return;
             }
@@ -226,103 +460,117 @@
             searchGroups();
         }
 
-        // 新增区域组
+        // 新增区域组（替换prompt为自定义弹窗）
         function add(){
-            let name=prompt('请输入组名：');
-            if(!name) return;
-            let remark=prompt('请输入备注（可选）：')||'';
-            
-            if(allAreas.length === 0){
-                alert('暂无可用区域，请先添加区域！');
-                return;
-            }
-            let areaSelectStr = '请选择要包含的区域（输入区域ID，多个用英文逗号分隔）：\n';
-            allAreas.forEach(a => {
-                areaSelectStr += `${a.id} - ${a.name}\n`;
-            });
-            let selectedIds = prompt(areaSelectStr);
-            let areaIds = [];
-            if(selectedIds) {
-                areaIds = selectedIds.split(',').map(id => id.trim()).filter(id => id);
-            }
-
-            $.ajax({
-                url: '/area-manage/api/group/add/',
-                type: 'POST',
-                data: {name, remark, 'area_ids[]': areaIds},
-                headers: {'X-CSRFToken': getCsrfToken()},
-                dataType: 'json',
-                success: function(res){
-                    alert(res.msg);
-                    if(res.code === 1) loadGroup();
-                },
-                error: function(xhr, status, error){
-                    console.error('新增区域组失败：', xhr.responseText);
-                    alert('新增区域组失败！\n' + xhr.responseText);
-                }
+            // 第一步：输入组名
+            showInputModal('请输入组名：', '', (name) => {
+                if(!name) return;
+                // 第二步：输入备注
+                showInputModal('请输入备注（可选）：', '', (remark) => {
+                    remark = remark || '';
+                    
+                    if(allAreas.length === 0){
+                        showToast('暂无可用区域，请先添加区域！', 'warning'); // 替换alert
+                        return;
+                    }
+                    // 构建区域选择提示文本
+                    let areaSelectTips = '请选择要包含的区域（输入区域ID，多个用英文逗号分隔）：\n';
+                    allAreas.forEach(a => {
+                        areaSelectTips += `${a.id} - ${a.name}\n`;
+                    });
+                    // 第三步：选择区域
+                    showInputModal('选择包含区域', areaSelectTips, (selectedIds) => {
+                        if(!selectedIds) return;
+                        let areaIds = selectedIds.split(',').map(id => id.trim()).filter(id => id);
+                        // 发送请求
+                        $.ajax({
+                            url: '/area-manage/api/group/add/',
+                            type: 'POST',
+                            data: {name, remark, 'area_ids[]': areaIds},
+                            headers: {'X-CSRFToken': getCsrfToken()},
+                            dataType: 'json',
+                            success: function(res){
+                                showToast(res.msg, res.code === 1 ? 'success' : 'error'); // 吐司提示
+                                if(res.code === 1) loadGroup();
+                            },
+                            error: function(xhr, status, error){
+                                console.error('新增区域组失败：', xhr.responseText);
+                                showToast('新增区域组失败！' + xhr.responseText, 'error'); // 替换alert
+                            }
+                        });
+                    }, true); // 标记为区域选择弹窗
+                });
             });
         }
 
-        // 编辑区域组
+        // 编辑区域组（替换prompt为自定义弹窗）
         function edit(id){
             $.get('/area-manage/api/group/list/', function(groups){
                 console.log('所有区域组：', groups);
                 let g=groups.find(x=>x.id == id);
                 if(!g){
-                    alert('该区域组不存在！');
+                    showToast('该区域组不存在！', 'error'); // 替换alert
                     return;
                 }
-                let name=prompt('请输入新组名：', g.name);
-                if(!name) return;
-                let remark=prompt('请输入备注（可选）：', g.remark)||'';
-
-                let areaSelectStr = `当前已选：${g.area_names.join('、') || '无'}\n请输入新的区域ID（多个用英文逗号分隔）：\n`;
-                allAreas.forEach(a => {
-                    areaSelectStr += `${a.id} - ${a.name}\n`;
-                });
-                let selectedIds = prompt(areaSelectStr, g.area_ids.join(','));
-                let areaIds = [];
-                if(selectedIds) {
-                    areaIds = selectedIds.split(',').map(id => id.trim()).filter(id => id);
-                }
-
-                $.ajax({
-                    url: `/area-manage/api/group/edit/${id}/`,
-                    type: 'POST',
-                    data: {name, remark, 'area_ids[]': areaIds},
-                    headers: {'X-CSRFToken': getCsrfToken()},
-                    dataType: 'json',
-                    success: function(res){
-                        alert(res.msg);
-                        if(res.code === 1) loadGroup();
-                    },
-                    error: function(xhr, status, error){
-                        console.error('编辑区域组失败：', xhr.responseText);
-                        alert('编辑区域组失败！\n' + xhr.responseText);
-                    }
+                // 第一步：输入新组名
+                showInputModal('请输入新组名：', g.name, (name) => {
+                    if(!name) return;
+                    // 第二步：输入备注
+                    showInputModal('请输入备注（可选）：', g.remark || '', (remark) => {
+                        remark = remark || '';
+                        // 构建区域选择提示文本
+                        let areaSelectTips = `当前已选：${g.area_names.join('、') || '无'}\n请输入新的区域ID（多个用英文逗号分隔）：\n`;
+                        allAreas.forEach(a => {
+                            areaSelectTips += `${a.id} - ${a.name}\n`;
+                        });
+                        // 第三步：选择区域
+                        showInputModal('修改包含区域', areaSelectTips, (selectedIds) => {
+                            if(!selectedIds) return;
+                            let areaIds = selectedIds.split(',').map(id => id.trim()).filter(id => id);
+                            // 发送请求
+                            $.ajax({
+                                url: `/area-manage/api/group/edit/${id}/`,
+                                type: 'POST',
+                                data: {name, remark, 'area_ids[]': areaIds},
+                                headers: {'X-CSRFToken': getCsrfToken()},
+                                dataType: 'json',
+                                success: function(res){
+                                    showToast(res.msg, res.code === 1 ? 'success' : 'error'); // 吐司提示
+                                    if(res.code === 1) loadGroup();
+                                },
+                                error: function(xhr, status, error){
+                                    console.error('编辑区域组失败：', xhr.responseText);
+                                    showToast('编辑区域组失败！' + xhr.responseText, 'error'); // 替换alert
+                                }
+                            });
+                        }, true); // 标记为区域选择弹窗
+                    });
                 });
             },'json').fail(function(xhr, status, error){
                 console.error('获取区域组失败：', xhr.responseText);
-                alert('获取区域组信息失败！\n' + error);
+                showToast('获取区域组信息失败！' + error, 'error'); // 替换alert
             });
         }
 
-        // 删除区域组
+        // 删除区域组（替换confirm为自定义弹窗）
         function del(id){
-            if(!confirm('确定要删除该区域组吗？')) return;
-            $.ajax({
-                url: `/area-manage/api/group/delete/${id}/`,
-                type: 'POST',
-                headers: {'X-CSRFToken': getCsrfToken()},
-                dataType: 'json',
-                success: function(res){
-                    alert(res.msg);
-                    loadGroup();
-                },
-                error: function(xhr, status, error){
-                    console.error('删除区域组失败：', xhr.responseText);
-                    alert('删除区域组失败！\n' + xhr.responseText);
-                }
+            showConfirmModal('确定要删除该区域组吗？', (isConfirm) => {
+                if(!isConfirm) return;
+                // 发送删除请求
+                $.ajax({
+                    url: `/area-manage/api/group/delete/${id}/`,
+                    type: 'POST',
+                    headers: {'X-CSRFToken': getCsrfToken()},
+                    dataType: 'json',
+                    success: function(res){
+                        showToast(res.msg, res.code === 1 ? 'success' : 'error'); // 吐司提示
+                        loadGroup();
+                    },
+                    error: function(xhr, status, error){
+                        console.error('删除区域组失败：', xhr.responseText);
+                        showToast('删除区域组失败！' + xhr.responseText, 'error'); // 替换alert
+                    }
+                });
             });
         }
 
