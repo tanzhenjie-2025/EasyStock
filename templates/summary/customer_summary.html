@@ -62,17 +62,28 @@
         margin-top: 10px;
         margin-bottom: 15px;
     }
-    /* 新增：按钮组样式，保证两个按钮垂直对齐 */
     .btn-group-query {
         display: flex;
         gap: 8px;
     }
-    /* 新增：总计行样式 */
     .total-row {
         background-color: #4472C4;
         color: white;
         font-weight: bold;
         text-align: center;
+    }
+    /* 新增：行高亮样式（浅灰色） */
+    #data tr:not(.total-row) {
+        transition: background-color 0.2s ease;
+        cursor: pointer; /* 提示可点击 */
+    }
+    #data tr:not(.total-row):hover {
+        background-color: #f1f1f1 !important; /* 浅灰色高亮 */
+    }
+    /* 详情按钮样式 */
+    .detail-btn {
+        padding: 2px 8px;
+        font-size: 12px;
     }
 </style>
 {% endblock %}
@@ -97,7 +108,6 @@
         <input type="datetime-local" id="e" class="form-control form-control-sm" placeholder="结束时间">
     </div>
     <div class="form-group">
-        <!-- 修改：添加按钮组，将导出按钮移到查询按钮后面并对齐 -->
         <div class="btn-group-query">
             <button class="btn btn-sm btn-primary" onclick="query()">查询汇总</button>
             <button class="btn btn-sm btn-success" onclick="showExportModal()">导出Excel</button>
@@ -109,8 +119,11 @@
 <table class="table table-sm table-bordered">
     <thead>
         <tr>
-            <th>序号</th> <!-- 新增：序号列 -->
-            <th>客户名称</th><th>金额</th><th>备注</th>
+            <th>序号</th>
+            <th>客户名称</th>
+            <th>金额</th>
+            <th>备注</th>
+            <th>操作</th> <!-- 新增：操作列（详情按钮） -->
         </tr>
     </thead>
     <tbody id="data"></tbody>
@@ -125,13 +138,10 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <!-- 全选/取消全选按钮 -->
                 <div class="select-all-btn">
                     <button type="button" class="btn btn-xs btn-outline-primary" onclick="selectAllFields(true)">全选</button>
                     <button type="button" class="btn btn-xs btn-outline-secondary ms-1" onclick="selectAllFields(false)">取消全选</button>
                 </div>
-
-                <!-- 客户汇总字段选项 -->
                 <div class="field-checkbox">
                     <input type="checkbox" id="field_serial" name="export_fields" value="serial" checked>
                     <label for="field_serial">序号</label>
@@ -148,12 +158,9 @@
                     <input type="checkbox" id="field_remark" name="export_fields" value="remark" checked>
                     <label for="field_remark">备注</label>
                 </div>
-
-                <!-- 自定义字段区域 -->
                 <div class="custom-fields-section">
                     <h6>自定义字段（用于手动填写）</h6>
                     <div id="customFieldsContainer">
-                        <!-- 自定义字段项将动态添加到这里 -->
                     </div>
                     <button type="button" class="btn btn-sm btn-outline-success btn-add-custom" onclick="addCustomField()">
                         + 添加自定义字段
@@ -190,6 +197,15 @@ function loadGroup(){
     });
 }
 
+// 新增：跳转到金额汇总详情页
+function goToDetail(customer_id) {
+    // 拼接详情页URL，携带时间范围参数
+    const start_date = $('#s').val();
+    const end_date = $('#e').val();
+    const detailUrl = `/summary/detail/${customer_id}/?start_date=${start_date}&end_date=${end_date}`;
+    window.location.href = detailUrl;
+}
+
 // 查询汇总
 function query(){
     let group_id = $('#group').val();
@@ -221,22 +237,25 @@ function query(){
             return;
         }
         if (res.data.length === 0) {
-            $('#data').html('<tr><td colspan="4" class="empty-data">该时间段内无客户消费数据</td></tr>');
+            $('#data').html('<tr><td colspan="5" class="empty-data">该时间段内无客户消费数据</td></tr>');
             return;
         }
-        // 渲染数据
+        // 渲染数据（新增：行点击事件 + 详情按钮）
         let html = '';
         res.data.forEach(i => {
-            html += `<tr>
-                <td>${i.serial}</td> <!-- 显示序号 -->
+            html += `<tr onclick="goToDetail(${i.customer_id})">
+                <td>${i.serial}</td>
                 <td>${i.customer_name}</td>
                 <td>${i.total_amount.toFixed(2)}</td>
                 <td>${i.remark}</td>
+                <td>
+                    <button class="btn btn-sm btn-info detail-btn" onclick="event.stopPropagation();goToDetail(${i.customer_id})">详情</button>
+                </td>
             </tr>`;
         });
         // 添加总计行
         html += `<tr class="total-row">
-            <td colspan="2">总计</td>
+            <td colspan="3">总计</td>
             <td>${res.total_amount.toFixed(2)}</td>
             <td></td>
         </tr>`;
@@ -251,7 +270,6 @@ function showExportModal() {
     if (!queryParams.group_id) {
         return alert('请先执行查询操作');
     }
-    // 重置自定义字段
     customFieldCount = 0;
     $('#customFieldsContainer').empty();
     const modal = new bootstrap.Modal(document.getElementById('exportModal'));
@@ -266,15 +284,12 @@ function selectAllFields(isSelect) {
 // 添加自定义字段
 function addCustomField() {
     customFieldCount++;
-
-    // 获取所有可选的目标字段
     let targetFieldsHtml = '';
     $('input[name="export_fields"]').each(function() {
         const fieldValue = $(this).val();
         const fieldLabel = $(this).next('label').text();
         targetFieldsHtml += `<option value="${fieldValue}">${fieldLabel}</option>`;
     });
-
     const customFieldHtml = `
     <div class="custom-field-item" data-index="${customFieldCount}">
         <input type="text" class="form-control form-control-sm custom-field-name" placeholder="字段名称（如：上次金额）" value="备注${customFieldCount}">
@@ -288,7 +303,6 @@ function addCustomField() {
         <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeCustomField(${customFieldCount})">×</button>
     </div>
     `;
-
     $('#customFieldsContainer').append(customFieldHtml);
 }
 
@@ -299,23 +313,18 @@ function removeCustomField(index) {
 
 // 导出Excel
 function exportExcel() {
-    // 获取选中的字段
     let selectedFields = [];
     $('input[name="export_fields"]:checked').each(function() {
         selectedFields.push($(this).val());
     });
-
     if (selectedFields.length === 0) {
         return alert('请至少选择一个导出字段');
     }
-
-    // 获取自定义字段配置
     let customFields = [];
     $('.custom-field-item').each(function() {
         const name = $(this).find('.custom-field-name').val().trim();
         const position = $(this).find('.custom-field-position').val();
         const target = $(this).find('.custom-field-target').val();
-
         if (name) {
             customFields.push({
                 name: name,
@@ -324,19 +333,14 @@ function exportExcel() {
             });
         }
     });
-
-    // 构建表单数据
     let formData = new FormData();
     formData.append('group_id', queryParams.group_id);
     formData.append('start_date', queryParams.start_date);
     formData.append('end_date', queryParams.end_date);
     formData.append('custom_fields', JSON.stringify(customFields));
-
     selectedFields.forEach(field => {
         formData.append('fields[]', field);
     });
-
-    // 发起导出请求
     $.ajax({
         url: '/summary/export-customer/',
         type: 'POST',
@@ -347,7 +351,6 @@ function exportExcel() {
             responseType: 'blob'
         },
         success: function(res, status, xhr) {
-            // 检查是否是错误响应
             const contentType = xhr.getResponseHeader('Content-Type');
             if (contentType.includes('application/json')) {
                 const reader = new FileReader();
@@ -358,12 +361,8 @@ function exportExcel() {
                 reader.readAsText(res);
                 return;
             }
-
-            // 关闭模态框
             const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
             modal.hide();
-
-            // 生成下载链接
             const url = window.URL.createObjectURL(res);
             const a = document.createElement('a');
             a.href = url;

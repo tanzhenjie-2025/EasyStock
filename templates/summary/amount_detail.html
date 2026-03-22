@@ -1,0 +1,200 @@
+{% extends "base.html" %}
+
+{% block title %}{{ customer.name }} - 金额汇总详情 - EasyStock{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* 详情页样式 */
+    .detail-header {
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .back-btn {
+        padding: 4px 12px;
+        font-size: 14px;
+    }
+    .customer-info {
+        padding: 10px;
+        background: #f8f9fa;
+        border-radius: 4px;
+        margin-bottom: 20px;
+    }
+    .order-card {
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        margin-bottom: 15px;
+        overflow: hidden;
+    }
+    .order-header {
+        background: #e9ecef;
+        padding: 8px 12px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-weight: bold;
+    }
+    .order-body {
+        padding: 12px;
+    }
+    .order-item-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+    }
+    .order-item-table th, .order-item-table td {
+        border: 1px solid #dee2e6;
+        padding: 6px 8px;
+        text-align: left;
+    }
+    .order-item-table th {
+        background: #f8f9fa;
+    }
+    .total-section {
+        margin-top: 20px;
+        padding: 10px;
+        background: #4472C4;
+        color: white;
+        border-radius: 4px;
+        text-align: right;
+        font-size: 16px;
+        font-weight: bold;
+    }
+    .empty-order {
+        text-align: center;
+        padding: 30px;
+        color: #666;
+        font-size: 16px;
+    }
+    /* 行高亮 */
+    .order-item-table tr:hover {
+        background-color: #f1f1f1 !important;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- 详情页头部（返回按钮 + 标题） -->
+<div class="detail-header">
+    <h3>{{ customer.name }} - 金额汇总详情</h3>
+    <button class="btn btn-secondary back-btn" onclick="goBack()">← 返回汇总页</button>
+</div>
+
+<!-- 客户基本信息 -->
+<div class="customer-info">
+    <div><strong>客户名称：</strong>{{ customer.name }}</div>
+    <div><strong>所属区域：</strong>{% if customer.area %}{{ customer.area.name }}{% else %}未知{% endif %}</div>
+    <div><strong>联系电话：</strong>{{ customer.phone }}</div>
+</div>
+
+<!-- 订单来源列表 -->
+<div id="orderSourceList">
+    <!-- 加载中提示 -->
+    <div class="empty-order">加载中...</div>
+</div>
+
+<!-- 总计金额 -->
+<div class="total-section" id="totalAmountSection" style="display: none;">
+    订单总金额：¥<span id="totalAmount">0.00</span>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// 获取URL参数
+function getUrlParam(name) {
+    const reg = new RegExp(`(^|&)${name}=([^&]*)(&|$)`);
+    const r = window.location.search.substr(1).match(reg);
+    if (r != null) return decodeURIComponent(r[2]);
+    return '';
+}
+
+// 返回汇总页
+function goBack() {
+    window.history.back();
+}
+
+// 加载订单来源数据
+function loadOrderSource() {
+    const customer_id = {{ customer_id }};
+    const start_date = getUrlParam('start_date');
+    const end_date = getUrlParam('end_date');
+    
+    if (!start_date || !end_date) {
+        $('#orderSourceList').html('<div class="empty-order">缺少时间范围参数</div>');
+        return;
+    }
+
+    // 发起请求
+    $.get(`/summary/api/order-source/${customer_id}/`, {
+        start_date: start_date,
+        end_date: end_date
+    }, function(res) {
+        if (res.code !== 1) {
+            $('#orderSourceList').html(`<div class="empty-order">${res.msg || '查询失败'}</div>`);
+            return;
+        }
+        
+        if (res.data.length === 0) {
+            $('#orderSourceList').html('<div class="empty-order">该时间段内无订单记录</div>');
+            return;
+        }
+
+        // 渲染订单列表
+        let html = '';
+        res.data.forEach(order => {
+            // 渲染订单明细
+            let itemHtml = '';
+            order.items.forEach(item => {
+                itemHtml += `<tr>
+                    <td>${item.product_name}</td>
+                    <td>${item.quantity}${item.unit}</td>
+                    <td>¥${item.price.toFixed(2)}</td>
+                    <td>¥${item.amount.toFixed(2)}</td>
+                </tr>`;
+            });
+
+            // 渲染订单卡片
+            html += `<div class="order-card">
+                <div class="order-header">
+                    <div>订单编号：${order.order_no}</div>
+                    <div>下单时间：${order.create_time}</div>
+                </div>
+                <div class="order-header" style="background: #f8f9fa; font-weight: normal;">
+                    <div>订单状态：${order.status}</div>
+                    <div>订单金额：¥${order.total_amount.toFixed(2)}</div>
+                </div>
+                <div class="order-body">
+                    <table class="order-item-table">
+                        <thead>
+                            <tr>
+                                <th>商品名称</th>
+                                <th>数量</th>
+                                <th>单价</th>
+                                <th>小计</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${itemHtml}
+                        </tbody>
+                    </table>
+                </div>
+            </div>`;
+        });
+
+        // 更新页面内容
+        $('#orderSourceList').html(html);
+        $('#totalAmount').text(res.total_amount.toFixed(2));
+        $('#totalAmountSection').show();
+    }).fail(function() {
+        $('#orderSourceList').html('<div class="empty-order">加载订单数据失败，请重试</div>');
+    });
+}
+
+// 页面初始化
+$(function() {
+    loadOrderSource();
+});
+</script>
+{% endblock %}

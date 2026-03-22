@@ -636,3 +636,91 @@ def product_list_for_price(request):
             safe=False,
             content_type='application/json'
         )
+
+
+from django.shortcuts import render, get_object_or_404
+from django.http import JsonResponse
+from django.contrib.auth.decorators import login_required
+from django.db import models
+from bill.models import Customer, Order, OrderItem, AreaGroup
+
+
+# 原有视图保持不变，新增以下内容
+
+@login_required
+def customer_amount_detail_page(request, customer_id):
+    """金额汇总详情页 - 页面渲染"""
+    try:
+        customer = get_object_or_404(Customer, id=customer_id)
+        return render(request, 'summary/amount_detail.html', {
+            'customer': customer,
+            'customer_id': customer_id
+        })
+    except Exception as e:
+        # 页面渲染失败时返回错误页面，而非JSON
+        return render(request, 'error.html', {
+            'error_msg': f'获取客户信息失败：{str(e)}'
+        }, status=400)
+
+@login_required
+def get_customer_order_source(request, customer_id):
+    """获取客户订单来源数据接口（金额汇总详情）"""
+    try:
+        # 获取查询参数（时间范围）
+        start_date = request.GET.get('start_date')
+        end_date = request.GET.get('end_date')
+        if not start_date or not end_date:
+            return JsonResponse({'code': 0, 'msg': '缺少时间范围参数'}, status=400)
+
+        # 修复：解析ISO格式时间字符串为datetime对象
+        try:
+            # 替换T为空格，兼容前端传递的ISO格式
+            start = datetime.strptime(start_date.replace('T', ' '), '%Y-%m-%d %H:%M')
+            end = datetime.strptime(end_date.replace('T', ' '), '%Y-%m-%d %H:%M')
+        except ValueError:
+            return JsonResponse({'code': 0, 'msg': '时间格式错误，请使用正确的时间格式'}, status=400)
+
+        # 查询该客户在指定时间范围内的所有订单（使用解析后的datetime对象）
+        orders = Order.objects.filter(
+            customer_id=customer_id,
+            create_time__gte=start,
+            create_time__lte=end,
+            status__in=['pending', 'printed']  # 排除作废/重开订单
+        ).order_by('-create_time')
+
+        # 剩余代码保持不变...
+        # 组装订单来源数据
+        order_list = []
+        total_amount = 0
+        for order in orders:
+            # 获取订单明细
+            order_items = OrderItem.objects.filter(order_id=order.id)
+            item_list = []
+            for item in order_items:
+                product_name = item.product.name if item.product else '未知商品'
+                item_list.append({
+                    'product_name': product_name,
+                    'quantity': item.quantity,
+                    'unit': item.product.unit if item.product else '',
+                    'price': float(item.product.price) if item.product else 0,
+                    'amount': float(item.amount) if item.amount else 0
+                })
+
+            order_info = {
+                'order_no': order.order_no,
+                'create_time': order.create_time.strftime('%Y-%m-%d %H:%M:%S'),
+                'total_amount': float(order.total_amount),
+                'status': dict(order.ORDER_STATUS).get(order.status, '未知状态'),
+                'items': item_list
+            }
+            order_list.append(order_info)
+            total_amount += float(order.total_amount)
+
+        return JsonResponse({
+            'code': 1,
+            'data': order_list,
+            'total_amount': round(total_amount, 2),
+            'customer_name': get_object_or_404(Customer, id=customer_id).name
+        })
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': f'查询订单来源失败：{str(e)}'}, status=500)
