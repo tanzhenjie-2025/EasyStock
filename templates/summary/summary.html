@@ -62,12 +62,12 @@
         margin-top: 10px;
         margin-bottom: 15px;
     }
-    /* 新增：按钮组样式，保证两个按钮垂直对齐 */
+    /* 按钮组样式，保证两个按钮垂直对齐 */
     .btn-group-query {
         display: flex;
         gap: 8px;
     }
-    /* 新增：总计行样式 */
+    /* 总计行样式 */
     .total-row {
         background-color: #4472C4;
         color: white;
@@ -75,19 +75,24 @@
         text-align: center;
     }
     
-    /* 商品行高亮样式 */
-.table-row-hover {
-    cursor: pointer;
-    transition: background-color 0.2s ease;
-}
-.table-row-hover:hover {
-    background-color: #f0f0f0 !important; /* 浅灰色高亮 */
-}
-/* 详情按钮样式 */
-.btn-detail {
-    padding: 2px 8px;
-    font-size: 0.75rem;
-}
+    /* 核心优化：行高亮样式 - 整行浅灰色，总计行不生效 */
+    #data tr:not(.total-row) {
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+    #data tr:not(.total-row):hover td {
+        background-color: #f1f1f1 !important; /* 统一浅灰色高亮 */
+    }
+    /* 操作栏样式：固定宽度，居中对齐 */
+    .operate-col {
+        width: 80px;
+        text-align: center;
+    }
+    /* 详情按钮样式优化 */
+    .btn-detail {
+        padding: 2px 8px;
+        font-size: 0.75rem;
+    }
 </style>
 {% endblock %}
 
@@ -119,12 +124,17 @@
     </div>
 </div>
 
-<!-- 数据表格 -->
+<!-- 数据表格：新增操作列 -->
 <table class="table table-sm table-bordered">
     <thead>
         <tr>
             <th>序号</th>
-            <th>商品</th><th>单位</th><th>单价</th><th>总销量</th><th>总金额</th>
+            <th>商品</th>
+            <th>单位</th>
+            <th>单价</th>
+            <th>总销量</th>
+            <th>总金额</th>
+            <th class="operate-col">操作</th> <!-- 新增：独立操作栏 -->
         </tr>
     </thead>
     <tbody id="data"></tbody>
@@ -267,35 +277,36 @@ function restoreSummaryData() {
         // 2. 恢复全局查询参数
         queryParams = params;
         
-        // 3. 渲染汇总结果
+        // 3. 渲染汇总结果（适配新增的操作列）
         if (result.code !== 1) {
             $('#data').html('');
             return;
         }
         if (result.data.length === 0) {
-            $('#data').html('<tr><td colspan="6" class="empty-data">该时间段内无销售数据</td></tr>');
+            // 调整colspan为7（新增操作列）
+            $('#data').html('<tr><td colspan="7" class="empty-data">该时间段内无销售数据</td></tr>');
             return;
         }
         
         let html = '';
         result.data.forEach(i => {
             const detailUrl = `/summary/product-detail/${i.pid}/?group_id=${params.group_id}&start_date=${params.start_date}&end_date=${params.end_date}`;
-            html += `<tr class="table-row-hover" onclick="window.location.href='${detailUrl}'">
+            html += `<tr onclick="window.location.href='${detailUrl}'">
                 <td>${i.serial}</td>
                 <td>${i.name}</td>
                 <td>${i.unit}</td>
                 <td>${i.price.toFixed(2)}</td>
                 <td>${i.total_qty}</td>
-                <td>
-                    ${i.total_amt.toFixed(2)}
-                    <button class="btn btn-sm btn-outline-primary btn-detail ms-2" onclick="event.stopPropagation(); window.location.href='${detailUrl}'">详情</button>
+                <td>${i.total_amt.toFixed(2)}</td>
+                <td class="operate-col"> <!-- 操作栏：详情按钮移到这里 -->
+                    <button class="btn btn-sm btn-outline-primary btn-detail" onclick="event.stopPropagation(); window.location.href='${detailUrl}'">详情</button>
                 </td>
             </tr>`;
         });
-        // 添加总计行
+        // 添加总计行（调整colspan为6，操作列空）
         html += `<tr class="total-row">
-            <td colspan="5">总计</td>
-            <td>${result.total_amount.toFixed(2)}</td>
+            <td colspan="6">总计</td>
+            <td class="operate-col"></td>
         </tr>`;
         $('#data').html(html);
         
@@ -306,7 +317,7 @@ function restoreSummaryData() {
     }
 }
 
-// 2. 查询汇总（修改：添加存储逻辑）
+// 2. 查询汇总（修改：适配新增的操作列）
 function query(){
     let group_id = $('#group').val();
     let start_time = $('#s').val();
@@ -347,29 +358,30 @@ function query(){
         sessionStorage.setItem(STORAGE_KEY, JSON.stringify(saveData));
         
         if (res.data.length === 0) {
-            $('#data').html('<tr><td colspan="6" class="empty-data">该时间段内无销售数据</td></tr>');
+            // 调整colspan为7（新增操作列）
+            $('#data').html('<tr><td colspan="7" class="empty-data">该时间段内无销售数据</td></tr>');
             return;
         }
-        // 渲染数据（原有逻辑不变）
+        // 渲染数据（详情按钮移到操作列）
         let html = '';
         res.data.forEach(i => {
             const detailUrl = `/summary/product-detail/${i.pid}/?group_id=${queryParams.group_id}&start_date=${queryParams.start_date}&end_date=${queryParams.end_date}`;
-            html += `<tr class="table-row-hover" onclick="window.location.href='${detailUrl}'">
+            html += `<tr onclick="window.location.href='${detailUrl}'">
                 <td>${i.serial}</td>
                 <td>${i.name}</td>
                 <td>${i.unit}</td>
                 <td>${i.price.toFixed(2)}</td>
                 <td>${i.total_qty}</td>
-                <td>
-                    ${i.total_amt.toFixed(2)}
-                    <button class="btn btn-sm btn-outline-primary btn-detail ms-2" onclick="event.stopPropagation(); window.location.href='${detailUrl}'">详情</button>
+                <td>${i.total_amt.toFixed(2)}</td>
+                <td class="operate-col"> <!-- 独立操作栏 -->
+                    <button class="btn btn-sm btn-outline-primary btn-detail" onclick="event.stopPropagation(); window.location.href='${detailUrl}'">详情</button>
                 </td>
             </tr>`;
         });
-        // 添加总计行
+        // 添加总计行（调整colspan为6）
         html += `<tr class="total-row">
-            <td colspan="5">总计</td>
-            <td>${res.total_amount.toFixed(2)}</td>
+            <td colspan="6">总计</td>
+            <td class="operate-col"></td>
         </tr>`;
         $('#data').html(html);
     }).fail(function() {

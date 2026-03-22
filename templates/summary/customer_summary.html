@@ -72,15 +72,19 @@
         font-weight: bold;
         text-align: center;
     }
-    /* 新增：行高亮样式（浅灰色） */
+    /* 优化：行高亮样式 - 整行浅灰色，过渡流畅，总计行不生效 */
     #data tr:not(.total-row) {
-        transition: background-color 0.2s ease;
-        cursor: pointer; /* 提示可点击 */
+        transition: all 0.2s ease;
+        cursor: pointer;
     }
-    #data tr:not(.total-row):hover {
-        background-color: #f1f1f1 !important; /* 浅灰色高亮 */
+    #data tr:not(.total-row):hover td {
+        background-color: #f1f1f1 !important; /* 统一浅灰色高亮 */
     }
-    /* 详情按钮样式 */
+    /* 操作栏按钮样式优化 */
+    .operate-col {
+        width: 80px; /* 固定操作列宽度，布局更整齐 */
+        text-align: center;
+    }
     .detail-btn {
         padding: 2px 8px;
         font-size: 12px;
@@ -123,7 +127,7 @@
             <th>客户名称</th>
             <th>金额</th>
             <th>备注</th>
-            <th>操作</th> <!-- 新增：操作列（详情按钮） -->
+            <th class="operate-col">操作</th> <!-- 独立操作栏：添加类名，固定宽度 -->
         </tr>
     </thead>
     <tbody id="data"></tbody>
@@ -239,16 +243,15 @@ function restoreCustomerSummaryData() {
                 <td>${i.customer_name}</td>
                 <td>${i.total_amount.toFixed(2)}</td>
                 <td>${i.remark}</td>
-                <td>
+                <td class="operate-col"> <!-- 操作栏：添加类名，样式统一 -->
                     <button class="btn btn-sm btn-info detail-btn" onclick="event.stopPropagation();goToDetail(${i.customer_id})">详情</button>
                 </td>
             </tr>`;
         });
         // 添加总计行
         html += `<tr class="total-row">
-            <td colspan="3">总计</td>
-            <td>${result.total_amount.toFixed(2)}</td>
-            <td></td>
+            <td colspan="4">总计</td>
+            <td class="operate-col">${result.total_amount.toFixed(2)}</td>
         </tr>`;
         $('#data').html(html);
         
@@ -312,7 +315,7 @@ function query(){
             $('#data').html('<tr><td colspan="5" class="empty-data">该时间段内无客户消费数据</td></tr>');
             return;
         }
-        // 渲染数据（原有逻辑不变）
+        // 渲染数据（优化：操作栏样式统一）
         let html = '';
         res.data.forEach(i => {
             html += `<tr onclick="goToDetail(${i.customer_id})">
@@ -320,16 +323,15 @@ function query(){
                 <td>${i.customer_name}</td>
                 <td>${i.total_amount.toFixed(2)}</td>
                 <td>${i.remark}</td>
-                <td>
+                <td class="operate-col"> <!-- 操作栏：添加类名 -->
                     <button class="btn btn-sm btn-info detail-btn" onclick="event.stopPropagation();goToDetail(${i.customer_id})">详情</button>
                 </td>
             </tr>`;
         });
         // 添加总计行
         html += `<tr class="total-row">
-            <td colspan="3">总计</td>
-            <td>${res.total_amount.toFixed(2)}</td>
-            <td></td>
+            <td colspan="4">总计</td>
+            <td class="operate-col">${res.total_amount.toFixed(2)}</td>
         </tr>`;
         $('#data').html(html);
     }).fail(function() {
