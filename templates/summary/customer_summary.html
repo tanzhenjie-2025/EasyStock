@@ -181,8 +181,10 @@
 // 全局变量
 let queryParams = {};
 let customFieldCount = 0;
+// ========== 核心新增：定义客户汇总专属存储键（避免和商品汇总冲突） ==========
+const CUSTOMER_STORAGE_KEY = 'customer_summary_data';
 
-// 加载区域组列表
+// 加载区域组列表（修改：添加恢复数据逻辑）
 function loadGroup(){
     $.get('/summary/group/list/', function(res) {
         if (res.code === 0) {
@@ -192,9 +194,69 @@ function loadGroup(){
         let opt = '<option value="">请选择区域组</option>';
         res.forEach(g => opt += `<option value="${g.id}">${g.name}</option>`);
         $('#group').html(opt);
+        
+        // ========== 核心新增：区域组加载完成后恢复汇总数据 ==========
+        restoreCustomerSummaryData();
     }).fail(function() {
         alert('加载区域组失败，请检查接口是否正常');
+        // 即使加载失败，也尝试恢复数据
+        restoreCustomerSummaryData();
     });
+}
+
+// ========== 核心新增：恢复客户汇总数据函数 ==========
+function restoreCustomerSummaryData() {
+    try {
+        // 从会话存储读取数据
+        const storedData = sessionStorage.getItem(CUSTOMER_STORAGE_KEY);
+        if (!storedData) return;
+        
+        const { params, result } = JSON.parse(storedData);
+        if (!params || !result) return;
+        
+        // 1. 恢复表单参数
+        $('#group').val(params.group_id);
+        $('#s').val(params.start_date);
+        $('#e').val(params.end_date);
+        
+        // 2. 恢复全局查询参数
+        queryParams = params;
+        
+        // 3. 渲染汇总结果
+        if (result.code !== 1) {
+            $('#data').html('');
+            return;
+        }
+        if (result.data.length === 0) {
+            $('#data').html('<tr><td colspan="5" class="empty-data">该时间段内无客户消费数据</td></tr>');
+            return;
+        }
+        
+        let html = '';
+        result.data.forEach(i => {
+            html += `<tr onclick="goToDetail(${i.customer_id})">
+                <td>${i.serial}</td>
+                <td>${i.customer_name}</td>
+                <td>${i.total_amount.toFixed(2)}</td>
+                <td>${i.remark}</td>
+                <td>
+                    <button class="btn btn-sm btn-info detail-btn" onclick="event.stopPropagation();goToDetail(${i.customer_id})">详情</button>
+                </td>
+            </tr>`;
+        });
+        // 添加总计行
+        html += `<tr class="total-row">
+            <td colspan="3">总计</td>
+            <td>${result.total_amount.toFixed(2)}</td>
+            <td></td>
+        </tr>`;
+        $('#data').html(html);
+        
+    } catch (e) {
+        console.error('恢复客户汇总数据失败：', e);
+        // 出错时清空存储，避免脏数据
+        sessionStorage.removeItem(CUSTOMER_STORAGE_KEY);
+    }
 }
 
 // 新增：跳转到金额汇总详情页
@@ -206,7 +268,7 @@ function goToDetail(customer_id) {
     window.location.href = detailUrl;
 }
 
-// 查询汇总
+// 查询汇总（修改：添加存储逻辑）
 function query(){
     let group_id = $('#group').val();
     let start_time = $('#s').val();
@@ -234,13 +296,23 @@ function query(){
         if (res.code !== 1) {
             alert(res.msg || '查询失败');
             $('#data').html('');
+            // ========== 新增：查询失败时清空存储 ==========
+            sessionStorage.removeItem(CUSTOMER_STORAGE_KEY);
             return;
         }
+        
+        // ========== 核心新增：查询成功后保存参数和结果到会话存储 ==========
+        const saveData = {
+            params: queryParams,
+            result: res
+        };
+        sessionStorage.setItem(CUSTOMER_STORAGE_KEY, JSON.stringify(saveData));
+        
         if (res.data.length === 0) {
             $('#data').html('<tr><td colspan="5" class="empty-data">该时间段内无客户消费数据</td></tr>');
             return;
         }
-        // 渲染数据（新增：行点击事件 + 详情按钮）
+        // 渲染数据（原有逻辑不变）
         let html = '';
         res.data.forEach(i => {
             html += `<tr onclick="goToDetail(${i.customer_id})">
@@ -262,10 +334,12 @@ function query(){
         $('#data').html(html);
     }).fail(function() {
         alert('查询失败，请检查网络或接口');
+        // ========== 新增：请求失败时清空存储 ==========
+        sessionStorage.removeItem(CUSTOMER_STORAGE_KEY);
     });
 }
 
-// 显示导出模态框
+// 显示导出模态框（原有逻辑不变）
 function showExportModal() {
     if (!queryParams.group_id) {
         return alert('请先执行查询操作');
@@ -276,12 +350,12 @@ function showExportModal() {
     modal.show();
 }
 
-// 全选/取消全选字段
+// 全选/取消全选字段（原有逻辑不变）
 function selectAllFields(isSelect) {
     $('input[name="export_fields"]').prop('checked', isSelect);
 }
 
-// 添加自定义字段
+// 添加自定义字段（原有逻辑不变）
 function addCustomField() {
     customFieldCount++;
     let targetFieldsHtml = '';
@@ -306,12 +380,12 @@ function addCustomField() {
     $('#customFieldsContainer').append(customFieldHtml);
 }
 
-// 移除自定义字段
+// 移除自定义字段（原有逻辑不变）
 function removeCustomField(index) {
     $(`.custom-field-item[data-index="${index}"]`).remove();
 }
 
-// 导出Excel
+// 导出Excel（原有逻辑不变）
 function exportExcel() {
     let selectedFields = [];
     $('input[name="export_fields"]:checked').each(function() {
@@ -382,7 +456,7 @@ function exportExcel() {
     });
 }
 
-// 页面初始化
+// 页面初始化（修改：添加恢复数据调用）
 $(function(){
     loadGroup();
     const now = new Date();
@@ -390,6 +464,9 @@ $(function(){
     const defaultTime = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
     $('#s').val(defaultTime);
     $('#e').val(defaultTime);
+    
+    // ========== 新增：页面加载时尝试恢复数据 ==========
+    restoreCustomerSummaryData();
 });
 </script>
 {% endblock %}
