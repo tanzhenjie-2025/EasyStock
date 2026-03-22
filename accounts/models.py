@@ -32,6 +32,12 @@ PERM_ORDER_SETTLE = 'order_settle'  # 标记订单结清
 PERM_ORDER_UNSETTLE = 'order_unsettle'  # 撤销订单结清
 PERM_ORDER_SUMMARY = 'order_summary'  # 销售汇总查看/生成
 PERM_PRODUCT_SEARCH = 'product_search'  # 商品/客户搜索
+# 1. 开单模块权限编码（新增）
+PERM_ORDER_VIEW_OTHERS = 'order_view_others'  # 查看他人订单
+PERM_ORDER_CANCEL_OWN = 'order_cancel_own'    # 作废自己的订单
+PERM_ORDER_CANCEL_OTHERS = 'order_cancel_others'  # 作废他人订单
+PERM_ORDER_CANCEL_ANY = 'order_cancel_any'    # 作废任意订单（超级管理员）
+
 
 # 2. 区域管理权限编码
 PERM_AREA_VIEW = 'area_view'  # 查看区域/区域组
@@ -64,6 +70,8 @@ PERM_PRODUCT_ALIAS_DELETE = 'product_alias_delete'  # 删除商品别名
 PERM_PRODUCT_IMPORT = 'product_import'  # 批量导入商品
 PERM_PRODUCT_STOCK_OP = 'product_stock_operation'  # 商品出入库操作
 PERM_PRODUCT_DETAIL = 'product_detail'  # 查看商品详情（含销量/客户价）
+
+
 
 
 # ========== 合并角色+权限初始化（核心修复） ==========
@@ -100,6 +108,10 @@ def init_accounts_data(sender, **kwargs):
             ('order_unsettle', '撤销结清', 'order', '撤销订单的结清状态'),
             ('order_summary', '销售汇总', 'order', '销售汇总查看/生成'),
             ('product_search', '商品搜索', 'order', '搜索商品/客户'),
+            ('order_view_others', '查看他人订单', 'order', '查看其他员工创建的订单'),
+            ('order_cancel_own', '作废自己订单', 'order', '作废自己创建的未结清订单'),
+            ('order_cancel_others', '作废他人订单', 'order', '作废其他员工创建的订单'),
+            ('order_cancel_any', '作废任意订单', 'order', '作废系统中任意订单（仅超级管理员）'),
 
             # 区域管理
             ('area_view', '查看区域', 'system', '查看区域列表'),
@@ -146,13 +158,16 @@ def init_accounts_data(sender, **kwargs):
             )
 
         # ========== 第三步：绑定角色权限 ==========
+        # ========== 第三步：绑定角色权限（修改） ==========
         # 开单人角色
         operator_role = Role.objects.get(code=ROLE_OPERATOR)
         operator_perms = Permission.objects.filter(code__in=[
             'order_create', 'order_view', 'order_print', 'order_reopen',
             'product_search', 'order_settle', 'area_view',
             'customer_view', 'customer_repayment', 'customer_price_view',
-            'log_view', 'product_view', 'product_detail'
+            'log_view', 'product_view', 'product_detail',
+            # 新增：仅作废自己订单的权限
+            'order_cancel_own'
         ])
         operator_role.permissions.set(operator_perms)
 
@@ -165,7 +180,9 @@ def init_accounts_data(sender, **kwargs):
                 'customer_view', 'customer_add', 'customer_edit', 'customer_delete',
                 'customer_repayment', 'customer_price_view', 'customer_price_add',
                 'customer_price_edit', 'customer_price_delete',
-                'log_view', 'log_view_all'
+                'log_view', 'log_view_all',
+                # 新增：查看他人订单+作废自己/他人订单
+                'order_view_others', 'order_cancel_own', 'order_cancel_others'
             ])
         )
         admin_role.permissions.set(admin_perms)

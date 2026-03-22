@@ -21,7 +21,7 @@
     .col-amount { width: 100px; }        /* 总金额列 */
     .col-status { width: 120px; }        /* 订单状态列 */
     .col-settled { width: 140px; }       /* 结清状态列 */
-    .col-operation { width: 280px; }     /* 操作列（多个按钮） */
+    .col-operation { width: 300px; }     /* 操作列（多个按钮） */
 
     /* 单元格内容不换行，超出省略（可选） */
     .table td, .table th {
@@ -349,10 +349,10 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
         <button class="btn btn-sm btn-warning unsettleBtn" data-order-no="{{ order.order_no }}">撤销结清</button>
     {% endif %}
 
-    <!-- 作废订单按钮（仅超级管理员+未作废+未结清订单可见） -->
-    {% if is_super_admin and order.status != 'cancelled' and not order.is_settled %}
-        <button class="btn btn-sm btn-danger cancelBtn" data-order-no="{{ order.order_no }}">作废订单</button>
-    {% endif %}
+
+    {% if order.can_cancel %}
+    <button class="btn btn-sm btn-danger cancelBtn" data-order-no="{{ order.order_no }}">作废订单</button>
+{% endif %}
 </td>
         </tr>
         {% empty %}

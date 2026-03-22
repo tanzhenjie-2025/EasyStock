@@ -125,39 +125,56 @@
             </div>
 
             <!-- 操作按钮 -->
-            <div class="mt-4">
-                {% if request.GET.from_customer %}
-                <a href="/customer-manage/customer/detail/page/{{ request.GET.from_customer }}/" class="btn btn-secondary">返回客户详情</a>
-                {% else %}
-                <a href="{% url 'bill:order_list' %}" class="btn btn-secondary">返回列表</a>
-                {% endif %}
-                
-                {% if not order.is_settled and order.status != 'cancelled' %}
-                <button class="btn btn-success ms-2" data-bs-toggle="modal" data-bs-target="#settleModal">
-                    标记结清
-                </button>
-                {% endif %}
-                
-                <!-- 修正：is_boss → is_super_admin -->
-                {% if is_super_admin and order.is_settled %}
-                <button class="btn btn-warning ms-2" data-bs-toggle="modal" data-bs-target="#unsettleModal">
-                    撤销结清
-                </button>
-                {% endif %}
-                
-                <!-- 修正：is_boss → is_super_admin，且排除已结清订单作废 -->
-                {% if is_super_admin and order.status != 'cancelled' and not order.is_settled %}
-                <button class="btn btn-danger ms-2" data-bs-toggle="modal" data-bs-target="#cancelModal">
-                    作废订单
-                </button>
-                {% endif %}
+<div class="mt-4">
+    {% if request.GET.from_customer %}
+    <a href="/customer-manage/customer/detail/page/{{ request.GET.from_customer }}/" class="btn btn-secondary">返回客户详情</a>
+    {% else %}
+    <a href="{% url 'bill:order_list' %}" class="btn btn-secondary">返回列表</a>
+    {% endif %}
+    
+    {% if not order.is_settled and order.status != 'cancelled' %}
+    <button class="btn btn-success ms-2" data-bs-toggle="modal" data-bs-target="#settleModal">
+        标记结清
+    </button>
+    {% endif %}
+    
+    {% if is_super_admin and order.is_settled %}
+    <button class="btn btn-warning ms-2" data-bs-toggle="modal" data-bs-target="#unsettleModal">
+        撤销结清
+    </button>
+    {% endif %}
+    
+    <!-- 核心修改：作废按钮显示逻辑 -->
+    {% if show_cancel_btn %}
+    <button class="btn btn-danger ms-2" data-bs-toggle="modal" data-bs-target="#cancelModal">
+        作废订单
+    </button>
+    {% elif order.status != 'cancelled' and not order.is_settled %}
+    <button class="btn btn-danger ms-2" disabled>
+        {% if is_operator and order.creator == request.user %}
+    {% if time_diff > 5 %}
+        作废订单（已超过5分钟时效）
+    {% else %}
+        作废订单（无操作权限）{# 权限不足时显示 #}
+    {% endif %}
+{% elif is_operator and order.creator != request.user %}
+    作废订单（仅能作废自己的订单）
+{% elif is_admin and order.creator != request.user and not can_cancel_others %}
+    作废订单（无作废他人订单权限）
+{% elif order.status == 'printed' %}
+    作废订单（已出库无法作废）
+{% else %}
+    作废订单（无操作权限）
+{% endif %}
+    </button>
+    {% endif %}
 
-                {% if order.status == 'cancelled' %}
-                <a href="{% url 'bill:reopen_order_edit' order.order_no %}" class="btn btn-warning ms-2">
-                    重开此订单
-                </a>
-                {% endif %}
-            </div>
+    {% if order.status == 'cancelled' %}
+    <a href="{% url 'bill:reopen_order_edit' order.order_no %}" class="btn btn-warning ms-2">
+        重开此订单
+    </a>
+    {% endif %}
+</div>
         </div>
     </div>
 </div>

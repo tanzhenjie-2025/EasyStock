@@ -14,7 +14,7 @@ from functools import wraps
 import decimal  # 新增：导入decimal模块处理金额
 
 # ========== 导入用户模块的RBAC核心组件 ==========
-from accounts.models import ROLE_SUPER_ADMIN
+from accounts.models import ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OPERATOR, PERM_ORDER_CANCEL_OWN
 from accounts.views import (
     permission_required,  # RBAC权限装饰器
     create_operation_log,  # 统一日志记录
@@ -283,10 +283,15 @@ def order_list(request):
 
     orders = Order.objects.select_related('area', 'customer', 'creator').order_by('-create_time')
 
-    # 重构：RBAC权限控制（非超级管理员只能看自己的订单）
+    # ========== 核心修改：基于权限控制订单可见范围 ==========
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
-    if not is_super_admin:
-        orders = orders.filter(creator=request.user)
+    can_view_others = request.user.has_permission('order_view_others')  # 新增权限判断
+    if not is_super_admin and not can_view_others:
+        orders = orders.filter(creator=request.user)  # 仅能看自己的订单
+
+    # 新增角色标识（传递到模板）
+    is_admin = request.user.role and request.user.role.code == ROLE_ADMIN
+    is_operator = request.user.role and request.user.role.code == ROLE_OPERATOR
 
     # 新增：订单号模糊筛选（核心逻辑）
     if order_no:
@@ -346,6 +351,36 @@ def order_list(request):
     total_debt = orders.filter(is_settled=False).aggregate(total=Sum('total_amount'))['total'] or decimal.Decimal(
         '0.00')
 
+    # ==============================================
+    # 关键添加：订单列表页作废权限计算（START）
+    # ==============================================
+    current_time = datetime.now()
+    # 先把QuerySet转为可迭代的列表（避免重复查询）
+    orders = list(orders)
+    for order in orders:
+        # 计算开单后分钟数
+        time_diff = (current_time - order.create_time).total_seconds() / 60
+        order.time_diff = time_diff
+
+        # 计算当前用户是否可作废该订单
+        can_cancel = False
+        if order.status != 'cancelled' and not order.is_settled and order.status != 'printed':
+            if is_super_admin:
+                can_cancel = True
+            elif is_admin:
+                # 管理员：作废自己的（无时间限制）或他人的（需权限）
+                if (order.creator == request.user and request.user.has_permission('order_cancel_own')) or \
+                        (order.creator != request.user and request.user.has_permission('order_cancel_others')):
+                    can_cancel = True
+            elif is_operator:
+                # 普通店员：仅作废自己的+5分钟内
+                if order.creator == request.user and request.user.has_permission('order_cancel_own') and time_diff <= 5:
+                    can_cancel = True
+        order.can_cancel = can_cancel
+    # ==============================================
+    # 关键添加：订单列表页作废权限计算（END）
+    # ==============================================
+
     areas = Area.objects.all().order_by('name')
 
     context = {
@@ -359,6 +394,9 @@ def order_list(request):
         'amount_operator': amount_operator,
         'amount_value': amount_value,
         'is_super_admin': is_super_admin,
+        # 新增：传递角色标识到模板（用于前端判断）
+        'is_admin': is_admin,
+        'is_operator': is_operator,
         # 新增：传递订单号参数到模板（实现搜索框回显）
         'order_no': order_no,
         # ========== 新增：统计数据传入模板 ==========
@@ -373,20 +411,50 @@ def order_list(request):
 @login_required
 @permission_required(PERM_ORDER_VIEW)
 def order_detail(request, order_no):
-    """订单详情页"""
+    """订单详情页（新增时间锁+权限控制）"""
     order = get_object_or_404(Order, order_no=order_no)
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+    can_view_others = request.user.has_permission('order_view_others')
 
-    # 重构：RBAC权限控制（非超级管理员只能看自己的订单）
-    if not is_super_admin and order.creator != request.user:
+    # 权限控制：非超级管理员+无查看他人权限 → 仅能看自己的订单
+    if not is_super_admin and not can_view_others and order.creator != request.user:
         return redirect('/bill/orders/')
+
+    # ========== 新增：作废控制相关计算 ==========
+    current_time = datetime.now()
+    time_diff = (current_time - order.create_time).total_seconds() / 60  # 开单后分钟数
+    can_cancel_own = request.user.has_permission('order_cancel_own')
+    can_cancel_others = request.user.has_permission('order_cancel_others')
+    is_admin = request.user.role and request.user.role.code == ROLE_ADMIN
+    is_operator = request.user.role and request.user.role.code == ROLE_OPERATOR
+
+    # 作废按钮显示逻辑（核心风控）
+    show_cancel_btn = False
+    if order.status != 'cancelled' and not order.is_settled and order.status != 'printed':
+        if is_super_admin:
+            show_cancel_btn = True  # 超级管理员无限制
+        elif is_admin:
+            # 管理员：作废自己的（无时间限制）或他人的（需权限）
+            if (order.creator == request.user and can_cancel_own) or (order.creator != request.user and can_cancel_others):
+                show_cancel_btn = True
+        elif is_operator:
+            # 普通店员：仅作废自己的+3~5分钟内
+            if order.creator == request.user and can_cancel_own and time_diff <= 5:
+                show_cancel_btn = True
 
     items = OrderItem.objects.select_related('product').filter(order=order)
 
     context = {
         'order': order,
         'items': items,
-        'is_super_admin': is_super_admin
+        'is_super_admin': is_super_admin,
+        # 新增：作废控制变量
+        'time_diff': time_diff,
+        'can_cancel_own': can_cancel_own,
+        'can_cancel_others': can_cancel_others,
+        'is_admin': is_admin,
+        'is_operator': is_operator,
+        'show_cancel_btn': show_cancel_btn
     }
     return render(request, 'bill/order_detail.html', context)
 
@@ -488,32 +556,57 @@ def search_customer(request):
 
 
 @login_required
-@permission_required(PERM_ORDER_CANCEL)
+@permission_required(PERM_ORDER_CANCEL_OWN)
 def cancel_order(request, order_no):
-    """作废订单"""
+    """作废订单（新增时间锁/状态锁/角色权限控制）"""
     if request.method == 'POST':
         try:
             order = get_object_or_404(Order, order_no=order_no)
+            current_time = datetime.now()
+            time_diff = (current_time - order.create_time).total_seconds() / 60  # 分钟差
 
-            # 新增：已结清订单禁止作废
+            # ========== 1. 状态锁：已收款/已出库/已作废 → 禁止作废 ==========
             if order.is_settled:
-                return JsonResponse({'code': 0, 'msg': '已结清订单无法作废，请先撤销结清状态'})
-
+                return JsonResponse({'code': 0, 'msg': '已收款的订单无法作废'})
+            if order.status == 'printed':
+                return JsonResponse({'code': 0, 'msg': '已出库的订单无法作废'})
             if order.status == 'cancelled':
                 return JsonResponse({'code': 0, 'msg': '该订单已作废，无需重复操作'})
 
+            # ========== 2. 角色权限控制 ==========
+            is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+            is_admin = request.user.role and request.user.role.code == ROLE_ADMIN
+            is_operator = request.user.role and request.user.role.code == ROLE_OPERATOR
+
+            if is_super_admin:
+                pass  # 超级管理员无限制
+            elif is_admin:
+                # 管理员作废他人订单需权限
+                if order.creator != request.user and not request.user.has_permission('order_cancel_others'):
+                    return JsonResponse({'code': 0, 'msg': '无作废他人订单的权限'})
+            elif is_operator:
+                # 普通店员：仅作废自己的+3~5分钟内
+                if order.creator != request.user:
+                    return JsonResponse({'code': 0, 'msg': '普通店员仅能作废自己创建的订单'})
+                if time_diff > 5:
+                    return JsonResponse({'code': 0, 'msg': f'仅支持开单后5分钟内作废，当前已过{time_diff:.1f}分钟'})
+            else:
+                return JsonResponse({'code': 0, 'msg': '无作废订单的权限'})
+
+            # ========== 3. 强制留痕：作废原因至少1个字 ==========
             data = json.loads(request.body)
             reason = data.get('reason', '').strip()
+            if len(reason) < 1:
+                return JsonResponse({'code': 0, 'msg': '作废原因至少填写1个字'})
 
-            if not reason:
-                return JsonResponse({'code': 0, 'msg': '请填写作废原因'})
-
+            # ========== 4. 执行作废操作 ==========
             order.status = 'cancelled'
             order.cancelled_by = request.user
-            order.cancelled_time = datetime.now()
+            order.cancelled_time = current_time
             order.cancelled_reason = reason
             order.save()
 
+            # 恢复库存
             item_count = 0
             for item in order.items.all():
                 if item.product:
@@ -521,14 +614,14 @@ def cancel_order(request, order_no):
                     item.product.save()
                     item_count += 1
 
-            # 统一日志记录
+            # 日志留痕
             create_operation_log(
                 request=request,
                 op_type='cancel_order',
                 obj_type='order',
                 obj_id=str(order.id),
                 obj_name=f"订单-{order.order_no}",
-                detail=f"作废订单{order.order_no}，原因：{reason}，恢复{item_count}个商品库存"
+                detail=f"作废订单{order.order_no}，操作人角色：{request.user.role.name if request.user.role else '未知'}，原因：{reason}，恢复{item_count}个商品库存，开单后{time_diff:.1f}分钟作废"
             )
 
             return JsonResponse({'code': 1, 'msg': '订单作废成功', 'order_no': order_no})
