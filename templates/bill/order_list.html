@@ -30,6 +30,8 @@
         text-overflow: ellipsis;
         border: 1px solid #dee2e6;
         padding: 8px 10px;
+        /* 新增：单元格默认背景继承，确保hover时整行统一 */
+        background-color: inherit;
     }
 
     /* 状态文本紧凑展示（移除换行） */
@@ -52,27 +54,27 @@
         gap: 2px;
     }
 
-    /* ================ 新增：行交互核心样式 ================ */
+    /* ================ 核心修改：行交互样式（整行浅灰色高亮） ================ */
     /* 基础行样式重置 */
     .order-row {
         position: relative;
         cursor: pointer; /* 手型光标 */
-        transition: all 0.1s ease; /* 即时响应，无过度动画 */
+        transition: all 0.2s ease; /* 流畅过渡动画 */
+        background-color: #ffffff; /* 行默认背景色 */
     }
 
-    /* 1. hover高亮（统一规则） */
-    .order-row:hover {
-        background-color: #f5f5f5 !important;
-        border: 1px solid #e0e0e0 !important;
+    /* 1. 核心：鼠标经过时整行（所有单元格）浅灰色高亮 */
+    .order-row:hover td {
+        background-color: #f1f1f1 !important; /* 统一浅灰色高亮（#f1f1f1是标准浅灰） */
     }
 
     /* 2. 点击选中行样式 */
-    .order-row.selected {
-        background-color: #e9e9e9 !important;
+    .order-row.selected td {
+        background-color: #e9e9e9 !important; /* 选中行略深的浅灰 */
         border-bottom: 1px solid #999 !important;
     }
 
-    /* 3. 特殊状态行底色 */
+    /* 3. 特殊状态行底色（基础底色） */
     /* 未结清行底色 */
     .order-row.unsettled {
         background-color: #fff8e1 !important;
@@ -82,15 +84,15 @@
         background-color: #fafafa !important;
         opacity: 0.9;
     }
-    /* 特殊状态行hover叠加高亮（降低对比度） */
-    .order-row.unsettled:hover {
-        background-color: #f8f2d8 !important; /* 浅橙+浅灰叠加 */
+    /* 4. 特殊状态行hover叠加高亮（基于浅灰色调整，保持统一基调） */
+    .order-row.unsettled:hover td {
+        background-color: #f8f2d8 !important; /* 未结清行hover：浅橙+浅灰叠加，仍属浅灰系 */
     }
-    .order-row.cancelled:hover {
-        background-color: #f2f2f2 !important; /* 低对比度高亮 */
+    .order-row.cancelled:hover td {
+        background-color: #f2f2f2 !important; /* 作废行hover：更浅的灰色，低对比度 */
     }
 
-    /* 4. 操作按钮强化（hover行时按钮变色） */
+    /* 5. 操作按钮强化（hover行时按钮变色） */
     .order-row:hover .op-btn-group .btn-info {
         background-color: #059669;
         border-color: #047857;
@@ -105,7 +107,7 @@
         border-color: #15803d;
     }
 
-    /* 5. 交互提示样式 */
+    /* 6. 交互提示样式 */
     .row-tip {
         position: absolute;
         right: 10px;
@@ -120,7 +122,7 @@
         opacity: 1; /* hover时显示提示 */
     }
 
-    /* 6. 行内按钮区域屏蔽整行点击（优先级最高） */
+    /* 7. 行内按钮区域屏蔽整行点击（优先级最高） */
     .op-btn-group {
         pointer-events: auto; /* 按钮优先响应 */
         z-index: 10;
