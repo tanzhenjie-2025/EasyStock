@@ -19,10 +19,16 @@
 
 {% block content %}
 <div class="container mt-4">
-    <!-- 智能返回：从客户详情来→返回客户，否则→返回订单列表 -->
-    {% if request.GET.from_customer %}
+    <!-- 智能返回：优先级：商品汇总详情 → 客户详情 → 订单列表 -->
+    {% if request.GET.from_product_summary and request.GET.back_url %}
+    <!-- 从商品汇总详情页过来 → 返回商品汇总详情 -->
+    <!-- ========== 关键修改1：去掉|urlencode过滤器 ========== -->
+    <a href="{{ request.GET.back_url }}" class="btn btn-sm btn-secondary back-btn">← 返回商品汇总详情</a>
+    {% elif request.GET.from_customer %}
+    <!-- 从客户详情页过来 → 返回客户详情 -->
     <a href="/customer-manage/customer/detail/page/{{ request.GET.from_customer }}/" class="btn btn-sm btn-secondary back-btn">← 返回客户详情</a>
     {% else %}
+    <!-- 默认返回订单列表 -->
     <a href="{% url 'bill:order_list' %}" class="btn btn-sm btn-secondary back-btn">← 返回订单列表</a>
     {% endif %}
 
@@ -126,11 +132,15 @@
 
             <!-- 操作按钮 -->
 <div class="mt-4">
-    {% if request.GET.from_customer %}
-    <a href="/customer-manage/customer/detail/page/{{ request.GET.from_customer }}/" class="btn btn-secondary">返回客户详情</a>
-    {% else %}
-    <a href="{% url 'bill:order_list' %}" class="btn btn-secondary">返回列表</a>
-    {% endif %}
+    {% if request.GET.from_product_summary and request.GET.back_url %}
+        <!-- ========== 关键修改2：去掉|urlencode过滤器 ========== -->
+        <a href="{{ request.GET.back_url }}" class="btn btn-secondary">返回商品汇总详情</a>
+        {% elif request.GET.from_customer %}
+        <a href="/customer-manage/customer/detail/page/{{ request.GET.from_customer }}/" class="btn btn-secondary">返回客户详情</a>
+        {% else %}
+        <a href="{% url 'bill:order_list' %}" class="btn btn-secondary">返回列表</a>
+        {% endif %}
+
     
     {% if not order.is_settled and order.status != 'cancelled' %}
     <button class="btn btn-success ms-2" data-bs-toggle="modal" data-bs-target="#settleModal">

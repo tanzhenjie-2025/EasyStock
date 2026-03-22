@@ -24,6 +24,13 @@
         font-weight: bold;
         text-align: center;
     }
+    /* 需求1：鼠标经过行高亮 */
+    .order-row {
+        cursor: pointer; /* 鼠标指针变为手型，提示可点击 */
+    }
+    .order-row:hover {
+        background-color: #f0f0f0 !important; /* 浅灰色高亮，!important确保优先级 */
+    }
 </style>
 {% endblock %}
 
@@ -96,7 +103,8 @@ $(function() {
         // 渲染订单来源数据
         let html = '';
         res.data.forEach(item => {
-            html += `<tr>
+            // 需求2：为每行添加order-row类 + 点击事件，携带来源参数跳转订单详情
+            html += `<tr class="order-row" data-order-no="${item.order_no}">
                 <td>${item.order_no}</td>
                 <td>${item.create_time}</td>
                 <td>${item.customer_name}</td>
@@ -118,6 +126,16 @@ $(function() {
         </tr>`;
 
         $('#orderSourceData').html(html);
+
+        // 绑定整行点击事件（需求2核心）
+        $('.order-row').click(function() {
+            const orderNo = $(this).data('order-no');
+            // 拼接跳转URL，携带来源参数（用于智能返回）
+            const backUrl = encodeURIComponent(`/summary/product-detail/${productId}/?group_id=${groupId}&start_date=${startDate}&end_date=${endDate}`);
+            // ========== 关键修改：order → orders ==========
+            window.location.href = `/bill/orders/detail/${orderNo}/?from_product_summary=1&back_url=${backUrl}`;
+        });
+
     }).fail(function() {
         $('#orderSourceData').html('<tr><td colspan="8" class="empty-data">查询订单来源失败，请重试</td></tr>');
     });
