@@ -200,8 +200,10 @@
 // 全局变量
 let queryParams = {};
 let customFieldCount = 0;
+// 定义存储键名（统一管理）
+const STORAGE_KEY = 'product_summary_data';
 
-// 1. 加载区域组列表（增强版，带调试+容错）
+// 1. 加载区域组列表（原有逻辑不变，仅补充注释）
 function loadGroup(){
     $.ajax({
         url: '/summary/group/list/',
@@ -229,6 +231,9 @@ function loadGroup(){
                 });
             }
             $('#group').html(opt);
+            
+            // 初始化完成后，恢复之前的查询状态
+            restoreSummaryData();
         },
         error: function(xhr, status, error) {
             console.error('区域组加载失败：', xhr, status, error);
@@ -237,11 +242,71 @@ function loadGroup(){
             let opt = '<option value="">请选择区域组</option>';
             opt += '<option value="0">全部区域</option>';
             $('#group').html(opt);
+            
+            // 即使加载失败，也尝试恢复查询状态
+            restoreSummaryData();
         }
     });
 }
 
-// 2. 查询汇总（带详情跳转）
+// 新增：恢复汇总数据（核心函数）
+function restoreSummaryData() {
+    try {
+        // 从会话存储中读取数据
+        const storedData = sessionStorage.getItem(STORAGE_KEY);
+        if (!storedData) return;
+        
+        const { params, result } = JSON.parse(storedData);
+        if (!params || !result) return;
+        
+        // 1. 恢复表单参数
+        $('#group').val(params.group_id);
+        $('#s').val(params.start_date);
+        $('#e').val(params.end_date);
+        
+        // 2. 恢复全局查询参数
+        queryParams = params;
+        
+        // 3. 渲染汇总结果
+        if (result.code !== 1) {
+            $('#data').html('');
+            return;
+        }
+        if (result.data.length === 0) {
+            $('#data').html('<tr><td colspan="6" class="empty-data">该时间段内无销售数据</td></tr>');
+            return;
+        }
+        
+        let html = '';
+        result.data.forEach(i => {
+            const detailUrl = `/summary/product-detail/${i.pid}/?group_id=${params.group_id}&start_date=${params.start_date}&end_date=${params.end_date}`;
+            html += `<tr class="table-row-hover" onclick="window.location.href='${detailUrl}'">
+                <td>${i.serial}</td>
+                <td>${i.name}</td>
+                <td>${i.unit}</td>
+                <td>${i.price.toFixed(2)}</td>
+                <td>${i.total_qty}</td>
+                <td>
+                    ${i.total_amt.toFixed(2)}
+                    <button class="btn btn-sm btn-outline-primary btn-detail ms-2" onclick="event.stopPropagation(); window.location.href='${detailUrl}'">详情</button>
+                </td>
+            </tr>`;
+        });
+        // 添加总计行
+        html += `<tr class="total-row">
+            <td colspan="5">总计</td>
+            <td>${result.total_amount.toFixed(2)}</td>
+        </tr>`;
+        $('#data').html(html);
+        
+    } catch (e) {
+        console.error('恢复汇总数据失败：', e);
+        // 出错时清空存储，避免脏数据
+        sessionStorage.removeItem(STORAGE_KEY);
+    }
+}
+
+// 2. 查询汇总（修改：添加存储逻辑）
 function query(){
     let group_id = $('#group').val();
     let start_time = $('#s').val();
@@ -269,13 +334,23 @@ function query(){
         if (res.code !== 1) {
             alert(res.msg || '查询失败');
             $('#data').html('');
+            // 保存失败状态（清空存储）
+            sessionStorage.removeItem(STORAGE_KEY);
             return;
         }
+        
+        // 成功查询后，保存参数和结果到会话存储
+        const saveData = {
+            params: queryParams,
+            result: res
+        };
+        sessionStorage.setItem(STORAGE_KEY, JSON.stringify(saveData));
+        
         if (res.data.length === 0) {
             $('#data').html('<tr><td colspan="6" class="empty-data">该时间段内无销售数据</td></tr>');
             return;
         }
-        // 渲染数据（带高亮+详情按钮）
+        // 渲染数据（原有逻辑不变）
         let html = '';
         res.data.forEach(i => {
             const detailUrl = `/summary/product-detail/${i.pid}/?group_id=${queryParams.group_id}&start_date=${queryParams.start_date}&end_date=${queryParams.end_date}`;
@@ -299,10 +374,11 @@ function query(){
         $('#data').html(html);
     }).fail(function() {
         alert('查询失败，请检查网络或接口');
+        sessionStorage.removeItem(STORAGE_KEY);
     });
 }
 
-// 3. 显示导出模态框（恢复缺失函数）
+// 3. 显示导出模态框（原有逻辑不变）
 function showExportModal() {
     if (!queryParams.group_id) {
         return alert('请先执行查询操作');
@@ -314,12 +390,12 @@ function showExportModal() {
     modal.show();
 }
 
-// 4. 全选/取消全选字段（恢复缺失函数）
+// 4. 全选/取消全选字段（原有逻辑不变）
 function selectAllFields(isSelect) {
     $('input[name="export_fields"]').prop('checked', isSelect);
 }
 
-// 5. 添加自定义字段（恢复缺失函数）
+// 5. 添加自定义字段（原有逻辑不变）
 function addCustomField() {
     customFieldCount++;
     
@@ -348,12 +424,12 @@ function addCustomField() {
     $('#customFieldsContainer').append(customFieldHtml);
 }
 
-// 6. 移除自定义字段（恢复缺失函数）
+// 6. 移除自定义字段（原有逻辑不变）
 function removeCustomField(index) {
     $(`.custom-field-item[data-index="${index}"]`).remove();
 }
 
-// 7. 导出Excel（恢复缺失函数）
+// 7. 导出Excel（原有逻辑不变）
 function exportExcel() {
     // 获取选中的字段
     let selectedFields = [];
@@ -440,7 +516,7 @@ function exportExcel() {
     });
 }
 
-// 8. 页面初始化（核心：恢复loadGroup调用+默认时间设置）
+// 8. 页面初始化（修改：调用恢复函数）
 $(function(){
     // 加载区域组
     loadGroup();
@@ -450,6 +526,9 @@ $(function(){
     const defaultTime = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
     $('#s').val(defaultTime);
     $('#e').val(defaultTime);
+    
+    // 页面加载时尝试恢复数据（区域组加载完成后会再次调用，确保兼容性）
+    restoreSummaryData();
 });
 </script>
 {% endblock %}
