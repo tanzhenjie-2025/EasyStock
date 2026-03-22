@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block title %}{{ product.name }} - 商品汇总详情 - EasyStock{% endblock %}
+
+{% block extra_css %}
+<style>
+    .back-btn {
+        margin-bottom: 20px;
+    }
+    .product-info-card {
+        background-color: #f8f9fa;
+        padding: 15px;
+        border-radius: 6px;
+        margin-bottom: 20px;
+    }
+    .empty-data { 
+        text-align: center; 
+        padding: 20px; 
+        color: #666; 
+    }
+    .total-row {
+        background-color: #4472C4;
+        color: white;
+        font-weight: bold;
+        text-align: center;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- 返回按钮 -->
+<button class="btn btn-sm btn-outline-secondary back-btn" onclick="window.history.back()">
+    ← 返回商品汇总页
+</button>
+
+<!-- 商品信息卡片 -->
+<div class="product-info-card">
+    <h4>{{ product.name }} - 销售详情</h4>
+    <p>
+        <span class="me-3">区域组：{{ group_name }}</span>
+        <span class="me-3">查询时间：{{ start_date }} 至 {{ end_date }}</span>
+        <span>单位：{{ product.unit }}</span>
+    </p>
+</div>
+
+<!-- 数据表格 -->
+<table class="table table-sm table-bordered">
+    <thead>
+        <tr>
+            <th>订单编号</th>
+            <th>开单时间</th>
+            <th>客户名称</th>
+            <th>所属区域</th>
+            <th>销售数量</th>
+            <th>单价</th>
+            <th>小计金额</th>
+            <th>订单状态</th>
+        </tr>
+    </thead>
+    <tbody id="orderSourceData"></tbody>
+</table>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// 页面加载时查询订单来源
+$(function() {
+    // 获取URL参数
+    const urlParams = new URLSearchParams(window.location.search);
+    const productId = "{{ product_id }}";
+    const groupId = urlParams.get('group_id') || '0';
+    const startDate = urlParams.get('start_date');
+    const endDate = urlParams.get('end_date');
+
+    // 参数校验
+    if (!startDate || !endDate) {
+        $('#orderSourceData').html('<tr><td colspan="8" class="empty-data">缺少时间范围参数</td></tr>');
+        return;
+    }
+
+    // 发起查询
+    $.get(`/summary/api/product-order-source/${productId}/`, {
+        group_id: groupId,
+        start_date: startDate,
+        end_date: endDate
+    }, function(res) {
+        if (res.code !== 1) {
+            $('#orderSourceData').html(`<tr><td colspan="8" class="empty-data">${res.msg || '查询失败'}</td></tr>`);
+            return;
+        }
+        if (res.data.length === 0) {
+            $('#orderSourceData').html('<tr><td colspan="8" class="empty-data">该时间段内无该商品的销售订单</td></tr>');
+            return;
+        }
+
+        // 渲染订单来源数据
+        let html = '';
+        res.data.forEach(item => {
+            html += `<tr>
+                <td>${item.order_no}</td>
+                <td>${item.create_time}</td>
+                <td>${item.customer_name}</td>
+                <td>${item.area_name}</td>
+                <td>${item.quantity}</td>
+                <td>${item.price.toFixed(2)}</td>
+                <td>${item.amount.toFixed(2)}</td>
+                <td>${item.order_status}</td>
+            </tr>`;
+        });
+
+        // 添加总计行
+        html += `<tr class="total-row">
+            <td colspan="4">总计</td>
+            <td>${res.total_quantity}</td>
+            <td>-</td>
+            <td>${res.total_amount.toFixed(2)}</td>
+            <td>-</td>
+        </tr>`;
+
+        $('#orderSourceData').html(html);
+    }).fail(function() {
+        $('#orderSourceData').html('<tr><td colspan="8" class="empty-data">查询订单来源失败，请重试</td></tr>');
+    });
+});
+</script>
+{% endblock %}

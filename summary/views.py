@@ -714,3 +714,121 @@ def get_customer_order_source(request, customer_id):
         })
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'查询订单来源失败：{str(e)}'}, status=500)
+
+
+# ========== 新增：商品汇总详情页相关 ==========
+@login_required
+@permission_required(PERM_ORDER_SUMMARY)
+def product_summary_detail_page(request, product_id):
+    """商品汇总详情页 - 页面渲染"""
+    try:
+        # 获取商品信息
+        product = get_object_or_404(Product, id=product_id)
+        # 获取汇总页传递的查询参数（区域组、时间范围）
+        group_id = request.GET.get('group_id', '0')
+        start_date = request.GET.get('start_date', '')
+        end_date = request.GET.get('end_date', '')
+
+        # 获取区域组名称（用于页面展示）
+        group_name = '全部区域'
+        if group_id != '0' and group_id.isdigit():
+            try:
+                group = AreaGroup.objects.get(id=group_id)
+                group_name = group.name
+            except AreaGroup.DoesNotExist:
+                pass
+
+        return render(request, 'summary/product_summary_detail.html', {
+            'product': product,
+            'product_id': product_id,
+            'group_id': group_id,
+            'group_name': group_name,
+            'start_date': start_date,
+            'end_date': end_date
+        })
+    except Exception as e:
+        # 页面渲染失败返回错误页
+        return render(request, 'error.html', {
+            'error_msg': f'获取商品信息失败：{str(e)}'
+        }, status=400)
+
+
+@login_required
+@permission_required(PERM_ORDER_SUMMARY)
+def get_product_order_source(request, product_id):
+    """获取商品订单来源数据接口（商品汇总详情）"""
+    try:
+        # 获取查询参数
+        group_id = request.GET.get('group_id', '0')
+        start_date = request.GET.get('start_date')
+        end_date = request.GET.get('end_date')
+
+        # 参数校验
+        if not start_date or not end_date:
+            return JsonResponse({'code': 0, 'msg': '缺少时间范围参数'}, status=400)
+
+        # 解析时间格式
+        try:
+            start = datetime.strptime(start_date.replace('T', ' '), '%Y-%m-%d %H:%M')
+            end = datetime.strptime(end_date.replace('T', ' '), '%Y-%m-%d %H:%M')
+        except ValueError:
+            return JsonResponse({'code': 0, 'msg': '时间格式错误，请使用YYYY-MM-DDTHH:MM格式'}, status=400)
+
+        # 处理区域组
+        area_ids = []
+        if group_id == '0':
+            area_ids = Area.objects.all().values_list('id', flat=True)
+        else:
+            try:
+                group = AreaGroup.objects.get(id=group_id)
+                area_ids = group.areas.values_list('id', flat=True)
+            except AreaGroup.DoesNotExist:
+                return JsonResponse({'code': 0, 'msg': '区域组不存在'}, status=400)
+
+        # 查询该商品的所有订单明细（排除作废订单）
+        order_items = OrderItem.objects.filter(
+            product_id=product_id,
+            order__area_id__in=area_ids,
+            order__create_time__gte=start,
+            order__create_time__lte=end
+        ).exclude(
+            order__status='cancelled'
+        ).select_related('order', 'order__customer', 'order__area')
+
+        # 组装订单来源数据
+        order_list = []
+        total_quantity = 0
+        total_amount = 0
+
+        for item in order_items:
+            order = item.order
+            customer_name = order.customer.name if order.customer else '无客户'
+            area_name = order.area.name if order.area else '无区域'
+
+            order_info = {
+                'order_no': order.order_no,
+                'create_time': order.create_time.strftime('%Y-%m-%d %H:%M:%S'),
+                'customer_name': customer_name,
+                'area_name': area_name,
+                'quantity': item.quantity,
+                'unit': item.product.unit if item.product else '',
+                'price': float(item.product.price) if item.product else 0,
+                'amount': float(item.amount) if item.amount else 0,
+                'order_status': dict(order.ORDER_STATUS).get(order.status, '未知状态')
+            }
+            order_list.append(order_info)
+            total_quantity += item.quantity
+            total_amount += float(item.amount or 0)
+
+        # 获取商品名称
+        product = get_object_or_404(Product, id=product_id)
+
+        return JsonResponse({
+            'code': 1,
+            'data': order_list,
+            'total_quantity': total_quantity,
+            'total_amount': round(total_amount, 2),
+            'product_name': product.name
+        })
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': f'查询订单来源失败：{str(e)}'}, status=500)

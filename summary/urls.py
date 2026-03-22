@@ -19,5 +19,8 @@ urlpatterns = [
 # 新增：金额汇总详情页路由
     path('detail/<int:customer_id>/', views.customer_amount_detail_page, name='customer_amount_detail_page'),  # 详情页页面
     path('api/order-source/<int:customer_id>/', views.get_customer_order_source, name='get_customer_order_source'),  # 订单来源数据接口
+# 新增：商品汇总详情页路由
+path('product-detail/<int:product_id>/', views.product_summary_detail_page, name='product_summary_detail_page'),  # 详情页页面
+path('api/product-order-source/<int:product_id>/', views.get_product_order_source, name='get_product_order_source'),  # 商品订单来源接口
 
 ]

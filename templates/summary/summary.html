@@ -74,6 +74,20 @@
         font-weight: bold;
         text-align: center;
     }
+    
+    /* 商品行高亮样式 */
+.table-row-hover {
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+.table-row-hover:hover {
+    background-color: #f0f0f0 !important; /* 浅灰色高亮 */
+}
+/* 详情按钮样式 */
+.btn-detail {
+    padding: 2px 8px;
+    font-size: 0.75rem;
+}
 </style>
 {% endblock %}
 
@@ -97,7 +111,7 @@
         <input type="datetime-local" id="e" class="form-control form-control-sm" placeholder="结束时间">
     </div>
     <div class="form-group">
-        <!-- 修改：添加按钮组，将导出按钮移到查询按钮后面并对齐 -->
+        <!-- 修改：添加按钮组样式，保证两个按钮垂直对齐 -->
         <div class="btn-group-query">
             <button class="btn btn-sm btn-primary" onclick="query()">查询汇总</button>
             <button class="btn btn-sm btn-success" onclick="showExportModal()">导出Excel</button>
@@ -109,7 +123,7 @@
 <table class="table table-sm table-bordered">
     <thead>
         <tr>
-            <th>序号</th> <!-- 新增：序号列 -->
+            <th>序号</th>
             <th>商品</th><th>单位</th><th>单价</th><th>总销量</th><th>总金额</th>
         </tr>
     </thead>
@@ -187,22 +201,47 @@
 let queryParams = {};
 let customFieldCount = 0;
 
-// 加载区域组列表（包含全部区域选项）
+// 1. 加载区域组列表（增强版，带调试+容错）
 function loadGroup(){
-    $.get('/summary/group/list/', function(res) {
-        if (res.code === 0) {
-            alert(res.msg);
-            return;
+    $.ajax({
+        url: '/summary/group/list/',
+        type: 'GET',
+        dataType: 'json',
+        success: function(res) {
+            console.log('区域组接口响应：', res);
+            
+            // 处理错误响应
+            if (res && res.code === 0) {
+                alert('加载区域组失败：' + res.msg);
+                return;
+            }
+            
+            // 确保是数组
+            let groupData = Array.isArray(res) ? res : [];
+            
+            // 渲染下拉框（至少包含全部区域）
+            let opt = '<option value="">请选择区域组</option>';
+            if (groupData.length === 0) {
+                opt += '<option value="0">全部区域</option>';
+            } else {
+                groupData.forEach(g => {
+                    opt += `<option value="${g.id}">${g.name}</option>`;
+                });
+            }
+            $('#group').html(opt);
+        },
+        error: function(xhr, status, error) {
+            console.error('区域组加载失败：', xhr, status, error);
+            alert(`加载区域组失败：${status}（状态码：${xhr.status}）`);
+            // 兜底显示全部区域
+            let opt = '<option value="">请选择区域组</option>';
+            opt += '<option value="0">全部区域</option>';
+            $('#group').html(opt);
         }
-        let opt = '<option value="">请选择区域组</option>';
-        res.forEach(g => opt += `<option value="${g.id}">${g.name}</option>`);
-        $('#group').html(opt);
-    }).fail(function() {
-        alert('加载区域组失败，请检查接口是否正常');
     });
 }
 
-// 查询汇总
+// 2. 查询汇总（带详情跳转）
 function query(){
     let group_id = $('#group').val();
     let start_time = $('#s').val();
@@ -236,16 +275,20 @@ function query(){
             $('#data').html('<tr><td colspan="6" class="empty-data">该时间段内无销售数据</td></tr>');
             return;
         }
-        // 渲染数据
+        // 渲染数据（带高亮+详情按钮）
         let html = '';
         res.data.forEach(i => {
-            html += `<tr>
-                <td>${i.serial}</td> <!-- 显示序号 -->
+            const detailUrl = `/summary/product-detail/${i.pid}/?group_id=${queryParams.group_id}&start_date=${queryParams.start_date}&end_date=${queryParams.end_date}`;
+            html += `<tr class="table-row-hover" onclick="window.location.href='${detailUrl}'">
+                <td>${i.serial}</td>
                 <td>${i.name}</td>
                 <td>${i.unit}</td>
                 <td>${i.price.toFixed(2)}</td>
                 <td>${i.total_qty}</td>
-                <td>${i.total_amt.toFixed(2)}</td>
+                <td>
+                    ${i.total_amt.toFixed(2)}
+                    <button class="btn btn-sm btn-outline-primary btn-detail ms-2" onclick="event.stopPropagation(); window.location.href='${detailUrl}'">详情</button>
+                </td>
             </tr>`;
         });
         // 添加总计行
@@ -259,7 +302,7 @@ function query(){
     });
 }
 
-// 显示导出模态框
+// 3. 显示导出模态框（恢复缺失函数）
 function showExportModal() {
     if (!queryParams.group_id) {
         return alert('请先执行查询操作');
@@ -271,12 +314,12 @@ function showExportModal() {
     modal.show();
 }
 
-// 全选/取消全选字段
+// 4. 全选/取消全选字段（恢复缺失函数）
 function selectAllFields(isSelect) {
     $('input[name="export_fields"]').prop('checked', isSelect);
 }
 
-// 添加自定义字段
+// 5. 添加自定义字段（恢复缺失函数）
 function addCustomField() {
     customFieldCount++;
     
@@ -305,12 +348,12 @@ function addCustomField() {
     $('#customFieldsContainer').append(customFieldHtml);
 }
 
-// 移除自定义字段
+// 6. 移除自定义字段（恢复缺失函数）
 function removeCustomField(index) {
     $(`.custom-field-item[data-index="${index}"]`).remove();
 }
 
-// 导出Excel
+// 7. 导出Excel（恢复缺失函数）
 function exportExcel() {
     // 获取选中的字段
     let selectedFields = [];
@@ -397,9 +440,11 @@ function exportExcel() {
     });
 }
 
-// 页面初始化
+// 8. 页面初始化（核心：恢复loadGroup调用+默认时间设置）
 $(function(){
+    // 加载区域组
     loadGroup();
+    // 设置默认时间（解决时间框显示“一杆一杆”问题）
     const now = new Date();
     const pad = (num) => num.toString().padStart(2, '0');
     const defaultTime = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
