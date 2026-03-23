@@ -35,13 +35,11 @@ def full_to_half(s):
 
 
 
-# ===================== 客户管理CRUD（添加权限装饰器） =====================
-# 1. 客户列表（需customer_view权限）
 @login_required
 @permission_required('customer_view')
 @csrf_exempt
 def customer_list(request):
-    """获取客户列表接口（新增总欠款字段 + 多维度搜索）"""
+    """获取客户列表接口（新增总欠款字段 + 多维度搜索 + 总消费金额）"""
     try:
         # 新增：获取搜索关键词
         keyword = request.GET.get('keyword', '').strip()
@@ -75,6 +73,12 @@ def customer_list(request):
             total_debt = float(unpaid_amount) - float(paid_amount)
             total_debt = max(total_debt, 0)  # 避免负数（还款超支）
 
+            # ========== 新增：计算总消费金额（所有订单的总金额之和） ==========
+            total_consumption = Order.objects.filter(
+                customer=c
+            ).aggregate(total=Sum('total_amount'))['total'] or 0
+            total_consumption = float(total_consumption)
+
             result.append({
                 'id': c.id,
                 'name': c.name,
@@ -82,7 +86,8 @@ def customer_list(request):
                 'area_name': c.area.name if c.area else '',
                 'phone': c.phone,
                 'remark': c.remark or '',
-                'total_debt': total_debt  # 新增：总欠款
+                'total_debt': total_debt,  # 原有：总欠款
+                'total_consumption': total_consumption  # 新增：总消费金额
             })
         return JsonResponse(result, safe=False, content_type='application/json')
     except Exception as e:
@@ -817,7 +822,7 @@ def customer_sales_rank_page(request):
 @permission_required('customer_sales_rank')
 @csrf_exempt
 def customer_sales_rank_data(request):
-    """获取客户消费TOP30数据（支持区域+日期筛选）"""
+    """获取客户消费TOP30数据（支持区域+日期筛选 + 新增总欠款字段）"""
     try:
         # 获取筛选参数
         area_id = request.GET.get('area_id', '').strip()
@@ -866,12 +871,28 @@ def customer_sales_rank_data(request):
         # 构造返回数据
         result = []
         for idx, item in enumerate(customer_sales, 1):
+            # ========== 新增：计算该客户的总欠款 ==========
+            customer_id = item['customer__id']
+            # 未结清订单总额
+            unpaid_amount = Order.objects.filter(
+                customer_id=customer_id,
+                is_settled=False
+            ).aggregate(total=Sum('total_amount'))['total'] or 0
+            # 已还款总额
+            paid_amount = RepaymentRecord.objects.filter(
+                customer_id=customer_id
+            ).aggregate(total=Sum('repayment_amount'))['total'] or 0
+            # 实际总欠款
+            total_debt = float(unpaid_amount) - float(paid_amount)
+            total_debt = max(total_debt, 0)
+
             result.append({
                 'rank': idx,
                 'customer_id': item['customer__id'],  # 新增：客户ID
                 'customer_name': item['customer__name'],
                 'area_name': item['customer__area__name'] or '无区域',
-                'total_amount': float(item['total_amount']) if item['total_amount'] else 0.0
+                'total_amount': float(item['total_amount']) if item['total_amount'] else 0.0,  # 累计消费金额
+                'total_debt': total_debt  # 新增：总欠款
             })
 
         return JsonResponse({

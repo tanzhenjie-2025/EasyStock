@@ -254,6 +254,7 @@
                 <th>客户名称</th>
                 <th>所属区域</th>
                 <th>联系电话</th>
+                <th>总消费金额</th>  <!-- 新增：总消费金额列 -->
                 <th>总欠款</th>
                 <th>备注</th>
                 <th>操作</th>
@@ -420,30 +421,28 @@
         $('#searchInput').focus(); // 光标回显
     }
 
-    // 5. 执行客户搜索（核心）
+     // ========== 核心修改：搜索/加载客户列表时渲染总消费金额 ==========
     function searchCustomers() {
         const keyword = $('#searchInput').val().trim();
         currentKeyword = keyword;
         
-        // 保存最近搜索记录
         if (keyword) {
             saveRecentSearch(keyword);
         }
         
-        // 构造请求URL
         let url = '/customer-manage/customer/list/';
         if (keyword) {
             url += `?keyword=${encodeURIComponent(keyword)}`;
         }
         
-        // 发送请求
         $.get(url, function(res) {
-            console.log('搜索结果：', res);
             let html = '';
             if (Array.isArray(res) && res.length > 0) {
                 res.forEach(customer => {
-                    // 格式化欠款金额
+                    // 格式化金额
                     const totalDebt = customer.total_debt ? customer.total_debt.toFixed(2) : '0.00';
+                    // 新增：格式化总消费金额
+                    const totalConsumption = customer.total_consumption ? customer.total_consumption.toFixed(2) : '0.00';
                     
                     // 关键词高亮处理
                     let name = highlightKeyword(customer.name, keyword);
@@ -451,12 +450,13 @@
                     let areaName = highlightKeyword(customer.area_name || '无', keyword);
                     let id = highlightKeyword(customer.id.toString(), keyword);
                     
-                    // ========== 关键修改：给tr加点击事件，按钮加阻止冒泡 ==========
+                    // 表格行渲染（新增总消费金额列）
                     html += `<tr onclick="openCustomerDetail(${customer.id})">
                         <td>${id}</td>
                         <td>${name}</td>
                         <td>${areaName}</td>
                         <td>${phone}</td>
+                        <td>¥${totalConsumption}</td>  <!-- 新增：总消费金额 -->
                         <td class="debt-red">¥${totalDebt}</td>
                         <td>${customer.remark || '无'}</td>
                         <td>
@@ -467,11 +467,11 @@
                     </tr>`;
                 });
             } else {
-                // 无结果提示
-                html = '<tr><td colspan="7" class="no-result">暂无匹配的客户，请更换关键词重试</td></tr>';
+                // 无结果时colspan改为8（因为新增了一列）
+                html = '<tr><td colspan="8" class="no-result">暂无匹配的客户，请更换关键词重试</td></tr>';
             }
             $('#customerList').html(html);
-            $('#searchInput').focus(); // 光标回显
+            $('#searchInput').focus();
         }, 'json').fail(function(xhr, status, error) {
             console.error('搜索客户失败：', xhr.responseText);
             alert('搜索客户失败！\n' + error);

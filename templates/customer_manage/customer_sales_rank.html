@@ -96,6 +96,7 @@
                     <th>客户名称</th>
                     <th>区域</th>
                     <th>累计消费金额</th>
+                    <th>总欠款</th>  <!-- 新增：总欠款列 -->
                 </tr>
             </thead>
             <tbody id="salesRankList">
@@ -108,47 +109,34 @@
 
 {% block extra_js %}
 <script>
-    // 筛选状态：默认【全年、全部区域】
     const filterState = {
-        area: '',         // 区域ID，空=全部
-        time: 'year'      // 时间范围，默认year
+        area: '',
+        time: 'year'
     };
 
-    // 页面加载初始化
     $(document).ready(function() {
-        // 筛选按钮点击事件（参考示例）
         $('.filter-btn').click(function() {
-            // 移除同类型按钮的active状态
             $(`.filter-btn[data-type="${$(this).data('type')}"]`).removeClass('active');
-            // 激活当前按钮
             $(this).addClass('active');
-            // 更新筛选状态
             filterState[$(this).data('type')] = $(this).data('value');
-            // 实时加载数据
             loadSalesRankData();
         });
-
-        // 初始加载数据
         loadSalesRankData();
     });
 
-    // 加载消费排行数据（支持区域+日期筛选）
     function loadSalesRankData() {
         const tableBody = $('#salesRankList');
-        tableBody.html('<tr><td colspan="4" class="text-center">加载中...</td></tr>');
+        tableBody.html('<tr><td colspan="5" class="text-center">加载中...</td></tr>');  <!-- colspan改为5 -->
 
-        // 构建请求参数
         const params = new URLSearchParams({
             area_id: filterState.area,
             time_range: filterState.time
         });
 
-        // 请求数据
         $.get(`/customer-manage/customer/sales-rank/data/?${params}`, function(res) {
             let html = '';
             if (res.code === 1 && res.data.length > 0) {
                 res.data.forEach(item => {
-                    // 前三名添加奖牌图标
                     let rankBadge = '';
                     if (item.rank === 1) {
                         rankBadge = '<span class="rank-badge gold">🥇</span>';
@@ -159,21 +147,26 @@
                     }
 
                     const totalAmount = item.total_amount.toFixed(2);
-                    // 2. 整行点击跳转到客户详情页，带来源参数（from=sales_rank）
+                    // 新增：格式化总欠款
+                    const totalDebt = item.total_debt.toFixed(2);
+
+                    // 表格行渲染（新增总欠款列）
                     html += `<tr onclick="window.location.href='/customer-manage/customer/detail/page/${item.customer_id}/?from=sales_rank'">
                         <td>${rankBadge} ${item.rank}</td>
                         <td>${item.customer_name}</td>
                         <td>${item.area_name}</td>
                         <td>¥${totalAmount}</td>
+                        <td class="debt-red">¥${totalDebt}</td>  <!-- 新增：总欠款 -->
                     </tr>`;
                 });
             } else {
-                html = '<tr><td colspan="4" class="text-center text-muted">暂无数据</td></tr>';
+                // 无结果时colspan改为5
+                html = '<tr><td colspan="5" class="text-center text-muted">暂无数据</td></tr>';
             }
             tableBody.html(html);
         }, 'json').fail(function(xhr, status, error) {
             console.error('加载排行数据失败：', xhr.responseText);
-            tableBody.html('<tr><td colspan="4" class="text-center text-danger">加载失败</td></tr>');
+            tableBody.html('<tr><td colspan="5" class="text-center text-danger">加载失败</td></tr>');  <!-- colspan改为5 -->
         });
     }
 </script>
