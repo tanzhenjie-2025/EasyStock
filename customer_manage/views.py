@@ -3,6 +3,8 @@ from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
+
+from accounts.models import ROLE_SUPER_ADMIN
 from bill.models import Customer, Area, ProductAlias, CustomerPrice, Product, OrderItem, Order, RepaymentRecord
 from django.db.models import Sum, F, Q, Max, Count
 from django.db.models.functions import Coalesce
@@ -797,3 +799,68 @@ def area_list_for_price(request):
             {'code': 0, 'msg': f'查询区域失败：{str(e)}', 'data': []},
             content_type='application/json'
         )
+
+# ========== 客户消费TOP30排行（仅超级管理员可见） ==========
+@login_required
+@permission_required('customer_sales_rank')
+def customer_sales_rank_page(request):
+    """客户消费TOP30排行页面"""
+    # 获取所有区域（用于筛选）
+    areas = Area.objects.all().order_by('name')
+    return render(request, 'customer_manage/customer_sales_rank.html', {
+        'areas': areas,
+        'is_super_admin': request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+    })
+
+
+@login_required
+@permission_required('customer_sales_rank')
+@csrf_exempt
+def customer_sales_rank_data(request):
+    """获取客户消费TOP30数据（支持区域筛选）"""
+    try:
+        # 获取筛选参数：area_id（为空则显示所有）
+        area_id = request.GET.get('area_id', '').strip()
+
+        # 基础查询：统计正常有效订单（排除作废、取消）
+        # 仅统计状态为 pending/printed/reopened 的订单
+        base_orders = Order.objects.filter(
+            status__in=['pending', 'printed', 'reopened'],
+            customer__isnull=False
+        )
+
+        # 区域筛选
+        if area_id and area_id.isdigit():
+            base_orders = base_orders.filter(customer__area_id=int(area_id))
+
+        # 按客户分组统计总消费金额
+        customer_sales = base_orders.values(
+            'customer__id',
+            'customer__name',
+            'customer__area__name'
+        ).annotate(
+            total_amount=Sum('total_amount')
+        ).order_by('-total_amount')[:30]  # 取TOP30
+
+        # 构造返回数据
+        result = []
+        for idx, item in enumerate(customer_sales, 1):
+            result.append({
+                'rank': idx,
+                'customer_name': item['customer__name'],
+                'area_name': item['customer__area__name'] or '无区域',
+                'total_amount': float(item['total_amount']) if item['total_amount'] else 0.0
+            })
+
+        return JsonResponse({
+            'code': 1,
+            'msg': '查询成功',
+            'data': result
+        }, content_type='application/json')
+
+    except Exception as e:
+        return JsonResponse({
+            'code': 0,
+            'msg': f'查询失败：{str(e)}',
+            'data': []
+        }, content_type='application/json')

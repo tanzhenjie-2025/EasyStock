@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% block title %}客户消费TOP30排行 - EasyStock{% endblock %}
+
+{% block extra_css %}
+<style>
+    .rank-badge {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        text-align: center;
+        line-height: 20px;
+        color: white;
+        margin-right: 5px;
+    }
+    .gold { background-color: #FFD700; }
+    .silver { background-color: #C0C0C0; }
+    .bronze { background-color: #CD7F32; }
+    .rank-container {
+        margin: 20px 0;
+        padding: 20px;
+        background: #f8f9fa;
+        border-radius: 8px;
+    }
+    .filter-group {
+        margin-bottom: 15px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="content-container">
+    <div class="rank-container">
+        <h3>客户消费 TOP30 <span style="color: red; font-size: 14px;">（仅超级管理员可见）</span></h3>
+        <p>排序：按消费金额从高到低 | 仅统计正常有效订单（作废/取消订单不计入）</p>
+
+        <!-- 区域筛选 -->
+        <div class="filter-group">
+            <label for="areaFilter">按区域筛选：</label>
+            <select id="areaFilter" class="form-select form-select-sm" style="width: 200px;" onchange="loadSalesRankData()">
+                <option value="">全部区域</option>
+                {% for area in areas %}
+                <option value="{{ area.id }}">{{ area.name }}</option>
+                {% endfor %}
+            </select>
+            <button class="btn btn-sm btn-primary" onclick="loadSalesRankData()">查询</button>
+        </div>
+
+        <!-- 排行表格 -->
+        <table class="table table-sm table-bordered">
+            <thead class="table-light">
+                <tr>
+                    <th>名次</th>
+                    <th>客户名称</th>
+                    <th>区域</th>
+                    <th>累计消费金额</th>
+                </tr>
+            </thead>
+            <tbody id="salesRankList">
+                <!-- 数据由JS动态填充 -->
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // 页面加载时初始化数据
+    $(document).ready(function() {
+        loadSalesRankData();
+    });
+
+    // 加载消费排行数据
+    function loadSalesRankData() {
+        const areaId = $('#areaFilter').val();
+        let url = '/customer-manage/customer/sales-rank/data/';
+        if (areaId) {
+            url += `?area_id=${areaId}`;
+        }
+
+        $.get(url, function(res) {
+            let html = '';
+            if (res.code === 1 && res.data.length > 0) {
+                res.data.forEach(item => {
+                    // 前三名添加奖牌图标
+                    let rankBadge = '';
+                    if (item.rank === 1) {
+                        rankBadge = '<span class="rank-badge gold">🥇</span>';
+                    } else if (item.rank === 2) {
+                        rankBadge = '<span class="rank-badge silver">🥈</span>';
+                    } else if (item.rank === 3) {
+                        rankBadge = '<span class="rank-badge bronze">🥉</span>';
+                    }
+
+                    const totalAmount = item.total_amount.toFixed(2);
+                    html += `<tr>
+                        <td>${rankBadge} ${item.rank}</td>
+                        <td>${item.customer_name}</td>
+                        <td>${item.area_name}</td>
+                        <td>¥${totalAmount}</td>
+                    </tr>`;
+                });
+            } else {
+                html = '<tr><td colspan="4" class="text-center text-muted">暂无数据</td></tr>';
+            }
+            $('#salesRankList').html(html);
+        }, 'json').fail(function(xhr, status, error) {
+            console.error('加载排行数据失败：', xhr.responseText);
+            alert('加载数据失败！\n' + error);
+        });
+    }
+
+    // 获取CSRF Token（如需POST请求时使用）
+    function getCsrfToken() {
+        const cookies = document.cookie.split(';');
+        for (let cookie of cookies) {
+            const [name, value] = cookie.trim().split('=');
+            if (name === 'csrftoken') {
+                return value;
+            }
+        }
+        return '';
+    }
+</script>
+{% endblock %}

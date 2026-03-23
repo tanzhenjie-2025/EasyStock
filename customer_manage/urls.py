@@ -31,5 +31,9 @@ path('customer/search/', views.search_customer_for_price, name='search_customer_
     path('repayment/register/', views.repayment_register, name='repayment_register'),
     path('repayment/page/', views.repayment_page, name='repayment_page'),
 path('area/list/for/price/', views.area_list_for_price, name='area_list_for_price'),
+
+# 新增客户消费TOP30路由
+path('customer/sales-rank/page/', views.customer_sales_rank_page, name='customer_sales_rank_page'),
+path('customer/sales-rank/data/', views.customer_sales_rank_data, name='customer_sales_rank_data'),
 ]
 

@@ -10,9 +10,9 @@ from django.db import IntegrityError
 from django.utils import timezone
 import logging
 # 新增：导入订单模型
-from bill.models import Order
+from bill.models import Order, Area
 from django.db.models import Sum, Count
-
+from django.views.decorators.csrf import csrf_exempt
 # 导入模型和常量
 from .models import (
     User, Role, Permission,

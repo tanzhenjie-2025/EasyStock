@@ -210,7 +210,14 @@
 <!-- 页面主体内容 -->
 {% block content %}
 <div class="content-container">
-    <h3>客户管理</h3>
+    <div class="content-container">
+     <h3>客户管理</h3>
+    <!-- 原有内容保持不变 -->
+    <!-- 新增：客户消费TOP30入口（仅超级管理员可见） -->
+   
+
+   
+</div>
 
     <!-- ========== 新增：搜索组件 ========== -->
     <div class="search-container">
@@ -227,6 +234,14 @@
     <div class="recent-searches" id="recentSearches">
         最近搜索：<span id="recentTags">暂无</span>
     </div>
+    
+     {% if request.user.role and request.user.role.code == 'super_admin' %}
+    <div class="alert alert-info mb-3">
+        <a href="/customer-manage/customer/sales-rank/page/" class="btn btn-sm btn-warning">
+            🔝 客户消费TOP30排行（仅超级管理员可见）
+        </a>
+    </div>
+    {% endif %}
 
     <div class="my-3">
         <button class="btn btn-sm btn-primary" onclick="openAddModal()">新增客户</button>

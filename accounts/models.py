@@ -55,6 +55,7 @@ PERM_CUSTOMER_PRICE_VIEW = 'customer_price_view'  # 查看客户价格
 PERM_CUSTOMER_PRICE_ADD = 'customer_price_add'  # 新增客户价格
 PERM_CUSTOMER_PRICE_EDIT = 'customer_price_edit'  # 编辑客户价格
 PERM_CUSTOMER_PRICE_DELETE = 'customer_price_delete'  # 删除客户价格
+PERM_CUSTOMER_SALES_RANK = 'customer_sales_rank'  # 查看客户消费TOP30排行
 
 # 4. 日志管理权限编码
 PERM_LOG_VIEW = 'log_view'  # 查看自己的操作日志
@@ -129,6 +130,8 @@ def init_accounts_data(sender, **kwargs):
             ('customer_price_add', '新增客户价格', 'customer', '新增客户专属价格'),
             ('customer_price_edit', '编辑客户价格', 'customer', '编辑客户专属价格'),
             ('customer_price_delete', '删除客户价格', 'customer', '删除客户专属价格'),
+            ('customer_sales_rank', '查看客户消费排行', 'customer', '查看客户消费TOP30排行（仅超级管理员可见）'),
+
 
             # 日志管理
             ('log_view', '查看个人日志', 'system', '仅查看自己的操作日志'),
