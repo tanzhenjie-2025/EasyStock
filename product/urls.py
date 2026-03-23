@@ -26,4 +26,8 @@ urlpatterns = [
     path('quick-stock/', views.quick_stock_operation, name='quick_stock_operation'),
 # 新增：商品详情路由
     path('detail/<int:pk>/', views.product_detail, name='product_detail'),
+
+# 新增销售排行URL
+    path('sales-rank/', views.sales_rank, name='sales_rank'),
+    path('sales-rank/data/', views.sales_rank_data, name='sales_rank_data'),
 ]

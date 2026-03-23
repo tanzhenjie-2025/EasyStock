@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+
+{% block title %}商品销售排行 - EasyStock{% endblock %}
+
+{% block extra_css %}
+    <style>
+        .sales-rank-container {
+            max-width: 1200px;
+            margin: 20px auto;
+            padding: 0 20px;
+            font-family: "Microsoft YaHei", sans-serif;
+        }
+        .sales-rank-container * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        .filter-bar {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            align-items: center;
+        }
+        .filter-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .filter-group label {
+            font-weight: bold;
+            color: #333;
+        }
+        .filter-btn {
+            padding: 6px 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: #fff;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .filter-btn.active {
+            background: #0066cc;
+            color: #fff;
+            border-color: #0066cc;
+        }
+        .filter-btn:hover:not(.active) {
+            background: #f0f0f0;
+        }
+        .rank-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        .rank-table th, .rank-table td {
+            border: 1px solid #ddd;
+            padding: 12px 15px;
+            text-align: center;
+        }
+        .rank-table th {
+            background: #e9e9e9;
+            font-weight: bold;
+            color: #333;
+        }
+        /* 1-3名特殊底色 */
+        .rank-1 {
+            background: #fff8e1; /* 淡金色 */
+        }
+        .rank-2 {
+            background: #f5f5f5; /* 淡银色 */
+        }
+        .rank-3 {
+            background: #fff3e0; /* 淡铜色 */
+        }
+        /* 其余行hover效果 */
+        .rank-table tbody tr:not(.rank-1):not(.rank-2):not(.rank-3):hover {
+            background: #f0f8ff; /* 浅灰高亮 */
+        }
+        .back-btn {
+            padding: 8px 20px;
+            background: #0066cc;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+        .back-btn:hover {
+            background: #0055bb;
+        }
+        .no-data {
+            text-align: center;
+            padding: 50px;
+            color: #999;
+            font-size: 16px;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+    <div class="sales-rank-container">
+        <h1>商品销售TOP30排行</h1>
+        
+        <!-- 返回按钮 -->
+        <button class="back-btn" onclick="window.location.href='/product/manage/'">返回商品管理</button>
+        
+        <!-- 筛选栏 -->
+        <div class="filter-bar">
+            <!-- 排序方式筛选 -->
+            <div class="filter-group">
+                <label>排序方式：</label>
+                <button class="filter-btn active" data-type="sort" data-value="sales_volume">销量从高到低</button>
+                <button class="filter-btn" data-type="sort" data-value="sales_amount">销售额从高到低</button>
+            </div>
+            
+            <!-- 时间范围筛选 -->
+            <div class="filter-group">
+                <label>时间范围：</label>
+                <button class="filter-btn active" data-type="time" data-value="today">今日</button>
+                <button class="filter-btn" data-type="time" data-value="week">本周</button>
+                <button class="filter-btn" data-type="time" data-value="month">本月</button>
+                <button class="filter-btn" data-type="time" data-value="year">全年</button>
+            </div>
+            
+            <!-- 区域筛选 -->
+            <div class="filter-group">
+                <label>区域：</label>
+                <button class="filter-btn active" data-type="area" data-value="all">全部区域</button>
+                {% for area in areas %}
+                    <button class="filter-btn" data-type="area" data-value="{{ area.id }}">{{ area.name }}</button>
+                {% endfor %}
+            </div>
+        </div>
+        
+        <!-- 排行表格 -->
+        <table class="rank-table">
+            <thead>
+                <tr>
+                    <th>序号</th>
+                    <th>商品名称</th>
+                    <th>销量</th>
+                    <th>销售金额（¥）</th>
+                </tr>
+            </thead>
+            <tbody id="rank-table-body">
+                <!-- 数据由JS动态渲染 -->
+                <tr><td colspan="4" class="no-data">加载中...</td></tr>
+            </tbody>
+        </table>
+    </div>
+{% endblock %}
+
+{% block extra_js %}
+    <script>
+        // 筛选条件状态
+        const filterState = {
+            sort: 'sales_volume',  // sales_volume:销量, sales_amount:销售额
+            time: 'today',         // today/week/month/year
+            area: 'all'            // all或区域ID
+        };
+        
+        // 初始化筛选按钮事件
+        document.addEventListener('DOMContentLoaded', function() {
+            // 筛选按钮点击事件
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    // 移除同类型按钮的active状态
+                    document.querySelectorAll(`.filter-btn[data-type="${this.dataset.type}"]`).forEach(b => {
+                        b.classList.remove('active');
+                    });
+                    // 添加当前按钮active状态
+                    this.classList.add('active');
+                    // 更新筛选状态
+                    filterState[this.dataset.type] = this.dataset.value;
+                    // 重新加载数据
+                    loadRankData();
+                });
+            });
+            
+            // 初始加载数据
+            loadRankData();
+        });
+        
+        // 加载排行数据
+        async function loadRankData() {
+            const tableBody = document.getElementById('rank-table-body');
+            tableBody.innerHTML = '<tr><td colspan="4" class="no-data">加载中...</td></tr>';
+            
+            try {
+                // 构建请求参数
+                const params = new URLSearchParams({
+                    sort: filterState.sort,
+                    time_range: filterState.time,
+                    area_id: filterState.area
+                });
+                
+                // 请求后端数据
+                const res = await fetch(`/product/sales-rank/data/?${params}`);
+                if (!res.ok) throw new Error('数据加载失败');
+                
+                const data = await res.json();
+                if (data.code === 1 && data.data.length > 0) {
+                    // 渲染表格数据
+                    let html = '';
+                    data.data.forEach((item, index) => {
+                        // 1-3名添加特殊类名
+                        let rankClass = '';
+                        if (index === 0) rankClass = 'rank-1';
+                        else if (index === 1) rankClass = 'rank-2';
+                        else if (index === 2) rankClass = 'rank-3';
+                        
+                        html += `
+                            <tr class="${rankClass}">
+                                <td>${index + 1}</td>
+                                <td>${item.product_name}</td>
+                                <td>${item.sales_volume} ${item.unit}</td>
+                                <td>${item.sales_amount.toFixed(2)}</td>
+                            </tr>
+                        `;
+                    });
+                    tableBody.innerHTML = html;
+                } else {
+                    tableBody.innerHTML = '<tr><td colspan="4" class="no-data">暂无销售数据</td></tr>';
+                }
+            } catch (error) {
+                tableBody.innerHTML = `<tr><td colspan="4" class="no-data">${error.message}</td></tr>`;
+                console.error('加载排行数据失败：', error);
+            }
+        }
+    </script>
+{% endblock %}

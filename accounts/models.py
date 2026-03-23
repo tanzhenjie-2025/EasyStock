@@ -70,7 +70,7 @@ PERM_PRODUCT_ALIAS_DELETE = 'product_alias_delete'  # 删除商品别名
 PERM_PRODUCT_IMPORT = 'product_import'  # 批量导入商品
 PERM_PRODUCT_STOCK_OP = 'product_stock_operation'  # 商品出入库操作
 PERM_PRODUCT_DETAIL = 'product_detail'  # 查看商品详情（含销量/客户价）
-
+PERM_PRODUCT_SALES_RANK = 'product_sales_rank'  # 查看商品销售排行
 
 
 
@@ -144,6 +144,7 @@ def init_accounts_data(sender, **kwargs):
             ('product_import', '导入商品', 'product', '批量导入商品数据'),
             ('product_stock_operation', '商品出入库', 'product', '快速调整商品库存'),
             ('product_detail', '商品详情', 'product', '查看商品销量/客户价等详情'),
+            ('product_sales_rank', '销售排行查看', 'product', '查看商品销售TOP30排行'),
         ]
 
         for code, name, category, desc in perm_data:
@@ -182,7 +183,9 @@ def init_accounts_data(sender, **kwargs):
                 'customer_price_edit', 'customer_price_delete',
                 'log_view', 'log_view_all',
                 # 新增：查看他人订单+作废自己/他人订单
-                'order_view_others', 'order_cancel_own', 'order_cancel_others'
+                'order_view_others', 'order_cancel_own', 'order_cancel_others',
+                'product_sales_rank',  # 新增销售排行权限
+
             ])
         )
         admin_role.permissions.set(admin_perms)

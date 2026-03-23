@@ -26,7 +26,8 @@ from bill.models import Product, ProductAlias, Order, OrderItem, CustomerPrice
 
 
 # ====================== 商品管理主页面 ======================
-@permission_required(PERM_PRODUCT_VIEW)  # 需"查看商品"权限
+# product/views.py
+@permission_required(PERM_PRODUCT_VIEW)
 def product_manage(request):
     """商品管理主页面（展示所有商品+别名）"""
     products = Product.objects.all().order_by('name')
@@ -42,9 +43,14 @@ def product_manage(request):
             'stock': product.stock,
             'aliases': [{'id': a.id, 'alias_name': a.alias_name} for a in aliases]
         })
+
+    # 新增：获取所有区域（用于销售排行筛选）
+    areas = Area.objects.all()
+
     return render(request, 'product/product_manage.html', {
         'products': product_list,
-        # 传递权限标识给前端（控制按钮显示/隐藏）
+        'areas': areas,  # 新增传递区域数据
+        # 权限标识
         'can_add_product': request.user.has_permission(PERM_PRODUCT_ADD),
         'can_edit_product': request.user.has_permission(PERM_PRODUCT_EDIT),
         'can_delete_product': request.user.has_permission(PERM_PRODUCT_DELETE),
@@ -571,3 +577,113 @@ def product_detail(request, pk):
     }
 
     return render(request, 'product/product_detail.html', context)
+
+
+from django.shortcuts import render
+from django.http import JsonResponse
+from django.contrib.auth.decorators import login_required
+from django.db.models import Sum, F, Count
+from django.utils import timezone
+from datetime import datetime, timedelta
+from bill.models import Order, OrderItem, Product, Area
+from accounts.models import Permission, ROLE_SUPER_ADMIN
+from accounts.views import permission_required
+
+
+# 销售排行页面
+@login_required
+@permission_required('product_sales_rank')
+def sales_rank(request):
+    """商品销售排行页面"""
+    # 获取所有区域
+    areas = Area.objects.all()
+    return render(request, 'product/sales_rank.html', {
+        'areas': areas
+    })
+
+
+# 销售排行数据接口
+@login_required
+@permission_required('product_sales_rank')
+def sales_rank_data(request):
+    """商品销售排行数据接口"""
+    try:
+        # 获取筛选参数
+        sort_type = request.GET.get('sort', 'sales_volume')  # sales_volume/sales_amount
+        time_range = request.GET.get('time_range', 'today')  # today/week/month/year
+        area_id = request.GET.get('area_id', 'all')  # all或区域ID
+
+        # 1. 时间范围筛选
+        now = timezone.now()
+        if time_range == 'today':
+            start_time = datetime(now.year, now.month, now.day, 0, 0, 0)
+        elif time_range == 'week':
+            # 本周第一天（周一）
+            week_day = now.weekday()  # 0=周一, 6=周日
+            start_time = now - timedelta(days=week_day)
+            start_time = datetime(start_time.year, start_time.month, start_time.day, 0, 0, 0)
+        elif time_range == 'month':
+            # 本月第一天
+            start_time = datetime(now.year, now.month, 1, 0, 0, 0)
+        elif time_range == 'year':
+            # 本年第一天
+            start_time = datetime(now.year, 1, 1, 0, 0, 0)
+        else:
+            start_time = datetime(now.year, now.month, now.day, 0, 0, 0)
+
+        # 2. 构建查询条件
+        # 只统计正常生效订单（排除作废）
+        order_filters = {
+            'create_time__gte': start_time,
+            'status__in': ['pending', 'printed', 'reopened']  # 排除cancelled
+        }
+
+        # 区域筛选
+        if area_id != 'all' and area_id.isdigit():
+            order_filters['area_id'] = int(area_id)
+
+        # 3. 查询销售数据
+        # 关联订单和订单项，聚合商品销售数据
+        sales_data = OrderItem.objects.filter(
+            order__in=Order.objects.filter(**order_filters)
+        ).values(
+            'product__id', 'product__name', 'product__unit'
+        ).annotate(
+            sales_volume=Sum('quantity'),  # 销量
+            sales_amount=Sum('amount')  # 销售金额
+        ).filter(
+            product__isnull=False  # 排除无商品的订单项
+        )
+
+        # 4. 排序
+        if sort_type == 'sales_amount':
+            sales_data = sales_data.order_by('-sales_amount')
+        else:
+            sales_data = sales_data.order_by('-sales_volume')
+
+        # 5. 取TOP30
+        top30_data = sales_data[:30]
+
+        # 6. 格式化返回数据
+        result = []
+        for item in top30_data:
+            result.append({
+                'product_id': item['product__id'],
+                'product_name': item['product__name'],
+                'unit': item['product__unit'],
+                'sales_volume': item['sales_volume'],
+                'sales_amount': float(item['sales_amount']) if item['sales_amount'] else 0.0
+            })
+
+        return JsonResponse({
+            'code': 1,
+            'msg': '获取成功',
+            'data': result
+        })
+
+    except Exception as e:
+        return JsonResponse({
+            'code': 0,
+            'msg': f'获取数据失败：{str(e)}',
+            'data': []
+        })
