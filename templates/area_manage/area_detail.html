@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+
+<!-- 页面标题 -->
+{% block title %}{{ area.name|default:"未知区域" }} - 区域详情 - EasyStock{% endblock %}
+
+<!-- 页面专属样式 -->
+{% block extra_css %}
+<style>
+    .detail-container {
+        max-width: 800px;
+    }
+    .detail-card {
+        border: 1px solid #e9ecef;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    .detail-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #eee;
+    }
+    .detail-title {
+        font-size: 18px;
+        font-weight: 600;
+    }
+    .detail-actions {
+        display: flex;
+        gap: 10px;
+    }
+    .detail-grid {
+        display: grid;
+        grid-template-columns: 120px 1fr;
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+    .detail-label {
+        color: #666;
+        font-weight: 500;
+        align-self: center;
+    }
+    .detail-value {
+        color: #333;
+        align-self: center;
+    }
+    .amount-text {
+        color: #e63946;
+        font-weight: 600;
+    }
+    .back-btn {
+        margin-bottom: 20px;
+    }
+    .related-group-title {
+        font-size: 16px;
+        font-weight: 600;
+        margin: 20px 0 10px 0;
+    }
+    .group-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+    .group-item {
+        padding: 8px 0;
+        border-bottom: 1px dashed #eee;
+    }
+    .group-item a {
+        color: #007bff;
+        text-decoration: none;
+    }
+    .group-item a:hover {
+        text-decoration: underline;
+    }
+
+    /* 补充吐司提示样式 */
+    .toast-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+    .toast {
+        padding: 12px 20px;
+        border-radius: 4px;
+        color: white;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s;
+        opacity: 0;
+        transform: translateX(100%);
+    }
+    .toast-success { background-color: #28a745; }
+    .toast-error { background-color: #dc3545; }
+    .toast-warning { background-color: #ffc107; color: #333; }
+    .toast-info { background-color: #17a2b8; }
+
+    @keyframes slideIn {
+        from { opacity: 0; transform: translateX(100%); }
+        to { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes fadeOut {
+        from { opacity: 1; transform: translateX(0); }
+        to { opacity: 0; transform: translateX(100%); }
+    }
+</style>
+{% endblock %}
+
+<!-- 页面专属内容 -->
+{% block content %}
+    <div class="detail-container">
+        <!-- 返回按钮 -->
+        <button class="btn btn-sm btn-secondary back-btn" onclick="window.history.back()">← 返回区域列表</button>
+
+        <!-- 区域详情卡片 -->
+        <div class="detail-card">
+            <div class="detail-header">
+                <div class="detail-title">{{ area.name|default:"未知区域" }} - 区域详情</div>
+                {% if area.id %}
+                <div class="detail-actions">
+                    <button class="btn btn-sm btn-warning" onclick="editArea({{ area.id }})">编辑</button>
+                </div>
+                {% endif %}
+            </div>
+            
+            <div class="detail-grid">
+                <div class="detail-label">区域ID：</div>
+                <div class="detail-value">{{ area.id|default:"-" }}</div>
+                
+                <div class="detail-label">区域名称：</div>
+                <div class="detail-value">{{ area.name|default:"未知区域" }}</div>
+                
+                <div class="detail-label">区域编码：</div>
+                <div class="detail-value">{{ area.code|default:"无" }}</div>
+                
+                <div class="detail-label">上级区域：</div>
+                <div class="detail-value">{{ area.parent_name|default:"无" }}</div>
+                
+                <div class="detail-label">备注：</div>
+                <div class="detail-value">{{ area.remark|default:"无" }}</div>
+                
+                <div class="detail-label">客户数量：</div>
+                <div class="detail-value">{{ area.customer_count|default:0 }}</div>
+                
+                <div class="detail-label">累计消费金额：</div>
+                <div class="detail-value amount-text">
+                    {% if area.total_amount and area.total_amount > 0 %}
+                        ¥{{ area.total_amount|floatformat:2 }}
+                    {% else %}
+                        ¥0.00
+                    {% endif %}
+                </div>
+                
+                <div class="detail-label">创建时间：</div>
+                <div class="detail-value">{{ area.create_time|default:"未知" }}</div>
+                
+                <div class="detail-label">更新时间：</div>
+                <div class="detail-value">{{ area.update_time|default:"未知" }}</div>
+            </div>
+
+            <!-- 关联的区域组 -->
+            <div class="related-group-title">关联的区域组：</div>
+            {% if related_groups %}
+                <ul class="group-list">
+                    {% for group in related_groups %}
+                        <li class="group-item">
+                            <a href="/area-manage/group/detail/{{ group.id|default:0 }}/">{{ group.name|default:"未命名组" }}</a>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <div class="text-muted">该区域未加入任何区域组</div>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}
+
+<!-- 页面专属JS -->
+{% block extra_js %}
+    <script src="https://cdn.bootcdn.net/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <script>
+        // 初始化吐司容器
+        $(document).ready(function() {
+            if (!document.getElementById('toastContainer')) {
+                const toastContainer = document.createElement('div');
+                toastContainer.id = 'toastContainer';
+                toastContainer.className = 'toast-container';
+                document.body.appendChild(toastContainer);
+            }
+        });
+
+        // 编辑区域
+        function editArea(areaId) {
+            if (!areaId) {
+                showToast('无效的区域ID', 'error');
+                return;
+            }
+            window.location.href = `/area-manage/area/edit/${areaId}/`;
+        }
+
+        // 吐司提示函数
+        function showToast(message, type = 'info', duration = 3000) {
+            const toastContainer = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+            toastContainer.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.opacity = '1';
+                toast.style.transform = 'translateX(0)';
+            }, 10);
+            
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateX(100%)';
+                setTimeout(() => toast.remove(), 300);
+            }, duration);
+        }
+
+        // Django CSRF令牌获取函数（备用）
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+    </script>
+{% endblock %}

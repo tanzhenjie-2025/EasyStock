@@ -1,0 +1,366 @@
+{% extends "base.html" %}
+
+<!-- 页面标题 -->
+{% block title %}{{ group.name|default:"未命名组" }} - 区域组详情 - EasyStock{% endblock %}
+
+<!-- 页面专属样式 -->
+{% block extra_css %}
+<style>
+    /* 基础详情卡片样式 */
+    .detail-card {
+        border: 1px solid #e9ecef;
+        border-radius: 8px;
+        padding: 20px;
+        margin-bottom: 20px;
+    }
+    .detail-title {
+        font-size: 18px;
+        font-weight: 600;
+        margin-bottom: 20px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #eee;
+    }
+    .detail-item {
+        display: flex;
+        margin-bottom: 15px;
+        line-height: 1.6;
+    }
+    .detail-label {
+        width: 120px;
+        color: #666;
+        font-weight: 500;
+    }
+    .detail-value {
+        flex: 1;
+        color: #333;
+    }
+    .back-btn {
+        margin-bottom: 20px;
+    }
+    .amount-text {
+        color: #e63946;
+        font-weight: 600;
+    }
+    .area-tag {
+        display: inline-block;
+        padding: 4px 8px;
+        background: #e9ecef;
+        border-radius: 4px;
+        margin-right: 8px;
+        margin-bottom: 8px;
+        font-size: 14px;
+    }
+
+    /* 修复：补充吐司提示样式（避免样式缺失） */
+    .toast-container {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+    .toast {
+        padding: 12px 20px;
+        border-radius: 4px;
+        color: white;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s;
+        opacity: 0;
+        transform: translateX(100%);
+    }
+    .toast-success { background-color: #28a745; }
+    .toast-error { background-color: #dc3545; }
+    .toast-warning { background-color: #ffc107; color: #333; }
+    .toast-info { background-color: #17a2b8; }
+
+    @keyframes slideIn {
+        from { opacity: 0; transform: translateX(100%); }
+        to { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes fadeOut {
+        from { opacity: 1; transform: translateX(0); }
+        to { opacity: 0; transform: translateX(100%); }
+    }
+
+    /* 修复：补充模态框样式（避免弹窗无样式） */
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0,0,0,0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.3s ease, visibility 0.3s ease;
+    }
+    .modal-overlay.active {
+        opacity: 1;
+        visibility: visible;
+    }
+    .modal-box {
+        background-color: white;
+        padding: 20px;
+        border-radius: 8px;
+        width: 90%;
+        max-width: 350px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .modal-title {
+        font-size: 16px;
+        font-weight: 600;
+        margin-bottom: 15px;
+        color: #333;
+    }
+    .modal-content {
+        margin-bottom: 20px;
+        color: #555;
+    }
+    .modal-buttons {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-top: 20px;
+    }
+    .modal-btn {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+    }
+    .modal-btn-confirm {
+        background-color: #007bff;
+        color: white;
+    }
+    .modal-btn-cancel {
+        background-color: #6c757d;
+        color: white;
+    }
+</style>
+{% endblock %}
+
+<!-- 页面专属内容 -->
+{% block content %}
+    <!-- 返回按钮 -->
+    <button class="btn btn-sm btn-secondary back-btn" onclick="window.history.back()">← 返回列表</button>
+
+    <!-- 区域组详情卡片 -->
+    <div class="detail-card">
+        <div class="detail-title">{{ group.name|default:"未命名组" }} - 区域组详情</div>
+        
+        <div class="detail-item">
+            <div class="detail-label">组ID：</div>
+            <div class="detail-value">{{ group.id|default:"-" }}</div>
+        </div>
+        
+        <div class="detail-item">
+            <div class="detail-label">组名：</div>
+            <div class="detail-value">{{ group.name|default:"未命名组" }}</div>
+        </div>
+        
+        <div class="detail-item">
+            <div class="detail-label">包含区域：</div>
+            <div class="detail-value">
+                {% if group.area_names %}
+                    {% for area_name in group.area_names %}
+                        <span class="area-tag">{{ area_name|default:"未知区域" }}</span>
+                    {% endfor %}
+                {% else %}
+                    无
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="detail-item">
+            <div class="detail-label">备注：</div>
+            <div class="detail-value">{{ group.remark|default:"无" }}</div>
+        </div>
+        
+        <div class="detail-item">
+            <div class="detail-label">客户数量：</div>
+            <div class="detail-value">{{ group.customer_count|default:0 }}</div>
+        </div>
+        
+        <div class="detail-item">
+            <div class="detail-label">累计消费金额：</div>
+            <div class="detail-value amount-text">
+                {% if group.total_amount and group.total_amount > 0 %}
+                    ¥{{ group.total_amount|floatformat:2 }}
+                {% else %}
+                    ¥0.00
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="detail-item">
+            <div class="detail-label">创建时间：</div>
+            <div class="detail-value">{{ group.create_time|default:"未知" }}</div>
+        </div>
+        
+        <div class="detail-item">
+            <div class="detail-label">更新时间：</div>
+            <div class="detail-value">{{ group.update_time|default:"未知" }}</div>
+        </div>
+    </div>
+
+    <!-- 操作按钮（仅当有有效ID时显示） -->
+    {% if group.id %}
+    <div>
+        <button class="btn btn-sm btn-warning me-2" onclick="editGroup({{ group.id }})">编辑</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteGroup({{ group.id }})">删除</button>
+    </div>
+    {% endif %}
+{% endblock %}
+
+<!-- 页面专属JS -->
+{% block extra_js %}
+    <script src="https://cdn.bootcdn.net/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <script>
+        // 确保jQuery加载完成
+        $(document).ready(function() {
+            // 初始化吐司容器
+            if (!document.getElementById('toastContainer')) {
+                const toastContainer = document.createElement('div');
+                toastContainer.id = 'toastContainer';
+                toastContainer.className = 'toast-container';
+                document.body.appendChild(toastContainer);
+            }
+        });
+
+        // 吐司提示函数
+        function showToast(message, type = 'info', duration = 3000) {
+            const toastContainer = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+            toastContainer.appendChild(toast);
+            
+            // 触发动画（延迟确保DOM渲染）
+            setTimeout(() => {
+                toast.style.opacity = '1';
+                toast.style.transform = 'translateX(0)';
+            }, 10);
+            
+            // 自动移除
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateX(100%)';
+                setTimeout(() => toast.remove(), 300);
+            }, duration);
+        }
+
+        // 确认弹窗函数
+        function showConfirmModal(message, callback) {
+            // 创建遮罩层
+            const overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.innerHTML = `
+                <div class="modal-box">
+                    <div class="modal-title">确认操作</div>
+                    <div class="modal-content">${message}</div>
+                    <div class="modal-buttons">
+                        <button class="modal-btn modal-btn-cancel">取消</button>
+                        <button class="modal-btn modal-btn-confirm">确认</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+            
+            // 显示弹窗
+            setTimeout(() => overlay.classList.add('active'), 10);
+            
+            // 绑定事件
+            const cancelBtn = overlay.querySelector('.modal-btn-cancel');
+            const confirmBtn = overlay.querySelector('.modal-btn-confirm');
+
+            cancelBtn.addEventListener('click', () => {
+                overlay.remove();
+                callback(false);
+            });
+
+            confirmBtn.addEventListener('click', () => {
+                overlay.remove();
+                callback(true);
+            });
+
+            // ESC键关闭
+            document.addEventListener('keydown', function escHandler(e) {
+                if (e.key === 'Escape') {
+                    overlay.remove();
+                    callback(false);
+                    document.removeEventListener('keydown', escHandler);
+                }
+            });
+        }
+
+        // 编辑区域组
+        function editGroup(groupId) {
+            if (!groupId) {
+                showToast('无效的区域组ID', 'error');
+                return;
+            }
+            window.location.href = `/area-manage/group/`; // 返回列表页并触发编辑
+        }
+
+        // 删除区域组
+        function deleteGroup(groupId) {
+            if (!groupId) {
+                showToast('无效的区域组ID', 'error');
+                return;
+            }
+            
+            showConfirmModal('确定要删除该区域组吗？删除后不可恢复！', (confirm) => {
+                if(!confirm) return;
+                
+                $.ajax({
+                    url: `/area-manage/api/group/delete/${groupId}/`,
+                    type: 'POST',
+                    // 修复：添加CSRF令牌（Django必须）
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    success: function(res) {
+                        if(res && res.code === 1){
+                            showToast('区域组删除成功', 'success');
+                            setTimeout(() => {
+                                window.location.href = '/area-manage/group/';
+                            }, 1500);
+                        } else {
+                            showToast(res?.msg || '删除失败', 'error');
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        console.error('删除区域组失败：', xhr.responseText);
+                        showToast('删除区域组失败：' + error, 'error');
+                    }
+                });
+            });
+        }
+
+        // 修复：Django CSRF令牌获取函数
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+    </script>
+{% endblock %}

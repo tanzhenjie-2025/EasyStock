@@ -71,6 +71,26 @@
         color: #999;
         padding: 20px;
     }
+    /* Loading样式 */
+    .loading {
+        text-align: center;
+        color: #666;
+        padding: 20px;
+        font-style: italic;
+    }
+    /* 排序表头样式 */
+    .sort-th {
+        cursor: pointer;
+        user-select: none;
+    }
+    .sort-th:hover {
+        color: #007bff;
+    }
+    .sort-th::after {
+        content: ' ↕';
+        font-size: 10px;
+        opacity: 0.5;
+    }
 
     /* ========== 新增：吐司提示样式 ========== */
     .toast-container {
@@ -195,9 +215,18 @@
 
     <table class="table table-sm table-bordered">
         <thead>
-            <tr><th>ID</th><th>区域名</th><th>备注</th><th>操作</th></tr>
+            <tr>
+                <th>ID</th>
+                <th>区域名</th>
+                <th>备注</th>
+                <th class="sort-th" onclick="sortBy('customer_count')">客户数量 ↕</th>
+                <th class="sort-th" onclick="sortBy('total_amount')">累计金额 ↕</th>
+                <th>操作</th>
+            </tr>
         </thead>
-        <tbody id="list"></tbody>
+        <tbody id="list">
+            <tr><td colspan="6" class="loading">数据统计中...</td></tr>
+        </tbody>
     </table>
 {% endblock %}
 
@@ -207,6 +236,15 @@
         // 常量定义
         const SEARCH_HISTORY_KEY = 'areaSearchHistory'; // 本地存储key
         const MAX_HISTORY_COUNT = 5; // 最多保存5条搜索记录
+        let currentSort = 'name'; // 当前排序字段
+        let currentOrder = 'asc'; // 当前排序方向
+
+        // ========== 工具函数：千分位格式化 ==========
+        function formatNumber(num) {
+            if (num === 0 || !num) return '¥0.00';
+            const formatted = num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+            return `¥${formatted}`;
+        }
 
         // ========== 核心新增：吐司提示函数 ==========
         function showToast(message, type = 'info', duration = 3000) {
@@ -323,38 +361,75 @@
             });
         }
 
-        // 1. 加载区域列表（支持关键词过滤）
+        // ========== 排序函数 ==========
+        function sortBy(field) {
+            if (currentSort === field) {
+                // 切换排序方向
+                currentOrder = currentOrder === 'asc' ? 'desc' : 'asc';
+            } else {
+                currentSort = field;
+                currentOrder = 'asc';
+            }
+            // 重新加载数据
+            load($('#searchInput').val().trim());
+        }
+
+        // ========== 进入详情页 ==========
+        function goToDetail(id) {
+            window.location.href = `/area-manage/area/detail/${id}/`;
+        }
+
+        // 1. 加载区域列表（支持关键词过滤和排序）
         function load(keyword = ''){
             console.log('开始加载区域列表...关键词：', keyword);
+            // 显示loading
+            $('#list').html('<tr><td colspan="6" class="loading">数据统计中...</td></tr>');
+            
             // 拼接搜索参数
             let url = '/area-manage/api/area/list/';
-            if (keyword) {
-                url += `?keyword=${encodeURIComponent(keyword)}`;
-            }
+            const params = new URLSearchParams();
+            if (keyword) params.append('keyword', keyword);
+            if (currentSort) params.append('sort', currentSort);
+            if (currentOrder) params.append('order', currentOrder);
+            
+            const queryString = params.toString();
+            if (queryString) url += `?${queryString}`;
             
             $.get(url, function(res){
                 console.log('接口返回数据：', res);
                 let html='';
                 // 处理空结果
                 if(Array.isArray(res) && res.length === 0){
-                    html = `<tr><td colspan="4" class="no-result">未搜索到相关内容</td></tr>`;
+                    html = `<tr><td colspan="6" class="no-result">未搜索到相关内容</td></tr>`;
                     $('#list').html(html);
                     return;
                 }
                 // 处理接口返回错误
                 if(res.code === 0){
                     showToast(res.msg, 'error'); // 替换alert为吐司
+                    html = `<tr><td colspan="6" class="no-result">${res.msg}</td></tr>`;
+                    $('#list').html(html);
                     return;
                 }
                 // 遍历数据
                 if(Array.isArray(res)){
                     res.forEach(i=>{
-                        // 3. 行点击事件（调用edit），按钮阻止冒泡
-                        html+=`<tr onclick="edit(${i.id})">
+                        // 千分位格式化金额
+                        const formattedAmount = formatNumber(i.total_amount);
+                        // 客户数为空处理
+                        const customerCount = i.customer_count || 0;
+                        // 无数据提示
+                        const amountTip = i.total_amount <= 0 ? '<span style="color:#999;">该区域暂无客户消费数据</span>' : formattedAmount;
+                        
+                        // 行点击进入详情，按钮阻止冒泡
+                        html+=`<tr onclick="goToDetail(${i.id})">
                             <td>${i.id}</td>
                             <td>${i.name}</td>
                             <td>${i.remark || '无'}</td>
+                            <td>${customerCount}</td>
+                            <td>${amountTip}</td>
                             <td>
+                                <button class="btn btn-sm btn-info me-1" onclick="event.stopPropagation();goToDetail(${i.id})">详情</button>
                                 <button class="btn btn-sm btn-warning me-1" onclick="event.stopPropagation();edit(${i.id})">改</button>
                                 <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();del(${i.id})">删</button>
                             </td>
@@ -365,7 +440,7 @@
             },'json').fail(function(xhr, status, error){
                 console.error('加载失败：', status, error);
                 showToast(`加载区域列表失败！错误：${error}`, 'error'); // 替换alert
-                $('#list').html(`<tr><td colspan="4" class="no-result">加载失败</td></tr>`);
+                $('#list').html(`<tr><td colspan="6" class="no-result">加载失败</td></tr>`);
             });
         }
 
