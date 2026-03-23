@@ -14,22 +14,29 @@
         font-weight: bold;
         background-color: #f8f9fa;
     }
+    /* 统一订单行高亮样式（如果订单详情页有订单行也适用） */
+    .order-row {
+        cursor: pointer;
+        transition: background-color 0.2s ease;
+    }
+    .order-row:hover {
+        background-color: #f0f0f0 !important;
+    }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container mt-4">
-    <!-- 智能返回：优先级：商品汇总详情 → 客户详情 → 订单列表 -->
+    <!-- 智能返回：优先级：商品汇总详情 → 客户详情 → 订单列表 → 历史返回 -->
     {% if request.GET.from_product_summary and request.GET.back_url %}
-    <!-- 从商品汇总详情页过来 → 返回商品汇总详情 -->
-    <!-- ========== 关键修改1：去掉|urlencode过滤器 ========== -->
-    <a href="{{ request.GET.back_url }}" class="btn btn-sm btn-secondary back-btn">← 返回商品汇总详情</a>
+    <!-- 从商品汇总详情页过来 → 返回商品汇总详情（解码URL确保正确） -->
+    <a href="{{ request.GET.back_url|safe }}" class="btn btn-sm btn-secondary back-btn">← 返回商品汇总详情</a>
     {% elif request.GET.from_customer %}
     <!-- 从客户详情页过来 → 返回客户详情 -->
     <a href="/customer-manage/customer/detail/page/{{ request.GET.from_customer }}/" class="btn btn-sm btn-secondary back-btn">← 返回客户详情</a>
     {% else %}
-    <!-- 默认返回订单列表 -->
-    <a href="{% url 'bill:order_list' %}" class="btn btn-sm btn-secondary back-btn">← 返回订单列表</a>
+    <!-- 默认：优先返回上一页，其次返回订单列表 -->
+    <button class="btn btn-sm btn-secondary back-btn" onclick="goBackSmartly()">← 返回</button>
     {% endif %}
 
     <div class="card">
@@ -133,12 +140,13 @@
             <!-- 操作按钮 -->
 <div class="mt-4">
     {% if request.GET.from_product_summary and request.GET.back_url %}
-        <!-- ========== 关键修改2：去掉|urlencode过滤器 ========== -->
-        <a href="{{ request.GET.back_url }}" class="btn btn-secondary">返回商品汇总详情</a>
+        <!-- 智能返回：回到商品汇总详情页 -->
+        <a href="{{ request.GET.back_url|safe }}" class="btn btn-secondary">返回商品汇总详情</a>
         {% elif request.GET.from_customer %}
         <a href="/customer-manage/customer/detail/page/{{ request.GET.from_customer }}/" class="btn btn-secondary">返回客户详情</a>
         {% else %}
-        <a href="{% url 'bill:order_list' %}" class="btn btn-secondary">返回列表</a>
+        <!-- 通用返回：优先历史记录，其次订单列表 -->
+        <button class="btn btn-secondary" onclick="goBackSmartly()">返回</button>
         {% endif %}
 
     
@@ -295,6 +303,17 @@
 
 {% block extra_js %}
 <script>
+// 智能返回函数（需求3核心）
+function goBackSmartly() {
+    // 优先使用浏览器历史记录返回
+    if (window.history.length > 1) {
+        window.history.back();
+    } else {
+        // 无历史记录时返回订单列表
+        window.location.href = "{% url 'bill:order_list' %}";
+    }
+}
+
 // 快捷备注
 $(document).ready(function() {
     $('.quick-reply').click(function() {

@@ -24,12 +24,27 @@
         font-weight: bold;
         text-align: center;
     }
-    /* 需求1：鼠标经过行高亮 */
-    .order-row {
-        cursor: pointer; /* 鼠标指针变为手型，提示可点击 */
+    
+    /* ========== 核心修复：鼠标行高亮（强制生效） ========== */
+    /* 1. 基础样式：手型指针 + 初始化背景 */
+    #orderSourceData tr.order-row {
+        cursor: pointer;
+        transition: all 0.2s ease;
+        background-color: transparent !important;
     }
-    .order-row:hover {
-        background-color: #f0f0f0 !important; /* 浅灰色高亮，!important确保优先级 */
+    /* 2. 关键修复：同时设置tr和td的hover背景色 */
+    #orderSourceData tr.order-row:hover,
+    #orderSourceData tr.order-row:hover td {
+        background-color: #f0f0f0 !important; /* 浅灰色高亮（强制生效） */
+        border-color: #e0e0e0 !important; /* 可选：边框同步高亮，增强视觉 */
+    }
+    /* 3. 总计行完全禁用hover和点击 */
+    #orderSourceData tr.total-row {
+        cursor: default;
+        pointer-events: none;
+    }
+    #orderSourceData tr.total-row td {
+         /* 保持总计行原有样式 */
     }
 </style>
 {% endblock %}
@@ -103,7 +118,7 @@ $(function() {
         // 渲染订单来源数据
         let html = '';
         res.data.forEach(item => {
-            // 需求2：为每行添加order-row类 + 点击事件，携带来源参数跳转订单详情
+            // 为每行添加order-row类（高亮核心）
             html += `<tr class="order-row" data-order-no="${item.order_no}">
                 <td>${item.order_no}</td>
                 <td>${item.create_time}</td>
@@ -127,12 +142,11 @@ $(function() {
 
         $('#orderSourceData').html(html);
 
-        // 绑定整行点击事件（需求2核心）
+        // 绑定整行点击事件
         $('.order-row').click(function() {
             const orderNo = $(this).data('order-no');
-            // 拼接跳转URL，携带来源参数（用于智能返回）
-            const backUrl = encodeURIComponent(`/summary/product-detail/${productId}/?group_id=${groupId}&start_date=${startDate}&end_date=${endDate}`);
-            // ========== 关键修改：order → orders ==========
+            const currentUrl = window.location.href;
+            const backUrl = encodeURIComponent(currentUrl);
             window.location.href = `/bill/orders/detail/${orderNo}/?from_product_summary=1&back_url=${backUrl}`;
         });
 
