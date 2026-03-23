@@ -304,63 +304,6 @@
             background: #0066cc;
             color: #fff;
         }
-
-        /* 新增：销售排行模态框样式 */
-        .sales-rank-modal {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.5);
-            display: none;
-            justify-content: center;
-            align-items: center;
-            z-index: 1000;
-        }
-        .sales-rank-content {
-            background: #fff;
-            padding: 30px;
-            border-radius: 8px;
-            width: 1000px;
-            max-width: 90%;
-            max-height: 80vh;
-            overflow-y: auto;
-            position: relative; /* 为关闭按钮定位 */
-        }
-        .sales-rank-filter {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-        .sales-rank-filter select, .sales-rank-filter button {
-            padding: 8px 15px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 14px;
-        }
-        .sales-rank-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        .sales-rank-table th, .sales-rank-table td {
-            border: 1px solid #ddd;
-            padding: 12px 15px;
-            text-align: left;
-        }
-        .sales-rank-table th {
-            background: #e9e9e9;
-            font-weight: bold;
-        }
-        .sales-rank-table tr:hover {
-            background: #f0f8ff;
-        }
-        .rank-num {
-            font-weight: bold;
-            color: #0066cc;
-        }
     </style>
 {% endblock %}
 
@@ -371,7 +314,8 @@
         <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #0066cc;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <h3 style="margin: 0; color: #333;">销售TOP30</h3>
-                <button class="btn btn-primary" id="btn-sales-rank" style="padding: 8px 20px;">
+                <!-- 修改：按钮点击事件改为跳转页面 -->
+                <button class="btn btn-primary" id="btn-sales-rank" style="padding: 8px 20px;" onclick="window.location.href='/product/sales-rank/'">
                     查看商品销售排行
                 </button>
             </div>
@@ -434,53 +378,7 @@
             </tbody>
         </table>
 
-        <!-- 新增：销售排行模态框 -->
-        <div class="sales-rank-modal" id="sales-rank-modal">
-            <div class="sales-rank-content">
-                <div class="modal-title">
-                    <h3 style="margin: 0 0 20px 0;">商品销售排行TOP30</h3>
-                    <button class="btn btn-default" id="close-sales-rank" style="position: absolute; top: 20px; right: 20px; padding: 4px 10px;">×</button>
-                </div>
-                
-                <!-- 筛选条件 -->
-                <div class="sales-rank-filter">
-                    <select id="sort-type">
-                        <option value="sales_volume">按销量排序</option>
-                        <option value="sales_amount">按销售额排序</option>
-                    </select>
-                    <select id="time-range">
-                        <option value="today">今日</option>
-                        <option value="week">本周</option>
-                        <option value="month">本月</option>
-                        <option value="year">本年</option>
-                    </select>
-                    <select id="area-id">
-                        <option value="all">全部区域</option>
-                        <!-- 后端渲染区域选项（如果需要） -->
-                        {% for area in areas %}
-                            <option value="{{ area.id }}">{{ area.name }}</option>
-                        {% endfor %}
-                    </select>
-                    <button class="btn btn-primary" id="btn-refresh-rank">刷新数据</button>
-                </div>
-                
-                <!-- 销售排行表格 -->
-                <table class="sales-rank-table">
-                    <thead>
-                        <tr>
-                            <th>排名</th>
-                            <th>商品名称</th>
-                            <th>单位</th>
-                            <th>销量</th>
-                            <th>销售额（¥）</th>
-                        </tr>
-                    </thead>
-                    <tbody id="sales-rank-list">
-                        <tr><td colspan="5" style="text-align:center; color:#999;">加载中...</td></tr>
-                    </tbody>
-                </table>
-            </div>
-        </div>
+        <!-- 移除：销售排行模态框 -->
     </div>
 
     <!-- 编辑商品弹窗 -->
@@ -571,54 +469,7 @@
         let currentStockSuggestList = [];
         let suggestBox = null;
 
-        // 新增：销售排行相关函数
-        // 打开销售排行模态框
-        function openSalesRankModal() {
-            document.getElementById('sales-rank-modal').style.display = 'flex';
-            loadSalesRankData(); // 加载数据
-        }
-
-        // 关闭销售排行模态框
-        function closeSalesRankModal() {
-            document.getElementById('sales-rank-modal').style.display = 'none';
-        }
-
-        // 加载销售排行数据
-        async function loadSalesRankData() {
-            const sortType = document.getElementById('sort-type').value;
-            const timeRange = document.getElementById('time-range').value;
-            const areaId = document.getElementById('area-id').value;
-            
-            const rankList = document.getElementById('sales-rank-list');
-            rankList.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#999;">加载中...</td></tr>';
-
-            try {
-                // 调用后端销售排行接口
-                const res = await fetch(`/product/sales-rank/data/?sort=${sortType}&time_range=${timeRange}&area_id=${areaId}`);
-                const data = await res.json();
-                
-                if (data.code === 1 && data.data.length > 0) {
-                    // 渲染排行数据
-                    rankList.innerHTML = '';
-                    data.data.forEach((item, index) => {
-                        const tr = document.createElement('tr');
-                        tr.innerHTML = `
-                            <td class="rank-num">${index + 1}</td>
-                            <td>${item.product_name}</td>
-                            <td>${item.unit || '件'}</td>
-                            <td>${item.sales_volume}</td>
-                            <td>${item.sales_amount.toFixed(2)}</td>
-                        `;
-                        rankList.appendChild(tr);
-                    });
-                } else {
-                    rankList.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#999;">暂无销售数据</td></tr>';
-                }
-            } catch (error) {
-                rankList.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#ff4400;">加载失败，请重试</td></tr>';
-                console.error('加载销售排行失败：', error);
-            }
-        }
+        // 移除：销售排行相关函数（模态框逻辑）
 
         // 工具函数：显示提示
         function showMsg(text, isSuccess = true) {
@@ -1355,10 +1206,7 @@
             // 加载商品列表
             loadProductList();
 
-            // 绑定销售排行按钮事件
-            document.getElementById('btn-sales-rank').addEventListener('click', openSalesRankModal);
-            document.getElementById('close-sales-rank').addEventListener('click', closeSalesRankModal);
-            document.getElementById('btn-refresh-rank').addEventListener('click', loadSalesRankData);
+            // 移除：销售排行按钮的模态框事件绑定
 
             // 绑定原有按钮事件
             document.getElementById('btn-add-product').addEventListener('click', addProduct);

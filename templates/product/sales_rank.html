@@ -1,71 +1,120 @@
 {% extends "base.html" %}
 
-{% block title %}商品销售排行 - EasyStock{% endblock %}
+{% block title %}{{ page_title }} - EasyStock{% endblock %}
 
 {% block extra_css %}
     <style>
+        /* 重置页面基础样式，让独立页面更舒展 */
+        body {
+            background-color: #f9f9f9; /* 全局背景色，区分独立页面 */
+            margin: 0;
+            padding: 0;
+        }
         .sales-rank-container {
-            max-width: 1200px;
-            margin: 20px auto;
-            padding: 0 20px;
+            max-width: 1400px; /* 加宽容器，更像独立页面 */
+            margin: 20px auto; /* 水平居中，上下留白 */
+            padding: 30px 20px; /* 增大内边距，提升舒展感 */
             font-family: "Microsoft YaHei", sans-serif;
+            background-color: #fff; /* 白色主体，区分全局背景 */
+            min-height: calc(100vh - 80px); /* 撑满视口高度，避免内容过短 */
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05); /* 轻微阴影，强化独立容器 */
+            border-radius: 10px; /* 柔和边角，提升质感 */
         }
         .sales-rank-container * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
+        /* 面包屑导航，强化独立页面层级 */
+        .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #666;
+        }
+        .breadcrumb a {
+            color: #0066cc;
+            text-decoration: none;
+        }
+        .breadcrumb a:hover {
+            text-decoration: underline;
+        }
+        .breadcrumb .separator {
+            color: #ccc;
+        }
+        /* 标题优化：居中+更大字号+更厚字体 */
+        .sales-rank-container h1 {
+            text-align: center;
+            font-size: 24px;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 30px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #eee; /* 下划线分隔，提升层次 */
+        }
         .filter-bar {
             background: #f8f9fa;
-            padding: 15px;
+            padding: 20px; /* 增大内边距，更舒展 */
             border-radius: 8px;
-            margin-bottom: 20px;
+            margin-bottom: 30px;
             display: flex;
             flex-wrap: wrap;
-            gap: 15px;
+            gap: 20px; /* 增大筛选组间距 */
             align-items: center;
+            border: 1px solid #eee; /* 轻微边框，区分筛选区 */
         }
         .filter-group {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 12px;
         }
         .filter-group label {
             font-weight: bold;
             color: #333;
+            font-size: 15px;
         }
         .filter-btn {
-            padding: 6px 15px;
+            padding: 8px 18px; /* 增大按钮尺寸，更易点击 */
             border: 1px solid #ddd;
-            border-radius: 4px;
+            border-radius: 6px; /* 圆角更大，更现代 */
             background: #fff;
             cursor: pointer;
             transition: all 0.2s;
+            font-size: 14px;
         }
         .filter-btn.active {
             background: #0066cc;
             color: #fff;
             border-color: #0066cc;
+            box-shadow: 0 2px 5px rgba(0, 102, 204, 0.15); /* 选中按钮加轻微阴影 */
         }
         .filter-btn:hover:not(.active) {
             background: #f0f0f0;
+            border-color: #ccc;
         }
         .rank-table {
             width: 100%;
             border-collapse: collapse;
-            margin-bottom: 20px;
+            margin-bottom: 30px;
+            border-radius: 8px;
+            overflow: hidden; /* 配合圆角，避免表格边框溢出 */
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08); /* 表格轻微阴影，提升质感 */
         }
         .rank-table th, .rank-table td {
-            border: 1px solid #ddd;
-            padding: 12px 15px;
+            border: 1px solid #eee; /* 更浅的边框色，更柔和 */
+            padding: 15px; /* 增大单元格内边距，更舒展 */
             text-align: center;
+            font-size: 14px;
         }
         .rank-table th {
             background: #e9e9e9;
             font-weight: bold;
             color: #333;
+            font-size: 15px;
         }
-        /* 1-3名特殊底色 */
+        /* 1-3名特殊底色，增加辨识度 */
         .rank-1 {
             background: #fff8e1; /* 淡金色 */
         }
@@ -75,57 +124,75 @@
         .rank-3 {
             background: #fff3e0; /* 淡铜色 */
         }
-        /* 其余行hover效果 */
+        /* 其余行hover效果，统一高亮风格 */
         .rank-table tbody tr:not(.rank-1):not(.rank-2):not(.rank-3):hover {
-            background: #f0f8ff; /* 浅灰高亮 */
+            background: #f5f9ff; /* 更柔和的浅蓝高亮 */
+            cursor: default; /* 手型去掉，避免误导可点击 */
         }
         .back-btn {
-            padding: 8px 20px;
+            padding: 10px 24px; /* 增大按钮尺寸 */
             background: #0066cc;
             color: #fff;
             border: none;
-            border-radius: 4px;
+            border-radius: 6px;
             cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.2s;
             margin-bottom: 20px;
+            display: inline-block; /* 按钮不独占一行 */
         }
         .back-btn:hover {
             background: #0055bb;
         }
         .no-data {
             text-align: center;
-            padding: 50px;
+            padding: 80px; /* 增大无数据区域内边距，更舒展 */
             color: #999;
             font-size: 16px;
+            background-color: #fafafa;
+            border: 1px dashed #eee;
+            border-radius: 8px;
+            margin: 20px 0;
         }
     </style>
 {% endblock %}
 
 {% block content %}
     <div class="sales-rank-container">
+        <!-- 面包屑导航，强化独立页面层级感 -->
+        <div class="breadcrumb">
+            <a href="/dashboard/">首页</a>
+            <span class="separator">/</span>
+            <a href="/product/product-manage/">商品管理</a>
+            <span class="separator">/</span>
+            <span>商品销售TOP30排行</span>
+        </div>
+
+        <!-- 页面标题：居中+强化样式 -->
         <h1>商品销售TOP30排行</h1>
         
-        <!-- 返回按钮 -->
-        <button class="back-btn" onclick="window.location.href='/product/manage/'">返回商品管理</button>
+        <!-- 返回按钮：样式优化 -->
+        <button class="back-btn" onclick="window.location.href='/product/product-manage/'">返回商品管理</button>
         
-        <!-- 筛选栏 -->
+        <!-- 筛选栏：布局优化 -->
         <div class="filter-bar">
-            <!-- 排序方式筛选 -->
+            <!-- 排序方式筛选：默认选中“销售额从高到低” -->
             <div class="filter-group">
                 <label>排序方式：</label>
-                <button class="filter-btn active" data-type="sort" data-value="sales_volume">销量从高到低</button>
-                <button class="filter-btn" data-type="sort" data-value="sales_amount">销售额从高到低</button>
+                <button class="filter-btn" data-type="sort" data-value="sales_volume">销量从高到低</button>
+                <button class="filter-btn active" data-type="sort" data-value="sales_amount">销售额从高到低</button>
             </div>
             
-            <!-- 时间范围筛选 -->
+            <!-- 时间范围筛选：默认选中“本月” -->
             <div class="filter-group">
                 <label>时间范围：</label>
-                <button class="filter-btn active" data-type="time" data-value="today">今日</button>
+                <button class="filter-btn" data-type="time" data-value="today">今日</button>
                 <button class="filter-btn" data-type="time" data-value="week">本周</button>
-                <button class="filter-btn" data-type="time" data-value="month">本月</button>
+                <button class="filter-btn active" data-type="time" data-value="month">本月</button>
                 <button class="filter-btn" data-type="time" data-value="year">全年</button>
             </div>
             
-            <!-- 区域筛选 -->
+            <!-- 区域筛选：默认选中“全部区域” -->
             <div class="filter-group">
                 <label>区域：</label>
                 <button class="filter-btn active" data-type="area" data-value="all">全部区域</button>
@@ -135,19 +202,20 @@
             </div>
         </div>
         
-        <!-- 排行表格 -->
+        <!-- 排行表格：样式优化 -->
         <table class="rank-table">
             <thead>
                 <tr>
                     <th>序号</th>
                     <th>商品名称</th>
+                    <th>单位</th>
                     <th>销量</th>
                     <th>销售金额（¥）</th>
                 </tr>
             </thead>
             <tbody id="rank-table-body">
                 <!-- 数据由JS动态渲染 -->
-                <tr><td colspan="4" class="no-data">加载中...</td></tr>
+                <tr><td colspan="5" class="no-data">加载中...</td></tr>
             </tbody>
         </table>
     </div>
@@ -155,11 +223,11 @@
 
 {% block extra_js %}
     <script>
-        // 筛选条件状态
+        // 筛选条件状态：默认【销售额排序、本月、全部区域】（满足需求）
         const filterState = {
-            sort: 'sales_volume',  // sales_volume:销量, sales_amount:销售额
-            time: 'today',         // today/week/month/year
-            area: 'all'            // all或区域ID
+            sort: 'sales_amount',  // 默认：销售额从高到低
+            time: 'month',         // 默认：本月
+            area: 'all'            // 默认：全部区域
         };
         
         // 初始化筛选按钮事件
@@ -180,14 +248,14 @@
                 });
             });
             
-            // 初始加载数据
+            // 初始加载数据（核心：页面打开即加载默认数据）
             loadRankData();
         });
         
         // 加载排行数据
         async function loadRankData() {
             const tableBody = document.getElementById('rank-table-body');
-            tableBody.innerHTML = '<tr><td colspan="4" class="no-data">加载中...</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="5" class="no-data">加载中...</td></tr>';
             
             try {
                 // 构建请求参数
@@ -197,7 +265,7 @@
                     area_id: filterState.area
                 });
                 
-                // 请求后端数据
+                // 请求后端数据（确保接口路径正确）
                 const res = await fetch(`/product/sales-rank/data/?${params}`);
                 if (!res.ok) throw new Error('数据加载失败');
                 
@@ -216,17 +284,18 @@
                             <tr class="${rankClass}">
                                 <td>${index + 1}</td>
                                 <td>${item.product_name}</td>
-                                <td>${item.sales_volume} ${item.unit}</td>
+                                <td>${item.unit || '件'}</td>
+                                <td>${item.sales_volume}</td>
                                 <td>${item.sales_amount.toFixed(2)}</td>
                             </tr>
                         `;
                     });
                     tableBody.innerHTML = html;
                 } else {
-                    tableBody.innerHTML = '<tr><td colspan="4" class="no-data">暂无销售数据</td></tr>';
+                    tableBody.innerHTML = '<tr><td colspan="5" class="no-data">暂无销售数据</td></tr>';
                 }
             } catch (error) {
-                tableBody.innerHTML = `<tr><td colspan="4" class="no-data">${error.message}</td></tr>`;
+                tableBody.innerHTML = `<tr><td colspan="5" class="no-data">${error.message}</td></tr>`;
                 console.error('加载排行数据失败：', error);
             }
         }

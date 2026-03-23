@@ -82,6 +82,16 @@
         .stock-container .highlight-row {
             background: #fff3cd; /* 选中商品高亮 */
         }
+        /* ========== 新增：鼠标经过行高亮样式 ========== */
+        .stock-container table tbody tr:hover {
+            background-color: #f5f5f5; /* 浅灰色高亮，和全局样式统一 */
+            cursor: pointer; /* 手型光标，提示可交互 */
+            transition: background-color 0.1s; /* 轻微过渡，更丝滑 */
+        }
+        /* 保证选中行的高亮优先级高于hover */
+        .stock-container table tbody tr.highlight-row:hover {
+            background-color: #fff3cd; /* 选中行hover时保持原有背景 */
+        }
 
         /* 最近搜索下拉框样式 */
         .history-dropdown {
@@ -197,6 +207,7 @@
             const searchInput = document.getElementById('productSearchInput');
             const searchBtn = document.getElementById('searchBtn');
             const historyDropdown = document.getElementById('searchHistoryDropdown');
+            const searchWrapper = document.querySelector('.search-wrapper'); // 补充定义变量（原代码遗漏）
 
             // 2. 自动聚焦搜索框
             setTimeout(() => {
