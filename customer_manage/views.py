@@ -817,36 +817,58 @@ def customer_sales_rank_page(request):
 @permission_required('customer_sales_rank')
 @csrf_exempt
 def customer_sales_rank_data(request):
-    """获取客户消费TOP30数据（支持区域筛选）"""
+    """获取客户消费TOP30数据（支持区域+日期筛选）"""
     try:
-        # 获取筛选参数：area_id（为空则显示所有）
+        # 获取筛选参数
         area_id = request.GET.get('area_id', '').strip()
+        time_range = request.GET.get('time_range', 'year').strip()  # 新增：日期筛选
 
-        # 基础查询：统计正常有效订单（排除作废、取消）
-        # 仅统计状态为 pending/printed/reopened 的订单
+        # 基础查询：统计正常有效订单
         base_orders = Order.objects.filter(
             status__in=['pending', 'printed', 'reopened'],
             customer__isnull=False
         )
 
-        # 区域筛选
+        # 1. 日期筛选（新增核心逻辑）
+        today = datetime.date.today()
+        if time_range == 'today':
+            # 今日：只筛选当天的订单
+            base_orders = base_orders.filter(create_time__date=today)
+        elif time_range == 'week':
+            # 本周：筛选本周一到周日的订单
+            week_start = today - datetime.timedelta(days=today.weekday())
+            week_end = week_start + datetime.timedelta(days=6)
+            base_orders = base_orders.filter(create_time__date__range=[week_start, week_end])
+        elif time_range == 'month':
+            # 本月：筛选本月1号到最后一天的订单
+            month_start = datetime.date(today.year, today.month, 1)
+            # 计算本月最后一天
+            if today.month == 12:
+                month_end = datetime.date(today.year, 12, 31)
+            else:
+                month_end = datetime.date(today.year, today.month + 1, 1) - datetime.timedelta(days=1)
+            base_orders = base_orders.filter(create_time__date__range=[month_start, month_end])
+        # year：默认不筛选，显示全年
+
+        # 2. 区域筛选
         if area_id and area_id.isdigit():
             base_orders = base_orders.filter(customer__area_id=int(area_id))
 
         # 按客户分组统计总消费金额
         customer_sales = base_orders.values(
-            'customer__id',
+            'customer__id',       # 新增：返回客户ID，用于前端跳转
             'customer__name',
             'customer__area__name'
         ).annotate(
             total_amount=Sum('total_amount')
-        ).order_by('-total_amount')[:30]  # 取TOP30
+        ).order_by('-total_amount')[:30]
 
         # 构造返回数据
         result = []
         for idx, item in enumerate(customer_sales, 1):
             result.append({
                 'rank': idx,
+                'customer_id': item['customer__id'],  # 新增：客户ID
                 'customer_name': item['customer__name'],
                 'area_name': item['customer__area__name'] or '无区域',
                 'total_amount': float(item['total_amount']) if item['total_amount'] else 0.0

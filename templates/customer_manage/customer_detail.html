@@ -1,4 +1,3 @@
-{#customer_detail.html#}
 {% extends "base.html" %}
 
 {% block title %}客户详情 - EasyStock{% endblock %}
@@ -54,22 +53,19 @@
         vertical-align: middle;
     }
 
-    /* ========== 新增：订单列表行高亮 + 点击样式 ========== */
+    /* 订单列表行高亮 + 点击样式 */
     #orderList tr {
         transition: all 0.2s ease;
-        cursor: pointer; /* 提示行可点击 */
+        cursor: pointer;
         position: relative;
     }
-    /* 整行浅灰色高亮（覆盖Bootstrap默认样式） */
     .table-bordered #orderList tr:hover td {
-        background-color: #f1f1f1 !important; /* 浅灰色，视觉舒适 */
+        background-color: #f1f1f1 !important;
     }
-    /* 表头排除hover效果 */
     #orderList thead tr:hover th {
         background-color: inherit !important;
         cursor: default;
     }
-    /* 操作列光标重置（可选，不影响点击） */
     #orderList tr td:last-child {
         cursor: default;
     }
@@ -80,11 +76,11 @@
 <div class="content-container">
     <div class="detail-header">
         <h3 id="customerName">客户详情</h3>
-        <!-- 核心修改：替换history.back()为直接跳转客户列表URL -->
-        <button class="btn btn-sm btn-secondary" onclick="window.location.href='/customer-manage/customer/page/'">返回客户列表</button>
+        <!-- 4. 智能返回按钮：根据来源参数决定返回路径 -->
+        <button class="btn btn-sm btn-secondary" id="backBtn">返回</button>
     </div>
     
-    <!-- 客户基本信息（保留原有） -->
+    <!-- 客户基本信息 -->
     <div class="detail-card">
         <h5>基本信息</h5>
         <table class="table table-sm">
@@ -123,16 +119,14 @@
         </table>
     </div>
     
-    <!-- 新增：客户全部订单（带筛选） -->
+    <!-- 客户全部订单（带筛选） -->
     <div class="detail-card">
         <h5>客户全部订单</h5>
-        <!-- 筛选按钮 -->
         <div class="filter-btn-group">
             <button class="filter-btn active" onclick="loadOrders('all')">全部</button>
             <button class="filter-btn" onclick="loadOrders('settled')">已结清</button>
             <button class="filter-btn" onclick="loadOrders('unsettled')">未结清</button>
         </div>
-        <!-- 订单列表 -->
         <table class="table table-sm table-bordered">
             <thead class="table-light">
                 <tr>
@@ -150,7 +144,7 @@
         </table>
     </div>
     
-    <!-- 新增：客户购买商品统计 -->
+    <!-- 客户购买商品统计 -->
     <div class="detail-card">
         <h5>购买商品统计</h5>
         <table class="table table-sm table-bordered product-stat-table">
@@ -167,7 +161,7 @@
         </table>
     </div>
     
-    <!-- 还款记录（保留原有） -->
+    <!-- 还款记录 -->
     <div class="detail-card">
         <h5>还款记录</h5>
         <table class="table table-sm table-bordered">
@@ -189,12 +183,25 @@
 
 {% block extra_js %}
 <script>
-    // 获取客户ID
+    // 获取客户ID和来源参数
     const customerId = '{{ customer_id }}';
-    let currentSettleStatus = 'all';  // 当前筛选状态
+    const urlParams = new URLSearchParams(window.location.search);
+    const fromPage = urlParams.get('from') || 'customer_list'; // 默认返回客户列表
+    let currentSettleStatus = 'all';
     
     // 页面加载初始化
     $(document).ready(function() {
+        // 初始化返回按钮事件（4. 智能返回）
+        $('#backBtn').click(function() {
+            if (fromPage === 'sales_rank') {
+                // 从消费排行进入，返回消费排行页
+                window.location.href = '/customer-manage/customer/sales-rank/page/';
+            } else {
+                // 默认返回客户列表页
+                window.location.href = '/customer-manage/customer/page/';
+            }
+        });
+
         loadCustomerDetail();
         loadOrders(currentSettleStatus);
     });
@@ -207,7 +214,6 @@
                 return;
             }
             
-            // 填充基本信息
             $('#customerName').text(res.customer_info.name + ' - 客户详情');
             $('#name').text(res.customer_info.name);
             $('#area').text(res.customer_info.area_name || '无');
@@ -243,12 +249,10 @@
     
     // 加载订单列表（带筛选）
     function loadOrders(settleStatus) {
-        // 更新筛选按钮状态
         $('.filter-btn').removeClass('active');
         $(`.filter-btn[onclick="loadOrders('${settleStatus}')"]`).addClass('active');
         currentSettleStatus = settleStatus;
         
-        // 请求订单数据
         $.get(`/customer-manage/customer/detail/${customerId}/?settle_status=${settleStatus}`, function(res) {
             if (res.code !== 1) {
                 alert(res.msg);
@@ -258,21 +262,14 @@
             let orderHtml = '';
             if (res.orders && res.orders.length > 0) {
                 res.orders.forEach(order => {
-                    // 结清状态标签
                     const settleTag = order.is_settled 
                         ? '<span class="status-tag status-settled">已结清</span>' 
                         : '<span class="status-tag status-unsettled">未结清</span>';
-                    
-                    // 订单状态文本
                     const statusText = order.status_text || '未知';
-                    
-                    // 订单详情跳转链接
                     const detailUrl = `/bill/orders/detail/${order.order_no}/?from_customer=${customerId}`;
-                    
-                    // 操作按钮（阻止事件冒泡，避免重复跳转）
                     const operateBtn = `<a href="${detailUrl}" class="btn btn-sm btn-info" onclick="event.stopPropagation()">查看详情</a>`;
                     
-                    // 核心修改：给tr添加点击事件，跳转订单详情
+                    // 订单行点击跳转
                     orderHtml += `<tr onclick="window.location.href='${detailUrl}'">
                         <td>${order.order_no || '-'}</td>
                         <td>${order.create_time || '-'}</td>

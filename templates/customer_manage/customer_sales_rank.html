@@ -28,6 +28,39 @@
         display: flex;
         align-items: center;
         gap: 10px;
+        flex-wrap: wrap;
+    }
+    /* 1. 行高亮样式 */
+    #salesRankList tr {
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+    #salesRankList tr:hover td {
+        background-color: #f1f1f1 !important;
+    }
+    #salesRankList thead tr:hover th {
+        background-color: inherit !important;
+        cursor: default;
+    }
+    /* 筛选按钮样式（参考示例） */
+    .filter-btn {
+        padding: 8px 18px;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        background: #fff;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-size: 14px;
+    }
+    .filter-btn.active {
+        background: #0066cc;
+        color: #fff;
+        border-color: #0066cc;
+        box-shadow: 0 2px 5px rgba(0, 102, 204, 0.15);
+    }
+    .filter-btn:hover:not(.active) {
+        background: #f0f0f0;
+        border-color: #ccc;
     }
 </style>
 {% endblock %}
@@ -38,16 +71,21 @@
         <h3>客户消费 TOP30 <span style="color: red; font-size: 14px;">（仅超级管理员可见）</span></h3>
         <p>排序：按消费金额从高到低 | 仅统计正常有效订单（作废/取消订单不计入）</p>
 
-        <!-- 区域筛选 -->
+        <!-- 筛选栏：区域 + 日期（参考示例的实时筛选） -->
         <div class="filter-group">
+            <!-- 区域筛选 -->
             <label for="areaFilter">按区域筛选：</label>
-            <select id="areaFilter" class="form-select form-select-sm" style="width: 200px;" onchange="loadSalesRankData()">
-                <option value="">全部区域</option>
-                {% for area in areas %}
-                <option value="{{ area.id }}">{{ area.name }}</option>
-                {% endfor %}
-            </select>
-            <button class="btn btn-sm btn-primary" onclick="loadSalesRankData()">查询</button>
+            <button class="filter-btn active" data-type="area" data-value="">全部区域</button>
+            {% for area in areas %}
+                <button class="filter-btn" data-type="area" data-value="{{ area.id }}">{{ area.name }}</button>
+            {% endfor %}
+            
+            <!-- 日期筛选（新增） -->
+            <label style="margin-left: 20px;">时间范围：</label>
+            <button class="filter-btn" data-type="time" data-value="today">今日</button>
+            <button class="filter-btn" data-type="time" data-value="week">本周</button>
+            <button class="filter-btn" data-type="time" data-value="month">本月</button>
+            <button class="filter-btn active" data-type="time" data-value="year">全年</button>
         </div>
 
         <!-- 排行表格 -->
@@ -61,7 +99,7 @@
                 </tr>
             </thead>
             <tbody id="salesRankList">
-                <!-- 数据由JS动态填充 -->
+                <tr><td colspan="4" class="text-center">加载中...</td></tr>
             </tbody>
         </table>
     </div>
@@ -70,20 +108,43 @@
 
 {% block extra_js %}
 <script>
-    // 页面加载时初始化数据
+    // 筛选状态：默认【全年、全部区域】
+    const filterState = {
+        area: '',         // 区域ID，空=全部
+        time: 'year'      // 时间范围，默认year
+    };
+
+    // 页面加载初始化
     $(document).ready(function() {
+        // 筛选按钮点击事件（参考示例）
+        $('.filter-btn').click(function() {
+            // 移除同类型按钮的active状态
+            $(`.filter-btn[data-type="${$(this).data('type')}"]`).removeClass('active');
+            // 激活当前按钮
+            $(this).addClass('active');
+            // 更新筛选状态
+            filterState[$(this).data('type')] = $(this).data('value');
+            // 实时加载数据
+            loadSalesRankData();
+        });
+
+        // 初始加载数据
         loadSalesRankData();
     });
 
-    // 加载消费排行数据
+    // 加载消费排行数据（支持区域+日期筛选）
     function loadSalesRankData() {
-        const areaId = $('#areaFilter').val();
-        let url = '/customer-manage/customer/sales-rank/data/';
-        if (areaId) {
-            url += `?area_id=${areaId}`;
-        }
+        const tableBody = $('#salesRankList');
+        tableBody.html('<tr><td colspan="4" class="text-center">加载中...</td></tr>');
 
-        $.get(url, function(res) {
+        // 构建请求参数
+        const params = new URLSearchParams({
+            area_id: filterState.area,
+            time_range: filterState.time
+        });
+
+        // 请求数据
+        $.get(`/customer-manage/customer/sales-rank/data/?${params}`, function(res) {
             let html = '';
             if (res.code === 1 && res.data.length > 0) {
                 res.data.forEach(item => {
@@ -98,7 +159,8 @@
                     }
 
                     const totalAmount = item.total_amount.toFixed(2);
-                    html += `<tr>
+                    // 2. 整行点击跳转到客户详情页，带来源参数（from=sales_rank）
+                    html += `<tr onclick="window.location.href='/customer-manage/customer/detail/page/${item.customer_id}/?from=sales_rank'">
                         <td>${rankBadge} ${item.rank}</td>
                         <td>${item.customer_name}</td>
                         <td>${item.area_name}</td>
@@ -108,23 +170,11 @@
             } else {
                 html = '<tr><td colspan="4" class="text-center text-muted">暂无数据</td></tr>';
             }
-            $('#salesRankList').html(html);
+            tableBody.html(html);
         }, 'json').fail(function(xhr, status, error) {
             console.error('加载排行数据失败：', xhr.responseText);
-            alert('加载数据失败！\n' + error);
+            tableBody.html('<tr><td colspan="4" class="text-center text-danger">加载失败</td></tr>');
         });
-    }
-
-    // 获取CSRF Token（如需POST请求时使用）
-    function getCsrfToken() {
-        const cookies = document.cookie.split(';');
-        for (let cookie of cookies) {
-            const [name, value] = cookie.trim().split('=');
-            if (name === 'csrftoken') {
-                return value;
-            }
-        }
-        return '';
     }
 </script>
 {% endblock %}
