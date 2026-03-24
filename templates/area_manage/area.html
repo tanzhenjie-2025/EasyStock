@@ -180,6 +180,34 @@
     }
     .confirm-modal .modal-box { max-width: 350px; }
     .confirm-modal .modal-content { margin-bottom: 20px; color: #555; }
+    /* 分页样式 */
+    .pagination-bar {
+        text-align: right;
+        padding: 10px 0;
+    }
+    .pagination-btn {
+        padding: 4px 10px;
+        margin: 0 2px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        cursor: pointer;
+        background: #fff;
+    }
+    .pagination-btn:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
+    .pagination-btn.active {
+        background: #007bff;
+        color: white;
+        border-color: #007bff;
+    }
+    /* 骨架屏样式 */
+    .skeleton-cell {
+        background: #f5f5f5;
+        height: 30px;
+        border-radius: 4px;
+    }
 </style>
 {% endblock %}
 
@@ -213,7 +241,6 @@
 
 <!-- 页面专属JS -->
 {% block extra_js %}
-    <!-- 引入jQuery -->
     <script src="https://cdn.bootcdn.net/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
     <script>
         // 常量定义
@@ -221,6 +248,9 @@
         const MAX_HISTORY_COUNT = 5;
         let currentSort = 'name';
         let currentOrder = 'asc';
+        // 分页全局变量
+        let currentPage = 1;
+        const pageSize = 20;
 
         // 统一CSRF Token获取函数
         function getCsrfToken() {
@@ -344,6 +374,7 @@
                 currentSort = field;
                 currentOrder = 'asc';
             }
+            currentPage = 1; // 排序后重置页码
             load($('#searchInput').val().trim());
         }
 
@@ -352,58 +383,97 @@
             window.location.href = `/area-manage/area/detail/${id}/`;
         }
 
-        // 加载区域列表
+        // 切换分页
+        function changePage(page) {
+            if (page < 1) return;
+            currentPage = page;
+            load($('#searchInput').val().trim());
+        }
+
+        // 加载区域列表（带骨架屏+分页）
         function load(keyword = ''){
             console.log('开始加载区域列表...关键词：', keyword);
-            $('#list').html('<tr><td colspan="5" class="loading">数据加载中...</td></tr>');
+            
+            // 显示骨架屏
+            let skeletonHtml = '';
+            for(let i=0; i<5; i++){
+                skeletonHtml += `<tr>
+                    <td class="skeleton-cell"></td>
+                    <td class="skeleton-cell"></td>
+                    <td class="skeleton-cell"></td>
+                    <td class="skeleton-cell"></td>
+                    <td class="skeleton-cell"></td>
+                </tr>`;
+            }
+            $('#list').html(skeletonHtml);
 
             let url = '/area-manage/api/area/list/';
             const params = new URLSearchParams();
             if (keyword) params.append('keyword', keyword);
             if (currentSort) params.append('sort', currentSort);
             if (currentOrder) params.append('order', currentOrder);
+            params.append('page', currentPage);
+            params.append('page_size', pageSize);
 
             const queryString = params.toString();
             if (queryString) url += `?${queryString}`;
 
-            $.get(url, function(res){
-                console.log('接口返回数据：', res);
-                let html='';
-                // 正确判断响应格式
-                if(res.code === 0){
-                    showToast(res.msg, 'error');
-                    html = `<tr><td colspan="5" class="no-result">${res.msg}</td></tr>`;
-                    $('#list').html(html);
-                    return;
+            // 带超时的AJAX请求
+            $.ajax({
+                url: url,
+                type: 'GET',
+                dataType: 'json',
+                timeout: 5000,
+                success: function(res){
+                    console.log('接口返回数据：', res);
+                    let html='';
+                    if(res.code === 0){
+                        showToast(res.msg, 'error');
+                        html = `<tr><td colspan="5" class="no-result">${res.msg}</td></tr>`;
+                        $('#list').html(html);
+                        return;
+                    }
+                    const areaList = res.data || [];
+                    if(areaList.length === 0){
+                        html = `<tr><td colspan="5" class="no-result">未搜索到相关内容</td></tr>`;
+                        $('#list').html(html);
+                        return;
+                    }
+                    // 遍历数据
+                    areaList.forEach(i=>{
+                        const customerCount = i.customer_count || 0;
+                        html+=`<tr onclick="goToDetail(${i.id})">
+                            <td>${i.id}</td>
+                            <td>${i.name}</td>
+                            <td>${i.remark || '无'}</td>
+                            <td>${customerCount}</td>
+                            <td>
+                                <button class="btn btn-sm btn-info me-1" onclick="event.stopPropagation();goToDetail(${i.id})">详情</button>
+                                <button class="btn btn-sm btn-warning me-1" onclick="event.stopPropagation();edit(${i.id})">改</button>
+                                <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();del(${i.id})">删</button>
+                            </td>
+                        </tr>`;
+                    });
+                    
+                    // 添加分页控件
+                    const pagination = res.pagination || {};
+                    let pageHtml = `<tr><td colspan="5" class="pagination-bar">
+                        共${pagination.total}条，第${pagination.page}/${pagination.total_pages}页 
+                        <button class="pagination-btn" onclick="changePage(${pagination.page-1})" ${pagination.page<=1?'disabled':''}>上一页</button>
+                        <button class="pagination-btn" onclick="changePage(${pagination.page+1})" ${pagination.page>=pagination.total_pages?'disabled':''}>下一页</button>
+                    </td></tr>`;
+                    
+                    $('#list').html(html + pageHtml);
+                },
+                error: function(xhr, status, error){
+                    console.error('加载失败：', status, error);
+                    if(status === 'timeout'){
+                        showToast('请求超时，请稍后重试', 'error');
+                    }else{
+                        showToast(`加载区域列表失败！错误：${error}`, 'error');
+                    }
+                    $('#list').html(`<tr><td colspan="5" class="no-result">加载失败</td></tr>`);
                 }
-                // 处理成功数据
-                const areaList = res.data || [];
-                if(areaList.length === 0){
-                    html = `<tr><td colspan="5" class="no-result">未搜索到相关内容</td></tr>`;
-                    $('#list').html(html);
-                    return;
-                }
-                // 遍历数据
-                areaList.forEach(i=>{
-                    const customerCount = i.customer_count || 0;
-
-                    html+=`<tr onclick="goToDetail(${i.id})">
-                        <td>${i.id}</td>
-                        <td>${i.name}</td>
-                        <td>${i.remark || '无'}</td>
-                        <td>${customerCount}</td>
-                        <td>
-                            <button class="btn btn-sm btn-info me-1" onclick="event.stopPropagation();goToDetail(${i.id})">详情</button>
-                            <button class="btn btn-sm btn-warning me-1" onclick="event.stopPropagation();edit(${i.id})">改</button>
-                            <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();del(${i.id})">删</button>
-                        </td>
-                    </tr>`;
-                });
-                $('#list').html(html);
-            },'json').fail(function(xhr, status, error){
-                console.error('加载失败：', status, error);
-                showToast(`加载区域列表失败！错误：${error}`, 'error');
-                $('#list').html(`<tr><td colspan="5" class="no-result">加载失败</td></tr>`);
             });
         }
 
@@ -415,6 +485,7 @@
                 $('#searchInput').focus();
                 return;
             }
+            currentPage = 1; // 搜索后重置页码
             saveSearchHistory(keyword);
             load(keyword);
             loadSearchHistory();
@@ -423,6 +494,7 @@
         // 清空搜索
         function clearSearch(){
             $('#searchInput').val('');
+            currentPage = 1;
             load();
             $('#searchInput').blur();
         }

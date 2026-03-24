@@ -200,6 +200,29 @@
         margin-bottom: 10px;
         line-height: 1.5;
     }
+    /* 分页样式 */
+    .pagination-bar {
+        text-align: right;
+        padding: 10px 0;
+    }
+    .pagination-btn {
+        padding: 4px 10px;
+        margin: 0 2px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        cursor: pointer;
+        background: #fff;
+    }
+    .pagination-btn:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+    }
+    /* 骨架屏样式 */
+    .skeleton-cell {
+        background: #f5f5f5;
+        height: 30px;
+        border-radius: 4px;
+    }
 </style>
 {% endblock %}
 
@@ -248,6 +271,9 @@
         const MAX_HISTORY_COUNT = 5; // 最多保存5条搜索记录
         let currentSort = 'name'; // 当前排序字段
         let currentOrder = 'asc'; // 当前排序方向
+        // 分页全局变量
+        let currentPage = 1;
+        const pageSize = 20;
 
         // ========== 获取CSRF Token函数 ==========
         function getCookie(name) {
@@ -268,19 +294,25 @@
         // ========== 排序函数 ==========
         function sortBy(field) {
             if (currentSort === field) {
-                // 切换排序方向
                 currentOrder = currentOrder === 'asc' ? 'desc' : 'asc';
             } else {
                 currentSort = field;
                 currentOrder = 'asc';
             }
-            // 重新加载数据
+            currentPage = 1; // 排序后重置页码
             loadGroup($('#searchInput').val().trim());
         }
 
         // ========== 进入详情页 ==========
         function goToDetail(id) {
-            window.location.href = `/area-manage/group/detail/${id}/`;
+            window.location.href = '/area-manage/group/detail/' + id + '/';
+        }
+
+        // ========== 切换分页 ==========
+        function changePage(page) {
+            if (page < 1) return;
+            currentPage = page;
+            loadGroup($('#searchInput').val().trim());
         }
 
         // ========== 吐司提示函数 ==========
@@ -295,7 +327,7 @@
             }
             // 创建吐司元素
             const toast = document.createElement('div');
-            toast.className = `toast toast-${type}`;
+            toast.className = 'toast toast-' + type;
             toast.textContent = message;
             // 添加到容器并设置动画
             toastContainer.appendChild(toast);
@@ -307,12 +339,12 @@
         function showInputModal(title, defaultValue = '', callback, isAreaSelect = false) {
             // 创建遮罩层
             let overlay = document.createElement('div');
-            overlay.className = `modal-overlay ${isAreaSelect ? 'area-select-modal' : ''}`;
+            overlay.className = 'modal-overlay ' + (isAreaSelect ? 'area-select-modal' : '');
 
             // 区域选择弹窗额外提示
             let tipsHtml = '';
             if (isAreaSelect) {
-                tipsHtml = `<div class="modal-tips">${defaultValue}</div>`;
+                tipsHtml = '<div class="modal-tips">' + defaultValue + '</div>';
             }
 
             overlay.innerHTML = `
@@ -427,60 +459,96 @@
             });
         }
 
-        // ========== 加载区域组列表 ==========
+        // ========== 加载区域组列表（带骨架屏+分页） ==========
         function loadGroup(keyword = ''){
             console.log('加载区域组列表...关键词：', keyword);
-            $('#list').html('<tr><td colspan="6" class="loading">数据加载中...</td></tr>');
+            
+            // 显示骨架屏
+            let skeletonHtml = '';
+            for(let i=0; i<5; i++){
+                skeletonHtml += '<tr>' +
+                    '<td class="skeleton-cell"></td>' +
+                    '<td class="skeleton-cell"></td>' +
+                    '<td class="skeleton-cell"></td>' +
+                    '<td class="skeleton-cell"></td>' +
+                    '<td class="skeleton-cell"></td>' +
+                    '<td class="skeleton-cell"></td>' +
+                '</tr>';
+            }
+            $('#list').html(skeletonHtml);
             
             let url = '/area-manage/api/group/list/';
             const params = new URLSearchParams();
             if (keyword) params.append('keyword', keyword);
             if (currentSort) params.append('sort', currentSort);
             if (currentOrder) params.append('order', currentOrder);
+            params.append('page', currentPage);
+            params.append('page_size', pageSize);
             
             const queryString = params.toString();
-            if (queryString) url += `?${queryString}`;
+            if (queryString) url += '?' + queryString;
             
-            $.get(url, function(res){
-                console.log('区域组接口返回：', res);
-                let html='';
-                // 正确判断响应格式
-                if(res.code === 0){
-                    showToast(res.msg, 'error'); 
-                    html = `<tr><td colspan="6" class="no-result">${res.msg}</td></tr>`;
-                    $('#list').html(html);
-                    return;
+            $.ajax({
+                url: url,
+                type: 'GET',
+                dataType: 'json',
+                timeout: 5000,
+                success: function(res){
+                    console.log('区域组接口返回：', res);
+                    let html='';
+                    // 正确判断响应格式
+                    if(res.code === 0){
+                        showToast(res.msg, 'error'); 
+                        html = '<tr><td colspan="6" class="no-result">' + res.msg + '</td></tr>';
+                        $('#list').html(html);
+                        return;
+                    }
+                    // 处理成功数据
+                    const groupList = res.data || [];
+                    if(groupList.length === 0){
+                        html = '<tr><td colspan="6" class="no-result">未搜索到相关内容</td></tr>';
+                        $('#list').html(html);
+                        return;
+                    }
+                    // 遍历数据
+                    groupList.forEach(g=>{
+                        const customerCount = g.customer_count || 0;
+                        const areaNames = g.area_names && Array.isArray(g.area_names) ? g.area_names.join('、') : '无';
+                        
+                        html+='<tr onclick="goToDetail(' + g.id + ')">' +
+                            '<td>' + g.id + '</td>' +
+                            '<td>' + (g.name || '未命名') + '</td>' +
+                            '<td>' + areaNames + '</td>' +
+                            '<td>' + (g.remark || '无') + '</td>' +
+                            '<td>' + customerCount + '</td>' +
+                            '<td>' +
+                                '<button class="btn btn-sm btn-info me-1" onclick="event.stopPropagation();goToDetail(' + g.id + ')">详情</button>' +
+                                '<button class="btn btn-sm btn-warning me-1" onclick="event.stopPropagation();edit(' + g.id + ')">改</button>' +
+                                '<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();del(' + g.id + ')">删</button>' +
+                            '</td>' +
+                        '</tr>';
+                    });
+
+                    // 拼接分页栏（替换模板字符串为字符串拼接，规避IDE误报）
+                    const pagination = res.pagination || {};
+                    const totalPages = pagination.total_pages || 1;
+                    let pageHtml = '<tr><td colspan="6" class="pagination-bar">' +
+                        '共' + (pagination.total || 0) + '条，第' + (pagination.page || 1) + '/' + totalPages + '页 ' +
+                        '<button class="pagination-btn" onclick="changePage(' + (pagination.page-1) + ')" ' + (pagination.page<=1 ? 'disabled' : '') + '>上一页</button>' +
+                        '<button class="pagination-btn" onclick="changePage(' + (pagination.page+1) + ')" ' + (pagination.page >= totalPages ? 'disabled' : '') + '>下一页</button>' +
+                    '</td></tr>';
+
+                    $('#list').html(html + pageHtml);
+                },
+                error: function(xhr, status, error){
+                    console.error('加载失败：', status, error);
+                    if(status === 'timeout'){
+                        showToast('请求超时，请稍后重试', 'error');
+                    }else{
+                        showToast('加载区域组列表失败！错误：' + error, 'error');
+                    }
+                    $('#list').html('<tr><td colspan="6" class="no-result">加载失败</td></tr>');
                 }
-                // 处理成功数据
-                const groupList = res.data || [];
-                if(groupList.length === 0){
-                    html = `<tr><td colspan="6" class="no-result">未搜索到相关内容</td></tr>`;
-                    $('#list').html(html);
-                    return;
-                }
-                // 遍历数据
-                groupList.forEach(g=>{
-                    const customerCount = g.customer_count || 0;
-                    const areaNames = g.area_names && Array.isArray(g.area_names) ? g.area_names.join('、') : '无';
-                    
-                    html+=`<tr onclick="goToDetail(${g.id})">
-                        <td>${g.id}</td>
-                        <td>${g.name || '未命名'}</td>
-                        <td>${areaNames}</td>
-                        <td>${g.remark || '无'}</td>
-                        <td>${customerCount}</td>
-                        <td>
-                            <button class="btn btn-sm btn-info me-1" onclick="event.stopPropagation();goToDetail(${g.id})">详情</button>
-                            <button class="btn btn-sm btn-warning me-1" onclick="event.stopPropagation();edit(${g.id})">改</button>
-                            <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();del(${g.id})">删</button>
-                        </td>
-                    </tr>`;
-                });
-                $('#list').html(html);
-            },'json').fail(function(xhr, status, error){
-                console.error('加载区域组失败：', xhr.responseText);
-                showToast(`加载区域组列表失败！错误：${error}`, 'error'); 
-                $('#list').html(`<tr><td colspan="6" class="no-result">加载失败</td></tr>`);
             });
         }
 
@@ -492,29 +560,27 @@
                 $('#searchInput').focus();
                 return;
             }
-            // 保存搜索记录
+            // 搜索重置到第一页
+            currentPage = 1;
             saveSearchHistory(keyword);
-            // 加载搜索结果
             loadGroup(keyword);
-            // 刷新搜索记录展示
             loadSearchHistory();
         }
 
         // ========== 清空搜索（恢复原列表） ==========
         function clearSearch(){
             $('#searchInput').val('');
-            loadGroup(); // 无关键词加载全部区域组
-            $('#searchInput').blur(); // 失去焦点
+            currentPage = 1;
+            loadGroup();
+            $('#searchInput').blur();
         }
 
         // ========== 保存搜索记录到本地 ==========
         function saveSearchHistory(keyword){
             if (!keyword) return;
             let history = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]');
-            // 去重（已存在则移到最前）
             history = history.filter(item => item !== keyword);
             history.unshift(keyword);
-            // 限制数量
             if (history.length > MAX_HISTORY_COUNT) {
                 history = history.slice(0, MAX_HISTORY_COUNT);
             }
@@ -531,9 +597,8 @@
             }
             let html = '';
             history.forEach(keyword => {
-                // 转义单引号避免语法错误
                 const safeKeyword = keyword.replace(/'/g, "\\'");
-                html += `<span class="history-tag" onclick="useHistory('${safeKeyword}')">${keyword}</span>`;
+                html += '<span class="history-tag" onclick="useHistory(\'' + safeKeyword + '\')">' + keyword + '</span>';
             });
             $historyContainer.html(html);
         }
@@ -546,28 +611,18 @@
 
         // ========== 新增区域组 ==========
         function add(){
-            // 第一步：输入组名
             showInputModal('请输入组名：', '', (name) => {
                 if(!name) return;
-
-                // 第二步：输入备注（可选）
                 showInputModal('请输入备注（可选）：', '', (remark) => {
-                    // 第三步：选择包含的区域
-                    const areaTips = `当前可选区域：${allAreas.map(a => a.name).join('、')}
-请输入要包含的区域名称，多个区域用英文逗号/顿号分隔`;
+                    const areaTips = '当前可选区域：' + allAreas.map(a => a.name).join('、') + '\n请输入要包含的区域名称，多个区域用英文逗号/顿号分隔';
                     showInputModal('选择包含的区域', areaTips, (areaStr) => {
                         if(!areaStr) return;
-
-                        // 处理区域字符串，转换为区域ID列表
                         const areaNames = areaStr.split(/[,，、]/).map(item => item.trim()).filter(Boolean);
                         const areaIds = allAreas.filter(a => areaNames.includes(a.name)).map(a => a.id);
-
                         if(areaIds.length === 0){
                             showToast('未找到匹配的区域，请检查输入', 'error');
                             return;
                         }
-
-                        // 提交新增请求
                         $.ajax({
                             url: '/area-manage/api/group/add/',
                             type: 'POST',
@@ -583,7 +638,7 @@
                             success: function(res) {
                                 if(res && res.code === 1){
                                     showToast('区域组创建成功', 'success');
-                                    loadGroup(); // 刷新列表
+                                    loadGroup();
                                 } else {
                                     showToast(res?.msg || '创建失败', 'error');
                                 }
@@ -593,51 +648,36 @@
                                 showToast('创建区域组失败：' + error, 'error');
                             }
                         });
-                    }, true); // isAreaSelect=true
+                    }, true);
                 });
             });
         }
 
         // ========== 编辑区域组 ==========
         function edit(groupId){
-            // 先获取该组的详情
-            $.get(`/area-manage/api/group/detail/${groupId}/`, function(res) {
+            $.get('/area-manage/api/group/detail/' + groupId + '/', function(res) {
                 if(res && res.code === 0){
                     showToast(res.msg, 'error');
                     return;
                 }
                 const group = res.data || res;
-
-                // 第一步：编辑组名
                 showInputModal('编辑组名', group.name || '', (newName) => {
                     if(!newName) return;
-
-                    // 第二步：编辑备注
                     showInputModal('编辑备注', group.remark || '', (newRemark) => {
-
-                        // 第三步：编辑包含的区域
                         const currentAreaNames = group.area_names && Array.isArray(group.area_names)
                             ? group.area_names.join('、')
                             : '';
-                        const areaTips = `当前已选区域：${currentAreaNames}
-可选区域：${allAreas.map(a => a.name).join('、')}
-请输入新的区域列表，多个区域用英文逗号/顿号分隔`;
-
+                        const areaTips = '当前已选区域：' + currentAreaNames + '\n可选区域：' + allAreas.map(a => a.name).join('、') + '\n请输入新的区域列表，多个区域用英文逗号/顿号分隔';
                         showInputModal('修改包含的区域', areaTips, (newAreaStr) => {
                             if(!newAreaStr) return;
-
-                            // 处理区域字符串
                             const areaNames = newAreaStr.split(/[,，、]/).map(item => item.trim()).filter(Boolean);
                             const areaIds = allAreas.filter(a => areaNames.includes(a.name)).map(a => a.id);
-
                             if(areaIds.length === 0){
                                 showToast('未找到匹配的区域，请检查输入', 'error');
                                 return;
                             }
-
-                            // 提交编辑请求
                             $.ajax({
-                                url: `/area-manage/api/group/edit/${groupId}/`,
+                                url: '/area-manage/api/group/edit/' + groupId + '/',
                                 type: 'POST',
                                 contentType: 'application/json',
                                 headers: {
@@ -651,7 +691,7 @@
                                 success: function(res) {
                                     if(res && res.code === 1){
                                         showToast('区域组修改成功', 'success');
-                                        loadGroup(); // 刷新列表
+                                        loadGroup();
                                     } else {
                                         showToast(res?.msg || '修改失败', 'error');
                                     }
@@ -663,20 +703,19 @@
                             });
                         }, true);
                     });
-                }).fail(function(xhr, status, error) {
-                    console.error('获取组详情失败：', xhr.responseText);
-                    showToast('获取组详情失败：' + error, 'error');
                 });
-            }
+            }).fail(function(xhr, status, error) {
+                console.error('获取组详情失败：', xhr.responseText);
+                showToast('获取组详情失败：' + error, 'error');
+            });
+        }
 
         // ========== 删除区域组 ==========
         function del(groupId){
             showConfirmModal('确定要删除该区域组吗？删除后不可恢复！', (confirm) => {
                 if(!confirm) return;
-
-                // 提交删除请求
                 $.ajax({
-                    url: `/area-manage/api/group/delete/${groupId}/`,
+                    url: '/area-manage/api/group/delete/' + groupId + '/',
                     type: 'POST',
                     headers: {
                         'X-CSRFToken': getCookie('csrftoken')
@@ -684,7 +723,7 @@
                     success: function(res) {
                         if(res && res.code === 1){
                             showToast('区域组删除成功', 'success');
-                            loadGroup(); // 刷新列表
+                            loadGroup();
                         } else {
                             showToast(res?.msg || '删除失败', 'error');
                         }
@@ -699,11 +738,11 @@
 
         // ========== 页面初始化 ==========
         $(document).ready(function() {
-            // 等待区域加载完成后再加载区域组
+            // 先加载所有区域，再加载区域组
             loadArea().then(() => {
                 loadGroup();
             }).catch(() => {
-                loadGroup(); // 即使区域加载失败，也加载区域组
+                loadGroup();
             });
             loadSearchHistory();
         });
