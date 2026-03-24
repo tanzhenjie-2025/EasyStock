@@ -4,7 +4,27 @@
 
 {% block extra_css %}
 <style>
-    /* 详情页样式 */
+    /* 项目统一面包屑导航样式 */
+    .breadcrumb {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 20px;
+        font-size: 14px;
+        color: #666;
+    }
+    .breadcrumb a {
+        color: #0066cc;
+        text-decoration: none;
+    }
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+    .breadcrumb .separator {
+        color: #ccc;
+    }
+
+    /* 原有详情页样式 */
     .detail-header {
         margin-bottom: 20px;
         display: flex;
@@ -67,7 +87,6 @@
         color: #666;
         font-size: 16px;
     }
-    /* 行高亮 */
     .order-item-table tr:hover {
         background-color: #f1f1f1 !important;
     }
@@ -75,6 +94,15 @@
 {% endblock %}
 
 {% block content %}
+<!-- 统一面包屑导航 -->
+<div class="breadcrumb">
+    <a href="/bill/">首页</a>
+    <span class="separator">/</span>
+    <a href="{% url 'customer_summary_page' %}">客户金额汇总</a>
+    <span class="separator">/</span>
+    <span>金额汇总详情</span>
+</div>
+
 <!-- 详情页头部（返回按钮 + 标题） -->
 <div class="detail-header">
     <h3>{{ customer.name }} - 金额汇总详情</h3>

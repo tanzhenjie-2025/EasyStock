@@ -4,6 +4,27 @@
 
 {% block extra_css %}
 <style>
+    /* 🔥 仅新增：统一面包屑导航样式（无任何冲突） */
+    .breadcrumb {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 20px;
+        font-size: 14px;
+        color: #666;
+    }
+    .breadcrumb a {
+        color: #0066cc;
+        text-decoration: none;
+    }
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+    .breadcrumb .separator {
+        color: #ccc;
+    }
+
+    /* ====================== 你原本的所有样式（完全保留） ====================== */
     .back-btn {
         margin-bottom: 20px;
     }
@@ -13,10 +34,10 @@
         border-radius: 6px;
         margin-bottom: 20px;
     }
-    .empty-data { 
-        text-align: center; 
-        padding: 20px; 
-        color: #666; 
+    .empty-data {
+        text-align: center;
+        padding: 20px;
+        color: #666;
     }
     .total-row {
         background-color: #4472C4;
@@ -24,7 +45,7 @@
         font-weight: bold;
         text-align: center;
     }
-    
+
     /* ========== 核心修复：鼠标行高亮（强制生效） ========== */
     /* 1. 基础样式：手型指针 + 初始化背景 */
     #orderSourceData tr.order-row {
@@ -50,6 +71,16 @@
 {% endblock %}
 
 {% block content %}
+<!-- 🔥 仅新增：面包屑导航（放在最顶部，不影响原有布局） -->
+<div class="breadcrumb">
+    <a href="/bill/">首页</a>
+    <span class="separator">/</span>
+    <a href="{% url 'summary_page' %}">商品汇总</a>
+    <span class="separator">/</span>
+    <span>商品汇总详情</span>
+</div>
+
+<!-- ====================== 你原本的所有页面结构（完全保留） ====================== -->
 <!-- 返回按钮 -->
 <button class="btn btn-sm btn-outline-secondary back-btn" onclick="window.history.back()">
     ← 返回商品汇总页
@@ -84,6 +115,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<!-- ====================== 你原本的所有JS（完全保留，无任何修改） ====================== -->
 <script>
 // 页面加载时查询订单来源
 $(function() {

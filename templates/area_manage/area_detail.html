@@ -6,6 +6,27 @@
 <!-- 页面专属样式 -->
 {% block extra_css %}
 <style>
+    /* 新增：面包屑导航样式（与订单详情页统一） */
+    .breadcrumb {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 20px;
+        font-size: 14px;
+        color: #666;
+    }
+    .breadcrumb a {
+        color: #0066cc;
+        text-decoration: none;
+    }
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+    .breadcrumb .separator {
+        color: #ccc;
+    }
+
+    /* 原有样式保留 */
     .detail-container {
         max-width: 800px;
     }
@@ -113,6 +134,15 @@
 <!-- 页面专属内容 -->
 {% block content %}
     <div class="detail-container">
+        <!-- 新增：面包屑导航 固定路径：首页 → 区域管理 → 详情 -->
+        <div class="breadcrumb">
+            <a href="/bill/">首页</a>
+            <span class="separator">/</span>
+            <a href="{% url 'area_manage:area_page' %}">区域管理</a>
+            <span class="separator">/</span>
+            <span>详情</span>
+        </div>
+
         <!-- 返回按钮 -->
         <button class="btn btn-sm btn-secondary back-btn" onclick="window.history.back()">← 返回区域列表</button>
 

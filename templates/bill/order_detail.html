@@ -4,6 +4,26 @@
 
 {% block extra_css %}
 <style>
+    /* 面包屑导航样式（与商品销售排行页保持统一风格） */
+    .breadcrumb {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 20px;
+        font-size: 14px;
+        color: #666;
+    }
+    .breadcrumb a {
+        color: #0066cc;
+        text-decoration: none;
+    }
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+    .breadcrumb .separator {
+        color: #ccc;
+    }
+    /* 原有样式保留 */
     .back-btn {
         margin-bottom: 16px;
     }
@@ -14,25 +34,31 @@
         font-weight: bold;
         background-color: #f8f9fa;
     }
-    /* 统一订单行高亮样式（如果订单详情页有订单行也适用） */
-    .order-row {
-        cursor: pointer;
-        transition: background-color 0.2s ease;
-    }
-    .order-row:hover {
-        background-color: #f0f0f0 !important;
+    /* 精准生效：仅商品销售明细数据行悬停高亮，合计行不变色 */
+    .product-table tbody tr:not(.total-row):hover {
+        background-color: #e9ecef !important;
+        transition: background-color 0.3s ease !important;
     }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container mt-4">
+    <!-- 新增：面包屑导航 固定路径：首页 → 订单管理 → 订单详情 -->
+    <div class="breadcrumb">
+        <a href="/bill/">首页</a>
+        <span class="separator">/</span>
+        <a href="{% url 'bill:order_list' %}">订单管理</a>
+        <span class="separator">/</span>
+        <span>详情</span>
+    </div>
+
     <!-- 智能返回：优先级：商品汇总详情 → 客户详情 → 订单列表 → 历史返回 -->
     {% if request.GET.from_product_summary and request.GET.back_url %}
     <!-- 从商品汇总详情页过来 → 返回商品汇总详情（解码URL确保正确） -->
     <a href="{{ request.GET.back_url|safe }}" class="btn btn-sm btn-secondary back-btn">← 返回商品汇总详情</a>
     {% elif request.GET.from_customer %}
-    <!-- 从客户详情页过来 → 返回客户详情 -->
+    <!-- 从客户详情过来 → 返回客户详情 -->
     <a href="/customer-manage/customer/detail/page/{{ request.GET.from_customer }}/" class="btn btn-sm btn-secondary back-btn">← 返回客户详情</a>
     {% else %}
     <!-- 默认：优先返回上一页，其次返回订单列表 -->
@@ -83,7 +109,7 @@
                 </div>
                 <div class="col-md-6">
                     <p><strong>客户名称：</strong> {{ order.customer.name|default:"无" }}</p>
-                    <p><strong>所属区域：</strong> {{ order.area.name|default:"无" }}</p>
+                    <p><strong>所属区域：</strong> {{ area.name|default:"无" }}</p>
                     <p><strong>订单状态：</strong> 
                         {% if order.status == 'pending' %}
                         <span class="badge bg-secondary">未打印</span>
@@ -140,12 +166,10 @@
             <!-- 操作按钮 -->
 <div class="mt-4">
     {% if request.GET.from_product_summary and request.GET.back_url %}
-        <!-- 智能返回：回到商品汇总详情页 -->
         <a href="{{ request.GET.back_url|safe }}" class="btn btn-secondary">返回商品汇总详情</a>
         {% elif request.GET.from_customer %}
         <a href="/customer-manage/customer/detail/page/{{ request.GET.from_customer }}/" class="btn btn-secondary">返回客户详情</a>
         {% else %}
-        <!-- 通用返回：优先历史记录，其次订单列表 -->
         <button class="btn btn-secondary" onclick="goBackSmartly()">返回</button>
         {% endif %}
 
@@ -162,7 +186,6 @@
     </button>
     {% endif %}
     
-    <!-- 核心修改：作废按钮显示逻辑 -->
     {% if show_cancel_btn %}
     <button class="btn btn-danger ms-2" data-bs-toggle="modal" data-bs-target="#cancelModal">
         作废订单
@@ -170,20 +193,20 @@
     {% elif order.status != 'cancelled' and not order.is_settled %}
     <button class="btn btn-danger ms-2" disabled>
         {% if is_operator and order.creator == request.user %}
-    {% if time_diff > 5 %}
-        作废订单（已超过5分钟时效）
-    {% else %}
-        作废订单（无操作权限）{# 权限不足时显示 #}
-    {% endif %}
-{% elif is_operator and order.creator != request.user %}
-    作废订单（仅能作废自己的订单）
-{% elif is_admin and order.creator != request.user and not can_cancel_others %}
-    作废订单（无作废他人订单权限）
-{% elif order.status == 'printed' %}
-    作废订单（已出库无法作废）
-{% else %}
-    作废订单（无操作权限）
-{% endif %}
+            {% if time_diff > 5 %}
+                作废订单（已超过5分钟时效）
+            {% else %}
+                作废订单（无操作权限）
+            {% endif %}
+        {% elif is_operator and order.creator != request.user %}
+            作废订单（仅能作废自己的订单）
+        {% elif is_admin and order.creator != request.user and not can_cancel_others %}
+            作废订单（无作废他人订单权限）
+        {% elif order.status == 'printed' %}
+            作废订单（已出库无法作废）
+        {% else %}
+            作废订单（无操作权限）
+        {% endif %}
     </button>
     {% endif %}
 
@@ -262,7 +285,7 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-warning" onclick="submitUnsettle()">确认撤销</button>
             </div>
         </div>
@@ -303,13 +326,11 @@
 
 {% block extra_js %}
 <script>
-// 智能返回函数（需求3核心）
+// 智能返回函数
 function goBackSmartly() {
-    // 优先使用浏览器历史记录返回
     if (window.history.length > 1) {
         window.history.back();
     } else {
-        // 无历史记录时返回订单列表
         window.location.href = "{% url 'bill:order_list' %}";
     }
 }

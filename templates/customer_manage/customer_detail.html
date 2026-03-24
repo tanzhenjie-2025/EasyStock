@@ -4,6 +4,27 @@
 
 {% block extra_css %}
 <style>
+    /* 新增：面包屑导航样式（和参考页一致） */
+    .breadcrumb {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 20px;
+        font-size: 14px;
+        color: #666;
+    }
+    .breadcrumb a {
+        color: #0066cc;
+        text-decoration: none;
+    }
+    .breadcrumb a:hover {
+        text-decoration: underline;
+    }
+    .breadcrumb .separator {
+        color: #ccc;
+    }
+
+    /* 原有样式保留 */
     .detail-card {
         border: 1px solid #ddd;
         border-radius: 8px;
@@ -74,6 +95,15 @@
 
 {% block content %}
 <div class="content-container">
+    <!-- 新增：客户详情面包屑导航 -->
+    <div class="breadcrumb">
+        <a href="/bill/">首页</a>
+        <span class="separator">/</span>
+        <a href="/customer-manage/customer/page/">客户管理</a>
+        <span class="separator">/</span>
+        <span>客户详情</span>
+    </div>
+
     <div class="detail-header">
         <h3 id="customerName">客户详情</h3>
         <!-- 4. 智能返回按钮：根据来源参数决定返回路径 -->
