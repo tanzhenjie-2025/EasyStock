@@ -1,4 +1,3 @@
-# bill\model.py 此注释用于标识代码段别删
 from django.db import models
 from django.utils import timezone
 from pypinyin import lazy_pinyin
@@ -93,7 +92,45 @@ class AreaGroup(models.Model):
         verbose_name = '区域组'
         verbose_name_plural = '区域组管理'
 
+# ========== 新增：统计缓存模型 ==========
+class AreaStatisticsCache(models.Model):
+    """区域统计缓存表（仅统计客户数量）"""
+    area = models.OneToOneField(
+        Area,
+        on_delete=models.CASCADE,
+        verbose_name='关联区域',
+        related_name='stats_cache'
+    )
+    customer_count = models.IntegerField('客户数量', default=0)
+    update_time = models.DateTimeField('更新时间', auto_now=True)
 
+    class Meta:
+        verbose_name = '区域统计缓存'
+        verbose_name_plural = '区域统计缓存管理'
+
+    def __str__(self):
+        return f'{self.area.name} - 统计缓存'
+
+class AreaGroupStatisticsCache(models.Model):
+    """区域组统计缓存表（仅统计客户数量）"""
+    group = models.OneToOneField(
+        AreaGroup,
+        on_delete=models.CASCADE,
+        verbose_name='关联区域组',
+        related_name='stats_cache'
+    )
+    customer_count = models.IntegerField('客户数量', default=0)
+    area_count = models.IntegerField('包含区域数', default=0)
+    update_time = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        verbose_name = '区域组统计缓存'
+        verbose_name_plural = '区域组统计缓存管理'
+
+    def __str__(self):
+        return f'{self.group.name} - 统计缓存'
+
+# ===================== 原有模型（保持不变） =====================
 class Customer(models.Model):
     """客户信息表"""
     name = models.CharField('客户名称', max_length=100, unique=True)  # 客户名唯一
@@ -115,6 +152,10 @@ class Customer(models.Model):
         verbose_name = '客户'
         verbose_name_plural = '客户管理'
         ordering = ['-create_time']  # 按创建时间倒序
+        # 新增索引
+        indexes = [
+            models.Index(fields=['area']),  # 针对area_id的索引
+        ]
 
 
 class CustomerPrice(models.Model):

@@ -210,10 +210,10 @@
         <button class="btn btn-sm btn-primary" onclick="add()">新建组</button>
     </div>
 
-    <!-- 2. 搜索框 + 搜索按钮 + 清空按钮 -->
+    <!-- 搜索框 + 搜索按钮 + 清空按钮 -->
     <div class="search-container">
-        <input type="text" class="search-input" id="searchInput" 
-               placeholder="输入组名/备注/包含区域关键词搜索" 
+        <input type="text" class="search-input" id="searchInput"
+               placeholder="输入组名/备注/包含区域关键词搜索"
                onkeydown="if(event.keyCode===13) searchGroups()">
         <button class="search-btn" onclick="searchGroups()">搜索</button>
         <button class="clear-btn" onclick="clearSearch()">× 清空</button>
@@ -229,12 +229,11 @@
                 <th>包含区域</th>
                 <th>备注</th>
                 <th class="sort-th" onclick="sortBy('customer_count')">客户数量 ↕</th>
-                <th class="sort-th" onclick="sortBy('total_amount')">累计金额 ↕</th>
                 <th>操作</th>
             </tr>
         </thead>
         <tbody id="list">
-            <tr><td colspan="7" class="loading">数据统计中...</td></tr>
+            <tr><td colspan="6" class="loading">数据加载中...</td></tr>
         </tbody>
     </table>
 {% endblock %}
@@ -250,11 +249,20 @@
         let currentSort = 'name'; // 当前排序字段
         let currentOrder = 'asc'; // 当前排序方向
 
-        // ========== 工具函数：千分位格式化 ==========
-        function formatNumber(num) {
-            if (num === 0 || !num) return '¥0.00';
-            const formatted = num.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-            return `¥${formatted}`;
+        // ========== 获取CSRF Token函数 ==========
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
         }
 
         // ========== 排序函数 ==========
@@ -275,7 +283,7 @@
             window.location.href = `/area-manage/group/detail/${id}/`;
         }
 
-        // ========== 核心新增：吐司提示函数 ==========
+        // ========== 吐司提示函数 ==========
         function showToast(message, type = 'info', duration = 3000) {
             // 创建吐司容器（不存在则创建）
             let toastContainer = document.getElementById('toastContainer');
@@ -295,12 +303,12 @@
             setTimeout(() => toast.remove(), duration);
         }
 
-        // ========== 核心新增：自定义输入弹窗（替代prompt） ==========
+        // ========== 自定义输入弹窗 ==========
         function showInputModal(title, defaultValue = '', callback, isAreaSelect = false) {
             // 创建遮罩层
             let overlay = document.createElement('div');
             overlay.className = `modal-overlay ${isAreaSelect ? 'area-select-modal' : ''}`;
-            
+
             // 区域选择弹窗额外提示
             let tipsHtml = '';
             if (isAreaSelect) {
@@ -321,12 +329,12 @@
             document.body.appendChild(overlay);
             // 显示弹窗（延迟触发动画）
             setTimeout(() => overlay.classList.add('active'), 10);
-            
+
             // 获取元素
             const input = overlay.querySelector('.modal-input');
             const cancelBtn = overlay.querySelector('.modal-btn-cancel');
             const confirmBtn = overlay.querySelector('.modal-btn-confirm');
-            
+
             // 聚焦输入框
             input.focus();
 
@@ -353,7 +361,7 @@
             });
         }
 
-        // ========== 核心新增：自定义确认弹窗（替代confirm） ==========
+        // ========== 自定义确认弹窗 ==========
         function showConfirmModal(message, callback) {
             // 创建遮罩层
             let overlay = document.createElement('div');
@@ -371,7 +379,7 @@
             document.body.appendChild(overlay);
             // 显示弹窗
             setTimeout(() => overlay.classList.add('active'), 10);
-            
+
             // 获取按钮
             const cancelBtn = overlay.querySelector('.modal-btn-cancel');
             const confirmBtn = overlay.querySelector('.modal-btn-confirm');
@@ -398,30 +406,32 @@
             });
         }
 
-        // 加载区域列表（用于区域组）
+        // ========== 加载区域列表 ==========
         function loadArea(){ 
             console.log('加载区域列表（用于区域组）...');
-            $.get('/area-manage/api/area/list/', function(res){
-                console.log('区域列表返回：', res);
-                // 修正接口返回判断逻辑（正常返回应该是code=1或直接返回数组）
-                if(res && res.code === 0){
-                    showToast(res.msg, 'error'); 
-                    return;
-                }
-                allAreas=Array.isArray(res) ? res : (res.data || []);
-            },'json').fail(function(xhr, status, error){
-                console.error('加载区域失败：', xhr.responseText);
-                showToast('加载区域列表失败！' + error, 'error'); 
+            return new Promise((resolve, reject) => {
+                $.get('/area-manage/api/area/list/', function(res){
+                    console.log('区域列表返回：', res);
+                    if(res && res.code === 0){
+                        showToast(res.msg, 'error'); 
+                        reject(res.msg);
+                        return;
+                    }
+                    allAreas=res.data || [];
+                    resolve(allAreas);
+                },'json').fail(function(xhr, status, error){
+                    console.error('加载区域失败：', xhr.responseText);
+                    showToast('加载区域列表失败！' + error, 'error'); 
+                    reject(error);
+                });
             });
         }
 
-        // 3. 加载区域组列表（支持关键词搜索和排序）
+        // ========== 加载区域组列表 ==========
         function loadGroup(keyword = ''){
             console.log('加载区域组列表...关键词：', keyword);
-            // 显示loading
-            $('#list').html('<tr><td colspan="7" class="loading">数据统计中...</td></tr>');
+            $('#list').html('<tr><td colspan="6" class="loading">数据加载中...</td></tr>');
             
-            // 拼接搜索参数
             let url = '/area-manage/api/group/list/';
             const params = new URLSearchParams();
             if (keyword) params.append('keyword', keyword);
@@ -434,62 +444,51 @@
             $.get(url, function(res){
                 console.log('区域组接口返回：', res);
                 let html='';
-                // 处理空结果
-                if(res && Array.isArray(res) && res.length === 0){
-                    html = `<tr><td colspan="7" class="no-result">未搜索到相关内容</td></tr>`;
-                    $('#list').html(html);
-                    return;
-                }
-                // 处理接口返回错误
-                if(res && res.code === 0){
+                // 正确判断响应格式
+                if(res.code === 0){
                     showToast(res.msg, 'error'); 
-                    html = `<tr><td colspan="7" class="no-result">${res.msg}</td></tr>`;
+                    html = `<tr><td colspan="6" class="no-result">${res.msg}</td></tr>`;
                     $('#list').html(html);
                     return;
                 }
-                // 遍历数据（行点击进入详情，按钮阻止冒泡）
-                const groupList = res && Array.isArray(res) ? res : (res.data || []);
-                if(groupList.length > 0){
-                    groupList.forEach(g=>{
-                        // 千分位格式化金额
-                        const formattedAmount = formatNumber(g.total_amount);
-                        // 客户数为空处理
-                        const customerCount = g.customer_count || 0;
-                        // 无数据提示
-                        const amountTip = g.total_amount <= 0 ? '<span style="color:#999;">该区域组暂无客户消费数据</span>' : formattedAmount;
-                        // 区域名称拼接
-                        const areaNames = g.area_names && Array.isArray(g.area_names) ? g.area_names.join('、') : '无';
-                        
-                        html+=`<tr onclick="goToDetail(${g.id})">
-                            <td>${g.id}</td>
-                            <td>${g.name || '未命名'}</td>
-                            <td>${areaNames}</td>
-                            <td>${g.remark || '无'}</td>
-                            <td>${customerCount}</td>
-                            <td>${amountTip}</td>
-                            <td>
-                                <button class="btn btn-sm btn-info me-1" onclick="event.stopPropagation();goToDetail(${g.id})">详情</button>
-                                <button class="btn btn-sm btn-warning me-1" onclick="event.stopPropagation();edit(${g.id})">改</button>
-                                <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();del(${g.id})">删</button>
-                            </td>
-                        </tr>`;
-                    });
-                } else {
-                    html = `<tr><td colspan="7" class="no-result">未搜索到相关内容</td></tr>`;
+                // 处理成功数据
+                const groupList = res.data || [];
+                if(groupList.length === 0){
+                    html = `<tr><td colspan="6" class="no-result">未搜索到相关内容</td></tr>`;
+                    $('#list').html(html);
+                    return;
                 }
+                // 遍历数据
+                groupList.forEach(g=>{
+                    const customerCount = g.customer_count || 0;
+                    const areaNames = g.area_names && Array.isArray(g.area_names) ? g.area_names.join('、') : '无';
+                    
+                    html+=`<tr onclick="goToDetail(${g.id})">
+                        <td>${g.id}</td>
+                        <td>${g.name || '未命名'}</td>
+                        <td>${areaNames}</td>
+                        <td>${g.remark || '无'}</td>
+                        <td>${customerCount}</td>
+                        <td>
+                            <button class="btn btn-sm btn-info me-1" onclick="event.stopPropagation();goToDetail(${g.id})">详情</button>
+                            <button class="btn btn-sm btn-warning me-1" onclick="event.stopPropagation();edit(${g.id})">改</button>
+                            <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();del(${g.id})">删</button>
+                        </td>
+                    </tr>`;
+                });
                 $('#list').html(html);
             },'json').fail(function(xhr, status, error){
                 console.error('加载区域组失败：', xhr.responseText);
                 showToast(`加载区域组列表失败！错误：${error}`, 'error'); 
-                $('#list').html(`<tr><td colspan="7" class="no-result">加载失败</td></tr>`);
+                $('#list').html(`<tr><td colspan="6" class="no-result">加载失败</td></tr>`);
             });
         }
 
-        // 4. 搜索区域组逻辑
+        // ========== 搜索区域组逻辑 ==========
         function searchGroups(){
             const keyword = $('#searchInput').val().trim();
             if (!keyword) {
-                showToast('请输入搜索关键词', 'warning'); 
+                showToast('请输入搜索关键词', 'warning');
                 $('#searchInput').focus();
                 return;
             }
@@ -501,14 +500,14 @@
             loadSearchHistory();
         }
 
-        // 5. 清空搜索（恢复原列表）
+        // ========== 清空搜索（恢复原列表） ==========
         function clearSearch(){
             $('#searchInput').val('');
             loadGroup(); // 无关键词加载全部区域组
             $('#searchInput').blur(); // 失去焦点
         }
 
-        // 6. 保存搜索记录到本地
+        // ========== 保存搜索记录到本地 ==========
         function saveSearchHistory(keyword){
             if (!keyword) return;
             let history = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]');
@@ -522,7 +521,7 @@
             localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history));
         }
 
-        // 7. 加载并展示搜索记录
+        // ========== 加载并展示搜索记录 ==========
         function loadSearchHistory(){
             const history = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]');
             const $historyContainer = $('#searchHistory');
@@ -539,7 +538,7 @@
             $historyContainer.html(html);
         }
 
-        // 8. 点击搜索记录快速填充并搜索
+        // ========== 点击搜索记录快速填充并搜索 ==========
         function useHistory(keyword){
             $('#searchInput').val(keyword);
             searchGroups();
@@ -550,7 +549,7 @@
             // 第一步：输入组名
             showInputModal('请输入组名：', '', (name) => {
                 if(!name) return;
-                
+
                 // 第二步：输入备注（可选）
                 showInputModal('请输入备注（可选）：', '', (remark) => {
                     // 第三步：选择包含的区域
@@ -558,11 +557,11 @@
 请输入要包含的区域名称，多个区域用英文逗号/顿号分隔`;
                     showInputModal('选择包含的区域', areaTips, (areaStr) => {
                         if(!areaStr) return;
-                        
+
                         // 处理区域字符串，转换为区域ID列表
                         const areaNames = areaStr.split(/[,，、]/).map(item => item.trim()).filter(Boolean);
                         const areaIds = allAreas.filter(a => areaNames.includes(a.name)).map(a => a.id);
-                        
+
                         if(areaIds.length === 0){
                             showToast('未找到匹配的区域，请检查输入', 'error');
                             return;
@@ -573,6 +572,9 @@
                             url: '/area-manage/api/group/add/',
                             type: 'POST',
                             contentType: 'application/json',
+                            headers: {
+                                'X-CSRFToken': getCookie('csrftoken')
+                            },
                             data: JSON.stringify({
                                 name: name,
                                 remark: remark || '',
@@ -605,29 +607,29 @@
                     return;
                 }
                 const group = res.data || res;
-                
+
                 // 第一步：编辑组名
                 showInputModal('编辑组名', group.name || '', (newName) => {
                     if(!newName) return;
-                    
+
                     // 第二步：编辑备注
                     showInputModal('编辑备注', group.remark || '', (newRemark) => {
-                        
+
                         // 第三步：编辑包含的区域
-                        const currentAreaNames = group.area_names && Array.isArray(group.area_names) 
-                            ? group.area_names.join('、') 
+                        const currentAreaNames = group.area_names && Array.isArray(group.area_names)
+                            ? group.area_names.join('、')
                             : '';
                         const areaTips = `当前已选区域：${currentAreaNames}
 可选区域：${allAreas.map(a => a.name).join('、')}
 请输入新的区域列表，多个区域用英文逗号/顿号分隔`;
-                        
+
                         showInputModal('修改包含的区域', areaTips, (newAreaStr) => {
                             if(!newAreaStr) return;
-                            
+
                             // 处理区域字符串
                             const areaNames = newAreaStr.split(/[,，、]/).map(item => item.trim()).filter(Boolean);
                             const areaIds = allAreas.filter(a => areaNames.includes(a.name)).map(a => a.id);
-                            
+
                             if(areaIds.length === 0){
                                 showToast('未找到匹配的区域，请检查输入', 'error');
                                 return;
@@ -638,6 +640,9 @@
                                 url: `/area-manage/api/group/edit/${groupId}/`,
                                 type: 'POST',
                                 contentType: 'application/json',
+                                headers: {
+                                    'X-CSRFToken': getCookie('csrftoken')
+                                },
                                 data: JSON.stringify({
                                     name: newName,
                                     remark: newRemark || '',
@@ -658,22 +663,24 @@
                             });
                         }, true);
                     });
+                }).fail(function(xhr, status, error) {
+                    console.error('获取组详情失败：', xhr.responseText);
+                    showToast('获取组详情失败：' + error, 'error');
                 });
-            }).fail(function(xhr, status, error) {
-                console.error('获取组详情失败：', xhr.responseText);
-                showToast('获取组详情失败：' + error, 'error');
-            });
-        }
+            }
 
         // ========== 删除区域组 ==========
         function del(groupId){
             showConfirmModal('确定要删除该区域组吗？删除后不可恢复！', (confirm) => {
                 if(!confirm) return;
-                
+
                 // 提交删除请求
                 $.ajax({
                     url: `/area-manage/api/group/delete/${groupId}/`,
                     type: 'POST',
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
                     success: function(res) {
                         if(res && res.code === 1){
                             showToast('区域组删除成功', 'success');
@@ -692,11 +699,12 @@
 
         // ========== 页面初始化 ==========
         $(document).ready(function() {
-            // 加载区域列表
-            loadArea();
-            // 加载区域组列表
-            loadGroup();
-            // 加载搜索历史
+            // 等待区域加载完成后再加载区域组
+            loadArea().then(() => {
+                loadGroup();
+            }).catch(() => {
+                loadGroup(); // 即使区域加载失败，也加载区域组
+            });
             loadSearchHistory();
         });
     </script>

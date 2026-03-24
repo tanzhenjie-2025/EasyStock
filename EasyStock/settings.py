@@ -46,7 +46,8 @@ INSTALLED_APPS = [
     "summary.apps.SummaryConfig",
     "area_manage.apps.AreaManageConfig",
     "customer_manage.apps.CustomerManageConfig",
-    "operation_log.apps.OperationLogConfig"
+    "operation_log.apps.OperationLogConfig",
+
 ]
 
 MIDDLEWARE = [
@@ -144,3 +145,4 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = True  # 关闭浏览器即过期
 
 # 新增：消息存储（确保登录错误提示能正常显示）
 MESSAGE_STORAGE = 'django.contrib.messages.storage.session.SessionStorage'
+
