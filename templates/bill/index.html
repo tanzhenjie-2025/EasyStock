@@ -443,6 +443,7 @@
 {% endblock %}
 
 <!-- 页面专属JS -->
+<!-- 页面专属JS -->
 {% block extra_js %}
     <script>
         // ========== 全局配置 ==========
@@ -459,6 +460,24 @@
         // 新增：存储原废单号（重开场景）
         let originalOrderNo = {% if reopen_order_data %}"{{ reopen_order_data.order_no }}"{% else %}null{% endif %};
 
+        // ====================== 新增：防抖函数（500ms） ======================
+        function debounce(func, delay = 500) {
+            let timeoutId;
+            return function(...args) {
+                // 清除上一次未执行的定时器
+                clearTimeout(timeoutId);
+                // 重新计时，延迟执行搜索函数
+                timeoutId = setTimeout(() => {
+                    func.apply(this, args);
+                }, delay);
+            };
+        }
+        // 包装防抖后的搜索函数
+        const debouncedProductSearch = debounce(onProductInput, 1000);
+        const debouncedCustomerSearch = debounce(onCustomerInput, 1000);
+        // ====================================================================
+
+        
         // ========== 新增：最近购买相关全局变量 ==========
         let allRecentProducts = [];  // 所有最近购买商品
         let cartItems = [];          // 加购车商品
@@ -651,7 +670,9 @@
         function initCustomerInput() {
             const customerInput = document.getElementById('customerInput');
             if (customerInput) {
-                customerInput.addEventListener('input', () => onCustomerInput(customerInput));
+                // ====================== 修改：使用防抖搜索 ======================
+                customerInput.addEventListener('input', () => debouncedCustomerSearch(customerInput));
+                // =================================================================
                 customerInput.addEventListener('keydown', handleCustomerInputKey);
                 customerInput.addEventListener('blur', () => {
                     setTimeout(hideSuggest, 200);
@@ -674,7 +695,9 @@
             }
 
             if (className === 'name-input') {
-                input.addEventListener('input', () => onProductInput(input));
+                // ====================== 修改：使用防抖搜索 ======================
+                input.addEventListener('input', () => debouncedProductSearch(input));
+                // =================================================================
                 input.addEventListener('keydown', handleProductInputKey);
             }
 
