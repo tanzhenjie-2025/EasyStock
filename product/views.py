@@ -27,29 +27,61 @@ from bill.models import Product, ProductAlias, Order, OrderItem, CustomerPrice
 
 # ====================== 商品管理主页面 ======================
 # product/views.py
+# ====================== 商品管理主页面 ======================
+# product/views.py
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+from django.db.models import Q
+
+
 @permission_required(PERM_PRODUCT_VIEW)
 def product_manage(request):
-    """商品管理主页面（展示所有商品+别名）"""
-    products = Product.objects.all().order_by('name')
-    # 组装商品+别名数据
+    """商品管理主页面（分页优化版 - 每页20条 + 后端搜索）"""
+    # 获取分页参数 + 搜索关键词
+    page = request.GET.get('page', 1)
+    keyword = request.GET.get('keyword', '').strip()
+
+    # 优化查询：prefetch_related 解决N+1查询，一次性加载所有别名
+    products_query = Product.objects.all().order_by('name').prefetch_related('aliases')
+
+    # 后端搜索：匹配商品名称 或 商品别名
+    if keyword:
+        products_query = products_query.filter(
+            Q(name__icontains=keyword) |
+            Q(aliases__alias_name__icontains=keyword)
+        ).distinct()  # 去重，避免别名重复导致商品重复
+
+    # 核心分页：每页20条数据
+    paginator = Paginator(products_query, 20)
+    try:
+        page_products = paginator.page(page)
+    except PageNotAnInteger:
+        page_products = paginator.page(1)
+    except EmptyPage:
+        page_products = paginator.page(paginator.num_pages)
+
+    # 组装分页后的商品+别名数据
     product_list = []
-    for product in products:
-        aliases = product.aliases.all()  # 反向关联获取别名
+    for product in page_products:
+        aliases = product.aliases.all()
         product_list.append({
             'id': product.id,
             'name': product.name,
             'price': product.price,
             'unit': product.unit,
             'stock': product.stock,
-            'aliases': [{'id': a.id, 'alias_name': a.alias_name} for a in aliases]
+            'aliases': [{'id': a.id, 'alias_name': a.alias_name} for a in aliases],
+            'status': 1  # 兼容原有前端样式
         })
 
     # 新增：获取所有区域（用于销售排行筛选）
     areas = Area.objects.all()
 
     return render(request, 'product/product_manage.html', {
-        'products': product_list,
-        'areas': areas,  # 新增传递区域数据
+        'products': product_list,  # 分页后的商品数据
+        'paginator': paginator,  # 分页器
+        'page_products': page_products,  # 分页对象
+        'keyword': keyword,  # 搜索关键词（回显）
+        'areas': areas,
         # 权限标识
         'can_add_product': request.user.has_permission(PERM_PRODUCT_ADD),
         'can_edit_product': request.user.has_permission(PERM_PRODUCT_EDIT),
