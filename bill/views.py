@@ -906,32 +906,35 @@ def batch_settle_order(request):
 @login_required
 @permission_required(PERM_PRODUCT_SEARCH)
 def get_customer_recent_products(request):
-    """获取客户最近购买的商品（按购买时间倒序）"""
+    """获取客户最近购买的商品（按购买时间倒序）【性能优化版】"""
     customer_id = request.GET.get('customer_id', '').strip()
     if not customer_id:
         return JsonResponse({'code': 0, 'msg': '请选择客户', 'data': []})
 
     try:
-        # 获取该客户的有效订单（排除作废），按创建时间倒序
+        # ============== 优化1：一次性查询订单 + 预加载所有明细（消除N+1） ==============
         customer_orders = Order.objects.filter(
             customer_id=customer_id,
             status__in=['pending', 'printed', 'reopened'],
-        ).order_by('-create_time')[:50]  # 取最近50个订单
+        ).order_by('-create_time')[:50].prefetch_related('items__product')  # 预加载明细+商品
 
-        # 提取订单商品，去重并记录最后购买信息
+        # ============== 优化2：一次性查询该客户所有专属价格（消除循环查询） ==============
+        customer_prices = {}
+        price_qs = CustomerPrice.objects.filter(customer_id=customer_id).values('product_id', 'custom_price')
+        for item in price_qs:
+            customer_prices[item['product_id']] = float(item['custom_price'])
+
         product_dict = {}
+        # 遍历预加载的数据，无数据库查询
         for order in customer_orders:
-            order_items = OrderItem.objects.filter(order=order, product__isnull=False)
-            for item in order_items:
+            # 直接获取预加载的明细，不查库
+            for item in order.items.all():
                 product = item.product
+                if not product:
+                    continue
                 if product.id not in product_dict:
-                    # 获取客户专属价
-                    try:
-                        customer_price = CustomerPrice.objects.get(customer_id=customer_id, product_id=product.id)
-                        final_price = float(customer_price.custom_price)
-                    except CustomerPrice.DoesNotExist:
-                        final_price = float(product.price)
-
+                    # 直接从缓存取价格
+                    final_price = customer_prices.get(product.id, float(product.price))
                     product_dict[product.id] = {
                         'id': product.id,
                         'name': product.name,
@@ -942,7 +945,7 @@ def get_customer_recent_products(request):
                         'last_quantity': item.quantity
                     }
 
-        # 按最后购买时间倒序排序
+        # 排序
         recent_products = sorted(
             product_dict.values(),
             key=lambda x: x['last_purchase_time'],

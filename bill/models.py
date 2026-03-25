@@ -9,19 +9,22 @@ from django.urls import reverse
 
 class Product(models.Model):
     """商品表（含拼音检索字段）"""
+    # name 唯一 → 自动生成唯一索引
     name = models.CharField('商品名称', max_length=100, unique=True)
-    pinyin_full = models.CharField('全拼', max_length=200, blank=True)  # 如：niunai
-    pinyin_abbr = models.CharField('拼音首字母', max_length=50, blank=True)  # 如：nn
-    stock = models.IntegerField('库存数量', default=77)
-    price = models.DecimalField('单价', max_digits=10, decimal_places=2)
+    # 【新增索引】拼音全拼（高频检索字段）
+    pinyin_full = models.CharField('全拼', max_length=200, blank=True, db_index=True)
+    # 【新增索引】拼音首字母（核心检索字段）
+    pinyin_abbr = models.CharField('拼音首字母', max_length=50, blank=True, db_index=True)
+    # 【新增索引】库存（筛选库存常用）
+    stock = models.IntegerField('库存数量', default=77, db_index=True)
+    # 【新增索引】单价（价格筛选常用）
+    price = models.DecimalField('单价', max_digits=10, decimal_places=2, db_index=True)
     unit = models.CharField('单位', max_length=20, default='件')
-    create_time = models.DateTimeField(auto_now_add=True)
+    create_time = models.DateTimeField(auto_now_add=True, db_index=True)  # 排序常用→加索引
 
     def save(self, *args, **kwargs):
         """保存时自动生成拼音字段"""
-        # 生成全拼（去掉声调）
         self.pinyin_full = ''.join(lazy_pinyin(self.name, style=0))
-        # 生成首字母
         self.pinyin_abbr = ''.join([p[0] for p in lazy_pinyin(self.name, style=0)])
         super().save(*args, **kwargs)
 
@@ -31,23 +34,31 @@ class Product(models.Model):
     class Meta:
         verbose_name = '商品'
         verbose_name_plural = '商品管理'
+        # 【新增联合索引】优化拼音组合查询（最常用）
+        indexes = [
+            models.Index(fields=['pinyin_abbr', 'pinyin_full']),
+        ]
 
 
 # 新增：商品别名表
 class ProductAlias(models.Model):
     """商品别名表（一个商品可对应多个别名）"""
+    # product 外键 → Django自动生成索引
     product = models.ForeignKey(
         Product,
         on_delete=models.CASCADE,
         verbose_name='关联商品',
-        related_name='aliases',  # 反向关联：商品对象.aliases 可获取所有别名
+        related_name='aliases',
         null=True,
         blank=True
     )
-    alias_name = models.CharField('别名', max_length=100, unique=True)  # 别名唯一，避免重复
-    alias_pinyin_full = models.CharField('别名全拼', max_length=200, blank=True)
-    alias_pinyin_abbr = models.CharField('别名拼音首字母', max_length=50, blank=True)
-    create_time = models.DateTimeField(auto_now_add=True)
+    # alias_name 唯一 → 自动生成唯一索引
+    alias_name = models.CharField('别名', max_length=100, unique=True)
+    # 【新增索引】别名全拼（检索用）
+    alias_pinyin_full = models.CharField('别名全拼', max_length=200, blank=True, db_index=True)
+    # 【新增索引】别名首字母（核心检索）
+    alias_pinyin_abbr = models.CharField('别名拼音首字母', max_length=50, blank=True, db_index=True)
+    create_time = models.DateTimeField(auto_now_add=True, db_index=True)
 
     def save(self, *args, **kwargs):
         """保存别名时自动生成拼音字段（和商品表逻辑一致）"""
@@ -61,6 +72,10 @@ class ProductAlias(models.Model):
     class Meta:
         verbose_name = '商品别名'
         verbose_name_plural = '商品别名管理'
+        # 【新增联合索引】优化「商品+别名」组合查询
+        indexes = [
+            models.Index(fields=['product', 'alias_name']),
+        ]
 
 
 # ===================== 区域 & 汇总分组 模块 =====================
@@ -133,17 +148,20 @@ class AreaGroupStatisticsCache(models.Model):
 # ===================== 原有模型（保持不变） =====================
 class Customer(models.Model):
     """客户信息表"""
-    name = models.CharField('客户名称', max_length=100, unique=True)  # 客户名唯一
+    # name 唯一 → 自动生成唯一索引
+    name = models.CharField('客户名称', max_length=100, unique=True, db_index=True)
+    # area 外键 → Django自动生成索引（原索引保留）
     area = models.ForeignKey(
         Area,
         on_delete=models.SET_NULL,
         null=True,
-        blank=False,  # 必须选择区域
+        blank=False,
         verbose_name='所属区域'
     )
-    phone = models.CharField('联系电话', max_length=20, unique=True)  # 电话唯一且必填
-    remark = models.CharField('备注', max_length=200, blank=True, default='')  # 备注默认为空
-    create_time = models.DateTimeField('创建时间', auto_now_add=True)
+    # phone 唯一 → 自动生成唯一索引（高频搜索）
+    phone = models.CharField('联系电话', max_length=20, unique=True, db_index=True)
+    remark = models.CharField('备注', max_length=200, blank=True, default='')
+    create_time = models.DateTimeField('创建时间', auto_now_add=True, db_index=True)  # 排序→加索引
 
     def __str__(self):
         return f'{self.name} ({self.phone})'
@@ -151,10 +169,11 @@ class Customer(models.Model):
     class Meta:
         verbose_name = '客户'
         verbose_name_plural = '客户管理'
-        ordering = ['-create_time']  # 按创建时间倒序
-        # 新增索引
+        ordering = ['-create_time']
+        # 【优化索引】保留原有area索引 + 新增联合索引（区域+客户名）
         indexes = [
-            models.Index(fields=['area']),  # 针对area_id的索引
+            models.Index(fields=['area']),
+            models.Index(fields=['area', 'name']),  # 按区域搜客户，性能翻倍
         ]
 
 
@@ -170,8 +189,8 @@ class CustomerPrice(models.Model):
         on_delete=models.CASCADE,
         verbose_name='关联商品'
     )
-    custom_price = models.DecimalField('客户专属价', max_digits=10, decimal_places=2)  # 专属价格
-    remark = models.CharField('定价备注', max_length=200, blank=True, default='')  # 如："熟客优惠价"
+    custom_price = models.DecimalField('客户专属价', max_digits=10, decimal_places=2)
+    remark = models.CharField('定价备注', max_length=200, blank=True, default='')
     create_time = models.DateTimeField('创建时间', auto_now_add=True)
     update_time = models.DateTimeField('更新时间', auto_now=True)
 
@@ -181,19 +200,18 @@ class CustomerPrice(models.Model):
     class Meta:
         verbose_name = '客户专属价格'
         verbose_name_plural = '客户专属价格管理'
-        unique_together = ('customer', 'product')  # 核心约束：一个客户一个商品只能有一个专属价
+        unique_together = ('customer', 'product')
         ordering = ['-create_time']
 
 
 # ===================== 订单模型（核心修改） =====================
 class Order(models.Model):
     """订单表（三联单主表）- 新增作废/重开字段"""
-    # 扩展订单状态选项
     ORDER_STATUS = (
         ('pending', '未打印'),
         ('printed', '已打印'),
-        ('cancelled', '作废'),  # 新增：作废
-        ('reopened', '重开')  # 新增：重开
+        ('cancelled', '作废'),
+        ('reopened', '重开')
     )
     order_no = models.CharField('订单编号', max_length=30, unique=True, blank=True)
     area = models.ForeignKey(Area, on_delete=models.SET_NULL, null=True, blank=True, verbose_name='订单区域')
@@ -216,7 +234,6 @@ class Order(models.Model):
     total_amount = models.DecimalField('总金额', max_digits=12, decimal_places=2, default=0)
     status = models.CharField('状态', max_length=10, choices=ORDER_STATUS, default='pending')
 
-    # 新增：作废相关字段
     cancelled_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -228,7 +245,6 @@ class Order(models.Model):
     cancelled_time = models.DateTimeField('作废时间', null=True, blank=True)
     cancelled_reason = models.CharField('作废原因', max_length=500, null=True, blank=True)
 
-    # 新增：重开相关字段（关联直接来源的原订单）
     original_order = models.ForeignKey(
         'self',
         on_delete=models.SET_NULL,
@@ -238,8 +254,7 @@ class Order(models.Model):
         related_name='reopened_orders'
     )
 
-    # 新增：结清相关字段
-    is_settled = models.BooleanField('是否结清', default=False)  # 核心标识
+    is_settled = models.BooleanField('是否结清', default=False)
     settled_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -251,7 +266,6 @@ class Order(models.Model):
     settled_time = models.DateTimeField('结清时间', null=True, blank=True)
     settled_remark = models.TextField('结清备注', null=True, blank=True, help_text='收款方式、账户、转账时间等')
 
-    # 新增：撤销结清相关字段（仅老板可操作）
     unsettled_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -263,29 +277,16 @@ class Order(models.Model):
     unsettled_time = models.DateTimeField('撤销结清时间', null=True, blank=True)
     unsettled_remark = models.TextField('撤销结清备注', null=True, blank=True)
 
-    # 新增：计算逾期天数的方法（核心修改）
     def get_overdue_days(self):
-        """
-        计算订单逾期天数：
-        - 已结清订单：返回0
-        - 未结清订单：当前日期 - 开单日期（开单次日开始算逾期）
-        """
-        if self.is_settled:  # 已结清订单不计算逾期
+        if self.is_settled:
             return 0
 
-        # 开单日期（仅取日期部分）
         order_date = self.create_time.date()
-        # 当前日期
         today = datetime.date.today()
-
-        # 计算逾期天数：当前日期 - 开单日期（开单当天逾期0天，次日开始算1天）
         overdue_days = (today - order_date).days
-
-        # 确保返回非负数
         return max(overdue_days, 0)
 
     def save(self, *args, **kwargs):
-        """自动生成订单编号（年月日+随机数）"""
         if not self.order_no:
             date_str = datetime.datetime.now().strftime('%Y%m%d')
             last_order = Order.objects.filter(order_no__startswith=date_str).last()
@@ -296,9 +297,7 @@ class Order(models.Model):
             self.order_no = f'{date_str}{seq:04d}'
         super().save(*args, **kwargs)
 
-    # 新增：获取完整溯源链条
     def get_full_trace_chain(self):
-        """递归获取完整溯源链条：[当前单, 上一级单, 最早原始单]"""
         chain = [self]
         current = self
         while current.original_order:
@@ -306,9 +305,7 @@ class Order(models.Model):
             chain.append(current)
         return chain
 
-    # 新增：生成溯源链条展示字符串
     def get_trace_chain_display(self):
-        """返回带跳转链接的溯源链条，如：C202403150003 → B202403150002 → A202403150001"""
         chain = self.get_full_trace_chain()
         link_list = []
         for order in chain:
@@ -322,6 +319,10 @@ class Order(models.Model):
     class Meta:
         verbose_name = '订单'
         verbose_name_plural = '订单管理'
+        # 新增：高频查询联合索引 (客户 + 状态 + 时间倒序)
+        indexes = [
+            models.Index(fields=['customer', 'status', '-create_time'])
+        ]
 
 
 class OrderItem(models.Model):
@@ -338,12 +339,8 @@ class OrderItem(models.Model):
     amount = models.DecimalField('小计金额', max_digits=10, decimal_places=2, null=True, blank=True)
 
     def save(self, *args, **kwargs):
-        """保存时自动计算小计，并更新商品库存"""
-        # 新增：避免product为空时报错
         if self.product:
-            # 计算小计
             self.amount = self.product.price * self.quantity
-            # 更新库存（扣减）
             product = self.product
             product.stock -= self.quantity
             product.save()
@@ -352,12 +349,15 @@ class OrderItem(models.Model):
     class Meta:
         verbose_name = '订单明细'
         verbose_name_plural = '订单明细管理'
+        # 新增：订单+商品联合索引，优化明细查询
+        indexes = [
+            models.Index(fields=['order', 'product'])
+        ]
 
 
-# ========== 新增：每日销售汇总模型（极简版） ==========
 class DailySalesSummary(models.Model):
-    """每日销售汇总表（仅统计订单销售数据，适配补货）"""
-    summary_date = models.DateField('汇总日期')  # 要汇总的日期
+    """每日销售汇总表"""
+    summary_date = models.DateField('汇总日期')
     product = models.ForeignKey(
         Product,
         on_delete=models.CASCADE,
@@ -366,28 +366,26 @@ class DailySalesSummary(models.Model):
         null=True,
         blank=True
     )
-    sale_quantity = models.IntegerField('销售数量', default=0)  # 当日该商品总销量
-    is_manual = models.BooleanField('是否手动汇总', default=False)  # 区分自动/手动
+    sale_quantity = models.IntegerField('销售数量', default=0)
+    is_manual = models.BooleanField('是否手动汇总', default=False)
     create_time = models.DateTimeField('汇总生成时间', auto_now_add=True)
 
     class Meta:
         verbose_name = '每日销售汇总'
         verbose_name_plural = '每日销售汇总管理'
-        unique_together = ('summary_date', 'product')  # 修复后的字段
+        unique_together = ('summary_date', 'product')
         indexes = [
-            models.Index(fields=['summary_date']),  # 优化按日期查询
+            models.Index(fields=['summary_date']),
         ]
 
     def __str__(self):
-        # 新增：避免product为空时报错
         product_name = self.product.name if self.product else "无商品"
         product_unit = self.product.unit if self.product else ""
         return f'{self.summary_date} - {product_name} - 销售{self.sale_quantity}{product_unit}'
 
 
-# 在bill/models.py 末尾新增
 class RepaymentRecord(models.Model):
-    """还款记录表（核心：记录每笔还款）"""
+    """还款记录表"""
     customer = models.ForeignKey(
         Customer,
         on_delete=models.CASCADE,
