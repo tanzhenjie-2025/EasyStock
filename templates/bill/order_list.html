@@ -364,7 +364,38 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
         {% endfor %}
     </tbody>
 </table>
+<!-- ===================== 新增：分页导航（保留所有筛选参数） ===================== -->
+{% if page_orders.has_other_pages %}
+<nav aria-label="Page navigation" class="mt-4">
+    <ul class="pagination justify-content-center">
+        {% if page_orders.has_previous %}
+        <li class="page-item">
+            <a class="page-link" href="?page={{ page_orders.previous_page_number }}&order_no={{ order_no }}&date_from={{ date_from }}&date_to={{ date_to }}&area_id={{ area_id }}&customer_name={{ customer_name }}&settled_status={{ settled_status }}&amount_operator={{ amount_operator }}&amount_value={{ amount_value }}">上一页</a>
+        </li>
+        {% else %}
+        <li class="page-item disabled"><a class="page-link">上一页</a></li>
+        {% endif %}
 
+        {% for num in paginator.page_range %}
+            {% if page_orders.number == num %}
+            <li class="page-item active"><a class="page-link">{{ num }}</a></li>
+            {% else %}
+            <li class="page-item">
+                <a class="page-link" href="?page={{ num }}&order_no={{ order_no }}&date_from={{ date_from }}&date_to={{ date_to }}&area_id={{ area_id }}&customer_name={{ customer_name }}&settled_status={{ settled_status }}&amount_operator={{ amount_operator }}&amount_value={{ amount_value }}">{{ num }}</a>
+            </li>
+            {% endif %}
+        {% endfor %}
+
+        {% if page_orders.has_next %}
+        <li class="page-item">
+            <a class="page-link" href="?page={{ page_orders.next_page_number }}&order_no={{ order_no }}&date_from={{ date_from }}&date_to={{ date_to }}&area_id={{ area_id }}&customer_name={{ customer_name }}&settled_status={{ settled_status }}&amount_operator={{ amount_operator }}&amount_value={{ amount_value }}">下一页</a>
+        </li>
+        {% else %}
+        <li class="page-item disabled"><a class="page-link">下一页</a></li>
+        {% endif %}
+    </ul>
+</nav>
+{% endif %}
 
 <!-- 1. 标记结清模态框（新增快捷选项） -->
 <div class="modal fade" id="settleModal" tabindex="-1" aria-labelledby="settleModalLabel" aria-hidden="true">

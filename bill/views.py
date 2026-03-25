@@ -269,35 +269,38 @@ def stock_list(request):
 @login_required
 @permission_required(PERM_ORDER_VIEW)
 def order_list(request):
-    """订单列表页（新增订单号搜索 + 修复金额筛选 + 新增数据统计）"""
-    # 新增：获取订单号搜索参数
+    """订单列表页（分页优化版 - 每页20条）"""
+    # 导入分页依赖
+    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+
+    # 接收筛选参数
     order_no = request.GET.get('order_no', '').strip()
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
     area_id = request.GET.get('area_id', '')
     customer_name = request.GET.get('customer_name', '').strip()
     settled_status = request.GET.get('settled_status', '')
-    # 新增：获取金额筛选参数
     amount_operator = request.GET.get('amount_operator', '')
     amount_value = request.GET.get('amount_value', '').strip()
+    # 分页参数：当前页码
+    page = request.GET.get('page', 1)
 
+    # 基础查询 + 关联预加载
     orders = Order.objects.select_related('area', 'customer', 'creator').order_by('-create_time')
 
-    # ========== 核心修改：基于权限控制订单可见范围 ==========
+    # 权限控制：仅看自己的订单
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
-    can_view_others = request.user.has_permission('order_view_others')  # 新增权限判断
+    can_view_others = request.user.has_permission('order_view_others')
     if not is_super_admin and not can_view_others:
-        orders = orders.filter(creator=request.user)  # 仅能看自己的订单
+        orders = orders.filter(creator=request.user)
 
-    # 新增角色标识（传递到模板）
+    # 角色标识
     is_admin = request.user.role and request.user.role.code == ROLE_ADMIN
     is_operator = request.user.role and request.user.role.code == ROLE_OPERATOR
 
-    # 新增：订单号模糊筛选（核心逻辑）
+    # 筛选逻辑（完全不变）
     if order_no:
         orders = orders.filter(order_no__contains=order_no)
-
-    # 日期筛选
     if date_from:
         try:
             start_date = datetime.strptime(date_from, '%Y-%m-%d').date()
@@ -310,81 +313,66 @@ def order_list(request):
             orders = orders.filter(create_time__date__lte=end_date)
         except:
             pass
-
-    # 区域筛选
     if area_id and area_id.isdigit():
         orders = orders.filter(area_id=area_id)
-
-    # 客户名称筛选
     if customer_name:
         orders = orders.filter(customer__name__icontains=customer_name)
-
-    # 结清状态筛选
     if settled_status == 'settled':
         orders = orders.filter(is_settled=True)
     elif settled_status == 'unsettled':
         orders = orders.filter(is_settled=False)
-
-    # 金额筛选核心逻辑
     if amount_operator in ['gt', 'lt'] and amount_value:
         try:
-            # 转换为Decimal类型（匹配Order.total_amount的字段类型）
             amount = decimal.Decimal(amount_value)
             if amount_operator == 'gt':
-                # 大于指定金额
                 orders = orders.filter(total_amount__gt=amount)
             elif amount_operator == 'lt':
-                # 小于指定金额
                 orders = orders.filter(total_amount__lt=amount)
         except decimal.InvalidOperation:
-            # 金额格式错误时，跳过金额筛选（避免报错）
             pass
 
-    # ========== 新增：数据统计计算 ==========
-    # 1. 总订单数
-    total_orders = orders.count()
-    # 2. 总销售金额
-    total_sales = orders.aggregate(total=Sum('total_amount'))['total'] or decimal.Decimal('0.00')
-    # 3. 总结清订单数
-    settled_orders = orders.filter(is_settled=True).count()
-    # 4. 总欠款金额（未结清订单的金额总和）
-    total_debt = orders.filter(is_settled=False).aggregate(total=Sum('total_amount'))['total'] or decimal.Decimal(
-        '0.00')
+    # ===================== 核心：分页逻辑（每页20条） =====================
+    paginator = Paginator(orders, 20)  # 每页固定20条
+    try:
+        page_orders = paginator.page(page)
+    except PageNotAnInteger:
+        page_orders = paginator.page(1)  # 页码非数字，返回第一页
+    except EmptyPage:
+        page_orders = paginator.page(paginator.num_pages)  # 页码超出范围，返回最后一页
 
-    # ==============================================
-    # 关键添加：订单列表页作废权限计算（START）
-    # ==============================================
+    # ===================== 统计数据（不变，基于筛选后总数据） =====================
+    total_orders = orders.count()
+    total_sales = orders.aggregate(total=Sum('total_amount'))['total'] or decimal.Decimal('0.00')
+    settled_orders = orders.filter(is_settled=True).count()
+    total_debt = orders.filter(is_settled=False).aggregate(total=Sum('total_amount'))['total'] or decimal.Decimal('0.00')
+
+    # ===================== 作废权限计算（仅循环20条，性能拉满） =====================
     current_time = datetime.now()
-    # 先把QuerySet转为可迭代的列表（避免重复查询）
-    orders = list(orders)
-    for order in orders:
-        # 计算开单后分钟数
+    order_list = list(page_orders)  # 仅转20条数据为列表
+    for order in order_list:
         time_diff = (current_time - order.create_time).total_seconds() / 60
         order.time_diff = time_diff
-
-        # 计算当前用户是否可作废该订单
         can_cancel = False
         if order.status != 'cancelled' and not order.is_settled and order.status != 'printed':
             if is_super_admin:
                 can_cancel = True
             elif is_admin:
-                # 管理员：作废自己的（无时间限制）或他人的（需权限）
                 if (order.creator == request.user and request.user.has_permission('order_cancel_own')) or \
                         (order.creator != request.user and request.user.has_permission('order_cancel_others')):
                     can_cancel = True
             elif is_operator:
-                # 普通店员：仅作废自己的+5分钟内
-                if order.creator == request.user and request.user.has_permission('order_cancel_own') and time_diff <= 5:
+                if order.creator == request.user and time_diff <= 5 and request.user.has_permission('order_cancel_own'):
                     can_cancel = True
         order.can_cancel = can_cancel
-    # ==============================================
-    # 关键添加：订单列表页作废权限计算（END）
-    # ==============================================
 
+    # 区域数据
     areas = Area.objects.all().order_by('name')
 
+    # 模板上下文（新增分页对象）
     context = {
-        'orders': orders,
+        'orders': order_list,          # 分页后的20条订单
+        'page_orders': page_orders,    # 分页对象（前端渲染页码用）
+        'paginator': paginator,        # 分页器
         'areas': areas,
         'date_from': date_from,
         'date_to': date_to,
@@ -394,12 +382,9 @@ def order_list(request):
         'amount_operator': amount_operator,
         'amount_value': amount_value,
         'is_super_admin': is_super_admin,
-        # 新增：传递角色标识到模板（用于前端判断）
         'is_admin': is_admin,
         'is_operator': is_operator,
-        # 新增：传递订单号参数到模板（实现搜索框回显）
         'order_no': order_no,
-        # ========== 新增：统计数据传入模板 ==========
         'total_orders': total_orders,
         'total_sales': total_sales,
         'settled_orders': settled_orders,
