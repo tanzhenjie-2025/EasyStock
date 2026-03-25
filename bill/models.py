@@ -81,9 +81,9 @@ class ProductAlias(models.Model):
 # ===================== 区域 & 汇总分组 模块 =====================
 class Area(models.Model):
     """区域（如：A区、B区、C区、D区...）"""
-    name = models.CharField('区域名称', max_length=50, unique=True)
+    name = models.CharField('区域名称', max_length=50, unique=True, db_index=True)  # 加索引
     remark = models.CharField('备注', max_length=100, blank=True)
-    create_time = models.DateTimeField(auto_now_add=True)
+    create_time = models.DateTimeField(auto_now_add=True, db_index=True)  # 加索引
 
     def __str__(self):
         return self.name
@@ -95,10 +95,11 @@ class Area(models.Model):
 
 class AreaGroup(models.Model):
     """区域组（自定义组合：A+B、A+C、B+D 等）"""
-    name = models.CharField('组名', max_length=50, unique=True)
+    name = models.CharField('组名', max_length=50, unique=True, db_index=True)  # 加索引
     areas = models.ManyToManyField(Area, verbose_name='包含区域')
     remark = models.CharField('备注', max_length=100, blank=True)
-    create_time = models.DateTimeField(auto_now_add=True)
+    create_time = models.DateTimeField(auto_now_add=True, db_index=True)  # 加索引
+    update_time = models.DateTimeField(auto_now=True)  # 新增字段！原代码缺少
 
     def __str__(self):
         return self.name
@@ -106,6 +107,10 @@ class AreaGroup(models.Model):
     class Meta:
         verbose_name = '区域组'
         verbose_name_plural = '区域组管理'
+        # 联合索引，优化搜索性能
+        indexes = [
+            models.Index(fields=['name', 'create_time']),
+        ]
 
 # ========== 新增：统计缓存模型 ==========
 class AreaStatisticsCache(models.Model):

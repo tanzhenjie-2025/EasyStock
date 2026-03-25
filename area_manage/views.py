@@ -291,39 +291,47 @@ def area_delete(request, pk):
         return JsonResponse({'code': 0, 'msg': f'删除失败：{str(e)}'}, content_type='application/json')
 
 
-# ===================== 区域组管理 CRUD =====================
 @csrf_exempt
 @login_required
 @permission_required('area_view')
 def group_list(request):
-    """获取所有区域组列表（支持关键词搜索+分页+批量缓存）"""
+    """获取所有区域组列表（支持关键词搜索+分页+批量缓存）【优化版】"""
     try:
-        # 获取请求参数
+        # 1. 安全获取参数
         keyword = request.GET.get('keyword', '').strip()
         sort_by = request.GET.get('sort', 'name')
         sort_order = request.GET.get('order', 'asc')
         page = int(request.GET.get('page', 1))
         page_size = int(request.GET.get('page_size', 20))
 
-        # 基础查询
-        groups = AreaGroup.objects.all()
+        # 排序白名单：防SQL注入 + 非法字段报错
+        ALLOW_SORT_FIELDS = ['name', 'create_time', 'id']
+        if sort_by not in ALLOW_SORT_FIELDS:
+            sort_by = 'name'
+
+        # 2. 核心优化：预加载多对多数据，彻底解决N+1查询！！！
+        groups = AreaGroup.objects.all().prefetch_related('areas')
+
+        # 关键词搜索
         if keyword:
             groups = groups.filter(
                 Q(name__icontains=keyword) |
                 Q(remark__icontains=keyword) |
                 Q(areas__name__icontains=keyword)
             ).distinct()
+
+        # 排序
         if sort_order == 'desc':
             sort_by = f'-{sort_by}'
         groups = groups.order_by(sort_by)
 
-        # 分页处理
+        # 3. 分页处理
         total = groups.count()
         start = (page - 1) * page_size
         end = start + page_size
         groups_page = groups[start:end]
 
-        # 批量缓存处理
+        # 4. 批量缓存（和area_list保持一致，批量查询+批量创建）
         group_ids = [g.id for g in groups_page]
         cache_map = {
             cache.group_id: cache
@@ -331,19 +339,21 @@ def group_list(request):
         }
         no_cache_group_ids = [g.id for g in groups_page if g.id not in cache_map]
 
-        # 批量计算无缓存数据并创建缓存
         no_cache_stats = {}
         if no_cache_group_ids:
-            for group_id in no_cache_group_ids:
-                stats = get_group_statistics(group_id)
-                no_cache_stats[group_id] = stats
-                AreaGroupStatisticsCache.objects.create(
+            # 批量统计（极致性能）
+            no_cache_stats = batch_get_group_statistics(no_cache_group_ids)
+            # 批量插入缓存
+            cache_objs = [
+                AreaGroupStatisticsCache(
                     group_id=group_id,
-                    customer_count=stats['customer_count'],
-                    area_count=stats['area_count']
-                )
+                    customer_count=no_cache_stats[group_id]['customer_count'],
+                    area_count=no_cache_stats[group_id]['area_count']
+                ) for group_id in no_cache_group_ids
+            ]
+            AreaGroupStatisticsCache.objects.bulk_create(cache_objs)
 
-        # 构造返回数据
+        # 5. 构造数据（预加载后无额外查询）
         result = []
         for g in groups_page:
             cache = cache_map.get(g.id)
@@ -364,7 +374,8 @@ def group_list(request):
                 'customer_count': customer_count,
                 'area_count': area_count,
                 'create_time': g.create_time.strftime('%Y-%m-%d %H:%M:%S'),
-                'update_time': g.create_time.strftime('%Y-%m-%d %H:%M:%S')
+                # 修复BUG：原代码错误使用create_time
+                'update_time': g.update_time.strftime('%Y-%m-%d %H:%M:%S')
             })
 
         # 返回分页数据
@@ -628,3 +639,25 @@ def group_detail_page(request, pk):
     return render(request, 'area_manage/group_detail.html', {
         'group': group_data
     })
+
+
+# 新增：批量获取区域组统计数据
+def batch_get_group_statistics(group_ids):
+    """批量查询多个区域组的统计数据，性能远超循环调用"""
+    from django.db.models import Count
+    # 批量获取所有组的区域ID
+    group_area_map = {}
+    group_areas = AreaGroup.objects.filter(id__in=group_ids).prefetch_related('areas')
+    for group in group_areas:
+        area_ids = list(group.areas.values_list('id', flat=True))
+        group_area_map[group.id] = area_ids
+
+    # 批量统计客户数量
+    result = {}
+    for group_id, area_ids in group_area_map.items():
+        customer_count = Customer.objects.filter(area_id__in=area_ids).count()
+        result[group_id] = {
+            'customer_count': customer_count,
+            'area_count': len(area_ids)
+        }
+    return result

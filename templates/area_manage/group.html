@@ -126,6 +126,30 @@
     .confirm-modal .modal-box { max-width:350px; }
     .area-select-modal .modal-box { max-width:450px; }
     .area-select-modal .modal-tips { font-size:12px; color:#666; margin-bottom:10px; line-height:1.5; }
+
+    /* 分页样式（新增） */
+    .pagination-container {
+        margin: 10px 0;
+        display: flex;
+        gap: 5px;
+        justify-content: center;
+    }
+    .page-btn {
+        padding: 4px 8px;
+        border: 1px solid #ddd;
+        background: #fff;
+        cursor: pointer;
+        border-radius: 4px;
+    }
+    .page-btn.active {
+        background: #007bff;
+        color: #fff;
+        border-color: #007bff;
+    }
+    .page-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
 </style>
 {% endblock %}
 
@@ -151,6 +175,9 @@
         </thead>
         <tbody id="list"></tbody>
     </table>
+
+    <!-- 分页容器（新增） -->
+    <div id="pagination"></div>
 {% endblock %}
 
 {% block extra_js %}
@@ -158,6 +185,10 @@
         let allAreas=[];
         const SEARCH_HISTORY_KEY = 'groupSearchHistory';
         const MAX_HISTORY_COUNT = 5;
+        // 分页全局变量（新增）
+        let currentKeyword = '';
+        let currentPage = 1;
+        const pageSize = 20;
 
         // 吐司提示
         function showToast(message, type = 'info', duration = 3000) {
@@ -253,22 +284,32 @@
             });
         }
 
-        // ✅ 修复：读取后端 res.data 数据
-        function loadGroup(keyword = ''){
-            let url = '/area-manage/api/group/list/';
-            if (keyword) url += `?keyword=${encodeURIComponent(keyword)}`;
+        // 优化版：支持分页加载（整合后）
+        function loadGroup(keyword = '', page = 1){
+            currentKeyword = keyword;
+            currentPage = page;
+            // 拼接分页+搜索参数
+            let params = new URLSearchParams();
+            params.append('keyword', keyword);
+            params.append('page', page);
+            params.append('page_size', pageSize);
+            
+            let url = '/area-manage/api/group/list/?' + params.toString();
             
             $.get(url, function(res){
                 let html='';
                 if(res.code === 0){
                     showToast(res.msg, 'error');
                     $('#list').html(`<tr><td colspan="5" class="no-result">${res.msg}</td></tr>`);
+                    renderPagination(res.pagination || {total_pages:0});
                     return;
                 }
                 const list = res.data || [];
+                const pagination = res.pagination || {};
                 if(list.length === 0){
                     html = `<tr><td colspan="5" class="no-result">未搜索到相关内容</td></tr>`;
                     $('#list').html(html);
+                    renderPagination(pagination);
                     return;
                 }
                 list.forEach(g=>{
@@ -285,10 +326,31 @@
                     </tr>`;
                 });
                 $('#list').html(html);
+                renderPagination(pagination);
             },'json').fail(function(error){
                 showToast(`加载区域组失败！`, 'error');
                 $('#list').html(`<tr><td colspan="5" class="no-result">加载失败</td></tr>`);
+                renderPagination({total_pages:0});
             });
+        }
+
+        // 渲染分页控件（新增）
+        function renderPagination(pagination){
+            const totalPages = pagination.total_pages || 0;
+            const current = pagination.page || 1;
+            let html = '';
+            if(totalPages <= 1) {
+                $('#pagination').html('');
+                return;
+            }
+            html += `<div class="pagination-container">`;
+            html += `<button class="page-btn" ${current<=1?'disabled':''} onclick="loadGroup('${currentKeyword}',${current-1})">上一页</button>`;
+            for(let i=1;i<=totalPages;i++){
+                html += `<button class="page-btn ${i==current?'active':''}" onclick="loadGroup('${currentKeyword}',${i})">${i}</button>`;
+            }
+            html += `<button class="page-btn" ${current>=totalPages?'disabled':''} onclick="loadGroup('${currentKeyword}',${current+1})">下一页</button>`;
+            html += `</div>`;
+            $('#pagination').html(html);
         }
 
         // 跳转详情
@@ -296,18 +358,20 @@
             window.location.href = `/area-manage/group/detail/${id}/`;
         }
 
-        // 搜索
+        // 搜索（优化版）
         function searchGroups(){
             const keyword = $('#searchInput').val().trim();
             if (!keyword) { showToast('请输入搜索关键词', 'warning'); $('#searchInput').focus(); return; }
             saveSearchHistory(keyword);
-            loadGroup(keyword);
+            loadGroup(keyword, 1); // 搜索重置为第一页
             loadSearchHistory();
         }
 
+        // 清空搜索（优化版）
         function clearSearch(){
             $('#searchInput').val('');
-            loadGroup();
+            currentKeyword = '';
+            loadGroup('', 1);
         }
 
         // 搜索记录

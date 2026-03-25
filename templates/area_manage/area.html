@@ -234,11 +234,11 @@
             `;
             document.body.appendChild(overlay);
             setTimeout(() => overlay.classList.add('active'), 10);
-            
+
             const input = overlay.querySelector('.modal-input');
             const cancelBtn = overlay.querySelector('.modal-btn-cancel');
             const confirmBtn = overlay.querySelector('.modal-btn-confirm');
-            
+
             input.focus();
             cancelBtn.addEventListener('click', () => { overlay.remove(); callback(null); });
             confirmBtn.addEventListener('click', () => {
@@ -268,7 +268,7 @@
             `;
             document.body.appendChild(overlay);
             setTimeout(() => overlay.classList.add('active'), 10);
-            
+
             const cancelBtn = overlay.querySelector('.modal-btn-cancel');
             const confirmBtn = overlay.querySelector('.modal-btn-confirm');
             cancelBtn.addEventListener('click', () => { overlay.remove(); callback(false); });
@@ -282,7 +282,7 @@
         function load(keyword = ''){
             let url = '/area-manage/api/area/list/';
             if (keyword) url += `?keyword=${encodeURIComponent(keyword)}`;
-            
+
             $.get(url, function(res){
                 let html='';
                 // 接口失败
