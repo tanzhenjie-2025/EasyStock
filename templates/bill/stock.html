@@ -129,6 +129,30 @@
             background: #f8f9fa;
             border-bottom: 1px solid #eee;
         }
+
+        /* 分页样式 */
+        .pagination {
+            margin-top: 30px;
+            display: flex;
+            justify-content: center;
+            gap: 5px;
+        }
+        .page-link {
+            padding: 8px 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            color: #0066cc;
+            text-decoration: none;
+        }
+        .page-item.active .page-link {
+            background-color: #0066cc;
+            color: #fff;
+            border-color: #0066cc;
+        }
+        .page-item.disabled .page-link {
+            color: #999;
+            cursor: not-allowed;
+        }
     </style>
 {% endblock %}
 
@@ -136,19 +160,21 @@
     <div class="stock-container">
         <h1>商品库存查询</h1>
         
-        <!-- 输入法式商品搜索框 + 查询按钮 -->
-        <div class="search-wrapper">
+        <!-- 后端搜索表单 -->
+        <form method="get" class="search-wrapper">
             <input
                 type="text"
+                name="keyword"
                 id="productSearchInput"
                 class="product-search-input"
                 placeholder="输入商品名称/别名/拼音（回车或点击查询）"
+                value="{{ keyword }}"
             >
             <!-- 最近搜索下拉框 -->
             <div id="searchHistoryDropdown" class="history-dropdown"></div>
             
-            <button id="searchBtn" class="search-btn">查询</button>
-        </div>
+            <button type="submit" id="searchBtn" class="search-btn">查询</button>
+        </form>
 
         <!-- 库存表格 -->
         <table id="stockTable">
@@ -164,7 +190,13 @@
             <tbody id="stockTableBody">
                 {% for product in products %}
                 <tr data-product-id="{{ product.id }}">
-                    <td>{{ product.name }}</td>
+                    <td>
+                        {% if keyword %}
+                            {{ product.name|safe }}
+                        {% else %}
+                            {{ product.name }}
+                        {% endif %}
+                    </td>
                     <td>{{ product.pinyin_abbr }}</td>
                     <td>{{ product.unit }}</td>
                     <td>¥{{ product.price }}</td>
@@ -175,187 +207,120 @@
                 {% endfor %}
             </tbody>
         </table>
+
+        <!-- 分页导航 -->
+        {% if page_products.has_other_pages %}
+        <nav>
+            <ul class="pagination">
+                {% if page_products.has_previous %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_products.previous_page_number }}&keyword={{ keyword }}">上一页</a>
+                </li>
+                {% else %}
+                <li class="page-item disabled"><span class="page-link">上一页</span></li>
+                {% endif %}
+
+                {% for num in paginator.page_range %}
+                    {% if page_products.number == num %}
+                    <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                    {% else %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ num }}&keyword={{ keyword }}">{{ num }}</a>
+                    </li>
+                    {% endif %}
+                {% endfor %}
+
+                {% if page_products.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_products.next_page_number }}&keyword={{ keyword }}">下一页</a>
+                </li>
+                {% else %}
+                <li class="page-item disabled"><span class="page-link">下一页</span></li>
+                {% endif %}
+            </ul>
+        </nav>
+        {% endif %}
     </div>
 {% endblock %}
 
 {% block extra_js %}
     <script>
         // ========== 全局变量 ==========
-        let allProducts = [];       // 本地缓存所有商品数据
-        const CURRENT_USER = "{{ request.user.username }}"; // 当前登录用户名（账号隔离关键）
-        const HISTORY_KEY = `stock_search_history_${CURRENT_USER}`; // 按用户存储历史
-        const MAX_HISTORY_COUNT = 10; // 最多保留10条历史
+        const CURRENT_USER = "{{ request.user.username }}";
+        const HISTORY_KEY = `stock_search_history_${CURRENT_USER}`;
+        const MAX_HISTORY_COUNT = 10;
 
         // ========== 页面加载完成后执行 ==========
         window.onload = function() {
-            // 1. 初始化商品数据
-            {% if products %}
-                allProducts = [
-                    {% for product in products %}
-                    {
-                        id: {{ product.id }},
-                        name: "{{ product.name }}",
-                        pinyin_abbr: "{{ product.pinyin_abbr }}",
-                        unit: "{{ product.unit }}",
-                        price: {{ product.price }},
-                        stock: {{ product.stock }}
-                    }{% if not forloop.last %},{% endif %}
-                    {% endfor %}
-                ];
-            {% endif %}
-
             const searchInput = document.getElementById('productSearchInput');
-            const searchBtn = document.getElementById('searchBtn');
             const historyDropdown = document.getElementById('searchHistoryDropdown');
-            const searchWrapper = document.querySelector('.search-wrapper'); // 补充定义变量（原代码遗漏）
+            const searchWrapper = document.querySelector('.search-wrapper');
 
-            // 2. 自动聚焦搜索框
+            // 自动聚焦
             setTimeout(() => {
                 searchInput.focus();
             }, 100);
 
-            // 3. 绑定查询按钮点击
-            searchBtn.addEventListener('click', function() {
-                const keyword = searchInput.value.trim();
-                if(keyword) saveSearchHistory(keyword); // 保存历史
-                searchStockByKeyword(keyword);
-            });
-
-            // 4. 绑定回车查询
-            searchInput.addEventListener('keydown', function(e) {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    const keyword = searchInput.value.trim();
-                    if(keyword) saveSearchHistory(keyword);
-                    searchStockByKeyword(keyword);
-                    historyDropdown.style.display = 'none';
-                }
-            });
-
-            // 5. 搜索框聚焦 → 显示最近搜索
+            // 聚焦显示历史
             searchInput.addEventListener('focus', function() {
                 renderSearchHistory();
             });
 
-            // 6. 点击页面其他地方 → 隐藏历史
+            // 点击外部隐藏历史
             document.addEventListener('click', function(e) {
                 if(!searchWrapper.contains(e.target)) {
                     historyDropdown.style.display = 'none';
                 }
             });
+
+            // 提交时保存历史
+            searchInput.closest('form').addEventListener('submit', function() {
+                const keyword = searchInput.value.trim();
+                if(keyword) saveSearchHistory(keyword);
+            });
         };
 
-        // ========== 1. 保存搜索历史（去重+倒序+限数量） ==========
+        // ========== 保存搜索历史 ==========
         function saveSearchHistory(keyword) {
             if(!keyword || !CURRENT_USER) return;
             keyword = keyword.trim();
             
-            // 读取历史
             let history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
-            
-            // 去重：删除已存在的相同关键词
             history = history.filter(item => item.keyword !== keyword);
+            history.unshift({ keyword: keyword, time: new Date().getTime() });
             
-            // 添加新历史（最新在前）
-            history.unshift({
-                keyword: keyword,
-                time: new Date().getTime()
-            });
-            
-            // 限制最多10条
             if(history.length > MAX_HISTORY_COUNT) {
                 history = history.slice(0, MAX_HISTORY_COUNT);
             }
             
-            // 保存到本地
             localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
         }
 
-        // ========== 2. 渲染最近搜索下拉框 ==========
+        // ========== 渲染最近搜索 ==========
         function renderSearchHistory() {
             const historyDropdown = document.getElementById('searchHistoryDropdown');
             const searchInput = document.getElementById('productSearchInput');
             let history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
             
             if(history.length === 0) {
-                // 无历史
-                historyDropdown.innerHTML = `
-                    <div class="history-title">最近搜索</div>
-                    <div class="empty-history">无最近搜索</div>
-                `;
+                historyDropdown.innerHTML = `<div class="history-title">最近搜索</div><div class="empty-history">无最近搜索</div>`;
             } else {
-                // 有历史
                 let html = `<div class="history-title">最近搜索</div>`;
                 history.forEach(item => {
-                    html += `
-                        <div class="history-item" data-keyword="${item.keyword}">
-                            ${item.keyword}
-                        </div>
-                    `;
+                    html += `<div class="history-item" data-keyword="${item.keyword}">${item.keyword}</div>`;
                 });
                 historyDropdown.innerHTML = html;
 
-                // 绑定历史项点击事件
                 document.querySelectorAll('.history-item').forEach(item => {
                     item.onclick = function() {
                         const keyword = this.dataset.keyword;
                         searchInput.value = keyword;
-                        saveSearchHistory(keyword); // 刷新排序
-                        searchStockByKeyword(keyword);
+                        searchInput.closest('form').submit();
                         historyDropdown.style.display = 'none';
                     };
                 });
             }
-            
             historyDropdown.style.display = 'block';
-        }
-
-        // ========== 3. 核心查询函数（不变） ==========
-        function searchStockByKeyword(keyword) {
-            const tableBody = document.getElementById('stockTableBody');
-            if (!tableBody) return;
-
-            tableBody.innerHTML = '';
-            if (!keyword) {
-                allProducts.forEach(product => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `
-                        <td>${product.name}</td>
-                        <td>${product.pinyin_abbr}</td>
-                        <td>${product.unit}</td>
-                        <td>¥${product.price}</td>
-                        <td>${product.stock}</td>
-                    `;
-                    tableBody.appendChild(tr);
-                });
-                return;
-            }
-
-            const lowerKeyword = keyword.toLowerCase();
-            const filteredProducts = allProducts.filter(product => 
-                product.name.toLowerCase().includes(lowerKeyword) || 
-                product.pinyin_abbr.toLowerCase().includes(lowerKeyword)
-            );
-
-            if (filteredProducts.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="5">未找到关键词「${keyword}」相关商品</td></tr>`;
-            } else {
-                filteredProducts.forEach(product => {
-                    const tr = document.createElement('tr');
-                    let highlightedName = product.name.replace(
-                        new RegExp(keyword, 'gi'), 
-                        match => `<span style="background-color: yellow;">${match}</span>`
-                    );
-                    tr.innerHTML = `
-                        <td>${highlightedName}</td>
-                        <td>${product.pinyin_abbr}</td>
-                        <td>${product.unit}</td>
-                        <td>¥${product.price}</td>
-                        <td>${product.stock}</td>
-                    `;
-                    tableBody.appendChild(tr);
-                });
-            }
         }
     </script>
 {% endblock %}

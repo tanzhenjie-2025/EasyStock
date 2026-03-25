@@ -257,11 +257,39 @@ def print_order(request, order_no):
 @login_required
 @permission_required(PERM_ORDER_VIEW)
 def stock_list(request):
-    """库存查询页面"""
-    products = Product.objects.all()
+    """库存查询页面（分页优化版 - 每页20条 + 后端搜索）"""
+    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+
+    # 获取搜索关键词 + 分页参数
+    keyword = request.GET.get('keyword', '').strip()
+    page = request.GET.get('page', 1)
+
+    # 基础查询：按商品名称排序
+    products = Product.objects.all().order_by('name')
+
+    # 后端搜索筛选（匹配名称/拼音首字母）
+    if keyword:
+        products = products.filter(
+            Q(name__icontains=keyword) |
+            Q(pinyin_abbr__icontains=keyword)
+        )
+
+    # 核心：分页逻辑（固定每页20条）
+    paginator = Paginator(products, 20)
+    try:
+        page_products = paginator.page(page)
+    except PageNotAnInteger:
+        page_products = paginator.page(1)
+    except EmptyPage:
+        page_products = paginator.page(paginator.num_pages)
+
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+
     return render(request, 'bill/stock.html', {
-        'products': products,
+        'products': page_products,  # 分页后的商品
+        'paginator': paginator,  # 分页器
+        'page_products': page_products,  # 分页对象
+        'keyword': keyword,  # 搜索关键词（回显）
         'is_super_admin': is_super_admin
     })
 
