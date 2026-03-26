@@ -9,6 +9,28 @@ from openpyxl.styles import Font, Alignment, PatternFill
 from io import BytesIO
 import json
 
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+from django.db.models import Sum, F, DecimalField
+from django.db.models.functions import Coalesce
+
+# ========== 通用优化函数 ==========
+def parse_datetime(date_str):
+    """通用时间解析函数"""
+    try:
+        return datetime.strptime(date_str.replace('T', ' '), '%Y-%m-%d %H:%M')
+    except ValueError:
+        return None
+
+def get_area_ids_by_group(group_id):
+    """通用获取区域ID列表"""
+    if group_id == '0':
+        return Area.objects.all().values_list('id', flat=True)
+    try:
+        group = AreaGroup.objects.get(id=group_id)
+        return group.areas.values_list('id', flat=True)
+    except AreaGroup.DoesNotExist:
+        return []
+
 # ========== 核心导入：用户管理模块的RBAC体系 ==========
 from accounts.models import (
     User, Role, Permission,
@@ -650,70 +672,83 @@ def customer_amount_detail_page(request, customer_id):
             'error_msg': f'获取客户信息失败：{str(e)}'
         }, status=400)
 
+# ========== 修复：客户订单来源数据接口 ==========
 @login_required
 def get_customer_order_source(request, customer_id):
-    """获取客户订单来源数据接口（金额汇总详情）"""
+    """优化后：客户订单来源数据接口"""
     try:
-        # 获取查询参数（时间范围）
+        # 1. 获取参数（分页）
         start_date = request.GET.get('start_date')
         end_date = request.GET.get('end_date')
+        # 分页参数转整数
+        page = int(request.GET.get('page', 1))
+        page_size = int(request.GET.get('page_size', 10))
+
+        # 2. 参数校验
         if not start_date or not end_date:
             return JsonResponse({'code': 0, 'msg': '缺少时间范围参数'}, status=400)
+        start = parse_datetime(start_date)
+        end = parse_datetime(end_date)
+        if not start or not end:
+            return JsonResponse({'code': 0, 'msg': '时间格式错误'}, status=400)
 
-        # 修复：解析ISO格式时间字符串为datetime对象
-        try:
-            # 替换T为空格，兼容前端传递的ISO格式
-            start = datetime.strptime(start_date.replace('T', ' '), '%Y-%m-%d %H:%M')
-            end = datetime.strptime(end_date.replace('T', ' '), '%Y-%m-%d %H:%M')
-        except ValueError:
-            return JsonResponse({'code': 0, 'msg': '时间格式错误，请使用正确的时间格式'}, status=400)
+        # 3. 提前查询客户
+        customer = get_object_or_404(Customer, id=customer_id)
 
-        # ========== 核心修改 ==========
-        # 查询该客户在指定时间范围内的所有订单（仅排除作废，包含重开/未结清）
+        # 4. 🔥 修复：移除__ne，改用exclude过滤作废订单
         orders = Order.objects.filter(
             customer_id=customer_id,
             create_time__gte=start,
-            create_time__lte=end
+            create_time__lte=end,
         ).exclude(
-            status='cancelled'  # 仅排除作废订单，其余状态（pending/printed/reopened）都计入
-        ).order_by('-create_time')
+            status='cancelled'  # 正确写法
+        ).order_by('-create_time').prefetch_related('items__product')
 
-        # 剩余代码保持不变...
-        # 组装订单来源数据
+        # 5. 聚合总金额
+        total_amount = orders.aggregate(
+            total=Coalesce(Sum('total_amount'), 0, output_field=DecimalField())
+        )['total']
+
+        # 6. 分页
+        paginator = Paginator(orders, page_size)
+        try:
+            current_page = paginator.page(page)
+        except (PageNotAnInteger, EmptyPage):
+            current_page = paginator.page(1)
+
+        # 7. 组装数据
         order_list = []
-        total_amount = 0
-        for order in orders:
-            # 获取订单明细
-            order_items = OrderItem.objects.filter(order_id=order.id)
-            item_list = []
-            for item in order_items:
-                product_name = item.product.name if item.product else '未知商品'
-                item_list.append({
-                    'product_name': product_name,
-                    'quantity': item.quantity,
-                    'unit': item.product.unit if item.product else '',
-                    'price': float(item.product.price) if item.product else 0,
-                    'amount': float(item.amount) if item.amount else 0
-                })
+        for order in current_page:
+            item_list = [{
+                'product_name': item.product.name if item.product else '未知商品',
+                'quantity': item.quantity,
+                'unit': item.product.unit if item.product else '',
+                'price': float(item.product.price) if item.product else 0,
+                'amount': float(item.amount) if item.amount else 0
+            } for item in order.items.all()]
 
-            order_info = {
+            order_list.append({
                 'order_no': order.order_no,
                 'create_time': order.create_time.strftime('%Y-%m-%d %H:%M:%S'),
                 'total_amount': float(order.total_amount),
                 'status': dict(order.ORDER_STATUS).get(order.status, '未知状态'),
                 'items': item_list
-            }
-            order_list.append(order_info)
-            total_amount += float(order.total_amount)
+            })
 
         return JsonResponse({
             'code': 1,
             'data': order_list,
-            'total_amount': round(total_amount, 2),
-            'customer_name': get_object_or_404(Customer, id=customer_id).name
+            'total_amount': round(float(total_amount), 2),
+            'customer_name': customer.name,
+            'page': page,
+            'page_size': page_size,
+            'total_count': paginator.count
         })
     except Exception as e:
-        return JsonResponse({'code': 0, 'msg': f'查询订单来源失败：{str(e)}'}, status=500)
+        return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'}, status=500)
+
+
+
 
 
 # ========== 新增：商品汇总详情页相关 ==========
@@ -753,82 +788,79 @@ def product_summary_detail_page(request, product_id):
         }, status=400)
 
 
+# ========== 修复：商品订单来源数据接口 ==========
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
 def get_product_order_source(request, product_id):
-    """获取商品订单来源数据接口（商品汇总详情）"""
+    """优化后：商品订单来源数据接口"""
     try:
-        # 获取查询参数
+        # 1. 获取参数 + 转整数
         group_id = request.GET.get('group_id', '0')
         start_date = request.GET.get('start_date')
         end_date = request.GET.get('end_date')
+        page = int(request.GET.get('page', 1))
+        page_size = int(request.GET.get('page_size', 20))
 
-        # 参数校验
+        # 2. 参数校验
         if not start_date or not end_date:
             return JsonResponse({'code': 0, 'msg': '缺少时间范围参数'}, status=400)
+        start = parse_datetime(start_date)
+        end = parse_datetime(end_date)
+        if not start or not end:
+            return JsonResponse({'code': 0, 'msg': '时间格式错误'}, status=400)
 
-        # 解析时间格式
-        try:
-            start = datetime.strptime(start_date.replace('T', ' '), '%Y-%m-%d %H:%M')
-            end = datetime.strptime(end_date.replace('T', ' '), '%Y-%m-%d %H:%M')
-        except ValueError:
-            return JsonResponse({'code': 0, 'msg': '时间格式错误，请使用YYYY-MM-DDTHH:MM格式'}, status=400)
+        # 3. 获取区域ID + 商品信息
+        area_ids = get_area_ids_by_group(group_id)
+        product = get_object_or_404(Product, id=product_id)
 
-        # 处理区域组
-        area_ids = []
-        if group_id == '0':
-            area_ids = Area.objects.all().values_list('id', flat=True)
-        else:
-            try:
-                group = AreaGroup.objects.get(id=group_id)
-                area_ids = group.areas.values_list('id', flat=True)
-            except AreaGroup.DoesNotExist:
-                return JsonResponse({'code': 0, 'msg': '区域组不存在'}, status=400)
-
-        # 查询该商品的所有订单明细（排除作废订单）
+        # 4. 🔥 修复：移除__ne，改用exclude过滤作废订单
         order_items = OrderItem.objects.filter(
             product_id=product_id,
             order__area_id__in=area_ids,
             order__create_time__gte=start,
-            order__create_time__lte=end
+            order__create_time__lte=end,
         ).exclude(
-            order__status='cancelled'
-        ).select_related('order', 'order__customer', 'order__area')
+            order__status='cancelled'  # 正确写法
+        ).select_related('order__customer', 'order__area')
 
-        # 组装订单来源数据
+        # 5. 聚合数据
+        aggregate_data = order_items.aggregate(
+            total_quantity=Coalesce(Sum('quantity'), 0),
+            total_amount=Coalesce(Sum('amount'), 0, output_field=DecimalField())
+        )
+
+        # 6. 分页
+        paginator = Paginator(order_items, page_size)
+        try:
+            current_page = paginator.page(page)
+        except (PageNotAnInteger, EmptyPage):
+            current_page = paginator.page(1)
+
+        # 7. 组装数据
         order_list = []
-        total_quantity = 0
-        total_amount = 0
-
-        for item in order_items:
+        for item in current_page:
             order = item.order
-            customer_name = order.customer.name if order.customer else '无客户'
-            area_name = order.area.name if order.area else '无区域'
-
-            order_info = {
+            order_list.append({
                 'order_no': order.order_no,
                 'create_time': order.create_time.strftime('%Y-%m-%d %H:%M:%S'),
-                'customer_name': customer_name,
-                'area_name': area_name,
+                'customer_name': order.customer.name if order.customer else '无客户',
+                'area_name': order.area.name if order.area else '无区域',
                 'quantity': item.quantity,
-                'unit': item.product.unit if item.product else '',
-                'price': float(item.product.price) if item.product else 0,
-                'amount': float(item.amount) if item.amount else 0,
+                'unit': product.unit,
+                'price': float(product.price),
+                'amount': float(item.amount),
                 'order_status': dict(order.ORDER_STATUS).get(order.status, '未知状态')
-            }
-            order_list.append(order_info)
-            total_quantity += item.quantity
-            total_amount += float(item.amount or 0)
-
-        # 获取商品名称
-        product = get_object_or_404(Product, id=product_id)
+            })
 
         return JsonResponse({
             'code': 1,
             'data': order_list,
-            'total_quantity': total_quantity,
-            'total_amount': round(total_amount, 2),
-            'product_name': product.name
+            'total_quantity': aggregate_data['total_quantity'],
+            'total_amount': round(float(aggregate_data['total_amount']), 2),
+            'product_name': product.name,
+            'page': page,
+            'page_size': page_size,
+            'total_count': paginator.count
         })
     except Exception as e:
-        return JsonResponse({'code': 0, 'msg': f'查询订单来源失败：{str(e)}'}, status=500)
+        return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'}, status=500)

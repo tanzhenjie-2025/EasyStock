@@ -330,16 +330,15 @@ class Order(models.Model):
     def __str__(self):
         return self.order_no
 
-    class Meta:
-        verbose_name = '订单'
-        verbose_name_plural = '订单管理'
-        indexes = [
-            # 🔥 排行榜核心索引：状态 + 时间 + 地区（精准匹配筛选条件）
-            models.Index(fields=['status', 'create_time', 'area']),
-            # 原有索引保留
-            models.Index(fields=['customer', 'status', '-create_time']),
-            models.Index(fields=['area', 'status', 'create_time']),
-        ]
+    indexes = [
+        models.Index(fields=['status', 'create_time', 'area']),
+        models.Index(fields=['customer', 'status', '-create_time']),
+        models.Index(fields=['area', 'status', 'create_time']),
+        # 🔥 新增：客户详情核心索引（解决客户订单查询）
+        models.Index(fields=['customer_id', 'create_time', 'status']),
+        # 🔥 新增：商品详情关联索引
+        models.Index(fields=['id', 'create_time', 'area_id', 'status']),
+    ]
 
 
 class OrderItem(models.Model):
@@ -368,8 +367,9 @@ class OrderItem(models.Model):
         verbose_name = '订单明细'
         verbose_name_plural = '订单明细管理'
         indexes = [
-            # 🔥 排行榜覆盖索引：关联订单 + 商品 + 聚合字段（数据库直接从索引取数）
             models.Index(fields=['order', 'product', 'quantity', 'amount']),
+            # 🔥 新增：商品详情核心索引（解决商品订单明细查询）
+            models.Index(fields=['product_id', 'order_id', 'quantity', 'amount']),
         ]
 
 

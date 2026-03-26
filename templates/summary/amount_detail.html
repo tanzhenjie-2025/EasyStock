@@ -143,21 +143,17 @@ function goBack() {
     window.history.back();
 }
 
-// 加载订单来源数据
-function loadOrderSource() {
+// 加载订单来源数据（优化：分页）
+function loadOrderSource(page = 1) {
     const customer_id = {{ customer_id }};
     const start_date = getUrlParam('start_date');
     const end_date = getUrlParam('end_date');
     
-    if (!start_date || !end_date) {
-        $('#orderSourceList').html('<div class="empty-order">缺少时间范围参数</div>');
-        return;
-    }
-
-    // 发起请求
     $.get(`/summary/api/order-source/${customer_id}/`, {
         start_date: start_date,
-        end_date: end_date
+        end_date: end_date,
+        page: page,
+        page_size: 10
     }, function(res) {
         if (res.code !== 1) {
             $('#orderSourceList').html(`<div class="empty-order">${res.msg || '查询失败'}</div>`);
@@ -169,10 +165,9 @@ function loadOrderSource() {
             return;
         }
 
-        // 渲染订单列表
+        // 渲染订单列表（完整原有逻辑）
         let html = '';
         res.data.forEach(order => {
-            // 渲染订单明细
             let itemHtml = '';
             order.items.forEach(item => {
                 itemHtml += `<tr>
@@ -183,7 +178,6 @@ function loadOrderSource() {
                 </tr>`;
             });
 
-            // 渲染订单卡片
             html += `<div class="order-card">
                 <div class="order-header">
                     <div>订单编号：${order.order_no}</div>
@@ -211,7 +205,6 @@ function loadOrderSource() {
             </div>`;
         });
 
-        // 更新页面内容
         $('#orderSourceList').html(html);
         $('#totalAmount').text(res.total_amount.toFixed(2));
         $('#totalAmountSection').show();

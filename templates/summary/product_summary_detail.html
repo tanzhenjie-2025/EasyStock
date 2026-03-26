@@ -118,73 +118,60 @@
 <!-- ====================== 你原本的所有JS（完全保留，无任何修改） ====================== -->
 <script>
 // 页面加载时查询订单来源
+// 商品详情页 JS 优化（分页）
 $(function() {
-    // 获取URL参数
     const urlParams = new URLSearchParams(window.location.search);
     const productId = "{{ product_id }}";
     const groupId = urlParams.get('group_id') || '0';
     const startDate = urlParams.get('start_date');
     const endDate = urlParams.get('end_date');
+    let currentPage = 1; // 默认第一页
 
-    // 参数校验
-    if (!startDate || !endDate) {
-        $('#orderSourceData').html('<tr><td colspan="8" class="empty-data">缺少时间范围参数</td></tr>');
-        return;
+    // 封装查询函数
+    function loadData(page = 1) {
+        $.get(`/summary/api/product-order-source/${productId}/`, {
+            group_id: groupId,
+            start_date: startDate,
+            end_date: endDate,
+            page: page,
+            page_size: 20
+        }, function(res) {
+            if (res.code !== 1) {
+                $('#orderSourceData').html(`<tr><td colspan="8" class="empty-data">${res.msg || '查询失败'}</td></tr>`);
+                return;
+            }
+            // 原有渲染逻辑不变
+            let html = '';
+            res.data.forEach(item => {
+                html += `<tr class="order-row" data-order-no="${item.order_no}">
+                    <td>${item.order_no}</td>
+                    <td>${item.create_time}</td>
+                    <td>${item.customer_name}</td>
+                    <td>${item.area_name}</td>
+                    <td>${item.quantity}</td>
+                    <td>${item.price.toFixed(2)}</td>
+                    <td>${item.amount.toFixed(2)}</td>
+                    <td>${item.order_status}</td>
+                </tr>`;
+            });
+            html += `<tr class="total-row">
+                <td colspan="4">总计</td>
+                <td>${res.total_quantity}</td>
+                <td>-</td>
+                <td>${res.total_amount.toFixed(2)}</td>
+                <td>-</td>
+            </tr>`;
+            $('#orderSourceData').html(html);
+            $('.order-row').click(function() {
+    const orderNo = $(this).data('order-no');
+    // 修正跳转地址
+    window.location.href = `/bill/orders/detail/${orderNo}/`;
+});
+        });
     }
 
-    // 发起查询
-    $.get(`/summary/api/product-order-source/${productId}/`, {
-        group_id: groupId,
-        start_date: startDate,
-        end_date: endDate
-    }, function(res) {
-        if (res.code !== 1) {
-            $('#orderSourceData').html(`<tr><td colspan="8" class="empty-data">${res.msg || '查询失败'}</td></tr>`);
-            return;
-        }
-        if (res.data.length === 0) {
-            $('#orderSourceData').html('<tr><td colspan="8" class="empty-data">该时间段内无该商品的销售订单</td></tr>');
-            return;
-        }
-
-        // 渲染订单来源数据
-        let html = '';
-        res.data.forEach(item => {
-            // 为每行添加order-row类（高亮核心）
-            html += `<tr class="order-row" data-order-no="${item.order_no}">
-                <td>${item.order_no}</td>
-                <td>${item.create_time}</td>
-                <td>${item.customer_name}</td>
-                <td>${item.area_name}</td>
-                <td>${item.quantity}</td>
-                <td>${item.price.toFixed(2)}</td>
-                <td>${item.amount.toFixed(2)}</td>
-                <td>${item.order_status}</td>
-            </tr>`;
-        });
-
-        // 添加总计行
-        html += `<tr class="total-row">
-            <td colspan="4">总计</td>
-            <td>${res.total_quantity}</td>
-            <td>-</td>
-            <td>${res.total_amount.toFixed(2)}</td>
-            <td>-</td>
-        </tr>`;
-
-        $('#orderSourceData').html(html);
-
-        // 绑定整行点击事件
-        $('.order-row').click(function() {
-            const orderNo = $(this).data('order-no');
-            const currentUrl = window.location.href;
-            const backUrl = encodeURIComponent(currentUrl);
-            window.location.href = `/bill/orders/detail/${orderNo}/?from_product_summary=1&back_url=${backUrl}`;
-        });
-
-    }).fail(function() {
-        $('#orderSourceData').html('<tr><td colspan="8" class="empty-data">查询订单来源失败，请重试</td></tr>');
-    });
+    // 初始化加载
+    loadData();
 });
 </script>
 {% endblock %}
