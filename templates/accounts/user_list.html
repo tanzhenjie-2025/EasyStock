@@ -137,9 +137,10 @@
                         </td>
                         {% if is_super_admin %}
                         <!-- 恢复你原本能运行的取值方式，移除自定义过滤器 -->
-                        <td class="col-order-count">{{ user_stats_dict.user.id.orders|default:0 }}单</td>
-                        <td class="col-sales">{{ user_stats_dict.user.id.sales|default:0 }}元</td>
-                        <td class="col-ratio">{{ user_stats_dict.user.id.ratio|default:0 }}%</td>
+                        <!-- ✅ 正确代码 -->
+<td class="col-order-count">{{ user.orders|default:0 }}单</td>
+<td class="col-sales">{{ user.sales|default:0 }}元</td>
+<td class="col-ratio">{{ user.ratio|default:0 }}%</td>
                         {% endif %}
                         <td class="col-create-time">{{ user.date_joined|date:"Y-m-d H:i" }}</td>
                         <td class="col-operation">
@@ -169,6 +170,42 @@
                 </tbody>
             </table>
         </div>
+    
+    <!-- ✅ 新增：Bootstrap 分页控件 -->
+        {% if page_obj.has_other_pages %}
+        <nav aria-label="Page navigation" class="mt-4">
+            <ul class="pagination justify-content-center">
+                <!-- 上一页 -->
+                {% if page_obj.has_previous %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.previous_page_number }}&keyword={{ keyword }}&status={{ status }}">上一页</a>
+                </li>
+                {% else %}
+                <li class="page-item disabled"><span class="page-link">上一页</span></li>
+                {% endif %}
+
+                <!-- 页码 -->
+                {% for num in paginator.page_range %}
+                    {% if page_obj.number == num %}
+                    <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+                    {% else %}
+                    <li class="page-item">
+                        <a class="page-link" href="?page={{ num }}&keyword={{ keyword }}&status={{ status }}">{{ num }}</a>
+                    </li>
+                    {% endif %}
+                {% endfor %}
+
+                <!-- 下一页 -->
+                {% if page_obj.has_next %}
+                <li class="page-item">
+                    <a class="page-link" href="?page={{ page_obj.next_page_number }}&keyword={{ keyword }}&status={{ status }}">下一页</a>
+                </li>
+                {% else %}
+                <li class="page-item disabled"><span class="page-link">下一页</span></li>
+                {% endif %}
+            </ul>
+        </nav>
+        {% endif %}
     </div>
 </div>
 {% endblock %}

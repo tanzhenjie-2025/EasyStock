@@ -307,6 +307,14 @@ class User(AbstractUser):
         verbose_name = '系统用户'
         verbose_name_plural = '系统用户管理'
         ordering = ['-date_joined']
+        # ✅ 修复：删除 name 属性，替换为真实数据库字段
+        indexes = [
+            # 搜索用联合索引（user_code/用户名/电话/姓名真实字段）
+            models.Index(fields=['user_code', 'username', 'phone', 'first_name', 'last_name', 'is_active']),
+            # 单字段索引
+            models.Index(fields=['user_code']),
+            models.Index(fields=['phone']),
+        ]
 
     def __str__(self):
         return f'{self.user_code} - {self.username}（{self.name}）'

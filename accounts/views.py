@@ -13,6 +13,8 @@ import logging
 from bill.models import Order, Area
 from django.db.models import Sum, Count
 from django.views.decorators.csrf import csrf_exempt
+
+from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
 # 导入模型和常量
 from .models import (
     User, Role, Permission,
@@ -207,10 +209,14 @@ def logout_view(request):
 @login_required
 @permission_required('user_view')
 def user_list(request):
-    """用户列表（支持搜索/状态筛选 + 销售统计）"""
+    """用户列表（支持搜索/状态筛选 + 销售统计 + 分页）"""
+    from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
     # 筛选参数
     keyword = request.GET.get('keyword', '').strip()
     status = request.GET.get('status', 'all')
+    # 分页参数
+    page = request.GET.get('page', 1)
+    page_size = 10
 
     # 基础查询
     queryset = User.objects.all().order_by('-date_joined')
@@ -230,61 +236,58 @@ def user_list(request):
     elif status == 'inactive':
         queryset = queryset.filter(is_active=False)
 
-    # ========== 新增：销售统计逻辑 ==========
-    # 1. 判断是否为超级管理员（仅超级管理员可见统计数据）
+    # 分页逻辑
+    paginator = Paginator(queryset, page_size)
+    try:
+        users_page = paginator.page(page)
+    except PageNotAnInteger:
+        users_page = paginator.page(1)
+    except EmptyPage:
+        users_page = paginator.page(paginator.num_pages)
+
+    # 销售统计逻辑
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
 
-    # 2. 全店销售统计（仅超级管理员计算）
     shop_stats = {
         'total_orders': 0,
         'total_sales': 0,
         'total_cancelled': 0
     }
     if is_super_admin:
-        # 正常订单（排除作废）
         normal_orders = Order.objects.filter(status__in=['pending', 'printed', 'reopened'])
         shop_stats['total_orders'] = normal_orders.count()
         shop_stats['total_sales'] = normal_orders.aggregate(total=Sum('total_amount'))['total'] or 0
-        # 作废订单
         shop_stats['total_cancelled'] = Order.objects.filter(status='cancelled').count()
 
-    # 3. 员工销售统计（仅超级管理员计算）
-    user_stats_dict = {}
+    # ✅ 修复：直接给 user 对象绑定属性，前端无过滤器取值
     if is_super_admin:
-        for user in queryset:
+        for user in users_page:
             if not user.is_active:
-                # 已禁用员工统计数据全为0
-                user_stats_dict[user.id] = {
-                    'orders': 0,
-                    'sales': 0,
-                    'ratio': 0
-                }
+                user.orders = 0
+                user.sales = 0
+                user.ratio = 0
                 continue
 
-            # 正常订单统计
             normal_orders = Order.objects.filter(creator=user, status__in=['pending', 'printed', 'reopened'])
             user_orders = normal_orders.count()
             user_sales = normal_orders.aggregate(total=Sum('total_amount'))['total'] or 0
-
-            # 占比计算（防除零）
             ratio = round((user_sales / shop_stats['total_sales']) * 100) if shop_stats['total_sales'] > 0 else 0
 
-            user_stats_dict[user.id] = {
-                'orders': user_orders,
-                'sales': user_sales,
-                'ratio': ratio
-            }
+            user.orders = user_orders
+            user.sales = user_sales
+            user.ratio = ratio
 
     return render(request, 'accounts/user_list.html', {
-        'users': queryset,
+        'users': users_page,
         'roles': Role.objects.all(),
         'keyword': keyword,
         'status': status,
         'current_user': request.user,
-        # 新增统计数据
         'is_super_admin': is_super_admin,
         'shop_stats': shop_stats,
-        'user_stats_dict': user_stats_dict
+        # 完全删除 user_stats_dict，不需要了！
+        'paginator': paginator,
+        'page_obj': users_page,
     })
 
 @login_required
