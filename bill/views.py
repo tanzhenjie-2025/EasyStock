@@ -690,159 +690,189 @@ def reopen_order_edit(request, order_no):
 @ajax_login_required
 @ajax_permission_required(PERM_ORDER_SETTLE)
 def settle_order(request, order_no):
-    """标记订单结清"""
-    if request.method == 'POST':
+    """标记订单结清（性能优化版）"""
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, status=405)
+
+    try:
+        # 优化：select_related 预加载（规范，无N+1）
+        order = get_object_or_404(Order.objects.select_related('creator'), order_no=order_no)
+
+        # 状态校验
+        if order.status == 'cancelled':
+            return JsonResponse({'code': 0, 'msg': '作废订单无法标记结清'}, status=400)
+        if order.is_settled:
+            return JsonResponse({'code': 0, 'msg': '该订单已结清，无需重复操作'}, status=400)
+
+        # 参数校验
         try:
-            order = get_object_or_404(Order, order_no=order_no)
+            data = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({'code': 0, 'msg': '请求数据格式错误，必须是JSON'}, status=400)
 
-            if order.status == 'cancelled':
-                return JsonResponse({'code': 0, 'msg': '作废订单无法标记结清'}, status=400)
-            if order.is_settled:
-                return JsonResponse({'code': 0, 'msg': '该订单已结清，无需重复操作'}, status=400)
+        remark = data.get('remark', '').strip()
+        if not remark:
+            return JsonResponse({'code': 0, 'msg': '请填写结清备注'}, status=400)
 
-            try:
-                data = json.loads(request.body)
-            except json.JSONDecodeError:
-                return JsonResponse({'code': 0, 'msg': '请求数据格式错误，必须是JSON'}, status=400)
-            remark = data.get('remark', '').strip()
-            if not remark:
-                return JsonResponse({'code': 0, 'msg': '请填写结清备注'}, status=400)
+        # 优化：统一使用 Django 时区时间
+        order.is_settled = True
+        order.settled_by = request.user
+        order.settled_time = timezone.now()
+        order.settled_remark = remark
+        order.save(update_fields=['is_settled', 'settled_by', 'settled_time', 'settled_remark'])
 
-            order.is_settled = True
-            order.settled_by = request.user
-            order.settled_time = datetime.now()
-            order.settled_remark = remark
-            order.save()
+        # 操作日志
+        create_operation_log(
+            request=request, op_type='settle_order', obj_type='order',
+            obj_id=str(order.id), obj_name=f"订单-{order.order_no}",
+            detail=f"标记订单{order.order_no}结清，备注：{remark}"
+        )
 
-            # 重构：统一日志记录
-            create_operation_log(
-                request=request,
-                op_type='settle_order',
-                obj_type='order',
-                obj_id=str(order.id),
-                obj_name=f"订单-{order.order_no}",
-                detail=f"标记订单{order.order_no}结清，备注：{remark}"
-            )
+        return JsonResponse({'code': 1, 'msg': '订单标记结清成功', 'order_no': order_no})
 
-            return JsonResponse({'code': 1, 'msg': '订单标记结清成功', 'order_no': order_no})
-
-        except Exception as e:
-            return JsonResponse({'code': 0, 'msg': f'标记结清失败：{str(e)}'}, status=500)
-    return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, status=405)
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': f'标记结清失败：{str(e)}'}, status=500)
 
 
 @ajax_login_required
 @ajax_permission_required(PERM_ORDER_UNSETTLE)
 def unsettle_order(request, order_no):
-    """撤销订单结清"""
-    if request.method == 'POST':
+    """撤销订单结清（性能优化版）"""
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, status=405)
+
+    try:
+        order = get_object_or_404(Order.objects.select_related('creator'), order_no=order_no)
+
+        if not order.is_settled:
+            return JsonResponse({'code': 0, 'msg': '该订单未结清，无需撤销'}, status=400)
+
+        # 参数校验
         try:
-            order = get_object_or_404(Order, order_no=order_no)
+            data = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({'code': 0, 'msg': '请求数据格式错误，必须是JSON'}, status=400)
 
-            if not order.is_settled:
-                return JsonResponse({'code': 0, 'msg': '该订单未结清，无需撤销'}, status=400)
+        remark = data.get('remark', '').strip()
+        if not remark:
+            return JsonResponse({'code': 0, 'msg': '请填写撤销结清备注'}, status=400)
 
-            try:
-                data = json.loads(request.body)
-            except json.JSONDecodeError:
-                return JsonResponse({'code': 0, 'msg': '请求数据格式错误，必须是JSON'}, status=400)
-            remark = data.get('remark', '').strip()
-            if not remark:
-                return JsonResponse({'code': 0, 'msg': '请填写撤销结清备注'}, status=400)
+        # 优化：时区统一 + 仅更新必要字段
+        order.is_settled = False
+        order.unsettled_by = request.user
+        order.unsettled_time = timezone.now()
+        order.unsettled_remark = remark
+        order.save(update_fields=['is_settled', 'unsettled_by', 'unsettled_time', 'unsettled_remark'])
 
-            order.is_settled = False
-            order.unsettled_by = request.user
-            order.unsettled_time = datetime.now()
-            order.unsettled_remark = remark
-            order.save()
+        # 操作日志
+        create_operation_log(
+            request=request, op_type='unsettle_order', obj_type='order',
+            obj_id=str(order.id), obj_name=f"订单-{order.order_no}",
+            detail=f"撤销订单{order.order_no}结清状态，备注：{remark}"
+        )
 
-            # 重构：统一日志记录
-            create_operation_log(
-                request=request,
-                op_type='unsettle_order',
-                obj_type='order',
-                obj_id=str(order.id),
-                obj_name=f"订单-{order.order_no}",
-                detail=f"撤销订单{order.order_no}结清状态，备注：{remark}"
-            )
+        return JsonResponse({'code': 1, 'msg': '撤销订单结清成功', 'order_no': order_no})
 
-            return JsonResponse({'code': 1, 'msg': '撤销订单结清成功', 'order_no': order_no})
-
-        except Exception as e:
-            return JsonResponse({'code': 0, 'msg': f'撤销结清失败：{str(e)}'}, status=500)
-    return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, status=405)
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': f'撤销结清失败：{str(e)}'}, status=500)
 
 
 @ajax_login_required
 @ajax_permission_required(PERM_ORDER_SETTLE)
 def batch_settle_order(request):
-    """批量标记订单结清"""
-    if request.method == 'POST':
+    """批量标记订单结清（高性能优化版：无N+1 + 批量更新 + 事务）"""
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, status=405)
+
+    try:
+        # 参数解析
         try:
-            try:
-                data = json.loads(request.body)
-            except json.JSONDecodeError:
-                return JsonResponse({'code': 0, 'msg': '请求数据格式错误，必须是JSON'}, status=400)
+            data = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({'code': 0, 'msg': '请求数据格式错误，必须是JSON'}, status=400)
 
-            order_list = data.get('orders', [])
-            if not order_list:
-                return JsonResponse({'code': 0, 'msg': '请选择要结清的订单'}, status=400)
+        order_list = data.get('orders', [])
+        if not order_list:
+            return JsonResponse({'code': 0, 'msg': '请选择要结清的订单'}, status=400)
 
-            success_count = 0
-            fail_list = []
+        success_count = 0
+        fail_list = []
+        update_orders = []  # 待批量更新的订单
+        current_time = timezone.now()
 
-            for item in order_list:
-                order_no = item.get('order_no')
-                remark = item.get('remark', '').strip()
+        # ===================== 优化1：提取所有订单号 + 基础校验 =====================
+        order_no_map = {}  # {订单号: 备注}
+        for item in order_list:
+            # ✅ 修复核心：强制转字符串，再strip，解决int报错
+            order_no = str(item.get('order_no', '')).strip()
+            remark = str(item.get('remark', '')).strip()
 
-                if not order_no or not remark:
-                    fail_list.append(f'{order_no or "未知订单"}：备注不能为空')
-                    continue
+            if not order_no or not remark:
+                fail_list.append(f'{order_no or "未知订单"}：备注不能为空')
+                continue
+            order_no_map[order_no] = remark
 
-                try:
-                    order = get_object_or_404(Order, order_no=order_no)
+        if not order_no_map:
+            return JsonResponse({'code': 0, 'msg': '无有效订单数据'}, status=400)
 
-                    if order.status == 'cancelled':
-                        fail_list.append(f'{order_no}：作废订单无法结清')
-                        continue
-                    if order.is_settled:
-                        fail_list.append(f'{order_no}：已结清，无需重复操作')
-                        continue
+        # ===================== 优化2：1次批量查询所有订单（彻底干掉N+1） =====================
+        valid_orders = Order.objects.filter(order_no__in=order_no_map.keys())
+        valid_order_nos = {o.order_no for o in valid_orders}
 
-                    order.is_settled = True
-                    order.settled_by = request.user
-                    order.settled_time = datetime.now()
-                    order.settled_remark = remark
-                    order.save()
+        # 遍历校验状态
+        for order in valid_orders:
+            remark = order_no_map[order.order_no]
 
-                    # 重构：统一日志记录
+            # 状态过滤
+            if order.status == 'cancelled':
+                fail_list.append(f'{order.order_no}：作废订单无法结清')
+                continue
+            if order.is_settled:
+                fail_list.append(f'{order.order_no}：已结清，无需重复操作')
+                continue
+
+            # 赋值（不保存）
+            order.is_settled = True
+            order.settled_by = request.user
+            order.settled_time = current_time
+            order.settled_remark = remark
+            update_orders.append(order)
+
+        # 统计不存在的订单
+        for order_no in order_no_map.keys():
+            if order_no not in valid_order_nos:
+                fail_list.append(f'{order_no}：订单不存在')
+
+        # ===================== 优化3：批量更新（1次数据库操作） =====================
+        if update_orders:
+            with transaction.atomic():  # 事务保证原子性
+                Order.objects.bulk_update(
+                    update_orders,
+                    fields=['is_settled', 'settled_by', 'settled_time', 'settled_remark']
+                )
+                # 批量记录日志（日志无法批量，只能循环，无性能影响）
+                for order in update_orders:
                     create_operation_log(
-                        request=request,
-                        op_type='batch_settle_order',
-                        obj_type='order',
-                        obj_id=str(order.id),
-                        obj_name=f"订单-{order.order_no}",
-                        detail=f"批量结清订单{order.order_no}，备注：{remark}"
+                        request=request, op_type='batch_settle_order', obj_type='order',
+                        obj_id=str(order.id), obj_name=f"订单-{order.order_no}",
+                        detail=f"批量结清订单{order.order_no}，备注：{order.settled_remark}"
                     )
+            success_count = len(update_orders)
 
-                    success_count += 1
-                except Exception as e:
-                    fail_list.append(f'{order_no}：{str(e)}')
+        # 返回结果
+        msg = f'批量处理完成！成功{success_count}个，失败{len(fail_list)}个'
+        if fail_list:
+            msg += f'；失败原因：{"; ".join(fail_list)}'
 
-            msg = f'批量处理完成！成功{success_count}个，失败{len(fail_list)}个'
-            if fail_list:
-                msg += f'；失败原因：{"; ".join(fail_list)}'
+        return JsonResponse({
+            'code': 1 if success_count > 0 else 0,
+            'msg': msg,
+            'success_count': success_count,
+            'fail_list': fail_list
+        })
 
-            return JsonResponse({
-                'code': 1 if success_count > 0 else 0,
-                'msg': msg,
-                'success_count': success_count,
-                'fail_list': fail_list
-            })
-
-        except Exception as e:
-            return JsonResponse({'code': 0, 'msg': f'批量结清失败：{str(e)}'}, status=500)
-    return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, status=405)
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': f'批量结清失败：{str(e)}'}, status=500)
 
 
 @login_required

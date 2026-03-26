@@ -303,8 +303,8 @@ class Order(models.Model):
     # Order 模型的 save 方法，用 select_for_update 锁表，避免重复单号
     def save(self, *args, **kwargs):
         if not self.order_no:
-            date_str = datetime.datetime.now().strftime('%Y%m%d')
-            # 加锁，防止并发重复
+            # 优化：使用 Django 时区日期
+            date_str = timezone.now().strftime('%Y%m%d')
             with transaction.atomic():
                 last_order = Order.objects.filter(order_no__startswith=date_str).select_for_update().last()
                 seq = int(last_order.order_no[-4:]) + 1 if last_order else 1
@@ -335,11 +335,20 @@ class Order(models.Model):
         verbose_name = '订单'
         verbose_name_plural = '订单管理'
         indexes = [
+            # 原有索引保留
             models.Index(fields=['status', 'create_time', 'area']),
             models.Index(fields=['customer', 'status', '-create_time']),
             models.Index(fields=['area', 'status', 'create_time']),
             models.Index(fields=['customer_id', 'create_time', 'status']),
             models.Index(fields=['id', 'create_time', 'area_id', 'status']),
+
+            # ===================== 新增：结清状态核心索引（性能关键） =====================
+            # 1. 订单状态 + 结清状态（列表筛选最常用）
+            models.Index(fields=['status', 'is_settled']),
+            # 2. 结清状态 + 创建时间（统计、排序用）
+            models.Index(fields=['is_settled', 'create_time']),
+            # 3. 订单号（唯一索引已存在，补充联合索引加速查询）
+            models.Index(fields=['order_no', 'is_settled']),
         ]
 
 
