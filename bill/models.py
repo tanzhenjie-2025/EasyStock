@@ -357,14 +357,12 @@ class OrderItem(models.Model):
     class Meta:
         verbose_name = '订单明细'
         verbose_name_plural = '订单明细管理'
-        # 🔥 核心优化：新增联合索引，覆盖所有商品汇总/详情查询
+        # ✅ 修复：仅使用当前模型自身字段，删除所有跨表双下划线索引
         indexes = [
-            # 原有索引：订单+商品关联查询
+            # 核心索引1：订单+商品（汇总/详情必用）
             models.Index(fields=['order', 'product']),
-            # 新增索引1：【商品汇总核心索引】(订单区域 + 订单时间 + 订单状态 + 商品)
-            models.Index(fields=['order__area', 'order__create_time', 'order__status', 'product']),
-            # 新增索引2：【商品详情页专用索引】(商品 + 区域 + 时间 + 状态)
-            models.Index(fields=['product', 'order__area', 'order__create_time', 'order__status']),
+            # 核心索引2：商品+订单（商品详情页反向查询优化）
+            models.Index(fields=['product', 'order']),
         ]
 
 
