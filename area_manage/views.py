@@ -85,74 +85,94 @@ def refresh_all_statistics_cache():
 @login_required
 @permission_required('area_view')
 def area_list(request):
-    """获取所有区域列表（支持关键词搜索+分页+批量缓存）"""
+    """获取所有区域列表（支持关键词搜索+分页+批量缓存）【性能优化版】"""
     try:
-        # 获取请求参数
+        # ===================== 1. 安全参数处理（性能+安全双保障）=====================
+        # 强制限制：每页最多20条（满足你的需求），不允许前端修改
         keyword = request.GET.get('keyword', '').strip()
         sort_by = request.GET.get('sort', 'name')
         sort_order = request.GET.get('order', 'asc')
-        page = int(request.GET.get('page', 1))
-        page_size = int(request.GET.get('page_size', 20))
+        page = max(int(request.GET.get('page', 1)), 1)  # 页码最小为1
+        PAGE_SIZE_MAX = 20  # 硬编码限制，核心需求
 
-        # 基础查询
-        areas = Area.objects.all()
+        # 排序白名单：防止SQL注入 + 非法字段报错
+        ALLOW_SORT_FIELDS = ['name', 'id', 'create_time']
+        if sort_by not in ALLOW_SORT_FIELDS:
+            sort_by = 'name'
+
+        # ===================== 2. 高性能查询（仅查需要的字段，懒加载）=====================
+        # only()：只查询使用的字段，大幅减少数据库IO
+        areas = Area.objects.only('id', 'name', 'remark', 'create_time')
+
+        # 关键词搜索（已有索引，性能拉满）
         if keyword:
             areas = areas.filter(Q(name__icontains=keyword) | Q(remark__icontains=keyword))
-        if sort_order == 'desc':
-            sort_by = f'-{sort_by}'
-        areas = areas.order_by(sort_by)
 
-        # 分页处理
-        total = areas.count()
-        start = (page - 1) * page_size
-        end = start + page_size
+        # 排序处理
+        areas = areas.order_by(f'-{sort_by}' if sort_order == 'desc' else sort_by)
+
+        # ===================== 3. 精准分页（仅查询当前页数据，无全表加载）=====================
+        total = areas.count()  # 计数走索引，高效
+        start = (page - 1) * PAGE_SIZE_MAX
+        end = start + PAGE_SIZE_MAX
+        # 核心：数据库层面切片，仅查询20条数据，不会加载全表
         areas_page = areas[start:end]
 
-        # 批量缓存处理
-        area_ids = [a.id for a in areas_page]
+        # ===================== 4. 批量缓存优化（减少查询次数）=====================
+        # 生成当前页区域ID列表（生成器表达式，内存占用更低）
+        area_ids = (a.id for a in areas_page)
+        # 批量查询缓存，仅取需要的字段
         cache_map = {
-            cache.area_id: cache
-            for cache in AreaStatisticsCache.objects.filter(area_id__in=area_ids)
+            item['area_id']: item['customer_count']
+            for item in AreaStatisticsCache.objects.filter(area_id__in=area_ids)
+            .values('area_id', 'customer_count')
         }
-        no_cache_area_ids = [a.id for a in areas_page if a.id not in cache_map]
 
-        # 批量计算无缓存数据并创建缓存
-        no_cache_stats = {}
+        # 批量统计无缓存的区域（1次聚合查询，性能最优）
+        no_cache_area_ids = [a.id for a in areas_page if a.id not in cache_map]
         if no_cache_area_ids:
-            stats_query = Customer.objects.filter(area_id__in=no_cache_area_ids).values('area_id').annotate(count=Count('id'))
-            no_cache_stats = {item['area_id']: item['count'] for item in stats_query}
+            # 高效聚合：直接返回id->count字典
+            no_cache_stats = dict(
+                Customer.objects.filter(area_id__in=no_cache_area_ids)
+                .values('area_id')
+                .annotate(count=Count('id'))
+                .values_list('area_id', 'count')
+            )
+            # 批量创建缓存（1次插入，替代循环N次）
             cache_objs = [
-                AreaStatisticsCache(area_id=area_id, customer_count=no_cache_stats.get(area_id, 0))
-                for area_id in no_cache_area_ids
+                AreaStatisticsCache(area_id=aid, customer_count=no_cache_stats.get(aid, 0))
+                for aid in no_cache_area_ids
             ]
             AreaStatisticsCache.objects.bulk_create(cache_objs)
+            # 合并缓存数据
+            cache_map.update(no_cache_stats)
 
-        # 构造返回数据
-        result = []
-        for a in areas_page:
-            cache = cache_map.get(a.id)
-            customer_count = cache.customer_count if cache else no_cache_stats.get(a.id, 0)
-            result.append({
+        # ===================== 5. 快速构造返回数据=====================
+        result = [
+            {
                 'id': a.id,
                 'name': a.name,
-                'remark': a.remark if a.remark else '',
-                'customer_count': customer_count,
+                'remark': a.remark or '',
+                'customer_count': cache_map.get(a.id, 0),
                 'create_time': a.create_time.strftime('%Y-%m-%d %H:%M:%S')
-            })
+            }
+            for a in areas_page
+        ]
 
-        # 返回分页数据
+        # ===================== 6. 返回分页结果=====================
         return JsonResponse({
             'code': 1,
             'data': result,
             'pagination': {
                 'total': total,
                 'page': page,
-                'page_size': page_size,
-                'total_pages': (total + page_size - 1) // page_size
+                'page_size': PAGE_SIZE_MAX,
+                'total_pages': (total + PAGE_SIZE_MAX - 1) // PAGE_SIZE_MAX
             }
         }, content_type='application/json')
+
     except Exception as e:
-        logger.error(f"查询区域列表失败：{str(e)}")
+        logger.error(f"查询区域列表失败：{str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'}, content_type='application/json')
 
 

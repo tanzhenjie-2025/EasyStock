@@ -200,6 +200,7 @@
         // 常量定义
         const SEARCH_HISTORY_KEY = 'areaSearchHistory';
         const MAX_HISTORY_COUNT = 5;
+        let currentPage = 1; // 新增：当前页码
 
         // 吐司提示
         function showToast(message, type = 'info', duration = 3000) {
@@ -278,46 +279,74 @@
             });
         }
 
-        // ✅ 修复：读取后端 res.data 数据
-        function load(keyword = ''){
-            let url = '/area-manage/api/area/list/';
-            if (keyword) url += `?keyword=${encodeURIComponent(keyword)}`;
+        // ✅ 修复：支持分页+搜索的加载函数
+function load(keyword = '', page = 1){
+    currentPage = page; // 更新当前页
+    let url = `/area-manage/api/area/list/?page=${page}`;
+    if (keyword) url += `&keyword=${encodeURIComponent(keyword)}`;
 
-            $.get(url, function(res){
-                let html='';
-                // 接口失败
-                if(res.code === 0){
-                    showToast(res.msg, 'error');
-                    $('#list').html(`<tr><td colspan="4" class="no-result">${res.msg}</td></tr>`);
-                    return;
-                }
-                // 取真实数据：res.data
-                const list = res.data || [];
-                // 无数据
-                if(list.length === 0){
-                    html = `<tr><td colspan="4" class="no-result">未搜索到相关内容</td></tr>`;
-                    $('#list').html(html);
-                    return;
-                }
-                // 渲染数据
-                list.forEach(i=>{
-                    html+=`<tr onclick="goToDetail(${i.id})">
-                        <td>${i.id}</td>
-                        <td>${i.name}</td>
-                        <td>${i.remark || '无'}</td>
-                        <td>
-                            <button class="btn btn-sm btn-info me-1" onclick="event.stopPropagation();goToDetail(${i.id})">详情</button>
-                            <button class="btn btn-sm btn-warning me-1" onclick="event.stopPropagation();edit(${i.id})">改</button>
-                            <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();del(${i.id})">删</button>
-                        </td>
-                    </tr>`;
-                });
-                $('#list').html(html);
-            },'json').fail(function(error){
-                showToast(`加载失败！`, 'error');
-                $('#list').html(`<tr><td colspan="4" class="no-result">加载失败</td></tr>`);
-            });
+    $.get(url, function(res){
+        let html='';
+        if(res.code === 0){
+            showToast(res.msg, 'error');
+            $('#list').html(`<tr><td colspan="4" class="no-result">${res.msg}</td></tr>`);
+            renderPagination(res.pagination); // 渲染分页
+            return;
         }
+        const list = res.data || [];
+        if(list.length === 0){
+            html = `<tr><td colspan="4" class="no-result">未搜索到相关内容</td></tr>`;
+            $('#list').html(html);
+            renderPagination(res.pagination);
+            return;
+        }
+        // 渲染数据
+        list.forEach(i=>{
+            html+=`<tr onclick="goToDetail(${i.id})">
+                <td>${i.id}</td>
+                <td>${i.name}</td>
+                <td>${i.remark || '无'}</td>
+                <td>
+                    <button class="btn btn-sm btn-info me-1" onclick="event.stopPropagation();goToDetail(${i.id})">详情</button>
+                    <button class="btn btn-sm btn-warning me-1" onclick="event.stopPropagation();edit(${i.id})">改</button>
+                    <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();del(${i.id})">删</button>
+                </td>
+            </tr>`;
+        });
+        $('#list').html(html);
+        renderPagination(res.pagination); // 渲染分页组件
+    },'json').fail(function(error){
+        showToast(`加载失败！`, 'error');
+        $('#list').html(`<tr><td colspan="4" class="no-result">加载失败</td></tr>`);
+    });
+}
+
+// ✅ 新增：渲染分页按钮
+function renderPagination(pagination) {
+    // 先移除旧分页
+    $('.pagination').remove();
+    if (!pagination) return;
+    
+    const { total, page, total_pages } = pagination;
+    if(total_pages <= 1) return;
+
+    let paginationHtml = `<nav class="mt-3"><ul class="pagination justify-content-center">`;
+    // 上一页
+    if(page > 1){
+        paginationHtml += `<li class="page-item"><a class="page-link" onclick="load($('#searchInput').val(), ${page-1})">上一页</a></li>`;
+    }
+    // 页码
+    for(let i=1; i<=total_pages; i++){
+        paginationHtml += `<li class="page-item ${i===page ? 'active' : ''}">
+            <a class="page-link" onclick="load($('#searchInput').val(), ${i})">${i}</a></li>`;
+    }
+    // 下一页
+    if(page < total_pages){
+        paginationHtml += `<li class="page-item"><a class="page-link" onclick="load($('#searchInput').val(), ${page+1})">下一页</a></li>`;
+    }
+    paginationHtml += `</ul></nav>`;
+    $('.table').after(paginationHtml);
+}
 
         // 跳转详情
         function goToDetail(id) {
