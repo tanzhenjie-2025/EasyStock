@@ -129,39 +129,40 @@
             </div>
 
             <!-- 商品销售明细表格 -->
-            <div class="mb-4">
-                <h5>商品销售明细</h5>
-                <table class="table table-sm table-bordered product-table">
-                    <thead class="table-light">
-                        <tr>
-                            <th>序号</th>
-                            <th>商品名称</th>
-                            <th>销售数量</th>
-                            <th>单位</th>
-                            <th>销售金额</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for item in order.items.all %}
-                        <tr>
-                            <td>{{ forloop.counter }}</td>
-                            <td>{{ item.product.name|default:"未知商品" }}</td>
-                            <td>{{ item.quantity }}</td>
-                            <td>{{ item.product.unit|default:"件" }}</td>
-                            <td>¥{{ item.amount|default:"0.00" }}</td>
-                        </tr>
-                        {% empty %}
-                        <tr>
-                            <td colspan="5" class="text-center">暂无商品明细</td>
-                        </tr>
-                        {% endfor %}
-                        <tr class="total-row">
-                            <td colspan="4" class="text-end">销售总金额：</td>
-                            <td>¥{{ order.total_amount|default:"0.00" }}</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
+<div class="mb-4">
+    <h5>商品销售明细</h5>
+    <table class="table table-sm table-bordered product-table">
+        <thead class="table-light">
+            <tr>
+                <th>序号</th>
+                <th>商品名称</th>
+                <th>销售数量</th>
+                <th>单位</th>
+                <th>销售金额</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- 🔥 修复：使用视图传递的优化后items，禁止用order.items.all -->
+            {% for item in items %}
+            <tr>
+                <td>{{ forloop.counter }}</td>
+                <td>{{ item.product.name|default:"未知商品" }}</td>
+                <td>{{ item.quantity }}</td>
+                <td>{{ item.product.unit|default:"件" }}</td>
+                <td>¥{{ item.amount|default:"0.00" }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="5" class="text-center">暂无商品明细</td>
+            </tr>
+            {% endfor %}
+            <tr class="total-row">
+                <td colspan="4" class="text-end">销售总金额：</td>
+                <td>¥{{ order.total_amount|default:"0.00" }}</td>
+            </tr>
+        </tbody>
+    </table>
+</div>
 
             <!-- 操作按钮 -->
 <div class="mt-4">

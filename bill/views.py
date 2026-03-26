@@ -3,6 +3,8 @@
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse
 from difflib import SequenceMatcher
+
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from .models import Product, Order, OrderItem, ProductAlias, DailySalesSummary, CustomerPrice, Customer, Area
 from django.db.models import Q, Sum
@@ -424,44 +426,52 @@ def order_list(request):
 @login_required
 @permission_required(PERM_ORDER_VIEW)
 def order_detail(request, order_no):
-    """订单详情页（新增时间锁+权限控制）"""
-    order = get_object_or_404(Order, order_no=order_no)
-    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+    """订单详情页（性能优化版：无N+1、索引生效、缓存权限）"""
+    # 🔥 优化1：一次性预加载所有关联（customer/area/creator），彻底解决N+1
+    order = get_object_or_404(
+        Order.objects.select_related('customer', 'area', 'creator'),
+        order_no=order_no
+    )
+
+    # 🔥 优化2：缓存用户角色/权限，仅查询1次
+    user_role = request.user.role
+    role_code = user_role.code if user_role else ''
+    is_super_admin = role_code == ROLE_SUPER_ADMIN
     can_view_others = request.user.has_permission('order_view_others')
 
-    # 权限控制：非超级管理员+无查看他人权限 → 仅能看自己的订单
+    # 权限控制
     if not is_super_admin and not can_view_others and order.creator != request.user:
         return redirect('/bill/orders/')
 
-    # ========== 新增：作废控制相关计算 ==========
-    current_time = datetime.now()
-    time_diff = (current_time - order.create_time).total_seconds() / 60  # 开单后分钟数
+    # 🔥 优化3：使用Django时区时间
+    current_time = timezone.now()
+    time_diff = (current_time - order.create_time).total_seconds() / 60
+
+    # 缓存权限，避免重复查询
     can_cancel_own = request.user.has_permission('order_cancel_own')
     can_cancel_others = request.user.has_permission('order_cancel_others')
-    is_admin = request.user.role and request.user.role.code == ROLE_ADMIN
-    is_operator = request.user.role and request.user.role.code == ROLE_OPERATOR
+    is_admin = role_code == ROLE_ADMIN
+    is_operator = role_code == ROLE_OPERATOR
 
-    # 作废按钮显示逻辑（核心风控）
+    # 作废按钮逻辑（不变）
     show_cancel_btn = False
     if order.status != 'cancelled' and not order.is_settled and order.status != 'printed':
         if is_super_admin:
-            show_cancel_btn = True  # 超级管理员无限制
+            show_cancel_btn = True
         elif is_admin:
-            # 管理员：作废自己的（无时间限制）或他人的（需权限）
             if (order.creator == request.user and can_cancel_own) or (order.creator != request.user and can_cancel_others):
                 show_cancel_btn = True
         elif is_operator:
-            # 普通店员：仅作废自己的+3~5分钟内
             if order.creator == request.user and can_cancel_own and time_diff <= 5:
                 show_cancel_btn = True
 
+    # 🔥 优化4：使用已优化的明细数据（模板必须用这个，禁止用order.items.all）
     items = OrderItem.objects.select_related('product').filter(order=order)
 
     context = {
         'order': order,
-        'items': items,
+        'items': items,  # 模板必须用这个变量
         'is_super_admin': is_super_admin,
-        # 新增：作废控制变量
         'time_diff': time_diff,
         'can_cancel_own': can_cancel_own,
         'can_cancel_others': can_cancel_others,

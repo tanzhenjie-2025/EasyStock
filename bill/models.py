@@ -330,15 +330,17 @@ class Order(models.Model):
     def __str__(self):
         return self.order_no
 
-    indexes = [
-        models.Index(fields=['status', 'create_time', 'area']),
-        models.Index(fields=['customer', 'status', '-create_time']),
-        models.Index(fields=['area', 'status', 'create_time']),
-        # 🔥 新增：客户详情核心索引（解决客户订单查询）
-        models.Index(fields=['customer_id', 'create_time', 'status']),
-        # 🔥 新增：商品详情关联索引
-        models.Index(fields=['id', 'create_time', 'area_id', 'status']),
-    ]
+    # 🔥 修复：索引必须放在 Meta 类中！！！
+    class Meta:
+        verbose_name = '订单'
+        verbose_name_plural = '订单管理'
+        indexes = [
+            models.Index(fields=['status', 'create_time', 'area']),
+            models.Index(fields=['customer', 'status', '-create_time']),
+            models.Index(fields=['area', 'status', 'create_time']),
+            models.Index(fields=['customer_id', 'create_time', 'status']),
+            models.Index(fields=['id', 'create_time', 'area_id', 'status']),
+        ]
 
 
 class OrderItem(models.Model):
