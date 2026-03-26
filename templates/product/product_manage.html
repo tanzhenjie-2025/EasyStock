@@ -376,7 +376,8 @@
             </thead>
             <tbody id="product-list">
                 {% for product in products %}
-                <tr data-product-id="{{ product.id }}" {% if product.status == 0 %}class="disabled-row"{% endif %}>
+                <tr data-product-id="{{ product.id }}" {% if product.status == 0 %}class="disabled-row"{% endif %}
+    onclick="if(!this.classList.contains('disabled-row')){ goToProductDetail({{ product.id }}); }">
                     <td>{{ product.id|default:'' }}</td>
                     <td>{{ product.name|default:'' }}</td>
                     <td>{{ product.price|floatformat:2 }}</td>
