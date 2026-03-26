@@ -51,7 +51,7 @@ def product_manage(request):
         ).distinct()  # 去重，避免别名重复导致商品重复
 
     # 核心分页：每页20条数据
-    paginator = Paginator(products_query, 20)
+    paginator = Paginator(products_query, 15)
     try:
         page_products = paginator.page(page)
     except PageNotAnInteger:

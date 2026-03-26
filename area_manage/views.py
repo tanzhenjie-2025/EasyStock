@@ -93,7 +93,7 @@ def area_list(request):
         sort_by = request.GET.get('sort', 'name')
         sort_order = request.GET.get('order', 'asc')
         page = max(int(request.GET.get('page', 1)), 1)  # 页码最小为1
-        PAGE_SIZE_MAX = 20  # 硬编码限制，核心需求
+        PAGE_SIZE_MAX = 15  # 硬编码限制，核心需求
 
         # 排序白名单：防止SQL注入 + 非法字段报错
         ALLOW_SORT_FIELDS = ['name', 'id', 'create_time']

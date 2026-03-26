@@ -325,6 +325,10 @@
             <!-- 动态填充 -->
         </tbody>
     </table>
+
+    <!-- 🔥 新增：分页控件 -->
+    <div id="pagination" class="mt-3 d-flex justify-content-center align-items-center gap-2">
+    </div>
 </div>
 
 <!-- 新增/编辑专属价弹窗 -->
@@ -651,10 +655,11 @@
     }
 
     // ========== 5. 原有逻辑改造（适配新输入框） ==========
-    // 加载专属价列表（新增：支持搜索+筛选）
-    function loadPriceList(keyword = '', minPrice = '', maxPrice = '', areaId = '') {
-        // 构建查询参数
+    // 🔥 加载专属价列表（支持分页+搜索+筛选）
+    function loadPriceList(keyword = '', minPrice = '', maxPrice = '', areaId = '', page = 1) {
+        // 构建查询参数（包含页码）
         let url = '/customer-manage/price/list/?';
+        url += `page=${page}&`;
         if (keyword) url += `keyword=${encodeURIComponent(keyword)}&`;
         if (minPrice) url += `min_price=${encodeURIComponent(minPrice)}&`;
         if (maxPrice) url += `max_price=${encodeURIComponent(maxPrice)}&`;
@@ -662,16 +667,13 @@
         
         $.get(url, function(res) {
             let html = '';
-            currentSearchKeyword = res.keyword || '';  // 保存当前搜索关键词（用于标红）
+            currentSearchKeyword = res.keyword || '';
             
             if (res.code === 1 && Array.isArray(res.data) && res.data.length > 0) {
-                // 渲染搜索结果
                 res.data.forEach(item => {
-                    // 关键词标红处理
                     let customerName = highlightKeyword(item.customer_name, currentSearchKeyword);
                     let productName = highlightKeyword(item.product_name, currentSearchKeyword);
                     
-                    // ========== 新增：整行点击事件 + 按钮阻止冒泡 ==========
                     html += `<tr onclick="openEditModal(${item.id})">
                         <td>${item.id}</td>
                         <td>${customerName}</td>
@@ -686,16 +688,50 @@
                         </td>
                     </tr>`;
                 });
+                // 🔥 渲染分页按钮
+                renderPagination(res, keyword, minPrice, maxPrice, areaId);
             } else {
-                // 无结果提示（区分通用/精准）
                 html = renderNoResultHtml(keyword);
+                $('#pagination').html('');
             }
             $('#priceList').html(html);
         }, 'json').fail(function(err) {
             alert('加载专属价列表失败！');
-            console.error(err);
             $('#priceList').html('<tr><td colspan="8" class="text-center">加载失败，请刷新重试</td></tr>');
+            $('#pagination').html('');
         });
+    }
+
+    // 🔥 渲染分页按钮（保留所有筛选条件）
+    function renderPagination(res, keyword, minPrice, maxPrice, areaId) {
+        const page = res.page;
+        const totalPages = res.total_pages;
+        const hasPrev = res.has_previous;
+        const hasNext = res.has_next;
+
+        let paginationHtml = '';
+
+        // 上一页
+        if (hasPrev) {
+            paginationHtml += `<button class="btn btn-sm btn-outline-primary" onclick="loadPriceList('${keyword}', '${minPrice}', '${maxPrice}', '${areaId}', ${page-1})">上一页</button>`;
+        } else {
+            paginationHtml += `<button class="btn btn-sm btn-outline-secondary" disabled>上一页</button>`;
+        }
+
+        // 页码
+        paginationHtml += `<span class="px-2">第 ${page} / ${totalPages} 页</span>`;
+
+        // 下一页
+        if (hasNext) {
+            paginationHtml += `<button class="btn btn-sm btn-outline-primary" onclick="loadPriceList('${keyword}', '${minPrice}', '${maxPrice}', '${areaId}', ${page+1})">下一页</button>`;
+        } else {
+            paginationHtml += `<button class="btn btn-sm btn-outline-secondary" disabled>下一页</button>`;
+        }
+
+        // 总条数
+        paginationHtml += `<span class="px-2">共 ${res.total} 条</span>`;
+
+        $('#pagination').html(paginationHtml);
     }
 
     // ========== 新增：搜索功能初始化 ==========
@@ -761,12 +797,13 @@
         });
     }
 
-    // ========== 新增：执行搜索（含高级筛选） ==========
+    // ========== 新增：执行搜索（含高级筛选，默认第1页） ==========
     function doSearch(keyword = '') {
         const minPrice = $('#minPrice').val().trim();
         const maxPrice = $('#maxPrice').val().trim();
         const areaId = $('#areaSelect').val().trim();
-        loadPriceList(keyword, minPrice, maxPrice, areaId);
+        // 搜索时强制回到第1页
+        loadPriceList(keyword, minPrice, maxPrice, areaId, 1);
     }
 
     // ========== 新增：关键词标红处理 ==========

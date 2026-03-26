@@ -275,7 +275,7 @@ def stock_list(request):
         )
 
     # 核心：分页逻辑（固定每页20条）
-    paginator = Paginator(products, 20)
+    paginator = Paginator(products, 10)
     try:
         page_products = paginator.page(page)
     except PageNotAnInteger:
@@ -360,7 +360,7 @@ def order_list(request):
             pass
 
     # ===================== 核心：分页逻辑（每页20条） =====================
-    paginator = Paginator(orders, 20)  # 每页固定20条
+    paginator = Paginator(orders, 15)  # 每页固定20条
     try:
         page_orders = paginator.page(page)
     except PageNotAnInteger:

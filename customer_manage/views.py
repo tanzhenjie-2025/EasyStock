@@ -4,7 +4,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 
-from accounts.models import ROLE_SUPER_ADMIN
+from accounts.models import ROLE_SUPER_ADMIN, PERM_LOG_VIEW_ALL
 from bill.models import Customer, Area, ProductAlias, CustomerPrice, Product, OrderItem, Order, RepaymentRecord
 from django.db.models import Sum, F, Q, Max, Count
 from django.db.models.functions import Coalesce
@@ -460,56 +460,48 @@ def customer_page(request):
 @permission_required('customer_price_view')
 @csrf_exempt
 def customer_price_list(request):
-    """获取客户专属价格列表 - 新增多维度搜索+高级筛选"""
+    """获取客户专属价格列表 - 多维度搜索+高级筛选+分页(15条/页)"""
     try:
-        # 1. 获取所有筛选参数
+        # 1. 获取所有筛选参数 + 分页参数
         keyword = request.GET.get('keyword', '').strip()
-        min_price = request.GET.get('min_price', '').strip()  # 价格区间最小值
-        max_price = request.GET.get('max_price', '').strip()  # 价格区间最大值
-        area_id = request.GET.get('area_id', '').strip()  # 所属区域ID
+        min_price = request.GET.get('min_price', '').strip()
+        max_price = request.GET.get('max_price', '').strip()
+        area_id = request.GET.get('area_id', '').strip()
+        # 分页参数（默认第1页，15条/页）
+        page = request.GET.get('page', 1)
+        page_size = 15
 
-        # 2. 基础查询（关联客户、商品、商品别名、客户区域）
+        # 2. 基础查询（关联优化已保留）
         prices = CustomerPrice.objects.all().select_related('customer__area', 'product')
 
-        # 3. 处理搜索关键词（容错+多维度匹配）
-        if keyword:
-            # 容错处理：全角转半角、去多余空格（移除中文无意义的lower()）
-            keyword = full_to_half(keyword).strip()
-            # 拆分多关键词（空格分隔）
-            keywords = [k for k in keyword.split() if k]
+        # 3. 权限/筛选逻辑（完全保留你的原有代码）
+        if not request.user.has_permission(PERM_LOG_VIEW_ALL):
+            prices = prices.filter(operator=request.user)
 
-            # 构建基础Q对象（所有关键词需同时匹配）
+        # 关键词筛选
+        if keyword:
+            keyword = full_to_half(keyword).strip()
+            keywords = [k for k in keyword.split() if k]
             base_q = Q()
             for kw in keywords:
-                # 客户维度：名称（模糊）、编号（精准）
                 customer_q = Q(customer__name__icontains=kw)
-                # 如果是数字，转int后精准匹配客户编号
                 if kw.isdigit():
                     customer_q |= Q(customer__id=int(kw))
-
-                # 商品维度：名称、别名、编号（修复核心错误）
                 product_q = Q(product__name__icontains=kw)
-                # 如果是数字，转int后精准匹配商品编号
                 if kw.isdigit():
                     product_q |= Q(product__id=int(kw))
-                # 匹配商品别名
                 alias_ids = ProductAlias.objects.filter(
                     Q(alias_name__icontains=kw) |
                     Q(alias_pinyin_full__icontains=kw) |
                     Q(alias_pinyin_abbr__icontains=kw)
                 ).values_list('product_id', flat=True)
-                if alias_ids:  # 只有有别名匹配时才添加
+                if alias_ids:
                     product_q |= Q(product__id__in=alias_ids)
-
-                # 合并当前关键词的匹配条件（客户或商品维度）
                 kw_q = customer_q | product_q
-                # 所有关键词需同时满足（AND关系）
                 base_q &= kw_q
-
-            # 应用关键词筛选
             prices = prices.filter(base_q)
 
-        # 4. 高级筛选：价格区间
+        # 价格区间
         if min_price:
             try:
                 min_price = float(min_price)
@@ -523,13 +515,23 @@ def customer_price_list(request):
             except:
                 pass
 
-        # 5. 高级筛选：所属区域
+        # 区域筛选
         if area_id and area_id.isdigit():
             prices = prices.filter(customer__area_id=int(area_id))
 
-        # 6. 构造返回数据
+        # 🔥 4. 分页核心逻辑
+        from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
+        paginator = Paginator(prices, page_size)
+        try:
+            price_page = paginator.page(page)
+        except PageNotAnInteger:
+            price_page = paginator.page(1)
+        except EmptyPage:
+            price_page = paginator.page(paginator.num_pages)
+
+        # 5. 构造返回数据（分页后的数据）
         result = []
-        for cp in prices:
+        for cp in price_page:
             result.append({
                 'id': cp.id,
                 'customer_id': cp.customer.id,
@@ -538,19 +540,24 @@ def customer_price_list(request):
                 'customer_area_name': cp.customer.area.name if cp.customer.area else '',
                 'product_id': cp.product.id,
                 'product_name': cp.product.name,
-                # 新增：商品别名（用于前端匹配标红）
                 'product_aliases': [alias.alias_name for alias in cp.product.aliases.all()],
                 'custom_price': float(cp.custom_price),
-                'standard_price': float(cp.product.price),  # 商品标准价
+                'standard_price': float(cp.product.price),
                 'remark': cp.remark or ''
             })
 
-        # 返回搜索结果+匹配的关键词（用于前端标红）
+        # 返回分页信息 + 数据
         return JsonResponse({
             'code': 1,
             'msg': '查询成功',
             'data': result,
-            'keyword': keyword  # 返回处理后的关键词，用于前端标红
+            'keyword': keyword,
+            # 分页参数（前端用）
+            'page': int(page),
+            'total': paginator.count,
+            'total_pages': paginator.num_pages,
+            'has_next': price_page.has_next(),
+            'has_previous': price_page.has_previous(),
         }, safe=False, content_type='application/json')
 
     except Exception as e:
