@@ -19,7 +19,7 @@ urlpatterns = [
 
     # ========== 你原来的订单操作路径（完全保留，不修改） ==========
     path('orders/cancel/<str:order_no>/', views.cancel_order, name='cancel_order'),
-    path('orders/reopen/<str:order_no>/', views.reopen_order, name='reopen_order'),  # 保留原接口
+
     path('orders/settle/<str:order_no>/', views.settle_order, name='settle_order'),  # 标记结清
     path('orders/unsettle/<str:order_no>/', views.unsettle_order, name='unsettle_order'),  # 撤销结清
     path('orders/batch-settle/', views.batch_settle_order, name='batch_settle_order'),  # 批量结清

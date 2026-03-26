@@ -18,6 +18,8 @@ import decimal  # 新增：导入decimal模块处理金额
 
 from django.core.cache import cache
 
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+
 # ========== 导入用户模块的RBAC核心组件 ==========
 from accounts.models import ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OPERATOR, PERM_ORDER_CANCEL_OWN
 from accounts.views import (
@@ -283,8 +285,6 @@ def save_order(request):
 @permission_required(PERM_ORDER_VIEW)
 def stock_list(request):
     """库存查询页面（分页优化版 - 每页20条 + 后端搜索）"""
-    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
-
     # 获取搜索关键词 + 分页参数
     keyword = request.GET.get('keyword', '').strip()
     page = request.GET.get('page', 1)
@@ -323,9 +323,6 @@ def stock_list(request):
 @permission_required(PERM_ORDER_VIEW)
 def order_list(request):
     """订单列表页（分页优化版 - 每页20条）"""
-    # 导入分页依赖
-    from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
-
     # 接收筛选参数
     order_no = request.GET.get('order_no', '').strip()
     date_from = request.GET.get('date_from', '')
@@ -505,47 +502,6 @@ def order_detail(request, order_no):
     return render(request, 'bill/order_detail.html', context)
 
 @login_required
-@permission_required(PERM_ORDER_SUMMARY)
-def manual_summary(request):
-    """手动生成/重置汇总接口"""
-    if request.method == 'POST':
-        try:
-            data = json.loads(request.body)
-            target_date_str = data.get('date')
-            if not target_date_str:
-                return JsonResponse({'code': 0, 'msg': '请选择汇总日期'})
-
-            target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
-            count = generate_daily_summary(target_date=target_date, is_manual=True)
-
-            # 重构：统一日志记录
-            create_operation_log(
-                request=request,
-                op_type='manual_summary',
-                obj_type='daily_sales_summary',
-                obj_name=f"销售汇总-{target_date}",
-                detail=f"手动生成{target_date}销售汇总，共统计{count}个商品"
-            )
-
-            return JsonResponse({'code': 1, 'msg': f'汇总完成！共统计{count}个商品'})
-        except Exception as e:
-            return JsonResponse({'code': 0, 'msg': f'汇总失败：{str(e)}'})
-    return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
-
-
-def auto_summary_task(request):
-    """自动汇总昨天数据"""
-    try:
-        count = auto_summary_yesterday()
-        return JsonResponse({'code': 1, 'msg': f'自动汇总完成：{count}个商品'})
-    except Exception as e:
-        return JsonResponse({'code': 0, 'msg': f'自动汇总失败：{str(e)}'})
-
-
-
-
-
-@login_required
 @permission_required(PERM_PRODUCT_SEARCH)
 def search_customer(request):
     """客户搜索 + 缓存优化"""
@@ -652,77 +608,6 @@ def cancel_order(request, order_no):
 
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'作废失败：{str(e)}'})
-
-    return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
-
-
-@login_required
-@permission_required(PERM_ORDER_REOPEN)
-def reopen_order(request, order_no):
-    """重开订单"""
-    if request.method == 'POST':
-        try:
-            original_order = get_object_or_404(Order, order_no=order_no)
-
-            if original_order.status != 'cancelled':
-                return JsonResponse({'code': 0, 'msg': '仅作废订单可重开'})
-
-            new_order = Order()
-            new_order.creator = request.user
-            new_order.customer = original_order.customer
-            new_order.area = original_order.area
-            new_order.status = 'reopened'
-            new_order.original_order = original_order
-            new_order.save()
-
-            total_amount = 0
-            item_count = 0
-            for original_item in original_order.items.all():
-                if original_item.product:
-                    if original_item.product.stock < original_item.quantity:
-                        new_order.delete()
-                        return JsonResponse({
-                            'code': 0,
-                            'msg': f'{original_item.product.name}库存不足（当前库存：{original_item.product.stock}）'
-                        })
-
-                    new_item = OrderItem(
-                        order=new_order,
-                        product=original_item.product,
-                        quantity=original_item.quantity,
-                        amount=original_item.amount
-                    )
-                    new_item.save()
-
-                    original_item.product.stock -= original_item.quantity
-                    original_item.product.save()
-
-                    total_amount += float(new_item.amount or 0)
-                    item_count += 1
-
-            new_order.total_amount = total_amount
-            new_order.save()
-
-            customer_name = new_order.customer.name if new_order.customer else '无'
-            # 重构：统一日志记录
-            create_operation_log(
-                request=request,
-                op_type='reopen_order',
-                obj_type='order',
-                obj_id=str(new_order.id),
-                obj_name=f"订单-{new_order.order_no}",
-                detail=f"重开订单{new_order.order_no}，原作废订单：{original_order.order_no}，客户：{customer_name}，总金额：{new_order.total_amount}元，商品数量：{item_count}个"
-            )
-
-            return JsonResponse({
-                'code': 1,
-                'msg': '订单重开成功',
-                'new_order_no': new_order.order_no,
-                'original_order_no': original_order.order_no
-            })
-
-        except Exception as e:
-            return JsonResponse({'code': 0, 'msg': f'重开失败：{str(e)}'})
 
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
