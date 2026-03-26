@@ -63,11 +63,10 @@ class OperationLog(models.Model):
         verbose_name = '操作日志'
         verbose_name_plural = '操作日志管理'
         ordering = ['-operation_time']
+        # ✅ 性能优化：联合索引（覆盖所有叠加筛选 + 时间排序）
         indexes = [
-            models.Index(fields=['operator']),
-            models.Index(fields=['operation_time']),
-            models.Index(fields=['operation_type']),
-            models.Index(fields=['object_type']),
+            # 核心联合索引：适配 操作人+操作行为+操作对象+时间范围 筛选
+            models.Index(fields=['operator', 'operation_type', 'object_type', 'operation_time']),
         ]
 
     def __str__(self):
