@@ -334,11 +334,11 @@ class Order(models.Model):
         verbose_name = '订单'
         verbose_name_plural = '订单管理'
         indexes = [
+            # 🔥 排行榜核心索引：状态 + 时间 + 地区（精准匹配筛选条件）
+            models.Index(fields=['status', 'create_time', 'area']),
             # 原有索引保留
             models.Index(fields=['customer', 'status', '-create_time']),
             models.Index(fields=['area', 'status', 'create_time']),
-            # 🔥 新增：商品详情页核心索引（状态+时间，所有统计都用这个）
-            models.Index(fields=['status', 'create_time']),
         ]
 
 
@@ -368,9 +368,8 @@ class OrderItem(models.Model):
         verbose_name = '订单明细'
         verbose_name_plural = '订单明细管理'
         indexes = [
-            models.Index(fields=['order', 'product']),
-            # 🔥 修复：移除 include，直接把字段加入索引（兼容所有Django版本，性能一致）
-            models.Index(fields=['product', 'order', 'quantity', 'amount']),
+            # 🔥 排行榜覆盖索引：关联订单 + 商品 + 聚合字段（数据库直接从索引取数）
+            models.Index(fields=['order', 'product', 'quantity', 'amount']),
         ]
 
 

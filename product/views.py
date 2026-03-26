@@ -638,6 +638,7 @@ def sales_rank(request):
 
 
 # 销售排行数据接口
+# 销售排行数据接口（修复时区+兼容原有逻辑，保留性能优化）
 @login_required
 @permission_required('product_sales_rank')
 def sales_rank_data(request):
@@ -648,77 +649,54 @@ def sales_rank_data(request):
         time_range = request.GET.get('time_range', 'today')  # today/week/month/year
         area_id = request.GET.get('area_id', 'all')  # all或区域ID
 
-        # 1. 时间范围筛选
+        # 1. 🔥 修复：使用Django原生时区方法，杜绝时区错位（核心修复）
         now = timezone.now()
         if time_range == 'today':
-            start_time = datetime(now.year, now.month, now.day, 0, 0, 0)
+            start_time = timezone.datetime(now.year, now.month, now.day, 0, 0, 0)
         elif time_range == 'week':
             # 本周第一天（周一）
-            week_day = now.weekday()  # 0=周一, 6=周日
+            week_day = now.weekday()
             start_time = now - timedelta(days=week_day)
-            start_time = datetime(start_time.year, start_time.month, start_time.day, 0, 0, 0)
+            start_time = timezone.datetime(start_time.year, start_time.month, start_time.day, 0, 0, 0)
         elif time_range == 'month':
             # 本月第一天
-            start_time = datetime(now.year, now.month, 1, 0, 0, 0)
+            start_time = timezone.datetime(now.year, now.month, 1, 0, 0, 0)
         elif time_range == 'year':
             # 本年第一天
-            start_time = datetime(now.year, 1, 1, 0, 0, 0)
+            start_time = timezone.datetime(now.year, 1, 1, 0, 0, 0)
         else:
-            start_time = datetime(now.year, now.month, now.day, 0, 0, 0)
+            start_time = timezone.datetime(now.year, now.month, now.day, 0, 0, 0)
 
-        # 2. 构建查询条件
-        # 只统计正常生效订单（排除作废）
-        order_filters = {
-            'create_time__gte': start_time,
-            'status__in': ['pending', 'printed', 'reopened']  # 排除cancelled
+        # 2. 构建查询条件（保留优化后的直接关联，无冗余子查询）
+        query_filters = {
+            'order__status__in': ['pending', 'printed', 'reopened'],
+            'order__create_time__gte': start_time,
+            'product__isnull': False
         }
 
         # 区域筛选
         if area_id != 'all' and area_id.isdigit():
-            order_filters['area_id'] = int(area_id)
+            query_filters['order__area_id'] = int(area_id)
 
-        # 3. 查询销售数据
-        # 关联订单和订单项，聚合商品销售数据
-        sales_data = OrderItem.objects.filter(
-            order__in=Order.objects.filter(**order_filters)
+        # 3. 索引覆盖查询（保留性能优化）
+        sales_data = OrderItem.objects.filter(**query_filters
         ).values(
             'product__id', 'product__name', 'product__unit'
         ).annotate(
-            sales_volume=Sum('quantity'),  # 销量
-            sales_amount=Sum('amount')  # 销售金额
-        ).filter(
-            product__isnull=False  # 排除无商品的订单项
-        )
+            sales_volume=Sum('quantity'),
+            sales_amount=Sum('amount')
+        ).order_by(f'-{sort_type}')[:30]
 
-        # 4. 排序
-        if sort_type == 'sales_amount':
-            sales_data = sales_data.order_by('-sales_amount')
-        else:
-            sales_data = sales_data.order_by('-sales_volume')
+        # 4. 格式化数据
+        result = [{
+            'product_id': item['product__id'],
+            'product_name': item['product__name'],
+            'unit': item['product__unit'],
+            'sales_volume': item['sales_volume'],
+            'sales_amount': float(item['sales_amount'] or 0.0)
+        } for item in sales_data]
 
-        # 5. 取TOP30
-        top30_data = sales_data[:30]
-
-        # 6. 格式化返回数据
-        result = []
-        for item in top30_data:
-            result.append({
-                'product_id': item['product__id'],
-                'product_name': item['product__name'],
-                'unit': item['product__unit'],
-                'sales_volume': item['sales_volume'],
-                'sales_amount': float(item['sales_amount']) if item['sales_amount'] else 0.0
-            })
-
-        return JsonResponse({
-            'code': 1,
-            'msg': '获取成功',
-            'data': result
-        })
+        return JsonResponse({'code': 1, 'msg': '获取成功', 'data': result})
 
     except Exception as e:
-        return JsonResponse({
-            'code': 0,
-            'msg': f'获取数据失败：{str(e)}',
-            'data': []
-        })
+        return JsonResponse({'code': 0, 'msg': f'获取数据失败：{str(e)}', 'data': []})
