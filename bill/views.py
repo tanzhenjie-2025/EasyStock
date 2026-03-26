@@ -15,6 +15,8 @@ from django.contrib.auth.decorators import login_required
 from functools import wraps
 import decimal  # 新增：导入decimal模块处理金额
 
+from django.core.cache import cache
+
 # ========== 导入用户模块的RBAC核心组件 ==========
 from accounts.models import ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OPERATOR, PERM_ORDER_CANCEL_OWN
 from accounts.views import (
@@ -100,48 +102,86 @@ def index(request):
     })
 
 
+
+
+
 @login_required
 @permission_required(PERM_PRODUCT_SEARCH)
 def search_product(request):
-    """商品搜索：匹配 名称 / 别名 / 全拼 / 首字母"""
+    """
+    商品搜索：【拆分缓存优化版】
+    1. 缓存：商品基础信息（所有客户共用，命中率极高）
+    2. 实时查：客户专属价（仅当前8个商品，超快）
+    """
     keyword = request.GET.get('keyword', '').strip()
     customer_id = request.GET.get('customer_id', '').strip()
+
     if not keyword:
         return JsonResponse({'code': 0, 'data': []})
 
-    product_matches = Product.objects.filter(
-        Q(name__icontains=keyword) |
-        Q(pinyin_full__icontains=keyword) |
-        Q(pinyin_abbr__icontains=keyword)
-    )
+    # ===================== 1. 全局商品缓存（所有客户共用） =====================
+    # 缓存键：仅关键词，无客户ID → 全系统共用
+    cache_key = f"product_base_search_{keyword}"
+    # 尝试读取缓存
+    cached_products = cache.get(cache_key)
 
-    alias_matches = ProductAlias.objects.filter(
-        Q(alias_name__icontains=keyword) |
-        Q(alias_pinyin_full__icontains=keyword) |
-        Q(alias_pinyin_abbr__icontains=keyword)
-    ).values_list('product_id', flat=True)
-    alias_products = Product.objects.filter(id__in=alias_matches)
+    if cached_products is None:
+        # 缓存未命中 → 查询数据库（只查1次，全客户共用）
+        product_matches = Product.objects.filter(
+            Q(name__icontains=keyword) |
+            Q(pinyin_full__icontains=keyword) |
+            Q(pinyin_abbr__icontains=keyword)
+        )
 
-    all_products = (product_matches | alias_products).distinct()[:8]
+        alias_matches = ProductAlias.objects.filter(
+            Q(alias_name__icontains=keyword) |
+            Q(alias_pinyin_full__icontains=keyword) |
+            Q(alias_pinyin_abbr__icontains=keyword)
+        ).values_list('product_id', flat=True)
+        alias_products = Product.objects.filter(id__in=alias_matches)
 
-    data = []
+        # 合并、去重、取前8条
+        all_products = (product_matches | alias_products).distinct()[:8]
+
+        # 构建【商品基础数据】（仅固定信息，无价格）
+        cached_products = []
+        for p in all_products:
+            cached_products.append({
+                'id': p.id,
+                'name': p.name,
+                'standard_price': float(p.price),  # 原价
+                'unit': p.unit,
+                'stock': p.stock
+            })
+
+        # 存入缓存：30秒（商品基础信息不常变，可加长）
+        cache.set(cache_key, cached_products, timeout=30)
+
+    # ===================== 2. 实时查询客户专属价（轻量查询） =====================
     customer_prices = {}
     if customer_id:
+        # 只查【当前8个商品】的专属价 → 极快，无性能压力
+        product_ids = [item['id'] for item in cached_products]
         cp_list = CustomerPrice.objects.filter(
             customer_id=customer_id,
-            product_id__in=[p.id for p in all_products]
+            product_id__in=product_ids
         )
+        # 转成字典：{商品ID: 专属价}
         customer_prices = {cp.product_id: float(cp.custom_price) for cp in cp_list}
 
-    for p in all_products:
-        final_price = customer_prices.get(p.id, float(p.price))
+    # ===================== 3. 合并数据（返回前端） =====================
+    data = []
+    for item in cached_products:
+        product_id = item['id']
+        # 优先用客户专属价，没有就用原价
+        final_price = customer_prices.get(product_id, item['standard_price'])
         data.append({
-            'id': p.id,
-            'name': p.name,
-            'price': final_price,
-            'standard_price': float(p.price),
-            'unit': p.unit,
-            'stock': p.stock
+            'id': product_id,
+            'name': item['name'],
+            'price': final_price,  # 最终售价
+            'standard_price': item['standard_price'],  # 原价
+            'unit': item['unit'],
+            'stock': item['stock']
         })
 
     return JsonResponse({'code': 1, 'data': data})
@@ -242,16 +282,12 @@ def save_order(request):
 
 
 @login_required
-@permission_required(PERM_ORDER_PRINT)
-def print_order(request, order_no):
-    """订单打印页面"""
-    order = get_object_or_404(Order, order_no=order_no)
-    items = order.items.all()
-    # 重构：RBAC判断超级管理员
+@permission_required(PERM_ORDER_CREATE)
+def index(request):
+    """开单主页面（三联单填写页）"""
+    # 🔥 优化：删除无用的全表查询，仅保留必要逻辑
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
-    return render(request, 'bill/print.html', {
-        'order': order,
-        'items': items,
+    return render(request, 'bill/index.html', {
         'is_super_admin': is_super_admin
     })
 
@@ -481,37 +517,6 @@ def order_detail(request, order_no):
     }
     return render(request, 'bill/order_detail.html', context)
 
-
-@login_required
-@permission_required(PERM_ORDER_SUMMARY)
-def summary_list(request):
-    """销售汇总列表页"""
-    target_date_str = request.GET.get('date')
-    if target_date_str:
-        try:
-            target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
-        except:
-            target_date = date.today() - timedelta(days=1)
-    else:
-        target_date = date.today() - timedelta(days=1)
-
-    summary_data = DailySalesSummary.objects.filter(
-        summary_date=target_date
-    ).select_related('product').order_by('-sale_quantity')
-
-    total_product = summary_data.count()
-    total_quantity = summary_data.aggregate(total=Sum('sale_quantity'))['total'] or 0
-    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
-
-    return render(request, 'bill/summary_list.html', {
-        'summary_data': summary_data,
-        'target_date': target_date,
-        'total_product': total_product,
-        'total_quantity': total_quantity,
-        'is_super_admin': is_super_admin
-    })
-
-
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
 def manual_summary(request):
@@ -550,31 +555,40 @@ def auto_summary_task(request):
         return JsonResponse({'code': 0, 'msg': f'自动汇总失败：{str(e)}'})
 
 
+
+
+
 @login_required
 @permission_required(PERM_PRODUCT_SEARCH)
 def search_customer(request):
-    """客户搜索"""
+    """客户搜索 + 缓存优化"""
     keyword = request.GET.get('keyword', '').strip()
     if not keyword:
         return JsonResponse({'code': 0, 'data': []})
 
+    # 🔥 缓存键：根据关键词生成
+    cache_key = f"customer_search_{keyword}"
+    cached_data = cache.get(cache_key)
+    if cached_data:
+        return JsonResponse({'code': 1, 'data': cached_data})
+
     customer_matches = Customer.objects.select_related('area').filter(
-        Q(name__icontains=keyword) |
-        Q(area__name__icontains=keyword)
+        Q(name__icontains=keyword) | Q(area__name__icontains=keyword)
     ).distinct()[:8]
 
     data = []
     for customer in customer_matches:
         area_name = customer.area.name if customer.area else '无区域'
-        full_name = f"{area_name} | {customer.name}"
         data.append({
             'id': customer.id,
             'name': customer.name,
             'area_id': customer.area.id if customer.area else '',
             'area_name': area_name,
-            'full_name': full_name
+            'full_name': f"{area_name} | {customer.name}"
         })
 
+    # 🔥 缓存10秒，大幅减少数据库压力
+    cache.set(cache_key, data, timeout=10)
     return JsonResponse({'code': 1, 'data': data})
 
 
@@ -725,27 +739,50 @@ def reopen_order(request, order_no):
 
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
+@login_required
+@permission_required(PERM_ORDER_PRINT)
+def print_order(request, order_no):
+    """订单打印页面"""
+    order = get_object_or_404(Order, order_no=order_no)
+    items = order.items.all()
+    # 重构：RBAC判断超级管理员
+    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+    return render(request, 'bill/print.html', {
+        'order': order,
+        'items': items,
+        'is_super_admin': is_super_admin
+    })
 
 @login_required
 @permission_required(PERM_ORDER_REOPEN)
 def reopen_order_edit(request, order_no):
-    """重开订单编辑页面"""
-    original_order = get_object_or_404(Order, order_no=order_no)
-    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+    """重开订单编辑页面【性能优化版】"""
+    # 🔥 优化1：提前判断状态，减少无效代码执行
+    # 🔥 优化2：预加载 customer/area，彻底消除 N+1 查询（1次查询搞定所有关联数据）
+    original_order = get_object_or_404(
+        Order.objects.select_related('customer', 'area'),  # 核心：预加载关联对象
+        order_no=order_no
+    )
 
+    # 非作废订单直接重定向，终止后续逻辑
     if original_order.status != 'cancelled':
         return redirect('bill:order_detail', order_no=order_no)
 
+    # 权限判断（仅有效场景执行）
+    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+
+    # 🔥 原有优化保留：订单明细+商品 关联查询（无N+1）
     items = OrderItem.objects.select_related('product').filter(order=original_order)
 
+    # 🔥 优化3：规范 Decimal 处理，避免精度丢失
     order_data = {
         'order_no': original_order.order_no,
-        'customer_id': original_order.customer.id if original_order.customer else '',
+        'customer_id': original_order.customer_id if original_order.customer else '',
         'customer_name': f"{original_order.area.name} | {original_order.customer.name}" if (
                 original_order.customer and original_order.area) else '',
         'items': [
             {
-                'id': item.product.id if item.product else '',
+                'id': item.product_id if item.product else '',
                 'name': item.product.name if item.product else '',
                 'qty': item.quantity,
                 'unit': item.product.unit if item.product else '',
@@ -756,8 +793,18 @@ def reopen_order_edit(request, order_no):
         ]
     }
 
-    customers = Customer.objects.all().order_by('name')
-    areas = Area.objects.all().order_by('name')
+    # 🔥 优化4：干掉全表查询！只查前端需要的字段（id+name）
+    # 🔥 优化5：添加缓存（低频数据，缓存10分钟）
+    CACHE_TIMEOUT = 600
+    customers = cache.get('all_customers_simple')
+    if not customers:
+        customers = list(Customer.objects.values_list('id', 'name').order_by('name'))
+        cache.set('all_customers_simple', customers, CACHE_TIMEOUT)
+
+    areas = cache.get('all_areas_simple')
+    if not areas:
+        areas = list(Area.objects.values_list('id', 'name').order_by('name'))
+        cache.set('all_areas_simple', areas, CACHE_TIMEOUT)
 
     return render(request, 'bill/index.html', {
         'customers': customers,
