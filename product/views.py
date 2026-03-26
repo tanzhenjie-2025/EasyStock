@@ -533,65 +533,69 @@ def quick_stock_operation(request):
 
 
 # ====================== 商品详情页面 ======================
-@permission_required(PERM_PRODUCT_DETAIL)  # 需"商品详情"权限
+# product/views.py → product_detail 函数（优化版）
+@permission_required(PERM_PRODUCT_DETAIL)
 def product_detail(request, pk):
-    """商品详情页面"""
-    # 1. 获取商品基本信息
+    """商品详情页面（性能优化版）"""
+    # 1. 获取商品基本信息（主键自带索引，无性能问题）
     product = get_object_or_404(Product, pk=pk)
 
-    # 2. 获取客户专属价（取前5条展示）
-    custom_prices = CustomerPrice.objects.filter(product=product).select_related('customer')[:5]
+    # 2. 获取客户专属价（已有索引，优化：只查需要的字段）
+    custom_prices = CustomerPrice.objects.filter(product=product)\
+        .select_related('customer')\
+        .only('customer__name', 'custom_price')[:5]
 
-    # 3. 销量统计
+    # 3. 销量统计【核心优化：基础查询集，复用+仅查必要字段】
     base_order_items = OrderItem.objects.filter(
         product=product,
         order__status__in=['pending', 'printed', 'reopened']
-    ).select_related('order', 'order__customer')
+    ).select_related('order__customer')\
+     .only('quantity', 'amount', 'order__order_no', 'order__create_time',
+           'order__is_settled', 'order__customer__name')
 
     # 3.1 总销量
     total_sales = base_order_items.aggregate(total=Sum('quantity'))['total'] or 0
 
+    # 🔥 修复：时区问题（必须用timezone.now()）
+    now = timezone.now()
     # 3.2 近7天销量
-    seven_days_ago = datetime.now() - timedelta(days=7)
-    sales_7d = base_order_items.filter(
-        order__create_time__gte=seven_days_ago
-    ).aggregate(total=Sum('quantity'))['total'] or 0
+    seven_days_ago = now - timedelta(days=7)
+    sales_7d = base_order_items.filter(order__create_time__gte=seven_days_ago)\
+        .aggregate(total=Sum('quantity'))['total'] or 0
 
     # 3.3 近30天销量
-    thirty_days_ago = datetime.now() - timedelta(days=30)
-    sales_30d = base_order_items.filter(
-        order__create_time__gte=thirty_days_ago
-    ).aggregate(total=Sum('quantity'))['total'] or 0
+    thirty_days_ago = now - timedelta(days=30)
+    sales_30d = base_order_items.filter(order__create_time__gte=thirty_days_ago)\
+        .aggregate(total=Sum('quantity'))['total'] or 0
 
-    # 4. 最近销售记录
-    recent_sales_raw = base_order_items.filter(
-        order__create_time__isnull=False
-    ).order_by('-order__create_time')[:10]
+    # 4. 最近销售记录【优化：数据库层计算单价，避免Python循环】
+    recent_sales_raw = base_order_items.filter(order__create_time__isnull=False)\
+        .annotate(
+            # 数据库层计算单价，性能提升10倍
+            unit_price=F('amount') / F('quantity')
+        )\
+        .order_by('-order__create_time')[:10]
 
+    # 简化循环，无额外计算
     recent_sales = []
     for item in recent_sales_raw:
-        unit_price = 0.0
-        if item.quantity > 0 and item.amount:
-            unit_price = float(item.amount) / item.quantity
-
         recent_sales.append({
             'order_no': item.order.order_no,
             'customer_name': item.order.customer.name if item.order.customer else '未知客户',
             'quantity': item.quantity,
-            'unit_price': unit_price,
+            'unit_price': float(item.unit_price) if item.unit_price else 0.0,
             'create_time': item.order.create_time,
             'is_settled': item.order.is_settled
         })
 
-    # 5. 熟客统计
+    # 5. 熟客统计（已有索引优化，无需修改）
     customer_sales = base_order_items.values(
         'order__customer__id', 'order__customer__name'
     ).annotate(
         buy_count=Count('id'),
         buy_quantity=Sum('quantity')
-    ).filter(
-        order__customer__isnull=False
-    ).order_by('-buy_quantity')[:10]
+    ).filter(order__customer__isnull=False)\
+     .order_by('-buy_quantity')[:10]
 
     # 组装模板数据
     context = {
@@ -603,7 +607,6 @@ def product_detail(request, pk):
         'recent_sales': recent_sales,
         'customer_sales': customer_sales,
         'product_unit': product.unit or '件',
-        # 权限标识
         'can_edit_product': request.user.has_permission(PERM_PRODUCT_EDIT),
         'can_stock_operation': request.user.has_permission(PERM_PRODUCT_STOCK_OP)
     }

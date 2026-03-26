@@ -333,12 +333,12 @@ class Order(models.Model):
     class Meta:
         verbose_name = '订单'
         verbose_name_plural = '订单管理'
-        # 🔥 核心优化：新增联合索引，覆盖所有客户汇总/详情查询
         indexes = [
-            # 原有索引：客户订单详情页专用
+            # 原有索引保留
             models.Index(fields=['customer', 'status', '-create_time']),
-            # 新增索引：【客户消费汇总核心索引】(区域 + 状态 + 时间) → 100%匹配汇总查询条件
             models.Index(fields=['area', 'status', 'create_time']),
+            # 🔥 新增：商品详情页核心索引（状态+时间，所有统计都用这个）
+            models.Index(fields=['status', 'create_time']),
         ]
 
 
@@ -363,15 +363,14 @@ class OrderItem(models.Model):
             product.save()
         super().save(*args, **kwargs)
 
+    # bill/models.py → OrderItem 类 Meta
     class Meta:
         verbose_name = '订单明细'
         verbose_name_plural = '订单明细管理'
-        # ✅ 修复：仅使用当前模型自身字段，删除所有跨表双下划线索引
         indexes = [
-            # 核心索引1：订单+商品（汇总/详情必用）
             models.Index(fields=['order', 'product']),
-            # 核心索引2：商品+订单（商品详情页反向查询优化）
-            models.Index(fields=['product', 'order']),
+            # 🔥 修复：移除 include，直接把字段加入索引（兼容所有Django版本，性能一致）
+            models.Index(fields=['product', 'order', 'quantity', 'amount']),
         ]
 
 
