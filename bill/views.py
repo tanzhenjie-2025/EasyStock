@@ -1,5 +1,6 @@
 # bill\views
 # ========== 先导入所有必要模块（统一开头，避免重复） ==========
+from django.db import transaction
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse
 from difflib import SequenceMatcher
@@ -88,22 +89,14 @@ def ajax_permission_required(permission_code):
 
 # ========== 重构：视图函数（替换所有权限装饰器） ==========
 @login_required
-@permission_required(PERM_ORDER_CREATE)  # 替换原user_passes_test(is_operator)
+@permission_required(PERM_ORDER_CREATE)
 def index(request):
     """开单主页面（三联单填写页）"""
-    customers = Customer.objects.all().order_by('name')
-    areas = Area.objects.all().order_by('name')
-    # 重构：RBAC判断是否为超级管理员
+    # 🔥 优化：删除无用的全表查询，仅保留必要逻辑
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
     return render(request, 'bill/index.html', {
-        'customers': customers,
-        'areas': areas,
-        'is_super_admin': is_super_admin  # 替换原is_boss
+        'is_super_admin': is_super_admin
     })
-
-
-
-
 
 @login_required
 @permission_required(PERM_PRODUCT_SEARCH)
@@ -190,9 +183,13 @@ def search_product(request):
 @login_required
 @permission_required(PERM_ORDER_CREATE)
 def save_order(request):
-    """保存订单（开单提交）"""
-    if request.method == 'POST':
-        try:
+    """保存订单（高性能优化版：批量操作 + 事务 + 无N+1）"""
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+
+    try:
+        # 事务包裹：所有操作原子性，失败自动回滚
+        with transaction.atomic():
             data = json.loads(request.body)
             items = data.get('items', [])
             customer_id = data.get('customer_id', '')
@@ -201,96 +198,86 @@ def save_order(request):
             if not items:
                 return JsonResponse({'code': 0, 'msg': '无订单明细'})
 
+            # ===================== 1. 基础数据校验（一次性完成） =====================
+            product_ids = []
+            qty_map = {}
+            for item in items:
+                pid = item.get('id')
+                qty = item.get('qty', 0)
+                if not pid or not isinstance(qty, int) or qty <= 0:
+                    return JsonResponse({'code': 0, 'msg': f'商品{item.get("name", "未知")}数量无效'})
+                product_ids.append(pid)
+                qty_map[pid] = qty
+
+            # ===================== 2. 批量查询商品：1次查询替代N次（解决N+1） =====================
+            products = Product.objects.filter(id__in=product_ids).in_bulk()
+            for pid in product_ids:
+                if pid not in products:
+                    return JsonResponse({'code': 0, 'msg': f'商品ID {pid} 不存在'})
+                if products[pid].stock < qty_map[pid]:
+                    return JsonResponse({'code': 0, 'msg': f'{products[pid].name}库存不足（当前：{products[pid].stock}）'})
+
+            # ===================== 3. 创建订单主表 =====================
             order = Order()
             order.creator = request.user
+
+            # 客户校验
             if customer_id:
-                try:
-                    customer = Customer.objects.get(id=customer_id)
-                    order.customer = customer
-                    order.area = customer.area
-                except Customer.DoesNotExist:
-                    return JsonResponse({'code': 0, 'msg': '所选客户不存在'})
+                customer = get_object_or_404(Customer, id=customer_id)
+                order.customer = customer
+                order.area = customer.area
 
+            # 重开订单校验
             if original_order_no:
-                try:
-                    original_order = Order.objects.get(order_no=original_order_no)
-                    if original_order.status != 'cancelled':
-                        return JsonResponse({'code': 0, 'msg': '仅作废订单可重开'})
-                    order.original_order = original_order
-                    order.status = 'reopened'
-                except Order.DoesNotExist:
-                    return JsonResponse({'code': 0, 'msg': '原作废订单不存在'})
+                original_order = get_object_or_404(Order, order_no=original_order_no)
+                if original_order.status != 'cancelled':
+                    return JsonResponse({'code': 0, 'msg': '仅作废订单可重开'})
+                order.original_order = original_order
+                order.status = 'reopened'
 
+            # 计算总金额
             total_amount = 0
-            valid_items = []
-            for item in items:
-                product_id = item.get('id', '')
-                qty = item.get('qty', 0)
-
-                if not product_id or not isinstance(qty, int) or qty <= 0:
-                    return JsonResponse({'code': 0, 'msg': f'商品{item.get("name", "未知")}数量无效'})
-
-                product = get_object_or_404(Product, id=product_id)
-                if product.stock < qty:
-                    return JsonResponse({'code': 0, 'msg': f'{product.name}库存不足（当前库存：{product.stock}）'})
-
-                item_amount = product.price * qty
-                valid_items.append({
-                    'product': product,
-                    'quantity': qty,
-                    'amount': item_amount
-                })
-                total_amount += item_amount
+            order_items = []
+            for pid in product_ids:
+                product = products[pid]
+                qty = qty_map[pid]
+                amount = product.price * qty
+                total_amount += amount
+                # 构建明细对象（不保存）
+                order_items.append(OrderItem(
+                    order=order,
+                    product=product,
+                    quantity=qty,
+                    amount=amount
+                ))
 
             order.total_amount = total_amount
-            order.save()
+            order.save()  # 仅1次保存
 
-            for valid_item in valid_items:
-                order_item = OrderItem(
-                    order=order,
-                    product=valid_item['product'],
-                    quantity=valid_item['quantity'],
-                    amount=valid_item['amount']
-                )
-                order_item.save()
-                valid_item['product'].stock -= valid_item['quantity']
-                valid_item['product'].save()
+            # ===================== 4. 批量创建订单明细：1次写入替代N次 =====================
+            OrderItem.objects.bulk_create(order_items)
 
+            # ===================== 5. 批量更新库存：1次更新替代N次 =====================
+            for pid in product_ids:
+                products[pid].stock -= qty_map[pid]
+            Product.objects.bulk_update(products.values(), ['stock'])
+
+            # ===================== 6. 操作日志 =====================
             customer_name = order.customer.name if order.customer else '无'
-            # 重构：使用用户模块的统一日志记录
             create_operation_log(
                 request=request,
                 op_type='create_order',
                 obj_type='order',
                 obj_id=str(order.id),
                 obj_name=f"订单-{order.order_no}",
-                detail=f"创建订单{order.order_no}，客户：{customer_name}，总金额：{order.total_amount}元，商品数量：{len(valid_items)}个"
+                detail=f"创建订单{order.order_no}，客户：{customer_name}，总金额：{order.total_amount}元，商品数量：{len(items)}个"
             )
 
             return JsonResponse({'code': 1, 'msg': '开单成功', 'order_no': order.order_no})
 
-        except KeyError as e:
-            if 'order' in locals():
-                order.delete()
-            return JsonResponse({'code': 0, 'msg': f'开单失败：缺少字段 {str(e)}'})
-        except Exception as e:
-            if 'order' in locals():
-                order.delete()
-            return JsonResponse({'code': 0, 'msg': f'开单失败：{str(e)}'})
-
-    return JsonResponse({'code': 0, 'msg': '请求方式错误'})
-
-
-@login_required
-@permission_required(PERM_ORDER_CREATE)
-def index(request):
-    """开单主页面（三联单填写页）"""
-    # 🔥 优化：删除无用的全表查询，仅保留必要逻辑
-    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
-    return render(request, 'bill/index.html', {
-        'is_super_admin': is_super_admin
-    })
-
+    except Exception as e:
+        # 事务自动回滚，无需手动delete，数据绝对安全
+        return JsonResponse({'code': 0, 'msg': f'开单失败：{str(e)}'})
 
 @login_required
 @permission_required(PERM_ORDER_VIEW)

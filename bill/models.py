@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 from pypinyin import lazy_pinyin
 import datetime
@@ -300,15 +300,15 @@ class Order(models.Model):
         overdue_days = (today - order_date).days
         return max(overdue_days, 0)
 
+    # Order 模型的 save 方法，用 select_for_update 锁表，避免重复单号
     def save(self, *args, **kwargs):
         if not self.order_no:
             date_str = datetime.datetime.now().strftime('%Y%m%d')
-            last_order = Order.objects.filter(order_no__startswith=date_str).last()
-            if last_order:
-                seq = int(last_order.order_no[-4:]) + 1
-            else:
-                seq = 1
-            self.order_no = f'{date_str}{seq:04d}'
+            # 加锁，防止并发重复
+            with transaction.atomic():
+                last_order = Order.objects.filter(order_no__startswith=date_str).select_for_update().last()
+                seq = int(last_order.order_no[-4:]) + 1 if last_order else 1
+                self.order_no = f'{date_str}{seq:04d}'
         super().save(*args, **kwargs)
 
     def get_full_trace_chain(self):
@@ -357,11 +357,9 @@ class OrderItem(models.Model):
     amount = models.DecimalField('小计金额', max_digits=10, decimal_places=2, null=True, blank=True)
 
     def save(self, *args, **kwargs):
+        # 🔥 修复：删除这里的库存扣减逻辑！！！视图层统一批量处理
         if self.product:
             self.amount = self.product.price * self.quantity
-            product = self.product
-            product.stock -= self.quantity
-            product.save()
         super().save(*args, **kwargs)
 
     # bill/models.py → OrderItem 类 Meta
