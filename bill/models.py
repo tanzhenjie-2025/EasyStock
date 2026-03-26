@@ -324,9 +324,12 @@ class Order(models.Model):
     class Meta:
         verbose_name = '订单'
         verbose_name_plural = '订单管理'
-        # 新增：高频查询联合索引 (客户 + 状态 + 时间倒序)
+        # 🔥 核心优化：新增联合索引，覆盖所有客户汇总/详情查询
         indexes = [
-            models.Index(fields=['customer', 'status', '-create_time'])
+            # 原有索引：客户订单详情页专用
+            models.Index(fields=['customer', 'status', '-create_time']),
+            # 新增索引：【客户消费汇总核心索引】(区域 + 状态 + 时间) → 100%匹配汇总查询条件
+            models.Index(fields=['area', 'status', 'create_time']),
         ]
 
 
@@ -354,9 +357,14 @@ class OrderItem(models.Model):
     class Meta:
         verbose_name = '订单明细'
         verbose_name_plural = '订单明细管理'
-        # 新增：订单+商品联合索引，优化明细查询
+        # 🔥 核心优化：新增联合索引，覆盖所有商品汇总/详情查询
         indexes = [
-            models.Index(fields=['order', 'product'])
+            # 原有索引：订单+商品关联查询
+            models.Index(fields=['order', 'product']),
+            # 新增索引1：【商品汇总核心索引】(订单区域 + 订单时间 + 订单状态 + 商品)
+            models.Index(fields=['order__area', 'order__create_time', 'order__status', 'product']),
+            # 新增索引2：【商品详情页专用索引】(商品 + 区域 + 时间 + 状态)
+            models.Index(fields=['product', 'order__area', 'order__create_time', 'order__status']),
         ]
 
 
