@@ -3,7 +3,6 @@
 from django.db import transaction
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse
-from difflib import SequenceMatcher
 
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -652,25 +651,23 @@ def print_order(request, order_no):
 @login_required
 @permission_required(PERM_ORDER_REOPEN)
 def reopen_order_edit(request, order_no):
-    """重开订单编辑页面【性能优化版】"""
-    # 🔥 优化1：提前判断状态，减少无效代码执行
-    # 🔥 优化2：预加载 customer/area，彻底消除 N+1 查询（1次查询搞定所有关联数据）
+    """重开订单编辑页面【终极性能版：删除无用全量查询】"""
+    # 预加载关联，消除N+1查询
     original_order = get_object_or_404(
-        Order.objects.select_related('customer', 'area'),  # 核心：预加载关联对象
+        Order.objects.select_related('customer', 'area'),
         order_no=order_no
     )
 
-    # 非作废订单直接重定向，终止后续逻辑
+    # 非作废订单直接重定向
     if original_order.status != 'cancelled':
         return redirect('bill:order_detail', order_no=order_no)
 
-    # 权限判断（仅有效场景执行）
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
 
-    # 🔥 原有优化保留：订单明细+商品 关联查询（无N+1）
+    # 订单商品明细（无N+1）
     items = OrderItem.objects.select_related('product').filter(order=original_order)
 
-    # 🔥 优化3：规范 Decimal 处理，避免精度丢失
+    # 订单回显数据（核心业务，保留）
     order_data = {
         'order_no': original_order.order_no,
         'customer_id': original_order.customer_id if original_order.customer else '',
@@ -689,24 +686,15 @@ def reopen_order_edit(request, order_no):
         ]
     }
 
-    # 🔥 优化4：干掉全表查询！只查前端需要的字段（id+name）
-    # 🔥 优化5：添加缓存（低频数据，缓存10分钟）
-    CACHE_TIMEOUT = 600
-    customers = cache.get('all_customers_simple')
-    if not customers:
-        customers = list(Customer.objects.values_list('id', 'name').order_by('name'))
-        cache.set('all_customers_simple', customers, CACHE_TIMEOUT)
+    # ===================== 核心删除 =====================
+    # 1. 删除 全量客户查询 + 缓存（无用+内存风险）
+    # 2. 删除 全量区域查询 + 缓存（无用）
+    # ====================================================
 
-    areas = cache.get('all_areas_simple')
-    if not areas:
-        areas = list(Area.objects.values_list('id', 'name').order_by('name'))
-        cache.set('all_areas_simple', areas, CACHE_TIMEOUT)
-
+    # 仅传递前端必需参数：客户信息前端自动回显+搜索，无需全量列表
     return render(request, 'bill/index.html', {
-        'customers': customers,
-        'areas': areas,
         'is_super_admin': is_super_admin,
-        'reopen_order_data': order_data
+        'reopen_order_data': order_data  # 仅保留订单回显数据
     })
 
 
