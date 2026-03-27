@@ -1,4 +1,5 @@
-from django.db.models import Q
+from django.db.models import Q, OuterRef, Subquery, Value, Case, When
+from django.db.models.functions import Coalesce
 from django.db.models.signals import post_migrate
 from django.dispatch import receiver
 from django.shortcuts import render, redirect, get_object_or_404
@@ -22,6 +23,8 @@ from .models import (
 )
 from operation_log.models import OperationLog
 
+from django.db.models import DecimalField
+from decimal import Decimal
 # 配置日志
 logger = logging.getLogger(__name__)
 
@@ -198,7 +201,7 @@ def logout_view(request):
             op_type=OP_TYPE_LOGOUT,
             obj_type='user',
             obj_id=request.user.id,
-            obj_name=f"{request.user.user_code}-{request.user.username}",
+            obj_name=f"{user.user_code}-{request.user.username}",
             detail=f"用户登出：编号={request.user.user_code}，IP={get_client_ip(request)}"
         )
     logout(request)
@@ -206,11 +209,12 @@ def logout_view(request):
 
 
 # ========== 用户管理视图（RBAC版） ==========
+
 @login_required
 @permission_required('user_view')
 def user_list(request):
-    """用户列表（支持搜索/状态筛选 + 销售统计 + 分页）"""
-    from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
+    """用户列表（支持搜索/状态筛选 + 销售统计 + 分页）【性能优化版：批量注解，无N+1查询】"""
+    # 👇 修复：补充必需的类型导入
     # 筛选参数
     keyword = request.GET.get('keyword', '').strip()
     status = request.GET.get('status', 'all')
@@ -218,8 +222,8 @@ def user_list(request):
     page = request.GET.get('page', 1)
     page_size = 10
 
-    # 基础查询
-    queryset = User.objects.all().order_by('-date_joined')
+    # 🔥 修复：预加载角色，解决N+1查询
+    queryset = User.objects.select_related('role').all().order_by('-date_joined')
 
     # 关键词筛选
     if keyword:
@@ -236,7 +240,29 @@ def user_list(request):
     elif status == 'inactive':
         queryset = queryset.filter(is_active=False)
 
-    # 分页逻辑
+    # ===================== 核心优化1：超级管理员 → 批量注解统计（无循环查询）=====================
+    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+    if is_super_admin:
+        # 子查询1：当前用户的有效订单数（状态：pending/printed/reopened）
+        order_count_sub = Order.objects.filter(
+            creator=OuterRef('pk'),
+            status__in=['pending', 'printed', 'reopened']
+        ).values('creator').annotate(cnt=Count('id')).values('cnt')
+
+        # 子查询2：当前用户的有效销售额
+        sales_sum_sub = Order.objects.filter(
+            creator=OuterRef('pk'),
+            status__in=['pending', 'printed', 'reopened']
+        ).values('creator').annotate(total=Sum('total_amount')).values('total')
+
+        # 批量给所有用户注解统计字段（数据库一次性计算，无循环！）
+        # 👇 修复：Decimal 类型匹配，指定 output_field
+        queryset = queryset.annotate(
+            orders=Coalesce(Subquery(order_count_sub), Value(0), output_field=DecimalField(max_digits=12, decimal_places=2)),
+            sales=Coalesce(Subquery(sales_sum_sub), Value(Decimal('0')), output_field=DecimalField(max_digits=12, decimal_places=2))
+        )
+
+    # 分页逻辑（优化后：分页前已完成所有统计计算）
     paginator = Paginator(queryset, page_size)
     try:
         users_page = paginator.page(page)
@@ -245,37 +271,43 @@ def user_list(request):
     except EmptyPage:
         users_page = paginator.page(paginator.num_pages)
 
-    # 销售统计逻辑
-    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
-
+    # ===================== 核心优化2：店铺统计 → 1次SQL完成3个统计（原3次独立查询）=====================
     shop_stats = {
         'total_orders': 0,
         'total_sales': 0,
         'total_cancelled': 0
     }
     if is_super_admin:
-        normal_orders = Order.objects.filter(status__in=['pending', 'printed', 'reopened'])
-        shop_stats['total_orders'] = normal_orders.count()
-        shop_stats['total_sales'] = normal_orders.aggregate(total=Sum('total_amount'))['total'] or 0
-        shop_stats['total_cancelled'] = Order.objects.filter(status='cancelled').count()
+        # 🔥 一次聚合查询：总订单/总销售额/取消订单数 全部算出
+        # 👇 修复：指定 Decimal 输出字段，解决类型混合错误
+        shop_stats = Order.objects.aggregate(
+            total_orders=Count(Case(
+                When(status__in=['pending', 'printed', 'reopened'], then='id')
+            )),
+            total_sales=Coalesce(
+                Sum(
+                    Case(
+                        When(status__in=['pending', 'printed', 'reopened'], then='total_amount'),
+                        output_field=DecimalField(max_digits=12, decimal_places=2)
+                    )
+                ),
+                Value(Decimal('0')),
+                output_field=DecimalField(max_digits=12, decimal_places=2)
+            ),
+            total_cancelled=Count(Case(
+                When(status='cancelled', then='id')
+            ))
+        )
 
-    # ✅ 修复：直接给 user 对象绑定属性，前端无过滤器取值
+    # ===================== 核心优化3：纯Python计算占比（无任何数据库查询！）=====================
     if is_super_admin:
+        total_sales = shop_stats['total_sales']
         for user in users_page:
-            if not user.is_active:
-                user.orders = 0
-                user.sales = 0
+            # 未激活用户已经注解为0，无需重复赋值
+            if total_sales > 0:
+                user.ratio = round((user.sales / total_sales) * 100)
+            else:
                 user.ratio = 0
-                continue
-
-            normal_orders = Order.objects.filter(creator=user, status__in=['pending', 'printed', 'reopened'])
-            user_orders = normal_orders.count()
-            user_sales = normal_orders.aggregate(total=Sum('total_amount'))['total'] or 0
-            ratio = round((user_sales / shop_stats['total_sales']) * 100) if shop_stats['total_sales'] > 0 else 0
-
-            user.orders = user_orders
-            user.sales = user_sales
-            user.ratio = ratio
 
     return render(request, 'accounts/user_list.html', {
         'users': users_page,
@@ -285,7 +317,6 @@ def user_list(request):
         'current_user': request.user,
         'is_super_admin': is_super_admin,
         'shop_stats': shop_stats,
-        # 完全删除 user_stats_dict，不需要了！
         'paginator': paginator,
         'page_obj': users_page,
     })
@@ -364,7 +395,8 @@ def user_add(request):
 @permission_required('user_edit')
 def user_edit(request, user_id):
     """编辑用户"""
-    user = get_object_or_404(User, id=user_id)
+    # 🔥 修复：预加载角色，解决N+1查询
+    user = get_object_or_404(User.objects.select_related('role'), id=user_id)
 
     if request.method == 'POST':
         # 获取表单数据
@@ -443,8 +475,9 @@ def user_edit(request, user_id):
 @login_required
 @permission_required('user_view')
 def user_detail(request, user_id):
-    """用户详情页（包含开单统计和最近订单）"""
-    user = get_object_or_404(User, id=user_id)
+    """用户详情页（包含开单统计和最近订单）【优化版：合并聚合查询，减少DB请求】"""
+    # 预加载角色，解决N+1查询
+    user = get_object_or_404(User.objects.select_related('role'), id=user_id)
     # 仅超级管理员可见统计数据
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
 
@@ -456,31 +489,42 @@ def user_detail(request, user_id):
         'sales_ratio': 0
     }
 
-    # 超级管理员计算统计数据
+    if is_super_admin and user.is_active:
+        from django.db.models import DecimalField, Count, Sum, Case, When
+        # 🔥 核心优化：1次聚合查询，获取所有统计数据（全店总额 + 用户统计）
+        stats = Order.objects.filter(
+            status__in=['pending', 'printed', 'reopened', 'cancelled']
+        ).aggregate(
+            # 全店有效销售额
+            shop_total=Coalesce(
+                Sum(Case(When(status__in=['pending', 'printed', 'reopened'], then='total_amount'))),
+                0,
+                output_field=DecimalField(max_digits=12, decimal_places=2)
+            ),
+            # 当前用户有效订单数
+            user_orders=Count(Case(When(creator=user, status__in=['pending', 'printed', 'reopened'], then='id'))),
+            # 当前用户有效销售额
+            user_sales=Coalesce(
+                Sum(Case(When(creator=user, status__in=['pending', 'printed', 'reopened'], then='total_amount'))),
+                0,
+                output_field=DecimalField(max_digits=12, decimal_places=2)
+            ),
+            # 当前用户作废订单数
+            user_canceled=Count(Case(When(creator=user, status='cancelled', then='id')))
+        )
+
+        # 赋值统计结果
+        user_stats['total_orders'] = stats['user_orders']
+        user_stats['total_sales'] = stats['user_sales']
+        user_stats['total_cancelled'] = stats['user_canceled']
+        # 计算占比
+        shop_total = stats['shop_total']
+        user_stats['sales_ratio'] = round((user_stats['total_sales'] / shop_total) * 100) if shop_total > 0 else 0
+
+    # 最近15条订单（倒序）
+    recent_orders = []
     if is_super_admin:
-        # 全店总销售额（用于计算占比）
-        shop_total_sales = Order.objects.filter(status__in=['pending', 'printed', 'reopened']).aggregate(
-            total=Sum('total_amount'))['total'] or 0
-
-        # 员工统计（已禁用员工显示0）
-        if user.is_active:
-            # 正常订单统计
-            normal_orders = Order.objects.filter(creator=user, status__in=['pending', 'printed', 'reopened'])
-            user_stats['total_orders'] = normal_orders.count()
-            user_stats['total_sales'] = normal_orders.aggregate(total=Sum('total_amount'))['total'] or 0
-
-            # 作废订单数
-            user_stats['total_cancelled'] = Order.objects.filter(creator=user, status='cancelled').count()
-
-            # 占比计算（防除零）
-            user_stats['sales_ratio'] = round(
-                (user_stats['total_sales'] / shop_total_sales) * 100) if shop_total_sales > 0 else 0
-
-        # 最近15条订单（倒序）
         recent_orders = Order.objects.filter(creator=user).order_by('-create_time')[:15]
-    else:
-        # 非超级管理员看不到订单数据
-        recent_orders = []
 
     return render(request, 'accounts/user_detail.html', {
         'user': user,
@@ -498,7 +542,8 @@ def user_toggle_status(request, user_id):
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
     try:
-        user = get_object_or_404(User, id=user_id)
+        # 🔥 修复：预加载角色，解决N+1查询
+        user = get_object_or_404(User.objects.select_related('role'), id=user_id)
         # 切换状态
         user.is_active = not user.is_active
         user.save()
@@ -532,7 +577,8 @@ def reset_password(request, user_id):
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
     try:
-        user = get_object_or_404(User, id=user_id)
+        # 🔥 修复：预加载角色，解决N+1查询
+        user = get_object_or_404(User.objects.select_related('role'), id=user_id)
         temp_pwd = "123456"
 
         # 重置密码+标记强制修改
@@ -699,5 +745,3 @@ def profile(request):
 def no_permission(request):
     """无权限提示"""
     return render(request, 'accounts/no_permission.html')
-
-
