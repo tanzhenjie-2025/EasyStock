@@ -8,7 +8,7 @@ from difflib import SequenceMatcher
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from .models import Product, Order, OrderItem, ProductAlias, DailySalesSummary, CustomerPrice, Customer, Area
-from django.db.models import Q, Sum
+from django.db.models import Q, Sum, Count, Case, When, DecimalField
 import json
 from datetime import date, datetime, timedelta
 from .utils import generate_daily_summary, auto_summary_yesterday
@@ -103,78 +103,60 @@ def index(request):
 @login_required
 @permission_required(PERM_PRODUCT_SEARCH)
 def search_product(request):
-    """
-    商品搜索：【拆分缓存优化版】
-    1. 缓存：商品基础信息（所有客户共用，命中率极高）
-    2. 实时查：客户专属价（仅当前8个商品，超快）
-    """
+    """商品搜索（索引优化版：模糊查询改前缀匹配，命中索引）"""
     keyword = request.GET.get('keyword', '').strip()
     customer_id = request.GET.get('customer_id', '').strip()
 
     if not keyword:
         return JsonResponse({'code': 0, 'data': []})
 
-    # ===================== 1. 全局商品缓存（所有客户共用） =====================
-    # 缓存键：仅关键词，无客户ID → 全系统共用
     cache_key = f"product_base_search_{keyword}"
-    # 尝试读取缓存
     cached_products = cache.get(cache_key)
 
     if cached_products is None:
-        # 缓存未命中 → 查询数据库（只查1次，全客户共用）
+        # ✅ 核心修复：所有icontains → istartswith，命中拼音/名称索引
         product_matches = Product.objects.filter(
-            Q(name__icontains=keyword) |
-            Q(pinyin_full__icontains=keyword) |
-            Q(pinyin_abbr__icontains=keyword)
+            Q(name__istartswith=keyword) |
+            Q(pinyin_full__istartswith=keyword) |
+            Q(pinyin_abbr__istartswith=keyword)
         )
 
         alias_matches = ProductAlias.objects.filter(
-            Q(alias_name__icontains=keyword) |
-            Q(alias_pinyin_full__icontains=keyword) |
-            Q(alias_pinyin_abbr__icontains=keyword)
+            Q(alias_name__istartswith=keyword) |
+            Q(alias_pinyin_full__istartswith=keyword) |
+            Q(alias_pinyin_abbr__istartswith=keyword)
         ).values_list('product_id', flat=True)
         alias_products = Product.objects.filter(id__in=alias_matches)
 
-        # 合并、去重、取前8条
         all_products = (product_matches | alias_products).distinct()[:8]
 
-        # 构建【商品基础数据】（仅固定信息，无价格）
         cached_products = []
         for p in all_products:
             cached_products.append({
                 'id': p.id,
                 'name': p.name,
-                'standard_price': float(p.price),  # 原价
+                'standard_price': float(p.price),
                 'unit': p.unit,
                 'stock': p.stock
             })
-
-        # 存入缓存：30秒（商品基础信息不常变，可加长）
         cache.set(cache_key, cached_products, timeout=30)
 
-    # ===================== 2. 实时查询客户专属价（轻量查询） =====================
+    # 客户专属价查询（保留，无优化）
     customer_prices = {}
     if customer_id:
-        # 只查【当前8个商品】的专属价 → 极快，无性能压力
         product_ids = [item['id'] for item in cached_products]
-        cp_list = CustomerPrice.objects.filter(
-            customer_id=customer_id,
-            product_id__in=product_ids
-        )
-        # 转成字典：{商品ID: 专属价}
+        cp_list = CustomerPrice.objects.filter(customer_id=customer_id, product_id__in=product_ids)
         customer_prices = {cp.product_id: float(cp.custom_price) for cp in cp_list}
 
-    # ===================== 3. 合并数据（返回前端） =====================
     data = []
     for item in cached_products:
         product_id = item['id']
-        # 优先用客户专属价，没有就用原价
         final_price = customer_prices.get(product_id, item['standard_price'])
         data.append({
             'id': product_id,
             'name': item['name'],
-            'price': final_price,  # 最终售价
-            'standard_price': item['standard_price'],  # 原价
+            'price': final_price,
+            'standard_price': item['standard_price'],
             'unit': item['unit'],
             'stock': item['stock']
         })
@@ -319,11 +301,11 @@ def stock_list(request):
     })
 
 
+
 @login_required
 @permission_required(PERM_ORDER_VIEW)
 def order_list(request):
-    """订单列表页（分页优化版 - 每页20条）"""
-    # 接收筛选参数
+    """订单列表页（终极优化版：修复重复聚合查询+索引优化）"""
     order_no = request.GET.get('order_no', '').strip()
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
@@ -332,41 +314,40 @@ def order_list(request):
     settled_status = request.GET.get('settled_status', '')
     amount_operator = request.GET.get('amount_operator', '')
     amount_value = request.GET.get('amount_value', '').strip()
-    # 分页参数：当前页码
     page = request.GET.get('page', 1)
 
-    # 基础查询 + 关联预加载
+    # 关联预加载（无N+1）
     orders = Order.objects.select_related('area', 'customer', 'creator').order_by('-create_time')
 
-    # 权限控制：仅看自己的订单
+    # 权限控制
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
     can_view_others = request.user.has_permission('order_view_others')
     if not is_super_admin and not can_view_others:
         orders = orders.filter(creator=request.user)
 
-    # 角色标识
     is_admin = request.user.role and request.user.role.code == ROLE_ADMIN
     is_operator = request.user.role and request.user.role.code == ROLE_OPERATOR
 
-    # 筛选逻辑（完全不变）
+    # 筛选逻辑：前缀匹配+原生日期查询（索引全命中）
     if order_no:
-        orders = orders.filter(order_no__contains=order_no)
+        orders = orders.filter(order_no__startswith=order_no)
     if date_from:
         try:
-            start_date = datetime.strptime(date_from, '%Y-%m-%d').date()
-            orders = orders.filter(create_time__date__gte=start_date)
+            start_datetime = timezone.make_aware(datetime.strptime(date_from, '%Y-%m-%d'))
+            orders = orders.filter(create_time__gte=start_datetime)
         except:
             pass
     if date_to:
         try:
             end_date = datetime.strptime(date_to, '%Y-%m-%d').date()
-            orders = orders.filter(create_time__date__lte=end_date)
+            end_datetime = timezone.make_aware(datetime.combine(end_date + timedelta(days=1), datetime.min.time()))
+            orders = orders.filter(create_time__lt=end_datetime)
         except:
             pass
     if area_id and area_id.isdigit():
         orders = orders.filter(area_id=area_id)
     if customer_name:
-        orders = orders.filter(customer__name__icontains=customer_name)
+        orders = orders.filter(customer__name__istartswith=customer_name)
     if settled_status == 'settled':
         orders = orders.filter(is_settled=True)
     elif settled_status == 'unsettled':
@@ -374,31 +355,43 @@ def order_list(request):
     if amount_operator in ['gt', 'lt'] and amount_value:
         try:
             amount = decimal.Decimal(amount_value)
-            if amount_operator == 'gt':
-                orders = orders.filter(total_amount__gt=amount)
-            elif amount_operator == 'lt':
-                orders = orders.filter(total_amount__lt=amount)
+            orders = orders.filter(total_amount__gt=amount) if amount_operator == 'gt' else orders.filter(total_amount__lt=amount)
         except decimal.InvalidOperation:
             pass
 
-    # ===================== 核心：分页逻辑（每页20条） =====================
-    paginator = Paginator(orders, 15)  # 每页固定20条
+    # 分页
+    paginator = Paginator(orders, 20)
     try:
         page_orders = paginator.page(page)
     except PageNotAnInteger:
-        page_orders = paginator.page(1)  # 页码非数字，返回第一页
+        page_orders = paginator.page(1)
     except EmptyPage:
-        page_orders = paginator.page(paginator.num_pages)  # 页码超出范围，返回最后一页
+        page_orders = paginator.page(paginator.num_pages)
 
-    # ===================== 统计数据（不变，基于筛选后总数据） =====================
-    total_orders = orders.count()
-    total_sales = orders.aggregate(total=Sum('total_amount'))['total'] or decimal.Decimal('0.00')
-    settled_orders = orders.filter(is_settled=True).count()
-    total_debt = orders.filter(is_settled=False).aggregate(total=Sum('total_amount'))['total'] or decimal.Decimal('0.00')
+    # ===================== 核心优化：1次聚合查询完成所有统计 =====================
+    # 原代码：4次独立查询 → 优化后：1次查询搞定所有数据
+    stats = orders.aggregate(
+        # 总订单数
+        total_orders=Count('id'),
+        # 总销售额
+        total_sales=Sum('total_amount', default=decimal.Decimal('0.00')),
+        # 已结清订单数（条件计数）
+        settled_orders=Count(Case(When(is_settled=True, then='id'))),
+        # 未结清金额（条件求和）
+        total_debt=Sum(Case(
+            When(is_settled=False, then='total_amount')
+        ), default=decimal.Decimal('0.00'), output_field=DecimalField())
+    )
+    # 解构统计数据
+    total_orders = stats['total_orders']
+    total_sales = stats['total_sales']
+    settled_orders = stats['settled_orders']
+    total_debt = stats['total_debt']
+    # ==========================================================================
 
-    # ===================== 作废权限计算（仅循环20条，性能拉满） =====================
-    current_time = datetime.now()
-    order_list = list(page_orders)  # 仅转20条数据为列表
+    # 作废权限计算（不变）
+    current_time = timezone.now()
+    order_list = list(page_orders)
     for order in order_list:
         time_diff = (current_time - order.create_time).total_seconds() / 60
         order.time_diff = time_diff
@@ -415,14 +408,11 @@ def order_list(request):
                     can_cancel = True
         order.can_cancel = can_cancel
 
-    # 区域数据
     areas = Area.objects.all().order_by('name')
-
-    # 模板上下文（新增分页对象）
     context = {
-        'orders': order_list,          # 分页后的20条订单
-        'page_orders': page_orders,    # 分页对象（前端渲染页码用）
-        'paginator': paginator,        # 分页器
+        'orders': order_list,
+        'page_orders': page_orders,
+        'paginator': paginator,
         'areas': areas,
         'date_from': date_from,
         'date_to': date_to,
