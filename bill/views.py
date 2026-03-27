@@ -634,14 +634,25 @@ def cancel_order(request, order_no):
             # 事务会自动回滚，安全返回错误
             return JsonResponse({'code': 0, 'msg': f'作废失败：{str(e)}'}, status=500)
 
+
 @login_required
 @permission_required(PERM_ORDER_PRINT)
 def print_order(request, order_no):
-    """订单打印页面"""
-    order = get_object_or_404(Order, order_no=order_no)
-    items = order.items.all()
-    # 重构：RBAC判断超级管理员
+    """订单打印页面（高性能优化版：消除N+1查询）"""
+    # ===================== 核心优化1：预加载订单关联的所有外键 =====================
+    # 一次性加载 客户、区域、开单人，无额外查询
+    order = get_object_or_404(
+        Order.objects.select_related('customer', 'area', 'creator'),
+        order_no=order_no
+    )
+
+    # ===================== 核心优化2：预加载订单项的商品，彻底消除N+1 =====================
+    # 1次查询获取所有订单项 + 关联商品，模板渲染无额外DB请求
+    items = order.items.select_related('product')
+
+    # RBAC权限判断（保持原有逻辑不变）
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+
     return render(request, 'bill/print.html', {
         'order': order,
         'items': items,
