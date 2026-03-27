@@ -349,6 +349,10 @@ class Order(models.Model):
             models.Index(fields=['is_settled', 'create_time']),
             # 3. 订单号（唯一索引已存在，补充联合索引加速查询）
             models.Index(fields=['order_no', 'is_settled']),
+            # 🔥 新增：客户+结清状态（未结清统计专用）
+            models.Index(fields=['customer', 'is_settled']),
+            # 🔥 新增：客户索引（总消费统计专用）
+            models.Index(fields=['customer'])
         ]
 
 
@@ -438,3 +442,6 @@ class RepaymentRecord(models.Model):
         verbose_name = '还款记录'
         verbose_name_plural = '还款记录管理'
         ordering = ['-repayment_time']
+        indexes = [
+            models.Index(fields=['customer']),
+        ]

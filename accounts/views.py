@@ -201,7 +201,7 @@ def logout_view(request):
             op_type=OP_TYPE_LOGOUT,
             obj_type='user',
             obj_id=request.user.id,
-            obj_name=f"{user.user_code}-{request.user.username}",
+            obj_name=f"{request.user.user_code}-{request.user.username}",
             detail=f"用户登出：编号={request.user.user_code}，IP={get_client_ip(request)}"
         )
     logout(request)
