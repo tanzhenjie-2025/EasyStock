@@ -74,6 +74,7 @@ class ProductAlias(models.Model):
         # 【联合索引】优化「商品+别名」组合查询
         indexes = [
             models.Index(fields=['product', 'alias_name']),
+            models.Index(fields=['alias_pinyin_abbr', 'alias_pinyin_full']),
         ]
 
 

@@ -6,9 +6,6 @@ urlpatterns = [
     # 商品管理主页面
     path('product-manage/', views.product_manage, name='product_manage'),
 
-    # 商品数据接口
-    path('manage/data/', views.product_manage_data, name='product_manage_data'),
-
     # 商品CRUD接口
     path('add/', views.product_add, name='product_add'),
     path('edit/<int:pk>/', views.product_edit, name='product_edit'),
