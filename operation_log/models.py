@@ -4,52 +4,32 @@ from accounts.models import User
 from django.utils import timezone
 
 
+from django.db import models
+from accounts.models import User
+from django.utils import timezone
+
+
 class OperationLog(models.Model):
-    """操作日志模型 - 覆盖所有需要记录的行为"""
-    # 操作类型（新增reset_password）
+    """操作日志模型"""
     OPERATION_TYPE_CHOICES = (
-        ('create', '新增'),
-        ('update', '修改'),
-        ('delete', '删除'),
-        ('query', '查询'),
-        ('import', '导入'),
-        ('export', '导出'),
-        ('create_order', '开单'),
-        ('cancel_order', '作废订单'),
-        ('reopen_order', '重开订单'),
-        ('enable_user', '启用用户'),
-        ('disable_user', '禁用用户'),
-        ('login', '登录'),
-        ('logout', '登出'),
-        ('reset_password', '重置密码'),  # 新增：密码重置操作
-        ('change_password', '修改密码'), # 新增：强制改密码操作
-        ('settle_order', '标记订单结清'),
-        ('unsettle_order', '撤销订单结清'),
-        ('batch_settle_order', '批量结清订单'),
-        ('repayment_register', '还款登记'),
+        ('create', '新增'), ('update', '修改'), ('delete', '删除'),
+        ('query', '查询'), ('import', '导入'), ('export', '导出'),
+        ('create_order', '开单'), ('cancel_order', '作废订单'), ('reopen_order', '重开订单'),
+        ('enable_user', '启用用户'), ('disable_user', '禁用用户'),
+        ('login', '登录'), ('logout', '登出'),
+        ('reset_password', '重置密码'), ('change_password', '修改密码'),
+        ('settle_order', '标记订单结清'), ('unsettle_order', '撤销订单结清'),
+        ('batch_settle_order', '批量结清订单'), ('repayment_register', '还款登记'),
     )
 
-    # 操作对象类型（明确操作的是哪个模块的内容）
     OBJECT_TYPE_CHOICES = (
-        ('product', '商品'),
-        ('product_alias', '商品别名'),
-        ('area', '区域'),
-        ('area_group', '区域组'),
-        ('customer', '客户'),
-        ('customer_price', '客户专属价'),
-        ('user', '用户'),
-        ('order', '订单'),
-        ('daily_summary', '销售汇总'),
-        ('repayment', '还款记录'),
+        ('product', '商品'), ('product_alias', '商品别名'), ('area', '区域'),
+        ('area_group', '区域组'), ('customer', '客户'), ('customer_price', '客户专属价'),
+        ('user', '用户'), ('order', '订单'), ('daily_summary', '销售汇总'), ('repayment', '还款记录'),
     )
 
-    # 核心字段
     operator = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True,
-        verbose_name='操作人',
-        related_name='operation_logs'
+        User, on_delete=models.SET_NULL, null=True, verbose_name='操作人', related_name='operation_logs'
     )
     operation_time = models.DateTimeField('操作时间', default=timezone.now)
     operation_type = models.CharField('操作行为', max_length=20, choices=OPERATION_TYPE_CHOICES)
@@ -63,10 +43,11 @@ class OperationLog(models.Model):
         verbose_name = '操作日志'
         verbose_name_plural = '操作日志管理'
         ordering = ['-operation_time']
-        # ✅ 性能优化：联合索引（覆盖所有叠加筛选 + 时间排序）
         indexes = [
-            # 核心联合索引：适配 操作人+操作行为+操作对象+时间范围 筛选
-            models.Index(fields=['operator', 'operation_type', 'object_type', 'operation_time']),
+            # ✅ 优化1：联合索引 + 时间倒序，完全匹配排序+筛选
+            models.Index(fields=['operator', 'operation_type', 'object_type', '-operation_time']),
+            # ✅ 优化2：补充时间单字段索引（应对仅筛选时间的场景）
+            models.Index(fields=['-operation_time']),
         ]
 
     def __str__(self):
