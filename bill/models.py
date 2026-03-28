@@ -11,13 +11,13 @@ class Product(models.Model):
     """商品表（含拼音检索字段）"""
     # name 唯一 → 自动生成唯一索引
     name = models.CharField('商品名称', max_length=100, unique=True)
-    # 【新增索引】拼音全拼（高频检索字段）
+    # 拼音全拼（高频检索字段）
     pinyin_full = models.CharField('全拼', max_length=200, blank=True, db_index=True)
-    # 【新增索引】拼音首字母（核心检索字段）
+    # 拼音首字母（核心检索字段）
     pinyin_abbr = models.CharField('拼音首字母', max_length=50, blank=True, db_index=True)
-    # 【新增索引】库存（筛选库存常用）
+    # 库存（筛选库存常用）
     stock = models.IntegerField('库存数量', default=77, db_index=True)
-    # 【新增索引】单价（价格筛选常用）
+    # 单价（价格筛选常用）
     price = models.DecimalField('单价', max_digits=10, decimal_places=2, db_index=True)
     unit = models.CharField('单位', max_length=20, default='件')
     create_time = models.DateTimeField(auto_now_add=True, db_index=True)  # 排序常用→加索引
@@ -34,13 +34,12 @@ class Product(models.Model):
     class Meta:
         verbose_name = '商品'
         verbose_name_plural = '商品管理'
-        # 【新增联合索引】优化拼音组合查询（最常用）
+        # 【联合索引】优化拼音组合查询（最常用）
         indexes = [
             models.Index(fields=['pinyin_abbr', 'pinyin_full']),
         ]
 
-
-# 新增：商品别名表
+# 商品别名表
 class ProductAlias(models.Model):
     """商品别名表（一个商品可对应多个别名）"""
     # product 外键 → Django自动生成索引
@@ -54,9 +53,9 @@ class ProductAlias(models.Model):
     )
     # alias_name 唯一 → 自动生成唯一索引
     alias_name = models.CharField('别名', max_length=100, unique=True)
-    # 【新增索引】别名全拼（检索用）
+    # 【索引】别名全拼（检索用）
     alias_pinyin_full = models.CharField('别名全拼', max_length=200, blank=True, db_index=True)
-    # 【新增索引】别名首字母（核心检索）
+    # 【索引】别名首字母（核心检索）
     alias_pinyin_abbr = models.CharField('别名拼音首字母', max_length=50, blank=True, db_index=True)
     create_time = models.DateTimeField(auto_now_add=True, db_index=True)
 
@@ -72,7 +71,7 @@ class ProductAlias(models.Model):
     class Meta:
         verbose_name = '商品别名'
         verbose_name_plural = '商品别名管理'
-        # 【新增联合索引】优化「商品+别名」组合查询
+        # 【联合索引】优化「商品+别名」组合查询
         indexes = [
             models.Index(fields=['product', 'alias_name']),
         ]
@@ -112,45 +111,6 @@ class AreaGroup(models.Model):
             models.Index(fields=['name', 'create_time']),
         ]
 
-# ========== 新增：统计缓存模型 ==========
-class AreaStatisticsCache(models.Model):
-    """区域统计缓存表（仅统计客户数量）"""
-    area = models.OneToOneField(
-        Area,
-        on_delete=models.CASCADE,
-        verbose_name='关联区域',
-        related_name='stats_cache'
-    )
-    customer_count = models.IntegerField('客户数量', default=0)
-    update_time = models.DateTimeField('更新时间', auto_now=True)
-
-    class Meta:
-        verbose_name = '区域统计缓存'
-        verbose_name_plural = '区域统计缓存管理'
-
-    def __str__(self):
-        return f'{self.area.name} - 统计缓存'
-
-class AreaGroupStatisticsCache(models.Model):
-    """区域组统计缓存表（仅统计客户数量）"""
-    group = models.OneToOneField(
-        AreaGroup,
-        on_delete=models.CASCADE,
-        verbose_name='关联区域组',
-        related_name='stats_cache'
-    )
-    customer_count = models.IntegerField('客户数量', default=0)
-    area_count = models.IntegerField('包含区域数', default=0)
-    update_time = models.DateTimeField('更新时间', auto_now=True)
-
-    class Meta:
-        verbose_name = '区域组统计缓存'
-        verbose_name_plural = '区域组统计缓存管理'
-
-    def __str__(self):
-        return f'{self.group.name} - 统计缓存'
-
-# ===================== 原有模型（保持不变） =====================
 class Customer(models.Model):
     """客户信息表"""
     # name 唯一 → 自动生成唯一索引
@@ -180,7 +140,6 @@ class Customer(models.Model):
             models.Index(fields=['area']),
             models.Index(fields=['area', 'name']),  # 按区域搜客户，性能翻倍
         ]
-
 
 class CustomerPrice(models.Model):
     """客户商品专属价格表"""
