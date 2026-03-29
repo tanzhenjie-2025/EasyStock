@@ -14,6 +14,8 @@ import logging
 from bill.models import Order, Area
 from django.db.models import Sum, Count
 from django.views.decorators.csrf import csrf_exempt
+# ========== 新增：缓存装饰器导入 ==========
+from django.views.decorators.cache import cache_page
 
 from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
 # 导入模型和常量
@@ -27,6 +29,12 @@ from django.db.models import DecimalField
 from decimal import Decimal
 # 配置日志
 logger = logging.getLogger(__name__)
+
+# ========== 新增：缓存时长常量配置 ==========
+CACHE_USER_LIST = 60              # 用户列表：60秒
+CACHE_USER_DETAIL = 60            # 用户详情：60秒
+CACHE_ROLE_PERMISSION = 1800      # 角色权限：30分钟
+CACHE_NO_PERMISSION = 3600        # 无权限页：1小时
 
 # ========== 全局常量（去硬编码） ==========
 # 操作类型常量（日志用）
@@ -212,6 +220,8 @@ def logout_view(request):
 
 @login_required
 @permission_required('user_view')
+# ========== 缓存：用户列表 60秒，自动区分搜索/筛选/分页参数 ==========
+@cache_page(CACHE_USER_LIST)
 def user_list(request):
     """用户列表（支持搜索/状态筛选 + 销售统计 + 分页）【性能优化版：批量注解，无N+1查询】"""
     # 👇 修复：补充必需的类型导入
@@ -474,6 +484,8 @@ def user_edit(request, user_id):
 
 @login_required
 @permission_required('user_view')
+# ========== 缓存：用户详情 60秒，自动根据user_id区分缓存 ==========
+@cache_page(CACHE_USER_DETAIL)
 def user_detail(request, user_id):
     """用户详情页（包含开单统计和最近订单）【优化版：合并聚合查询，减少DB请求】"""
     # 预加载角色，解决N+1查询
@@ -607,6 +619,8 @@ def reset_password(request, user_id):
 
 @login_required
 @permission_required('role_permission_config')
+# ========== 缓存：角色权限配置 30分钟，自动根据role_code区分缓存 ==========
+@cache_page(CACHE_ROLE_PERMISSION)
 def role_permission_config(request, role_code):
     """角色权限配置（增强版）"""
     # 仅超级管理员可访问
@@ -742,6 +756,8 @@ def profile(request):
 
 
 @login_required
+# ========== 缓存：无权限提示页 1小时，纯静态无数据库查询 ==========
+@cache_page(CACHE_NO_PERMISSION)
 def no_permission(request):
     """无权限提示"""
     return render(request, 'accounts/no_permission.html')
