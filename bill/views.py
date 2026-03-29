@@ -193,7 +193,13 @@ def save_order(request):
             product_ids = []
             qty_map = {}
             for item in items:
+                # 🔥 核心修复：强制将前端传递的商品ID转换为整数（解决类型不匹配）
                 pid = item.get('id')
+                try:
+                    pid = int(pid)
+                except (ValueError, TypeError):
+                    return JsonResponse({'code': 0, 'msg': f'商品{item.get("name", "未知")}ID格式错误'})
+
                 qty = item.get('qty', 0)
                 if not pid or not isinstance(qty, int) or qty <= 0:
                     return JsonResponse({'code': 0, 'msg': f'商品{item.get("name", "未知")}数量无效'})
