@@ -146,3 +146,13 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = True  # 关闭浏览器即过期
 # 新增：消息存储（确保登录错误提示能正常显示）
 MESSAGE_STORAGE = 'django.contrib.messages.storage.session.SessionStorage'
 
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': 'redis://127.0.0.1:6379/1',
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        }
+    }
+}
+
