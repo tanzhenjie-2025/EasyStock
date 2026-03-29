@@ -2,6 +2,8 @@ from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
+# ========== 新增缓存导入 ==========
+from django.views.decorators.cache import cache_page
 from datetime import datetime, date
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill
@@ -11,6 +13,12 @@ import json
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.db.models import Sum, F, DecimalField, Q, Prefetch
 from django.db.models.functions import Coalesce
+
+# ========== 缓存时长常量配置 ==========
+# 高优先级：复杂聚合查询缓存 5分钟 (300秒)
+CACHE_HIGH_PRIORITY = 300
+# 中优先级：静态数据缓存 10分钟 (600秒)
+CACHE_MID_PRIORITY = 600
 
 # ========== 通用优化函数 ==========
 def parse_datetime(date_str):
@@ -64,6 +72,8 @@ def summary_page(request):
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
 @csrf_exempt
+# 🔥 高优缓存：商品汇总复杂聚合接口 5分钟
+@cache_page(CACHE_HIGH_PRIORITY)
 def summary_by_group(request):
     """商品汇总接口 - 优化：数据库聚合 + 无N+1"""
     group_id = request.GET.get('group_id')
@@ -142,6 +152,8 @@ def summary_by_group(request):
 
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
+# 📊 中优缓存：区域组列表静态数据 10分钟
+@cache_page(CACHE_MID_PRIORITY)
 def group_list(request):
     """区域组列表"""
     try:
@@ -162,6 +174,8 @@ def customer_summary_page(request):
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
 @csrf_exempt
+# 🔥 高优缓存：客户汇总复杂聚合接口 5分钟
+@cache_page(CACHE_HIGH_PRIORITY)
 def summary_customer_by_group(request):
     """客户汇总接口 - 优化：数据库聚合 + 无N+1"""
     group_id = request.GET.get('group_id')
@@ -412,6 +426,8 @@ def export_customer_summary(request):
 @login_required
 @permission_required(PERM_PRODUCT_VIEW)
 @csrf_exempt
+# 📊 中优缓存：商品基础信息静态数据 10分钟
+@cache_page(CACHE_MID_PRIORITY)
 def product_list_for_price(request):
     """商品列表接口"""
     try:
