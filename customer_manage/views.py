@@ -3,6 +3,8 @@ from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
+# ========== 新增缓存导入 ==========
+from django.views.decorators.cache import cache_page
 
 from accounts.models import ROLE_SUPER_ADMIN, PERM_LOG_VIEW_ALL
 from bill.models import Customer, Area, ProductAlias, CustomerPrice, Product, OrderItem, Order, RepaymentRecord
@@ -14,6 +16,9 @@ import unicodedata  # 新增：处理全角半角转换
 from django.contrib.auth.decorators import login_required
 from accounts.views import permission_required, create_operation_log  # 复用用户模块的日志和权限装饰器
 
+# ========== 缓存时长常量配置 ==========
+CACHE_HIGH_PRIORITY = 300  # 复杂聚合查询 5分钟
+CACHE_MID_PRIORITY = 600   # 静态数据/搜索接口 10分钟
 
 # 新增：全角转半角函数（处理输入容错）
 def full_to_half(s):
@@ -39,6 +44,8 @@ from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
 @login_required
 @permission_required('customer_view')
 @csrf_exempt
+# 🔥 高优缓存：客户列表复杂聚合+分页
+@cache_page(CACHE_HIGH_PRIORITY)
 def customer_list(request):
     """优化版：无N+1、批量聚合、带分页"""
     try:
@@ -125,6 +132,8 @@ def customer_list(request):
 @login_required
 @permission_required('customer_view')
 @csrf_exempt
+# 🔥 高优缓存：客户详情多表关联+统计计算
+@cache_page(CACHE_HIGH_PRIORITY)
 def customer_detail(request, pk):
     """客户详情接口：支持订单筛选 + 商品统计【性能优化版】"""
     try:
@@ -215,7 +224,7 @@ def customer_detail(request, pk):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'}, safe=False)
 
-# 3. 还款登记（需customer_repayment权限）
+# 3. 还款登记（需customer_repayment权限）✅ 写操作，不缓存
 @login_required
 @permission_required('customer_repayment')
 @csrf_exempt
@@ -278,21 +287,21 @@ def repayment_register(request):
             return JsonResponse({'code': 0, 'msg': f'登记失败：{str(e)}'}, content_type='application/json')
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
 
-# 4. 客户详情页面入口（需customer_view权限）
+# 4. 客户详情页面入口（需customer_view权限）✅ 页面，不缓存
 @login_required
 @permission_required('customer_view')
 def customer_detail_page(request, pk):
     """客户详情页面"""
     return render(request, 'customer_manage/customer_detail.html', {'customer_id': pk})
 
-# 5. 还款登记页面入口（需customer_repayment权限）
+# 5. 还款登记页面入口（需customer_repayment权限）✅ 页面，不缓存
 @login_required
 @permission_required('customer_repayment')
 def repayment_page(request):
     """还款登记页面"""
     return render(request, 'customer_manage/repayment.html')
 
-# 6. 新增客户（需customer_add权限）
+# 6. 新增客户（需customer_add权限）✅ 写操作，不缓存
 @login_required
 @permission_required('customer_add')
 @csrf_exempt
@@ -347,7 +356,7 @@ def customer_add(request):
             return JsonResponse({'code': 0, 'msg': f'新增失败：{str(e)}'}, content_type='application/json')
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
 
-# 7. 编辑客户（需customer_edit权限）
+# 7. 编辑客户（需customer_edit权限）✅ 写操作，不缓存
 @login_required
 @permission_required('customer_edit')
 @csrf_exempt
@@ -408,7 +417,7 @@ def customer_edit(request, pk):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'编辑失败：{str(e)}'}, content_type='application/json')
 
-# 8. 删除客户（需customer_delete权限）
+# 8. 删除客户（需customer_delete权限）✅ 写操作，不缓存
 @login_required
 @permission_required('customer_delete')
 @csrf_exempt
@@ -443,6 +452,8 @@ def customer_delete(request, pk):
 @login_required
 @permission_required('customer_view')
 @csrf_exempt
+# 📊 中优缓存：客户管理页静态区域列表
+@cache_page(CACHE_MID_PRIORITY)
 def area_list_for_customer(request):
     """供客户管理页面获取区域下拉列表"""
     try:
@@ -466,6 +477,8 @@ def customer_page(request):
 @login_required
 @permission_required('customer_price_view')
 @csrf_exempt
+# 🔥 高优缓存：客户专属价格复杂搜索+预加载+分页
+@cache_page(CACHE_HIGH_PRIORITY)
 def customer_price_list(request):
     """获取客户专属价格列表 - 多维度搜索+高级筛选+分页(15条/页)【优化：商品别名预加载，解决N+1】"""
     try:
@@ -568,7 +581,7 @@ def customer_price_list(request):
             safe=False, content_type='application/json'
         )
 
-# 2. 新增客户价格（需customer_price_add权限）
+# 2. 新增客户价格（需customer_price_add权限）✅ 写操作，不缓存
 @login_required
 @permission_required('customer_price_add')
 @csrf_exempt
@@ -625,7 +638,7 @@ def customer_price_add(request):
             return JsonResponse({'code': 0, 'msg': f'新增失败：{str(e)}'}, content_type='application/json')
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
 
-# 3. 编辑客户价格（需customer_price_edit权限）
+# 3. 编辑客户价格（需customer_price_edit权限）✅ 写操作，不缓存
 @login_required
 @permission_required('customer_price_edit')
 @csrf_exempt
@@ -674,7 +687,7 @@ def customer_price_edit(request, pk):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'编辑失败：{str(e)}'}, content_type='application/json')
 
-# 4. 删除客户价格（需customer_price_delete权限）
+# 4. 删除客户价格（需customer_price_delete权限）✅ 写操作，不缓存
 @login_required
 @permission_required('customer_price_delete')
 @csrf_exempt
@@ -717,6 +730,8 @@ def customer_price_page(request):
 @login_required
 @permission_required('customer_price_view')
 @csrf_exempt
+# 📊 中优缓存：价格页商品静态列表
+@cache_page(CACHE_MID_PRIORITY)
 def product_list_for_price(request):
     """供客户价格管理页面获取商品列表"""
     try:
@@ -733,6 +748,8 @@ def product_list_for_price(request):
 @login_required
 @permission_required('customer_price_view')
 @csrf_exempt
+# 📊 中优缓存：价格页客户高频搜索
+@cache_page(CACHE_MID_PRIORITY)
 def search_customer_for_price(request):
     """客户搜索：匹配名称/区域，返回输入法式候选数据"""
     keyword = request.GET.get('keyword', '').strip()
@@ -762,6 +779,8 @@ def search_customer_for_price(request):
 @login_required
 @permission_required('customer_price_view')
 @csrf_exempt
+# 📊 中优缓存：价格页商品高频搜索
+@cache_page(CACHE_MID_PRIORITY)
 def search_product_for_price(request):
     """商品搜索：匹配名称/拼音/别名，返回输入法式候选数据"""
     keyword = request.GET.get('keyword', '').strip()
@@ -801,6 +820,8 @@ def search_product_for_price(request):
 @login_required
 @permission_required('customer_price_view')
 @csrf_exempt
+# 📊 中优缓存：价格页静态区域筛选列表
+@cache_page(CACHE_MID_PRIORITY)
 def area_list_for_price(request):
     """供专属价高级筛选获取区域列表"""
     try:
@@ -829,6 +850,8 @@ def customer_sales_rank_page(request):
 @login_required
 @permission_required('customer_sales_rank')
 @csrf_exempt
+# 🔥 高优缓存：客户消费TOP30大数据聚合统计
+@cache_page(CACHE_HIGH_PRIORITY)
 def customer_sales_rank_data(request):
     """获取客户消费TOP30数据（支持区域+日期筛选 + 新增总欠款字段）【优化：批量查询，无循环DB请求】"""
     try:
