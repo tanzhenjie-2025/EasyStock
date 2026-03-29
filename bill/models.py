@@ -37,6 +37,8 @@ class Product(models.Model):
         # 【联合索引】优化拼音组合查询（最常用）
         indexes = [
             models.Index(fields=['pinyin_abbr', 'pinyin_full']),
+            # 🔥 核心优化：商品管理页 覆盖索引（排序+查询字段全包含，零回表）
+            models.Index(fields=['name', 'id', 'price', 'unit', 'stock']),
         ]
 
 # 商品别名表
@@ -289,33 +291,35 @@ class Order(models.Model):
 
     def __str__(self):
         return self.order_no
-
     # 🔥 修复：索引必须放在 Meta 类中！！！
     class Meta:
         verbose_name = '订单'
         verbose_name_plural = '订单管理'
         indexes = [
-            # 原有索引保留
-            models.Index(fields=['status', 'create_time', 'area']),
-            models.Index(fields=['customer', 'status', '-create_time']),
-            models.Index(fields=['area', 'status', 'create_time']),
-            models.Index(fields=['customer_id', 'create_time', 'status']),
-            models.Index(fields=['id', 'create_time', 'area_id', 'status']),
-
-            # ===================== 新增：结清状态核心索引（性能关键） =====================
-            # 1. 订单状态 + 结清状态（列表筛选最常用）
-            models.Index(fields=['status', 'is_settled']),
-            # 2. 结清状态 + 创建时间（统计、排序用）
-            models.Index(fields=['is_settled', 'create_time']),
-            # 3. 订单号（唯一索引已存在，补充联合索引加速查询）
-            models.Index(fields=['order_no', 'is_settled']),
-            # 🔥 新增：客户+结清状态（未结清统计专用）
-            models.Index(fields=['customer', 'is_settled']),
-            # 🔥 新增：客户索引（总消费统计专用）
-            models.Index(fields=['customer'])
+            # 🔥 索引1：区域维度统一索引（商品汇总/区域统计）
+            models.Index(fields=['status', 'is_settled', 'area', 'create_time']),
+            # 🔥 索引2：客户维度专用索引（客户汇总/客户订单详情）→ 高频必备！
+            models.Index(fields=['status', 'is_settled', 'customer', 'create_time']),
         ]
 
-
+# # 原有索引保留
+# models.Index(fields=['status', 'create_time', 'area']),
+# models.Index(fields=['customer', 'status', '-create_time']),
+# models.Index(fields=['area', 'status', 'create_time']),
+# models.Index(fields=['customer_id', 'create_time', 'status']),
+# models.Index(fields=['id', 'create_time', 'area_id', 'status']),
+#
+# # ===================== 新增：结清状态核心索引（性能关键） =====================
+# # 1. 订单状态 + 结清状态（列表筛选最常用）
+# models.Index(fields=['status', 'is_settled']),
+# # 2. 结清状态 + 创建时间（统计、排序用）
+# models.Index(fields=['is_settled', 'create_time']),
+# # 3. 订单号（唯一索引已存在，补充联合索引加速查询）
+# models.Index(fields=['order_no', 'is_settled']),
+# # 🔥 新增：客户+结清状态（未结清统计专用）
+# models.Index(fields=['customer', 'is_settled']),
+# # 🔥 新增：客户索引（总消费统计专用）
+# models.Index(fields=['customer'])
 class OrderItem(models.Model):
     """订单明细表（三联单明细）"""
     order = models.ForeignKey(Order, on_delete=models.CASCADE, verbose_name='关联订单', related_name='items')
