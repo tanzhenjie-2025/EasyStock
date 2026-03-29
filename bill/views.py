@@ -6,6 +6,8 @@ from django.http import JsonResponse
 
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
+# ========== 新增：页面缓存装饰器 ==========
+from django.views.decorators.cache import cache_page
 from .models import Product, Order, OrderItem, ProductAlias, DailySalesSummary, CustomerPrice, Customer, Area
 from django.db.models import Q, Sum, Count, Case, When, DecimalField
 import json
@@ -38,6 +40,12 @@ PERM_ORDER_UNSETTLE = 'order_unsettle'
 PERM_ORDER_SUMMARY = 'order_summary'
 PERM_PRODUCT_SEARCH = 'product_search'
 
+# ========== 新增：订单模块缓存时长常量（统一管理） ==========
+CACHE_STOCK_LIST = 60            # 库存列表：60秒
+CACHE_ORDER_LIST = 60            # 订单列表：60秒
+CACHE_ORDER_DETAIL = 120         # 订单详情：2分钟
+CACHE_PRINT_ORDER = 300          # 订单打印：5分钟
+CACHE_CUSTOMER_RECENT_PRODUCT = 60 # 客户最近商品：60秒
 
 # ========== 重构：自定义AJAX装饰器（适配RBAC） ==========
 def ajax_login_required(view_func):
@@ -263,7 +271,9 @@ def save_order(request):
         return JsonResponse({'code': 0, 'msg': f'开单失败：{str(e)}'})
 
 @login_required
-@permission_required(PERM_ORDER_VIEW)
+@permission_required(PERM_PRODUCT_SEARCH)
+# ========== 缓存：库存列表页 60秒，自动区分搜索/分页参数 ==========
+@cache_page(CACHE_STOCK_LIST)
 def stock_list(request):
     """库存查询页面（分页优化版 - 每页20条 + 后端搜索）"""
     # 获取搜索关键词 + 分页参数
@@ -303,6 +313,8 @@ def stock_list(request):
 
 @login_required
 @permission_required(PERM_ORDER_VIEW)
+# ========== 缓存：订单列表页 60秒，自动区分所有筛选/分页参数 ==========
+@cache_page(CACHE_ORDER_LIST)
 def order_list(request):
     """订单列表页（终极优化版：修复重复聚合查询+索引优化）"""
     order_no = request.GET.get('order_no', '').strip()
@@ -434,6 +446,8 @@ def order_list(request):
 
 @login_required
 @permission_required(PERM_ORDER_VIEW)
+# ========== 缓存：订单详情页 2分钟，自动根据order_no区分缓存 ==========
+@cache_page(CACHE_ORDER_DETAIL)
 def order_detail(request, order_no):
     """订单详情页（性能优化版：无N+1、索引生效、缓存权限）"""
     # 🔥 优化1：一次性预加载所有关联（customer/area/creator），彻底解决N+1
@@ -626,6 +640,8 @@ def cancel_order(request, order_no):
 
 @login_required
 @permission_required(PERM_ORDER_PRINT)
+# ========== 缓存：订单打印页 5分钟，自动根据order_no区分缓存 ==========
+@cache_page(CACHE_PRINT_ORDER)
 def print_order(request, order_no):
     """订单打印页面（高性能优化版：消除N+1查询）"""
     # ===================== 核心优化1：预加载订单关联的所有外键 =====================
@@ -876,12 +892,10 @@ def batch_settle_order(request):
         if fail_list:
             msg += f'；失败原因：{"; ".join(fail_list)}'
 
-        return JsonResponse({
-            'code': 1 if success_count > 0 else 0,
-            'msg': msg,
-            'success_count': success_count,
-            'fail_list': fail_list
-        })
+        return JsonResponse({'code': 1 if success_count > 0 else 0,
+                            'msg': msg,
+                            'success_count': success_count,
+                            'fail_list': fail_list})
 
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'批量结清失败：{str(e)}'}, status=500)
@@ -890,10 +904,16 @@ def batch_settle_order(request):
 @login_required
 @permission_required(PERM_PRODUCT_SEARCH)
 def get_customer_recent_products(request):
-    """获取客户最近购买的商品（按购买时间倒序）【性能优化版】"""
+    """获取客户最近购买的商品（按购买时间倒序）【性能优化版+低层级缓存】"""
     customer_id = request.GET.get('customer_id', '').strip()
     if not customer_id:
         return JsonResponse({'code': 0, 'msg': '请选择客户', 'data': []})
+
+    # ========== 新增：接口低层级缓存（按客户ID唯一区分） ==========
+    cache_key = f"customer_recent_products_{customer_id}"
+    cached_data = cache.get(cache_key)
+    if cached_data:
+        return JsonResponse({'code': 1, 'data': cached_data})
 
     try:
         # ============== 优化1：一次性查询订单 + 预加载所有明细（消除N+1） ==============
@@ -935,6 +955,9 @@ def get_customer_recent_products(request):
             key=lambda x: x['last_purchase_time'],
             reverse=True
         )
+
+        # ========== 新增：写入缓存 ==========
+        cache.set(cache_key, recent_products, timeout=CACHE_CUSTOMER_RECENT_PRODUCT)
 
         return JsonResponse({'code': 1, 'data': recent_products})
     except Exception as e:
