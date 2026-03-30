@@ -14,9 +14,9 @@ import logging
 from bill.models import Order, Area
 from django.db.models import Sum, Count
 from django.views.decorators.csrf import csrf_exempt
-# ========== 新增：缓存装饰器导入 ==========
-from django.views.decorators.cache import cache_page
 
+# 替换：导入低级别缓存API（安全缓存方案）
+from django.core.cache import cache
 from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
 # 导入模型和常量
 from .models import (
@@ -27,14 +27,12 @@ from operation_log.models import OperationLog
 
 from django.db.models import DecimalField
 from decimal import Decimal
+
 # 配置日志
 logger = logging.getLogger(__name__)
 
-# ========== 新增：缓存时长常量配置 ==========
-CACHE_USER_LIST = 60              # 用户列表：60秒
-CACHE_USER_DETAIL = 60            # 用户详情：60秒
-CACHE_ROLE_PERMISSION = 1800      # 角色权限：30分钟
-CACHE_NO_PERMISSION = 3600        # 无权限页：1小时
+# ========== 仅保留安全的缓存常量（角色权限数据缓存） ==========
+CACHE_ROLE_PERMISSION = 1800      # 角色权限数据缓存：30分钟
 
 # ========== 全局常量（去硬编码） ==========
 # 操作类型常量（日志用）
@@ -220,11 +218,9 @@ def logout_view(request):
 
 @login_required
 @permission_required('user_view')
-# ========== 缓存：用户列表 60秒，自动区分搜索/筛选/分页参数 ==========
-@cache_page(CACHE_USER_LIST)
+# 🔥 已删除：错误的全局页面缓存，杜绝越权访问
 def user_list(request):
     """用户列表（支持搜索/状态筛选 + 销售统计 + 分页）【性能优化版：批量注解，无N+1查询】"""
-    # 👇 修复：补充必需的类型导入
     # 筛选参数
     keyword = request.GET.get('keyword', '').strip()
     status = request.GET.get('status', 'all')
@@ -232,7 +228,7 @@ def user_list(request):
     page = request.GET.get('page', 1)
     page_size = 10
 
-    # 🔥 修复：预加载角色，解决N+1查询
+    # 预加载角色，解决N+1查询
     queryset = User.objects.select_related('role').all().order_by('-date_joined')
 
     # 关键词筛选
@@ -250,10 +246,10 @@ def user_list(request):
     elif status == 'inactive':
         queryset = queryset.filter(is_active=False)
 
-    # ===================== 核心优化1：超级管理员 → 批量注解统计（无循环查询）=====================
+    # 核心优化：超级管理员 → 批量注解统计（无循环查询）
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
     if is_super_admin:
-        # 子查询1：当前用户的有效订单数（状态：pending/printed/reopened）
+        # 子查询1：当前用户的有效订单数
         order_count_sub = Order.objects.filter(
             creator=OuterRef('pk'),
             status__in=['pending', 'printed', 'reopened']
@@ -265,14 +261,13 @@ def user_list(request):
             status__in=['pending', 'printed', 'reopened']
         ).values('creator').annotate(total=Sum('total_amount')).values('total')
 
-        # 批量给所有用户注解统计字段（数据库一次性计算，无循环！）
-        # 👇 修复：Decimal 类型匹配，指定 output_field
+        # 批量注解统计字段
         queryset = queryset.annotate(
             orders=Coalesce(Subquery(order_count_sub), Value(0), output_field=DecimalField(max_digits=12, decimal_places=2)),
             sales=Coalesce(Subquery(sales_sum_sub), Value(Decimal('0')), output_field=DecimalField(max_digits=12, decimal_places=2))
         )
 
-    # 分页逻辑（优化后：分页前已完成所有统计计算）
+    # 分页逻辑
     paginator = Paginator(queryset, page_size)
     try:
         users_page = paginator.page(page)
@@ -281,15 +276,13 @@ def user_list(request):
     except EmptyPage:
         users_page = paginator.page(paginator.num_pages)
 
-    # ===================== 核心优化2：店铺统计 → 1次SQL完成3个统计（原3次独立查询）=====================
+    # 店铺统计：1次SQL完成
     shop_stats = {
         'total_orders': 0,
         'total_sales': 0,
         'total_cancelled': 0
     }
     if is_super_admin:
-        # 🔥 一次聚合查询：总订单/总销售额/取消订单数 全部算出
-        # 👇 修复：指定 Decimal 输出字段，解决类型混合错误
         shop_stats = Order.objects.aggregate(
             total_orders=Count(Case(
                 When(status__in=['pending', 'printed', 'reopened'], then='id')
@@ -309,15 +302,11 @@ def user_list(request):
             ))
         )
 
-    # ===================== 核心优化3：纯Python计算占比（无任何数据库查询！）=====================
+    # 计算销售占比
     if is_super_admin:
         total_sales = shop_stats['total_sales']
         for user in users_page:
-            # 未激活用户已经注解为0，无需重复赋值
-            if total_sales > 0:
-                user.ratio = round((user.sales / total_sales) * 100)
-            else:
-                user.ratio = 0
+            user.ratio = round((user.sales / total_sales) * 100) if total_sales > 0 else 0
 
     return render(request, 'accounts/user_list.html', {
         'users': users_page,
@@ -405,7 +394,7 @@ def user_add(request):
 @permission_required('user_edit')
 def user_edit(request, user_id):
     """编辑用户"""
-    # 🔥 修复：预加载角色，解决N+1查询
+    # 预加载角色
     user = get_object_or_404(User.objects.select_related('role'), id=user_id)
 
     if request.method == 'POST':
@@ -418,7 +407,7 @@ def user_edit(request, user_id):
         is_staff = request.POST.get('is_staff') == 'on'
         new_password = request.POST.get('new_password', '').strip()
 
-        # 保存原始信息（日志用）
+        # 保存原始信息
         old_info = {
             'user_code': user.user_code,
             'username': user.username,
@@ -436,7 +425,7 @@ def user_edit(request, user_id):
             user.is_active = is_active
             user.is_staff = is_staff
 
-            # 更新密码（可选）
+            # 更新密码
             pwd_changed = False
             if new_password:
                 user.set_password(new_password)
@@ -484,16 +473,15 @@ def user_edit(request, user_id):
 
 @login_required
 @permission_required('user_view')
-# ========== 缓存：用户详情 60秒，自动根据user_id区分缓存 ==========
-@cache_page(CACHE_USER_DETAIL)
+# 🔥 已删除：错误的全局页面缓存，杜绝数据泄露
 def user_detail(request, user_id):
     """用户详情页（包含开单统计和最近订单）【优化版：合并聚合查询，减少DB请求】"""
-    # 预加载角色，解决N+1查询
+    # 预加载角色
     user = get_object_or_404(User.objects.select_related('role'), id=user_id)
     # 仅超级管理员可见统计数据
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
 
-    # 初始化统计数据（默认0）
+    # 初始化统计数据
     user_stats = {
         'total_orders': 0,
         'total_sales': 0,
@@ -503,25 +491,21 @@ def user_detail(request, user_id):
 
     if is_super_admin and user.is_active:
         from django.db.models import DecimalField, Count, Sum, Case, When
-        # 🔥 核心优化：1次聚合查询，获取所有统计数据（全店总额 + 用户统计）
+        # 1次聚合查询获取所有统计
         stats = Order.objects.filter(
             status__in=['pending', 'printed', 'reopened', 'cancelled']
         ).aggregate(
-            # 全店有效销售额
             shop_total=Coalesce(
                 Sum(Case(When(status__in=['pending', 'printed', 'reopened'], then='total_amount'))),
                 0,
                 output_field=DecimalField(max_digits=12, decimal_places=2)
             ),
-            # 当前用户有效订单数
             user_orders=Count(Case(When(creator=user, status__in=['pending', 'printed', 'reopened'], then='id'))),
-            # 当前用户有效销售额
             user_sales=Coalesce(
                 Sum(Case(When(creator=user, status__in=['pending', 'printed', 'reopened'], then='total_amount'))),
                 0,
                 output_field=DecimalField(max_digits=12, decimal_places=2)
             ),
-            # 当前用户作废订单数
             user_canceled=Count(Case(When(creator=user, status='cancelled', then='id')))
         )
 
@@ -533,7 +517,7 @@ def user_detail(request, user_id):
         shop_total = stats['shop_total']
         user_stats['sales_ratio'] = round((user_stats['total_sales'] / shop_total) * 100) if shop_total > 0 else 0
 
-    # 最近15条订单（倒序）
+    # 最近15条订单
     recent_orders = []
     if is_super_admin:
         recent_orders = Order.objects.filter(creator=user).order_by('-create_time')[:15]
@@ -554,13 +538,12 @@ def user_toggle_status(request, user_id):
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
     try:
-        # 🔥 修复：预加载角色，解决N+1查询
         user = get_object_or_404(User.objects.select_related('role'), id=user_id)
         # 切换状态
         user.is_active = not user.is_active
         user.save()
 
-        # 日志/返回信息
+        # 日志
         op_type = OP_TYPE_ENABLE_USER if user.is_active else OP_TYPE_DISABLE_USER
         status_text = '启用' if user.is_active else '禁用'
         create_operation_log(
@@ -589,11 +572,10 @@ def reset_password(request, user_id):
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
     try:
-        # 🔥 修复：预加载角色，解决N+1查询
         user = get_object_or_404(User.objects.select_related('role'), id=user_id)
         temp_pwd = "123456"
 
-        # 重置密码+标记强制修改
+        # 重置密码
         user.set_password(temp_pwd)
         user.force_password_change = True
         user.save()
@@ -619,48 +601,42 @@ def reset_password(request, user_id):
 
 @login_required
 @permission_required('role_permission_config')
-# ========== 缓存：角色权限配置 30分钟，自动根据role_code区分缓存 ==========
-@cache_page(CACHE_ROLE_PERMISSION)
+# 🔥 已删除：页面缓存，替换为安全的数据缓存
 def role_permission_config(request, role_code):
-    """角色权限配置（增强版）"""
+    """角色权限配置（增强版）+ 安全数据缓存"""
     # 仅超级管理员可访问
     if not (request.user.role and request.user.role.code == ROLE_SUPER_ADMIN):
         return redirect('/accounts/no-permission/')
 
-    # 获取角色（固定3个）
+    # 获取角色
     role = get_object_or_404(Role, code=role_code)
-    # 所有启用的权限（按分类排序）
-    all_perms = Permission.objects.filter(is_active=True).order_by('category', 'code')
-    # 所有固定角色（用于选项卡）
     all_roles = Role.objects.filter(code__in=[ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OPERATOR]).order_by('id')
-
-    # ========== 重置功能 ==========
-    if request.method == 'POST' and 'reset' in request.POST:
-        # 重置为数据库中保存的权限
-        return redirect(f'/accounts/role-permission/{role_code}/')
+    cache_key = f"role_perms_{role_code}"
 
     # ========== 保存权限 ==========
     if request.method == 'POST' and 'save' in request.POST:
         try:
-            # 获取选中的权限ID
             selected_perm_ids = request.POST.getlist('permissions', [])
 
-            # 校验：禁止空权限（超级管理员除外）
+            # 校验
             if not selected_perm_ids and role.code != ROLE_SUPER_ADMIN:
                 messages.error(request, '禁止配置空权限！至少保留基础查看权限')
                 return redirect(f'/accounts/role-permission/{role_code}/')
 
-            # 超级管理员强制全选（禁用修改）
+            # 超级管理员强制全选
             if role.code == ROLE_SUPER_ADMIN:
-                selected_perm_ids = all_perms.values_list('id', flat=True)
+                selected_perm_ids = Permission.objects.filter(is_active=True).values_list('id', flat=True)
 
-            # 清空原有权限，重新绑定
+            # 更新权限
             role.permissions.clear()
             if selected_perm_ids:
                 selected_perms = Permission.objects.filter(id__in=selected_perm_ids)
                 role.permissions.add(*selected_perms)
 
-            # 记录详细日志
+            # 🔥 关键：修改后主动清理缓存，杜绝脏数据
+            cache.delete(cache_key)
+
+            # 记录日志
             perm_names = [f"{p.name}({p.code})" for p in selected_perms] if selected_perm_ids else []
             create_operation_log(
                 request=request,
@@ -677,29 +653,35 @@ def role_permission_config(request, role_code):
         except Exception as e:
             messages.error(request, f'保存失败：{str(e)}')
 
-    # ========== 数据准备 ==========
-    # 已选中的权限ID
-    selected_perm_ids = role.permissions.values_list('id', flat=True)
-    # 超级管理员强制全选
-    if role.code == ROLE_SUPER_ADMIN:
-        selected_perm_ids = all_perms.values_list('id', flat=True)
+    # ========== 安全数据缓存：仅缓存权限数据，按角色隔离 ==========
+    # 先从缓存获取
+    perm_groups = cache.get(cache_key)
+    if not perm_groups:
+        all_perms = Permission.objects.filter(is_active=True).order_by('category', 'code')
+        selected_perm_ids = role.permissions.values_list('id', flat=True)
 
-    # 按分类分组权限（前端折叠展示）
-    perm_groups = {}
-    for perm in all_perms:
-        if perm.category not in perm_groups:
-            perm_groups[perm.category] = {
-                'name': perm.get_category_display(),
-                'permissions': []
-            }
-        perm_groups[perm.category]['permissions'].append({
-            'id': perm.id,
-            'code': perm.code,
-            'name': perm.name,
-            'description': perm.description,
-            'is_active': perm.is_active,
-            'is_selected': perm.id in selected_perm_ids
-        })
+        # 超级管理员强制全选
+        if role.code == ROLE_SUPER_ADMIN:
+            selected_perm_ids = all_perms.values_list('id', flat=True)
+
+        # 按分类分组权限
+        perm_groups = {}
+        for perm in all_perms:
+            if perm.category not in perm_groups:
+                perm_groups[perm.category] = {
+                    'name': perm.get_category_display(),
+                    'permissions': []
+                }
+            perm_groups[perm.category]['permissions'].append({
+                'id': perm.id,
+                'code': perm.code,
+                'name': perm.name,
+                'description': perm.description,
+                'is_active': perm.is_active,
+                'is_selected': perm.id in selected_perm_ids
+            })
+        # 写入缓存，30分钟过期
+        cache.set(cache_key, perm_groups, CACHE_ROLE_PERMISSION)
 
     return render(request, 'accounts/role_permission_config.html', {
         'current_role': role,
@@ -725,7 +707,7 @@ def profile(request):
         user.address = request.POST.get('address', user.address).strip()
         user.email = request.POST.get('email', user.email).strip()
 
-        # 密码修改（可选）
+        # 密码修改
         new_pwd = request.POST.get('new_password', '').strip()
         pwd_changed = False
         if new_pwd:
@@ -756,8 +738,7 @@ def profile(request):
 
 
 @login_required
-# ========== 缓存：无权限提示页 1小时，纯静态无数据库查询 ==========
-@cache_page(CACHE_NO_PERMISSION)
+# 🔥 已删除：无意义缓存
 def no_permission(request):
     """无权限提示"""
     return render(request, 'accounts/no_permission.html')
