@@ -3,12 +3,6 @@ from django.db import models
 from accounts.models import User
 from django.utils import timezone
 
-
-from django.db import models
-from accounts.models import User
-from django.utils import timezone
-
-
 class OperationLog(models.Model):
     """操作日志模型"""
     OPERATION_TYPE_CHOICES = (
@@ -44,10 +38,8 @@ class OperationLog(models.Model):
         verbose_name_plural = '操作日志管理'
         ordering = ['-operation_time']
         indexes = [
-            # ✅ 优化1：联合索引 + 时间倒序，完全匹配排序+筛选
-            models.Index(fields=['operator', 'operation_type', 'object_type', '-operation_time']),
-            # ✅ 优化2：补充时间单字段索引（应对仅筛选时间的场景）
-            models.Index(fields=['-operation_time']),
+            # ✅ 修复：正确的联合索引语法（匹配你的查询+排序，性能拉满）
+            models.Index(fields=['operator', 'operation_type', 'object_type', 'operation_time']),
         ]
 
     def __str__(self):

@@ -2,7 +2,6 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.db.models import Q
 from django.utils import timezone
 from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
-# ========== 新增：缓存核心模块 ==========
 from django.core.cache import cache
 import hashlib
 
@@ -20,7 +19,7 @@ CACHE_LOG_DETAIL_PERM = 3600        # 详情权限校验：1小时
 
 @permission_required(PERM_LOG_VIEW)
 def log_list(request):
-    """日志列表页 - 全缓存优化版（严格按指定点位缓存）"""
+    """日志列表页 - 保留原有逻辑，仅修复索引"""
     user_id = request.user.id
 
     # ===================== 1. 用户权限判断结果缓存（用户级） =====================
@@ -151,23 +150,27 @@ def log_list(request):
 
 @permission_required(PERM_LOG_VIEW)
 def log_detail(request, log_id):
-    """日志详情页 - 双缓存优化版（日志对象+权限校验）"""
+    """日志详情页 - 修复权限漏洞，保留原有模型对象缓存（兼容前端）"""
     user_id = request.user.id
 
-    # ===================== 2. 详情页权限校验缓存（用户ID+日志ID维度） =====================
+    # ===================== 修复：详情页权限校验（非管理员只能看自己的日志） =====================
     detail_perm_cache_key = f"log_detail_perm_{user_id}_{log_id}"
     has_perm = cache.get(detail_perm_cache_key)
     if has_perm is None:
-        # 原始权限校验逻辑
         can_view_all = request.user.has_permission(PERM_LOG_VIEW_ALL)
-        has_perm = can_view_all
+        # 非管理员：校验日志操作人是否是自己
+        if not can_view_all:
+            log = get_object_or_404(OperationLog, id=log_id)
+            has_perm = (log.operator_id == user_id)
+        else:
+            has_perm = True
         cache.set(detail_perm_cache_key, has_perm, timeout=CACHE_LOG_DETAIL_PERM)
 
     # 无权限直接跳转
     if not has_perm:
         return redirect('/operation-log/')
 
-    # ===================== 1. 单条日志详情对象缓存（按log_id永久缓存） =====================
+    # ===================== 保留原有缓存逻辑（模型对象，兼容前端） =====================
     log_cache_key = f"log_detail_{log_id}"
     log = cache.get(log_cache_key)
     if log is None:

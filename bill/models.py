@@ -300,6 +300,7 @@ class Order(models.Model):
             models.Index(fields=['status', 'is_settled', 'area', 'create_time']),
             # 🔥 索引2：客户维度专用索引（客户汇总/客户订单详情）→ 高频必备！
             models.Index(fields=['status', 'is_settled', 'customer', 'create_time']),
+            # models.Index(fields=['status', 'is_settled', 'order_no']),
         ]
 
 # # 原有索引保留
