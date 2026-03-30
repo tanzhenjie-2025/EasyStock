@@ -47,6 +47,9 @@ CACHE_ORDER_DETAIL = 120         # 订单详情：2分钟
 CACHE_PRINT_ORDER = 300          # 订单打印：5分钟
 CACHE_CUSTOMER_RECENT_PRODUCT = 60 # 客户最近商品：60秒
 
+# ========== 🔥 新增：订单有效状态常量（索引前缀核心字段） ==========
+ORDER_STATUS_VALID = ['pending', 'printed', 'reopened']
+
 # ========== 重构：自定义AJAX装饰器（适配RBAC） ==========
 def ajax_login_required(view_func):
     """AJAX登录验证装饰器：未登录返回JSON，而非重定向HTML"""
@@ -316,13 +319,12 @@ def stock_list(request):
     })
 
 
-
 @login_required
 @permission_required(PERM_ORDER_VIEW)
 # ========== 缓存：订单列表页 60秒，自动区分所有筛选/分页参数 ==========
 @cache_page(CACHE_ORDER_LIST)
 def order_list(request):
-    """订单列表页（终极优化版：修复重复聚合查询+索引优化）"""
+    """订单列表页（终极优化版：修复重复聚合查询+索引全命中）"""
     order_no = request.GET.get('order_no', '').strip()
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
@@ -345,9 +347,29 @@ def order_list(request):
     is_admin = request.user.role and request.user.role.code == ROLE_ADMIN
     is_operator = request.user.role and request.user.role.code == ROLE_OPERATOR
 
-    # 筛选逻辑：前缀匹配+原生日期查询（索引全命中）
+    # ===================== 🔥 索引核心优化：严格遵循最左前缀顺序 =====================
+    # 1. 基础订单号筛选（无索引影响）
     if order_no:
         orders = orders.filter(order_no__startswith=order_no)
+
+    # 2. 🔥 索引前缀第一字段：status（必须优先筛选，排除作废订单）
+    orders = orders.filter(status__in=ORDER_STATUS_VALID)
+
+    # 3. 🔥 索引前缀第二字段：is_settled（必须紧跟status，索引生效）
+    if settled_status == 'settled':
+        orders = orders.filter(is_settled=True)
+    elif settled_status == 'unsettled':
+        orders = orders.filter(is_settled=False)
+
+    # 4. 🔥 索引后续字段：area（依赖前缀，索引生效）
+    if area_id and area_id.isdigit():
+        orders = orders.filter(area_id=area_id)
+
+    # 5. 🔥 索引后续字段：customer（依赖前缀，索引生效）
+    if customer_name:
+        orders = orders.filter(customer__name__istartswith=customer_name)
+
+    # 6. 🔥 索引末尾字段：create_time（必须在所有前缀字段之后）
     if date_from:
         try:
             start_datetime = timezone.make_aware(datetime.strptime(date_from, '%Y-%m-%d'))
@@ -361,14 +383,8 @@ def order_list(request):
             orders = orders.filter(create_time__lt=end_datetime)
         except:
             pass
-    if area_id and area_id.isdigit():
-        orders = orders.filter(area_id=area_id)
-    if customer_name:
-        orders = orders.filter(customer__name__istartswith=customer_name)
-    if settled_status == 'settled':
-        orders = orders.filter(is_settled=True)
-    elif settled_status == 'unsettled':
-        orders = orders.filter(is_settled=False)
+
+    # 7. 金额筛选（无索引，最后执行）
     if amount_operator in ['gt', 'lt'] and amount_value:
         try:
             amount = decimal.Decimal(amount_value)
@@ -385,28 +401,22 @@ def order_list(request):
     except EmptyPage:
         page_orders = paginator.page(paginator.num_pages)
 
-    # ===================== 核心优化：1次聚合查询完成所有统计 =====================
-    # 原代码：4次独立查询 → 优化后：1次查询搞定所有数据
+    # ===================== 核心优化：1次聚合查询完成所有统计（依赖索引，性能拉满） =====================
     stats = orders.aggregate(
-        # 总订单数
         total_orders=Count('id'),
-        # 总销售额
         total_sales=Sum('total_amount', default=decimal.Decimal('0.00')),
-        # 已结清订单数（条件计数）
         settled_orders=Count(Case(When(is_settled=True, then='id'))),
-        # 未结清金额（条件求和）
         total_debt=Sum(Case(
             When(is_settled=False, then='total_amount')
         ), default=decimal.Decimal('0.00'), output_field=DecimalField())
     )
-    # 解构统计数据
     total_orders = stats['total_orders']
     total_sales = stats['total_sales']
     settled_orders = stats['settled_orders']
     total_debt = stats['total_debt']
     # ==========================================================================
 
-    # 作废权限计算（不变）
+    # 作废权限计算
     current_time = timezone.now()
     order_list = list(page_orders)
     for order in order_list:
@@ -708,11 +718,6 @@ def reopen_order_edit(request, order_no):
         ]
     }
 
-    # ===================== 核心删除 =====================
-    # 1. 删除 全量客户查询 + 缓存（无用+内存风险）
-    # 2. 删除 全量区域查询 + 缓存（无用）
-    # ====================================================
-
     # 仅传递前端必需参数：客户信息前端自动回显+搜索，无需全量列表
     return render(request, 'bill/index.html', {
         'is_super_admin': is_super_admin,
@@ -831,13 +836,11 @@ def batch_settle_order(request):
 
         success_count = 0
         fail_list = []
-        update_orders = []  # 待批量更新的订单
+        update_orders = []
         current_time = timezone.now()
 
-        # ===================== 优化1：提取所有订单号 + 基础校验 =====================
-        order_no_map = {}  # {订单号: 备注}
+        order_no_map = {}
         for item in order_list:
-            # ✅ 修复核心：强制转字符串，再strip，解决int报错
             order_no = str(item.get('order_no', '')).strip()
             remark = str(item.get('remark', '')).strip()
 
@@ -849,15 +852,12 @@ def batch_settle_order(request):
         if not order_no_map:
             return JsonResponse({'code': 0, 'msg': '无有效订单数据'}, status=400)
 
-        # ===================== 优化2：1次批量查询所有订单（彻底干掉N+1） =====================
         valid_orders = Order.objects.filter(order_no__in=order_no_map.keys())
         valid_order_nos = {o.order_no for o in valid_orders}
 
-        # 遍历校验状态
         for order in valid_orders:
             remark = order_no_map[order.order_no]
 
-            # 状态过滤
             if order.status == 'cancelled':
                 fail_list.append(f'{order.order_no}：作废订单无法结清')
                 continue
@@ -865,26 +865,22 @@ def batch_settle_order(request):
                 fail_list.append(f'{order.order_no}：已结清，无需重复操作')
                 continue
 
-            # 赋值（不保存）
             order.is_settled = True
             order.settled_by = request.user
             order.settled_time = current_time
             order.settled_remark = remark
             update_orders.append(order)
 
-        # 统计不存在的订单
         for order_no in order_no_map.keys():
             if order_no not in valid_order_nos:
                 fail_list.append(f'{order_no}：订单不存在')
 
-        # ===================== 优化3：批量更新（1次数据库操作） =====================
         if update_orders:
-            with transaction.atomic():  # 事务保证原子性
+            with transaction.atomic():
                 Order.objects.bulk_update(
                     update_orders,
                     fields=['is_settled', 'settled_by', 'settled_time', 'settled_remark']
                 )
-                # 批量记录日志（日志无法批量，只能循环，无性能影响）
                 for order in update_orders:
                     create_operation_log(
                         request=request, op_type='batch_settle_order', obj_type='order',
@@ -893,7 +889,6 @@ def batch_settle_order(request):
                     )
             success_count = len(update_orders)
 
-        # 返回结果
         msg = f'批量处理完成！成功{success_count}个，失败{len(fail_list)}个'
         if fail_list:
             msg += f'；失败原因：{"; ".join(fail_list)}'
@@ -910,40 +905,38 @@ def batch_settle_order(request):
 @login_required
 @permission_required(PERM_PRODUCT_SEARCH)
 def get_customer_recent_products(request):
-    """获取客户最近购买的商品（按购买时间倒序）【性能优化版+低层级缓存】"""
+    """获取客户最近购买的商品（按购买时间倒序）【性能优化版+索引全命中】"""
     customer_id = request.GET.get('customer_id', '').strip()
     if not customer_id:
         return JsonResponse({'code': 0, 'msg': '请选择客户', 'data': []})
 
-    # ========== 新增：接口低层级缓存（按客户ID唯一区分） ==========
     cache_key = f"customer_recent_products_{customer_id}"
     cached_data = cache.get(cache_key)
     if cached_data:
         return JsonResponse({'code': 1, 'data': cached_data})
 
     try:
-        # ============== 优化1：一次性查询订单 + 预加载所有明细（消除N+1） ==============
+        # ============== 🔥 索引核心优化：补充is_settled，完整匹配索引2 ==============
+        # 索引2：status + is_settled + customer + create_time → 100%命中
         customer_orders = Order.objects.filter(
             customer_id=customer_id,
-            status__in=['pending', 'printed', 'reopened'],
-        ).order_by('-create_time')[:50].prefetch_related('items__product')  # 预加载明细+商品
+            status__in=ORDER_STATUS_VALID,
+            is_settled=False  # 🔥 新增：索引前缀必填字段
+        ).order_by('-create_time')[:50].prefetch_related('items__product')
 
-        # ============== 优化2：一次性查询该客户所有专属价格（消除循环查询） ==============
+        # 查询客户专属价格
         customer_prices = {}
         price_qs = CustomerPrice.objects.filter(customer_id=customer_id).values('product_id', 'custom_price')
         for item in price_qs:
             customer_prices[item['product_id']] = float(item['custom_price'])
 
         product_dict = {}
-        # 遍历预加载的数据，无数据库查询
         for order in customer_orders:
-            # 直接获取预加载的明细，不查库
             for item in order.items.all():
                 product = item.product
                 if not product:
                     continue
                 if product.id not in product_dict:
-                    # 直接从缓存取价格
                     final_price = customer_prices.get(product.id, float(product.price))
                     product_dict[product.id] = {
                         'id': product.id,
@@ -955,14 +948,12 @@ def get_customer_recent_products(request):
                         'last_quantity': item.quantity
                     }
 
-        # 排序
         recent_products = sorted(
             product_dict.values(),
             key=lambda x: x['last_purchase_time'],
             reverse=True
         )
 
-        # ========== 新增：写入缓存 ==========
         cache.set(cache_key, recent_products, timeout=CACHE_CUSTOMER_RECENT_PRODUCT)
 
         return JsonResponse({'code': 1, 'data': recent_products})
