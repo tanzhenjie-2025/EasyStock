@@ -296,10 +296,10 @@ class Order(models.Model):
         verbose_name = '订单'
         verbose_name_plural = '订单管理'
         indexes = [
-            # 🔥 索引1：区域维度统一索引（商品汇总/区域统计）
+            # 原有索引（保留，status 筛选自动复用此索引）
             models.Index(fields=['status', 'is_settled', 'area', 'create_time']),
-            # 🔥 索引2：客户维度专用索引（客户汇总/客户订单详情）→ 高频必备！
             models.Index(fields=['status', 'is_settled', 'customer', 'create_time']),
+            models.Index(fields=['status', 'is_settled', 'creator', 'create_time'])
         ]
 
 # # 原有索引保留
