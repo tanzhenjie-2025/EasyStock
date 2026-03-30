@@ -38,7 +38,6 @@ PERM_ORDER_CANCEL_OWN = 'order_cancel_own'    # 作废自己的订单
 PERM_ORDER_CANCEL_OTHERS = 'order_cancel_others'  # 作废他人订单
 PERM_ORDER_CANCEL_ANY = 'order_cancel_any'    # 作废任意订单（超级管理员）
 
-
 # 2. 区域管理权限编码
 PERM_AREA_VIEW = 'area_view'  # 查看区域/区域组
 PERM_AREA_ADD = 'area_add'  # 新增区域/区域组
@@ -72,8 +71,6 @@ PERM_PRODUCT_IMPORT = 'product_import'  # 批量导入商品
 PERM_PRODUCT_STOCK_OP = 'product_stock_operation'  # 商品出入库操作
 PERM_PRODUCT_DETAIL = 'product_detail'  # 查看商品详情（含销量/客户价）
 PERM_PRODUCT_SALES_RANK = 'product_sales_rank'  # 查看商品销售排行
-
-
 
 # ========== 合并角色+权限初始化（核心修复） ==========
 @receiver(post_migrate, dispatch_uid='init_accounts_data')
@@ -132,7 +129,6 @@ def init_accounts_data(sender, **kwargs):
             ('customer_price_delete', '删除客户价格', 'customer', '删除客户专属价格'),
             ('customer_sales_rank', '查看客户消费排行', 'customer', '查看客户消费TOP30排行（仅超级管理员可见）'),
 
-
             # 日志管理
             ('log_view', '查看个人日志', 'system', '仅查看自己的操作日志'),
             ('log_view_all', '查看所有日志', 'system', '查看系统所有用户的操作日志'),
@@ -162,7 +158,6 @@ def init_accounts_data(sender, **kwargs):
             )
 
         # ========== 第三步：绑定角色权限 ==========
-        # ========== 第三步：绑定角色权限（修改） ==========
         # 开单人角色
         operator_role = Role.objects.get(code=ROLE_OPERATOR)
         operator_perms = Permission.objects.filter(code__in=[
@@ -170,7 +165,6 @@ def init_accounts_data(sender, **kwargs):
             'product_search', 'order_settle', 'area_view',
             'customer_view', 'customer_repayment', 'customer_price_view',
             'log_view', 'product_view', 'product_detail',
-            # 新增：仅作废自己订单的权限
             'order_cancel_own'
         ])
         operator_role.permissions.set(operator_perms)
@@ -185,16 +179,11 @@ def init_accounts_data(sender, **kwargs):
                 'customer_repayment', 'customer_price_view', 'customer_price_add',
                 'customer_price_edit', 'customer_price_delete',
                 'log_view', 'log_view_all',
-                # 新增：查看他人订单+作废自己/他人订单
                 'order_view_others', 'order_cancel_own', 'order_cancel_others',
-                'product_sales_rank',  # 新增销售排行权限
-
+                'product_sales_rank',
             ])
         )
         admin_role.permissions.set(admin_perms)
-
-        # 超级管理员默认拥有所有权限（无需显式绑定）
-
 
 # ========== 1. 权限表（替代Django原生Permission） ==========
 class Permission(models.Model):
@@ -211,12 +200,15 @@ class Permission(models.Model):
     class Meta:
         verbose_name = '权限'
         verbose_name_plural = '权限管理'
-        ordering = ['category', 'code']  # 按分类+编码排序
-        unique_together = ('code', 'category')  # 同分类下编码唯一
+        ordering = ['category', 'code']
+        unique_together = ('code', 'category')
+        # ✅ 新增：高频权限校验联合索引（你的优化）
+        indexes = [
+            models.Index(fields=['code', 'is_active']),
+        ]
 
     def __str__(self):
         return f'[{self.get_category_display()}] {self.name} ({self.code})'
-
 
 # ========== 2. 角色表（固定3个，禁止增删/改编码） ==========
 class Role(models.Model):
@@ -258,7 +250,6 @@ class Role(models.Model):
     def is_super_admin(self):
         return self.code == ROLE_SUPER_ADMIN
 
-
 # ========== 4. 拓展用户表（纯RBAC关联） ==========
 class User(AbstractUser):
     """
@@ -282,7 +273,8 @@ class User(AbstractUser):
         null=True,
         blank=True,
         verbose_name='所属角色',
-        related_name='users'
+        related_name='users',
+        db_index=True  # ✅ 新增：强制添加索引（你的优化）
     )
 
     # 彻底移除原生Group/Permission关联（避免冲突）
@@ -307,11 +299,8 @@ class User(AbstractUser):
         verbose_name = '系统用户'
         verbose_name_plural = '系统用户管理'
         ordering = ['-date_joined']
-        # ✅ 修复：删除 name 属性，替换为真实数据库字段
         indexes = [
-            # 搜索用联合索引（user_code/用户名/电话/姓名真实字段）
             models.Index(fields=['user_code', 'username', 'phone', 'first_name', 'last_name', 'is_active']),
-            # 单字段索引
             models.Index(fields=['user_code']),
             models.Index(fields=['phone']),
         ]
@@ -330,10 +319,8 @@ class User(AbstractUser):
         判断用户是否拥有指定权限
         规则：超级管理员→拥有所有权限；普通用户→继承角色权限
         """
-        # 超级管理员默认拥有所有权限（无需配置）
         if self.role and self.role.is_super_admin:
             return True
-        # 普通用户：检查角色绑定的权限
         if self.role:
             return self.role.permissions.filter(code=permission_code, is_active=True).exists()
         return False
