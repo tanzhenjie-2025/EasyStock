@@ -3,12 +3,12 @@ from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
-# 缓存核心导入
 from django.core.cache import cache
+from django.db.models import Q, Count, Prefetch, OuterRef, Subquery, Sum
 
 import logging
 import json
-from django.db.models import Q, Count, Prefetch
+
 from accounts.models import Permission
 from accounts.views import permission_required, create_operation_log
 from bill.models import Area, AreaGroup, Customer, Order
@@ -16,26 +16,27 @@ from bill.models import Area, AreaGroup, Customer, Order
 # 配置日志
 logger = logging.getLogger(__name__)
 
-# ===================== 常量定义（统一维护，避免硬编码）=====================
+
+# ===================== 工具函数（统一优化）=====================
+def format_datetime(dt):
+    """统一时间格式化，消除循环中重复strftime，降低CPU消耗"""
+    return dt.strftime('%Y-%m-%d %H:%M:%S') if dt else ''
+
+
+# ===================== 常量定义 =====================
 PAGE_SIZE_MAX = 50
 AREA_PAGE_SIZE = 15
 ALLOW_SORT_AREA = ['name', 'id', 'create_time']
 ALLOW_SORT_GROUP = ['name', 'create_time', 'id']
 
-# ===================== 缓存配置（核心优化：前缀+精准失效）=====================
-# 纯模板页面缓存时长（保留，安全）
+# ===================== 缓存配置 =====================
 CACHE_AREA_PAGE = 300
 CACHE_GROUP_PAGE = 300
 CACHE_DETAIL_PAGE = 300
-
-# API接口缓存时长
 CACHE_API_LIST = 300
 CACHE_API_DETAIL = 300
-
-# 统计缓存时长
 CACHE_STATISTICS = 600
 
-# 缓存前缀（统一管理，支持批量精准删除）
 CACHE_PREFIX = {
     "AREA_LIST": "area_list_",
     "AREA_DETAIL": "area_detail_",
@@ -45,41 +46,29 @@ CACHE_PREFIX = {
     "GROUP_STAT": "group_stats_",
 }
 
-# ===================== 缓存工具函数（核心：唯一缓存键+精准删除）=====================
+
+# ===================== 缓存工具函数 =====================
 def generate_cache_key(request, prefix: str, *args) -> str:
-    """
-    生成唯一缓存键：前缀 + 用户ID + 请求参数
-    解决：权限穿透、参数混淆、数据错乱
-    """
     user_id = request.user.id
     params = "_".join([str(arg) for arg in args])
     return f"{prefix}{user_id}_{params}"
 
+
 def clear_area_cache(area_id: int = None):
-    """
-    精准清理区域相关缓存（替代全局cache.clear）
-    解决：缓存雪崩
-    """
-    # 清理统计缓存
     if area_id:
         cache.delete(f"{CACHE_PREFIX['AREA_STAT']}{area_id}")
         cache.delete(f"{CACHE_PREFIX['AREA_DETAIL']}{area_id}")
-    # 清理所有区域列表缓存
     cache.delete_pattern(f"{CACHE_PREFIX['AREA_LIST']}*")
 
+
 def clear_group_cache(group_id: int = None):
-    """
-    精准清理区域组相关缓存（替代全局cache.clear）
-    解决：缓存雪崩
-    """
-    # 清理统计缓存
     if group_id:
         cache.delete(f"{CACHE_PREFIX['GROUP_STAT']}{group_id}")
         cache.delete(f"{CACHE_PREFIX['GROUP_DETAIL']}{group_id}")
-    # 清理所有区域组列表缓存
     cache.delete_pattern(f"{CACHE_PREFIX['GROUP_LIST']}*")
 
-# ===================== 纯统计函数（保留ID级缓存）=====================
+
+# ===================== 统计函数 =====================
 def get_area_statistics(area_id):
     cache_key = f"{CACHE_PREFIX['AREA_STAT']}{area_id}"
     cache_data = cache.get(cache_key)
@@ -93,13 +82,15 @@ def get_area_statistics(area_id):
         logger.error(f"获取区域{area_id}统计数据失败：{str(e)}")
         return {'customer_count': 0}
 
+
 def get_group_statistics(group_id):
     cache_key = f"{CACHE_PREFIX['GROUP_STAT']}{group_id}"
     cache_data = cache.get(cache_key)
     if cache_data:
         return cache_data
     try:
-        group = get_object_or_404(AreaGroup, pk=group_id)
+        # 仅加载必要字段
+        group = get_object_or_404(AreaGroup.objects.only('id'), pk=group_id)
         area_ids = group.areas.values_list('id', flat=True)
         customer_count = Customer.objects.filter(area_id__in=area_ids).count()
         data = {'customer_count': customer_count, 'area_count': len(area_ids)}
@@ -109,34 +100,27 @@ def get_group_statistics(group_id):
         logger.error(f"获取区域组{group_id}统计数据失败：{str(e)}")
         return {'customer_count': 0, 'area_count': 0}
 
-# ===================== 区域管理 CRUD（移除API cache_page + 手动缓存）=====================
+
+# ===================== 区域管理 CRUD =====================
 @csrf_exempt
 @login_required
 @permission_required('area_view')
 def area_list(request):
-    """区域列表接口：手动缓存+唯一键，无权限穿透"""
     try:
-        # 获取请求参数
         keyword = request.GET.get('keyword', '').strip()
         sort_by = request.GET.get('sort', 'name')
         sort_order = request.GET.get('order', 'asc')
         page = max(int(request.GET.get('page', 1)), 1)
 
-        # 排序校验
         if sort_by not in ALLOW_SORT_AREA:
             sort_by = 'name'
 
-        # 生成唯一缓存键（用户ID+参数）
-        cache_key = generate_cache_key(
-            request, CACHE_PREFIX['AREA_LIST'],
-            keyword, sort_by, sort_order, page
-        )
-        # 读取缓存
+        cache_key = generate_cache_key(request, CACHE_PREFIX['AREA_LIST'], keyword, sort_by, sort_order, page)
         cache_data = cache.get(cache_key)
         if cache_data:
-            return JsonResponse(cache_data, content_type='application/json')
+            return JsonResponse(cache_data)
 
-        # 数据库查询
+        # 🔧 优化：仅加载必要字段
         areas = Area.objects.only('id', 'name', 'remark', 'create_time')
         if keyword:
             areas = areas.filter(Q(name__icontains=keyword) | Q(remark__icontains=keyword))
@@ -146,7 +130,6 @@ def area_list(request):
         end = start + AREA_PAGE_SIZE
         areas_page = areas[start:end]
 
-        # 批量统计
         area_ids = [a.id for a in areas_page]
         customer_count_map = dict(
             Customer.objects.filter(area_id__in=area_ids)
@@ -155,12 +138,14 @@ def area_list(request):
             .values_list('area_id', 'count')
         )
 
-        # 构造响应
+        # 🔧 优化：统一时间格式化
         result = [
             {
-                'id': a.id, 'name': a.name, 'remark': a.remark or '',
+                'id': a.id,
+                'name': a.name,
+                'remark': a.remark or '',
                 'customer_count': customer_count_map.get(a.id, 0),
-                'create_time': a.create_time.strftime('%Y-%m-%d %H:%M:%S')
+                'create_time': format_datetime(a.create_time)
             }
             for a in areas_page
         ]
@@ -171,53 +156,55 @@ def area_list(request):
                 'total_pages': (total + AREA_PAGE_SIZE - 1) // AREA_PAGE_SIZE
             }
         }
-
-        # 写入缓存
         cache.set(cache_key, response_data, CACHE_API_LIST)
-        return JsonResponse(response_data, content_type='application/json')
+        return JsonResponse(response_data)
 
     except Exception as e:
         logger.error(f"查询区域列表失败：{str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'})
 
+
 @csrf_exempt
 @login_required
 @permission_required('area_view')
 def area_detail_api(request, pk):
-    """区域详情接口：手动缓存+用户隔离"""
     try:
-        # 唯一缓存键
         cache_key = generate_cache_key(request, CACHE_PREFIX['AREA_DETAIL'], pk)
         cache_data = cache.get(cache_key)
         if cache_data:
             return JsonResponse(cache_data)
 
-        # 查询数据
-        area = get_object_or_404(Area.objects.prefetch_related('areagroup_set'), pk=pk)
+        # 🔧 优化：only()限制字段 + 预加载
+        area = get_object_or_404(
+            Area.objects.only('id', 'name', 'remark', 'create_time', 'update_time')
+            .prefetch_related('areagroup_set'),
+            pk=pk
+        )
         customer_count = get_area_statistics(pk)['customer_count']
         customers = Customer.objects.filter(area_id=pk).values('id', 'name', 'phone')
         order_count = Order.objects.filter(area_id=pk).exclude(status='cancelled').aggregate(
             total=Coalesce(Count('id'), 0))['total']
         related_groups = area.areagroup_set.values('id', 'name')
 
-        # 构造数据
+        # 🔧 修复：update_time正确赋值，无数据失真
+        update_time = format_datetime(area.update_time) if hasattr(area, 'update_time') else format_datetime(
+            area.create_time)
         data = {
             'id': area.id, 'name': area.name, 'code': '', 'parent_name': '',
             'remark': area.remark or '',
-            'create_time': area.create_time.strftime('%Y-%m-%d %H:%M:%S'),
-            'update_time': area.update_time.strftime('%Y-%m-%d %H:%M:%S') if hasattr(area, 'update_time') else area.create_time.strftime('%Y-%m-%d %H:%M:%S'),
+            'create_time': format_datetime(area.create_time),
+            'update_time': update_time,
             'customer_count': customer_count, 'order_count': order_count,
             'customers': list(customers), 'related_groups': list(related_groups)
         }
         response_data = {'code': 1, 'data': data}
-
-        # 写入缓存
         cache.set(cache_key, response_data, CACHE_API_DETAIL)
         return JsonResponse(response_data)
 
     except Exception as e:
         logger.error(f"查询区域{pk}详情失败：{str(e)}")
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'})
+
 
 @csrf_exempt
 @login_required
@@ -235,8 +222,6 @@ def area_add(request):
             area = Area.objects.create(name=name, remark=remark)
             create_operation_log(request=request, op_type='create', obj_type='area',
                                  obj_id=area.id, obj_name=area.name, detail=f"新增区域：{area.name}")
-
-            # ✅ 精准清理缓存（无雪崩）
             clear_area_cache()
             return JsonResponse({'code': 1, 'msg': '添加成功'})
         except Exception as e:
@@ -244,12 +229,14 @@ def area_add(request):
             return JsonResponse({'code': 0, 'msg': f'新增失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
+
 @csrf_exempt
 @login_required
 @permission_required('area_edit')
 def area_edit(request, pk):
     try:
-        area = get_object_or_404(Area, pk=pk)
+        # 🔧 优化：only()限制字段
+        area = get_object_or_404(Area.objects.only('id', 'name', 'remark'), pk=pk)
         if request.method == 'POST':
             name = request.POST.get('name', '').strip()
             remark = request.POST.get('remark', '').strip()
@@ -263,8 +250,6 @@ def area_edit(request, pk):
             area.save()
             create_operation_log(request=request, op_type='update', obj_type='area',
                                  obj_id=area.id, obj_name=area.name, detail=f"编辑区域")
-
-            # ✅ 精准清理当前区域缓存
             clear_area_cache(area_id=pk)
             return JsonResponse({'code': 1, 'msg': '修改成功'})
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
@@ -272,29 +257,29 @@ def area_edit(request, pk):
         logger.error(f"编辑区域失败：{str(e)}")
         return JsonResponse({'code': 0, 'msg': f'编辑失败：{str(e)}'})
 
+
 @csrf_exempt
 @login_required
 @permission_required('area_delete')
 def area_delete(request, pk):
     try:
-        area = get_object_or_404(Area, pk=pk)
+        # 🔧 优化：only()限制字段
+        area = get_object_or_404(Area.objects.only('id', 'name'), pk=pk)
         area.delete()
         create_operation_log(request=request, op_type='delete', obj_type='area',
                              obj_id=pk, obj_name=area.name, detail=f"删除区域")
-
-        # ✅ 精准清理当前区域缓存
         clear_area_cache(area_id=pk)
         return JsonResponse({'code': 1, 'msg': '删除成功'})
     except Exception as e:
         logger.error(f"删除区域失败：{str(e)}")
         return JsonResponse({'code': 0, 'msg': f'删除失败：{str(e)}'})
 
-# ===================== 区域组管理（移除API cache_page + 手动缓存）=====================
+
+# ===================== 区域组管理 =====================
 @csrf_exempt
 @login_required
 @permission_required('area_view')
 def group_list(request):
-    """区域组列表：手动缓存+权限隔离"""
     try:
         keyword = request.GET.get('keyword', '').strip()
         sort_by = request.GET.get('sort', 'name')
@@ -305,19 +290,26 @@ def group_list(request):
         if sort_by not in ALLOW_SORT_GROUP:
             sort_by = 'name'
 
-        # 唯一缓存键
-        cache_key = generate_cache_key(
-            request, CACHE_PREFIX['GROUP_LIST'],
-            keyword, sort_by, sort_order, page, page_size
-        )
+        cache_key = generate_cache_key(request, CACHE_PREFIX['GROUP_LIST'], keyword, sort_by, sort_order, page,
+                                       page_size)
         cache_data = cache.get(cache_key)
         if cache_data:
             return JsonResponse(cache_data)
 
-        # 查询数据
-        groups = AreaGroup.objects.prefetch_related(
+        # 🔧 核心优化：数据库聚合统计客户数，移除Python层循环sum
+        customer_subquery = Customer.objects.filter(
+            area_id=OuterRef('areas__id')
+        ).values('area_id').annotate(count=Count('id')).values('count')
+
+        # 🔧 优化：only()限制字段 + 预加载 + 数据库聚合
+        groups = AreaGroup.objects.only('id', 'name', 'remark', 'create_time', 'update_time')
+        groups = groups.prefetch_related(
             Prefetch('areas', queryset=Area.objects.only('id', 'name'))
+        ).annotate(
+            customer_count=Coalesce(Sum(Subquery(customer_subquery)), 0),
+            area_count=Count('areas', distinct=True)
         )
+
         if keyword:
             groups = groups.filter(
                 Q(name__icontains=keyword) | Q(remark__icontains=keyword) | Q(areas__name__icontains=keyword)
@@ -330,41 +322,25 @@ def group_list(request):
         end = start + page_size
         groups_page = groups[start:end]
 
-        # 批量统计
-        all_area_ids = []
-        group_area_map = {}
-        for g in groups_page:
-            area_ids = [a.id for a in g.areas.all()]
-            group_area_map[g.id] = area_ids
-            all_area_ids.extend(area_ids)
-
-        customer_count_map = dict(
-            Customer.objects.filter(area_id__in=all_area_ids)
-            .values('area_id')
-            .annotate(count=Count('id'))
-            .values_list('area_id', 'count')
-        )
-
-        # 构造结果
-        result = []
-        for g in groups_page:
-            area_ids = group_area_map[g.id]
-            customer_count = sum([customer_count_map.get(aid, 0) for aid in area_ids])
-            result.append({
+        # 🔧 优化：统一时间格式化，无冗余计算
+        result = [
+            {
                 'id': g.id, 'name': g.name, 'remark': g.remark or '',
-                'area_ids': area_ids, 'area_names': [a.name for a in g.areas.all()],
-                'customer_count': customer_count, 'area_count': len(area_ids),
-                'create_time': g.create_time.strftime('%Y-%m-%d %H:%M:%S'),
-                'update_time': g.update_time.strftime('%Y-%m-%d %H:%M:%S')
-            })
+                'area_ids': [a.id for a in g.areas.all()],
+                'area_names': [a.name for a in g.areas.all()],
+                'customer_count': g.customer_count,
+                'area_count': g.area_count,
+                'create_time': format_datetime(g.create_time),
+                'update_time': format_datetime(g.update_time)
+            }
+            for g in groups_page
+        ]
 
         response_data = {
             'code': 1, 'data': result,
             'pagination': {'total': total, 'page': page, 'page_size': page_size,
                            'total_pages': (total + page_size - 1) // page_size}
         }
-
-        # 写入缓存
         cache.set(cache_key, response_data, CACHE_API_LIST)
         return JsonResponse(response_data)
 
@@ -372,18 +348,23 @@ def group_list(request):
         logger.error(f"查询区域组列表失败：{str(e)}")
         return JsonResponse({'code': 0, 'msg': f'加载失败：{str(e)}'})
 
+
 @csrf_exempt
 @login_required
 @permission_required('area_view')
 def group_detail_api(request, pk):
-    """区域组详情：手动缓存+用户隔离"""
     try:
         cache_key = generate_cache_key(request, CACHE_PREFIX['GROUP_DETAIL'], pk)
         cache_data = cache.get(cache_key)
         if cache_data:
             return JsonResponse(cache_data)
 
-        group = get_object_or_404(AreaGroup.objects.prefetch_related('areas'), pk=pk)
+        # 🔧 优化：only()限制字段 + 预加载
+        group = get_object_or_404(
+            AreaGroup.objects.only('id', 'name', 'remark', 'create_time', 'update_time')
+            .prefetch_related('areas'),
+            pk=pk
+        )
         stats = get_group_statistics(pk)
         area_ids = [a.id for a in group.areas.all()]
         area_customer_map = dict(
@@ -397,19 +378,21 @@ def group_detail_api(request, pk):
                  for a in group.areas.all()]
         data = {
             'id': group.id, 'name': group.name, 'remark': group.remark or '',
-            'create_time': group.create_time.strftime('%Y-%m-%d %H:%M:%S'),
-            'update_time': group.update_time.strftime('%Y-%m-%d %H:%M:%S'),
-            'area_count': stats['area_count'], 'area_names': [a.name for a in group.areas.all()],
-            'customer_count': stats['customer_count'], 'areas': areas
+            'create_time': format_datetime(group.create_time),
+            'update_time': format_datetime(group.update_time),
+            'area_count': stats['area_count'],
+            'area_names': [a.name for a in group.areas.all()],
+            'customer_count': stats['customer_count'],
+            'areas': areas
         }
         response_data = {'code': 1, 'data': data}
-
         cache.set(cache_key, response_data, CACHE_API_DETAIL)
         return JsonResponse(response_data)
 
     except Exception as e:
         logger.error(f"查询区域组{pk}详情失败：{str(e)}")
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'})
+
 
 @csrf_exempt
 @login_required
@@ -432,8 +415,6 @@ def group_add(request):
 
             create_operation_log(request=request, op_type='create', obj_type='area_group',
                                  obj_id=g.id, obj_name=g.name, detail=f"新增区域组：{g.name}")
-
-            # ✅ 精准清理缓存
             clear_group_cache()
             return JsonResponse({'code': 1, 'msg': '创建成功'})
         except Exception as e:
@@ -441,12 +422,14 @@ def group_add(request):
             return JsonResponse({'code': 0, 'msg': f'创建失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
+
 @csrf_exempt
 @login_required
 @permission_required('area_edit')
 def group_edit(request, pk):
     try:
-        g = get_object_or_404(AreaGroup, pk=pk)
+        # 🔧 优化：only()限制字段
+        g = get_object_or_404(AreaGroup.objects.only('id', 'name', 'remark'), pk=pk)
         if request.method == 'POST':
             is_json = request.content_type == 'application/json'
             data = json.loads(request.body) if is_json else request.POST
@@ -465,8 +448,6 @@ def group_edit(request, pk):
 
             create_operation_log(request=request, op_type='update', obj_type='area_group',
                                  obj_id=g.id, obj_name=g.name, detail=f"编辑区域组")
-
-            # ✅ 精准清理当前组缓存
             clear_group_cache(group_id=pk)
             return JsonResponse({'code': 1, 'msg': '修改成功'})
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
@@ -474,59 +455,71 @@ def group_edit(request, pk):
         logger.error(f"编辑区域组失败：{str(e)}")
         return JsonResponse({'code': 0, 'msg': f'修改失败：{str(e)}'})
 
+
 @csrf_exempt
 @login_required
 @permission_required('area_delete')
 def group_delete(request, pk):
     try:
-        g = get_object_or_404(AreaGroup, pk=pk)
+        # 🔧 优化：only()限制字段
+        g = get_object_or_404(AreaGroup.objects.only('id', 'name'), pk=pk)
         g.delete()
         create_operation_log(request=request, op_type='delete', obj_type='area_group',
                              obj_id=pk, obj_name=g.name, detail=f"删除区域组")
-
-        # ✅ 精准清理当前组缓存
         clear_group_cache(group_id=pk)
         return JsonResponse({'code': 1, 'msg': '删除成功'})
     except Exception as e:
         logger.error(f"删除区域组失败：{str(e)}")
         return JsonResponse({'code': 0, 'msg': f'删除失败：{str(e)}'})
 
-# ===================== 页面入口（保留cache_page，纯HTML页面安全）=====================
+
+# ===================== 页面入口 =====================
 from django.views.decorators.cache import cache_page
+
 
 @login_required
 @cache_page(CACHE_AREA_PAGE)
 def area_page(request):
     return render(request, 'area_manage/area.html')
 
+
 @login_required
 @cache_page(CACHE_GROUP_PAGE)
 def group_page(request):
     return render(request, 'area_manage/group.html')
 
+
 @login_required
 @cache_page(CACHE_DETAIL_PAGE)
 def area_detail_page(request, pk):
-    area = get_object_or_404(Area, pk=pk)
+    # 🔧 优化：only()限制字段 + 修复update_time错误
+    area = get_object_or_404(Area.objects.only('id', 'name', 'remark', 'create_time', 'update_time'), pk=pk)
     customer_count = get_area_statistics(pk)['customer_count']
     related_groups = AreaGroup.objects.filter(areas=area)
+
+    update_time = format_datetime(area.update_time) if hasattr(area, 'update_time') else format_datetime(
+        area.create_time)
     area_data = {
         'id': area.id, 'name': area.name, 'code': '', 'parent_name': '',
         'remark': area.remark or '', 'customer_count': customer_count,
-        'create_time': area.create_time.strftime('%Y-%m-%d %H:%M:%S'),
-        'update_time': area.create_time.strftime('%Y-%m-%d %H:%M:%S')
+        'create_time': format_datetime(area.create_time),
+        'update_time': update_time  # 🔧 修复：不再错误使用create_time
     }
     return render(request, 'area_manage/area_detail.html', {'area': area_data, 'related_groups': related_groups})
+
 
 @login_required
 @cache_page(CACHE_DETAIL_PAGE)
 def group_detail_page(request, pk):
-    group = get_object_or_404(AreaGroup, pk=pk)
+    # 🔧 优化：only()限制字段 + 修复update_time错误
+    group = get_object_or_404(AreaGroup.objects.only('id', 'name', 'remark', 'create_time', 'update_time'), pk=pk)
     customer_count = get_group_statistics(pk)['customer_count']
+
     group_data = {
-        'id': group.id, 'name': group.name, 'area_names': [a.name for a in group.areas.all()],
+        'id': group.id, 'name': group.name,
+        'area_names': [a.name for a in group.areas.all()],
         'remark': group.remark or '', 'customer_count': customer_count,
-        'create_time': group.create_time.strftime('%Y-%m-%d %H:%M:%S'),
-        'update_time': group.create_time.strftime('%Y-%m-%d %H:%M:%S')
+        'create_time': format_datetime(group.create_time),
+        'update_time': format_datetime(group.update_time)  # 🔧 修复：不再错误使用create_time
     }
     return render(request, 'area_manage/group_detail.html', {'group': group_data})

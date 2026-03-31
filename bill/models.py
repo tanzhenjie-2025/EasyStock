@@ -86,6 +86,7 @@ class Area(models.Model):
     name = models.CharField('区域名称', max_length=50, unique=True, db_index=True)  # 加索引
     remark = models.CharField('备注', max_length=100, blank=True)
     create_time = models.DateTimeField(auto_now_add=True, db_index=True)  # 加索引
+    update_time = models.DateTimeField(auto_now=True, verbose_name='更新时间')
 
     def __str__(self):
         return self.name
