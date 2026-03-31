@@ -11,7 +11,7 @@ import openpyxl
 import xlrd
 import json
 from datetime import datetime, timedelta
-from django.db.models import Sum, Count, Q, F, Prefetch
+from django.db.models import Sum, Count, Q, F, Prefetch, Case, When, DateTimeField
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.utils import timezone
 
@@ -29,60 +29,56 @@ from accounts.models import (
 # 业务模型
 from bill.models import Product, ProductAlias, Order, OrderItem, CustomerPrice, Area
 
-# ====================== 缓存常量配置（修复版：仅保留数据缓存，删除视图缓存） ======================
-# 数据缓存时长（实时数据极短缓存，静态数据长缓存）
-CACHE_AREA = 3600             # 区域数据 1小时（静态数据）
-CACHE_COMMON = 60             # 通用数据 1分钟（缩短实时数据缓存）
-CACHE_SALES_RANK = 10         # 销售排行 10秒（超高实时性）
+# ====================== 缓存常量配置 ======================
+CACHE_AREA = 3600
+CACHE_COMMON = 60
+CACHE_SALES_RANK = 10
+# 新增：分页计数缓存时长（解决COUNT(*)瓶颈）
+CACHE_PAGINATION_COUNT = 120
 
-# 缓存键前缀（统一规范，支持精准删除）
-CACHE_PREFIX_PRODUCT_LIST = "product:list:"       # 商品列表缓存
-CACHE_PREFIX_PRODUCT_DETAIL = "product:detail:"   # 商品详情统计缓存
-CACHE_PREFIX_SALES_RANK = "product:sales_rank:"   # 销售排行缓存
-KEY_AREA = "area:data"                            # 区域缓存
-KEY_PRODUCT_ALIAS = "product:alias"               # 商品别名缓存
+CACHE_PREFIX_PRODUCT_LIST = "product:list:"
+CACHE_PREFIX_PRODUCT_DETAIL = "product:detail:"
+CACHE_PREFIX_SALES_RANK = "product:sales_rank:"
+# 新增：分页计数缓存键
+CACHE_PREFIX_PRODUCT_COUNT = "product:count:"
+KEY_AREA = "area:data"
+KEY_PRODUCT_ALIAS = "product:alias"
 
-# ====================== 缓存工具函数（核心：精准清理，杜绝缓存雪崩） ======================
+
+# ====================== 缓存工具函数 ======================
 def clear_product_all_cache():
-    """
-    商品数据变更时，仅清理商品相关缓存，不清理全局缓存
-    修复：cache.clear() 导致的缓存雪崩
-    """
-    # 批量删除匹配前缀的缓存
     cache.delete_many([
         KEY_AREA,
         KEY_PRODUCT_ALIAS,
     ])
-    # 通配符删除动态缓存（Django缓存支持通配符）
     for key in cache.keys(f"{CACHE_PREFIX_PRODUCT_LIST}*"):
         cache.delete(key)
     for key in cache.keys(f"{CACHE_PREFIX_PRODUCT_DETAIL}*"):
         cache.delete(key)
     for key in cache.keys(f"{CACHE_PREFIX_SALES_RANK}*"):
         cache.delete(key)
+    # 新增：清理分页计数缓存
+    for key in cache.keys(f"{CACHE_PREFIX_PRODUCT_COUNT}*"):
+        cache.delete(key)
 
-# ====================== 商品管理主页面（修复：无整页缓存，动态缓存键，不缓存QuerySet） ======================
+
+# ====================== 商品管理主页面（修复：分页COUNT(*)性能瓶颈） ======================
 @permission_required(PERM_PRODUCT_VIEW)
 def product_manage(request):
     page = request.GET.get('page', 1)
     keyword = request.GET.get('keyword', '').strip()
 
-    # 🔥 动态缓存键：包含搜索关键词+页码（隔离不同查询，修复数据错乱）
     cache_key = f"{CACHE_PREFIX_PRODUCT_LIST}{keyword}:{page}"
     cached_data = cache.get(cache_key)
 
-    # 缓存命中：直接返回序列化数据
     if cached_data:
         product_list = cached_data['product_list']
         paginator = cached_data['paginator']
         page_products = cached_data['page_products']
     else:
-        # ✅ 修复：不缓存QuerySet，直接查询数据库（保证过滤/分页正常）
         products_query = Product.objects.order_by('name').only(
             'id', 'name', 'price', 'unit', 'stock'
         )
-
-        # 别名查询（不缓存QuerySet，仅缓存序列化数据）
         alias_query = ProductAlias.objects.only('id', 'alias_name')
         products_query = products_query.prefetch_related(
             Prefetch('aliases', queryset=alias_query)
@@ -97,16 +93,33 @@ def product_manage(request):
                 Q(name__icontains=keyword) | Q(id__in=alias_product_ids)
             )
 
-        # 分页
-        paginator = Paginator(products_query, 15)
+        # ====================== 核心修复：分页COUNT(*)优化 ======================
+        # 缓存总条数，避免每次执行全表COUNT(*)
+        count_cache_key = f"{CACHE_PREFIX_PRODUCT_COUNT}{keyword}"
+        total_count = cache.get(count_cache_key)
+        if total_count is None:
+            total_count = products_query.count()
+            cache.set(count_cache_key, total_count, CACHE_PAGINATION_COUNT)
+
+        # 手动分页：只查询当前页数据，不执行COUNT(*)
+        page_size = 15
+        offset = (int(page) - 1) * page_size
+        page_products_qs = products_query[offset:offset + page_size]
+
+        # 构建轻量分页对象（复用Paginator接口，无COUNT(*)）
+        paginator = Paginator(products_query, page_size)
+        paginator._count = total_count  # 直接赋值缓存的总数
         try:
             page_products = paginator.page(page)
+            page_products.object_list = page_products_qs  # 覆盖查询集
         except PageNotAnInteger:
             page_products = paginator.page(1)
+            page_products.object_list = products_query[:page_size]
         except EmptyPage:
             page_products = paginator.page(paginator.num_pages)
+            page_products.object_list = products_query[(paginator.num_pages - 1) * page_size:]
 
-        # 数据序列化（仅缓存可序列化数据，修复QuerySet缓存问题）
+        # 数据序列化
         product_list = []
         for product in page_products:
             product_list.append({
@@ -114,25 +127,23 @@ def product_manage(request):
                 'name': product.name,
                 'price': product.price,
                 'unit': product.unit,
-                'stock': product.stock,  # 🔥 实时库存，不缓存
+                'stock': product.stock,
                 'aliases': [{'id': a.id, 'alias_name': a.alias_name} for a in product.aliases.all()],
                 'status': 1
             })
 
-        # 写入缓存（短时间，保证实时性）
         cache.set(cache_key, {
             'product_list': product_list,
             'paginator': paginator,
             'page_products': page_products
         }, CACHE_COMMON)
 
-    # 区域缓存（静态数据，保留）
+    # 区域缓存
     areas = cache.get(KEY_AREA)
     if not areas:
         areas = list(Area.objects.only('id', 'name'))
         cache.set(KEY_AREA, areas, CACHE_AREA)
 
-    # 🔥 修复：无整页缓存，权限校验每次执行（解决权限失效）
     return render(request, 'product/product_manage.html', {
         'products': product_list,
         'paginator': paginator,
@@ -146,7 +157,8 @@ def product_manage(request):
         'can_stock_operation': request.user.has_permission(PERM_PRODUCT_STOCK_OP)
     })
 
-# ====================== 商品CRUD（修复：删除cache.clear()，改用精准清理） ======================
+
+# ====================== 商品CRUD（无修改，保留缓存清理） ======================
 @csrf_exempt
 @permission_required(PERM_PRODUCT_ADD)
 def product_add(request):
@@ -163,9 +175,7 @@ def product_add(request):
                 return JsonResponse({'code': 0, 'msg': '请输入有效的单价'})
 
             product = Product.objects.create(
-                name=name,
-                price=float(price),
-                unit=unit,
+                name=name, price=float(price), unit=unit,
                 stock=int(stock) if stock.isdigit() else 77
             )
 
@@ -175,7 +185,6 @@ def product_add(request):
                 detail=f"新增商品：名称={product.name}，单价={product.price}，单位={product.unit}，库存={product.stock}"
             )
 
-            # 🔥 修复：精准清理商品缓存，不清理全局（杜绝缓存雪崩）
             clear_product_all_cache()
             return JsonResponse({'code': 1, 'msg': '商品新增成功', 'data': {
                 'id': product.id, 'name': product.name, 'price': float(product.price),
@@ -186,6 +195,7 @@ def product_add(request):
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'新增失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+
 
 @csrf_exempt
 @permission_required(PERM_PRODUCT_EDIT)
@@ -218,7 +228,6 @@ def product_edit(request, pk):
                 detail=f"编辑商品：原信息[{old_info}] → 新信息[名称={product.name}，单价={product.price}，单位={product.unit}，库存={product.stock}]"
             )
 
-            # 🔥 修复：精准清理缓存
             clear_product_all_cache()
             aliases = [{'id': a.id, 'alias_name': a.alias_name} for a in product.aliases.all()]
             return JsonResponse({'code': 1, 'msg': '商品编辑成功', 'data': {
@@ -228,6 +237,7 @@ def product_edit(request, pk):
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'编辑失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+
 
 @csrf_exempt
 @permission_required(PERM_PRODUCT_DELETE)
@@ -242,13 +252,13 @@ def product_delete(request, pk):
             obj_id=pk, obj_name=product_name, detail=f"删除商品：名称={product_name}，ID={pk}"
         )
 
-        # 🔥 修复：精准清理缓存
         clear_product_all_cache()
         return JsonResponse({'code': 1, 'msg': '商品删除成功'})
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'删除失败：{str(e)}'})
 
-# ====================== 别名CRUD（修复：删除cache.clear()） ======================
+
+# ====================== 别名CRUD（无修改） ======================
 @csrf_exempt
 @permission_required(PERM_PRODUCT_ALIAS_ADD)
 def alias_add(request):
@@ -268,7 +278,6 @@ def alias_add(request):
                 detail=f"为商品【{product.name}】新增别名：{alias.alias_name}"
             )
 
-            # 🔥 修复：精准清理缓存
             clear_product_all_cache()
             return JsonResponse({'code': 1, 'msg': '别名新增成功', 'data': {
                 'id': alias.id, 'alias_name': alias.alias_name
@@ -278,6 +287,7 @@ def alias_add(request):
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'新增失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+
 
 @csrf_exempt
 @permission_required(PERM_PRODUCT_ALIAS_DELETE)
@@ -294,13 +304,13 @@ def alias_delete(request, pk):
             detail=f"删除商品【{product_name}】的别名：{alias_name}"
         )
 
-        # 🔥 修复：精准清理缓存
         clear_product_all_cache()
         return JsonResponse({'code': 1, 'msg': '别名删除成功'})
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'删除失败：{str(e)}'})
 
-# ====================== 商品数据接口 ======================
+
+# ====================== 商品数据接口（无修改） ======================
 @csrf_exempt
 @permission_required(PERM_PRODUCT_EDIT)
 def product_edit_data(request, pk):
@@ -311,7 +321,8 @@ def product_edit_data(request, pk):
         'aliases': [{'id': a.id, 'alias_name': a.alias_name} for a in product.aliases.all()]
     })
 
-# ====================== 商品导入功能（修复：删除cache.clear()） ======================
+
+# ====================== 商品导入功能（无修改） ======================
 @csrf_exempt
 @require_POST
 @permission_required(PERM_PRODUCT_IMPORT)
@@ -342,9 +353,12 @@ def product_import(request):
         name_col = price_col = unit_col = -1
         for idx, header in enumerate(header_row):
             h = str(header).strip()
-            if '商品名称' in h: name_col = idx
-            elif '零售价' in h: price_col = idx
-            elif '辅助单位' in h: unit_col = idx
+            if '商品名称' in h:
+                name_col = idx
+            elif '零售价' in h:
+                price_col = idx
+            elif '辅助单位' in h:
+                unit_col = idx
 
         if name_col == -1:
             return JsonResponse({'code': 0, 'msg': 'Excel中未找到"商品名称"列'})
@@ -381,23 +395,23 @@ def product_import(request):
 
         import_detail = f"批量导入商品：成功{success_count}条，失败{fail_count}条。"
         if fail_reasons:
-            import_detail += f" 失败原因：{' | '.join(fail_reasons[:5])}..." if len(fail_reasons) >5 else ""
+            import_detail += f" 失败原因：{' | '.join(fail_reasons[:5])}..." if len(fail_reasons) > 5 else ""
         create_operation_log(request=request, op_type='import', obj_type='product', detail=import_detail)
 
-        # 🔥 修复：精准清理缓存
         clear_product_all_cache()
 
         msg = f'导入完成！成功{success_count}条，失败{fail_count}条'
         if fail_reasons:
-            msg += f'。失败原因：{" | ".join(fail_reasons[:5])}...' if len(fail_reasons) >5 else ""
-        return JsonResponse({'code':1, 'msg':msg, 'data':{
-            'success_count':success_count, 'fail_count':fail_count, 'fail_reasons':fail_reasons
+            msg += f'。失败原因：{" | ".join(fail_reasons[:5])}...' if len(fail_reasons) > 5 else ""
+        return JsonResponse({'code': 1, 'msg': msg, 'data': {
+            'success_count': success_count, 'fail_count': fail_count, 'fail_reasons': fail_reasons
         }})
 
     except Exception as e:
-        return JsonResponse({'code':0, 'msg':f'导入失败：{str(e)}'})
+        return JsonResponse({'code': 0, 'msg': f'导入失败：{str(e)}'})
 
-# ====================== 快速出入库操作（修复：实时库存，精准清理缓存） ======================
+
+# ====================== 快速出入库（核心修复：循环save → bulk_update 批量优化） ======================
 @csrf_exempt
 @require_POST
 @permission_required(PERM_PRODUCT_STOCK_OP)
@@ -406,12 +420,12 @@ def quick_stock_operation(request):
         data = json.loads(request.body)
         items = data.get('items', [])
         if not items:
-            return JsonResponse({'code':0, 'msg':'无有效出入库数据'})
+            return JsonResponse({'code': 0, 'msg': '无有效出入库数据'})
 
         with transaction.atomic():
             product_ids = [int(item.get('product_id')) for item in items if item.get('product_id')]
             if not product_ids:
-                return JsonResponse({'code':0, 'msg':'无有效商品ID'})
+                return JsonResponse({'code': 0, 'msg': '无有效商品ID'})
 
             product_map = {
                 p.id: p for p in Product.objects.filter(id__in=product_ids).select_for_update()
@@ -419,64 +433,68 @@ def quick_stock_operation(request):
 
             operation_details = []
             success_count = 0
+            update_products = []  # 收集待更新的商品对象
 
             for item in items:
                 product_id = int(item.get('product_id', 0))
                 in_qty = int(item.get('in_quantity', 0))
                 out_qty = int(item.get('out_quantity', 0))
 
-                if product_id not in product_map or (in_qty <=0 and out_qty <=0):
+                if product_id not in product_map or (in_qty <= 0 and out_qty <= 0):
                     continue
 
                 product = product_map[product_id]
                 if out_qty > product.stock:
                     raise Exception(f'商品【{product.name}】出库数量{out_qty}超过库存{product.stock}')
 
+                # 仅修改内存对象，不执行数据库更新
                 old_stock = product.stock
                 product.stock += in_qty - out_qty
-                product.save(update_fields=['stock'])
+                update_products.append(product)  # 加入批量更新列表
 
                 detail = f"商品【{product.name}】："
-                if in_qty>0: detail += f"入库{in_qty}{product.unit}，"
-                if out_qty>0: detail += f"出库{out_qty}{product.unit}，"
+                if in_qty > 0: detail += f"入库{in_qty}{product.unit}，"
+                if out_qty > 0: detail += f"出库{out_qty}{product.unit}，"
                 detail += f"库存{old_stock}→{product.stock}"
                 operation_details.append(detail)
-                success_count +=1
+                success_count += 1
 
-            if success_count>0:
+            if success_count > 0:
+                # ====================== 核心修复：批量更新，仅执行1次DB操作 ======================
+                Product.objects.bulk_update(update_products, ['stock'])
+
                 create_operation_log(
                     request=request, op_type='stock_operation', obj_type='product',
                     detail=f"快速出入库：处理{success_count}个商品 | {' | '.join(operation_details)}"
                 )
 
-                # 🔥 修复：库存实时变更，精准清理缓存
                 clear_product_all_cache()
-                return JsonResponse({'code':1, 'msg':f'操作成功！处理{success_count}个商品', 'data':{'success_count':success_count}})
-            return JsonResponse({'code':0, 'msg':'无有效操作数据'})
+                return JsonResponse(
+                    {'code': 1, 'msg': f'操作成功！处理{success_count}个商品', 'data': {'success_count': success_count}})
+            return JsonResponse({'code': 0, 'msg': '无有效操作数据'})
 
     except Exception as e:
-        return JsonResponse({'code':0, 'msg':f'操作失败：{str(e)}'})
+        return JsonResponse({'code': 0, 'msg': f'操作失败：{str(e)}'})
 
-# ====================== 商品详情页面（修复：无整页缓存，库存实时查询） ======================
+
+# ====================== 商品详情（核心修复：内存聚合→DB聚合 + 消除重复查询） ======================
 @permission_required(PERM_PRODUCT_DETAIL)
 def product_detail(request, pk):
-    # 🔥 实时查询商品（库存绝对实时）
     product = get_object_or_404(Product, pk=pk)
     cache_key = f"{CACHE_PREFIX_PRODUCT_DETAIL}{pk}"
+    now = timezone.now()
+    start_7d = now - timedelta(days=7)
+    start_30d = now - timedelta(days=30)
 
     # 客户专属价格
-    custom_prices = CustomerPrice.objects.filter(product=product)\
-        .select_related('customer').only('customer__name', 'custom_price')[:5]
+    custom_prices = CustomerPrice.objects.filter(product=product) \
+                        .select_related('customer').only('customer__name', 'custom_price')[:5]
 
-    # 基础订单查询
+    # ====================== 核心修复：复用1个基础查询集，消除重复查询 ======================
     base_items = OrderItem.objects.filter(
-        product=product, order__status__in=['pending','printed','reopened']
-    ).select_related('order').only(
-        'quantity','amount','order__order_no','order__create_time',
-        'order__is_settled','order__customer__name'
-    )
+        product=product, order__status__in=['pending', 'printed', 'reopened']
+    ).select_related('order')
 
-    # 统计数据缓存（非实时数据，可短缓存）
     cache_data = cache.get(cache_key)
     if cache_data:
         total_sales = cache_data['total_sales']
@@ -485,15 +503,17 @@ def product_detail(request, pk):
         recent_sales = cache_data['recent_sales']
         customer_sales = cache_data['customer_sales']
     else:
-        all_valid_items = list(base_items.values('quantity', 'order__create_time'))
-        now = timezone.now()
+        # ====================== 核心修复：数据库聚合，不加载数据到内存 ======================
+        # 总销量（DB SUM）
+        total_sales = base_items.aggregate(total=Sum('quantity'))['total'] or 0
+        # 7天销量（DB SUM）
+        sales_7d = base_items.filter(order__create_time__gte=start_7d).aggregate(total=Sum('quantity'))['total'] or 0
+        # 30天销量（DB SUM）
+        sales_30d = base_items.filter(order__create_time__gte=start_30d).aggregate(total=Sum('quantity'))['total'] or 0
 
-        total_sales = sum(item['quantity'] for item in all_valid_items) or 0
-        sales_7d = sum(item['quantity'] for item in all_valid_items if item['order__create_time'] >= now - timedelta(days=7)) or 0
-        sales_30d = sum(item['quantity'] for item in all_valid_items if item['order__create_time'] >= now - timedelta(days=30)) or 0
-
+        # 最近销售记录（仅查10条，无全量加载）
         recent_sales = []
-        for item in base_items.annotate(unit_price=F('amount')/F('quantity')).order_by('-order__create_time')[:10]:
+        for item in base_items.annotate(unit_price=F('amount') / F('quantity')).order_by('-order__create_time')[:10]:
             recent_sales.append({
                 'order_no': item.order.order_no,
                 'customer_name': item.order.customer.name if item.order.customer else '未知客户',
@@ -503,9 +523,10 @@ def product_detail(request, pk):
                 'is_settled': item.order.is_settled
             })
 
+        # 客户排行（复用查询集）
         customer_sales = base_items.values(
-            'order__customer__id','order__customer__name'
-        ).annotate(buy_count=Count('id'),buy_quantity=Sum('quantity')).filter(
+            'order__customer__id', 'order__customer__name'
+        ).annotate(buy_count=Count('id'), buy_quantity=Sum('quantity')).filter(
             order__customer__isnull=False
         ).order_by('-buy_quantity')[:10]
 
@@ -518,7 +539,7 @@ def product_detail(request, pk):
         }, CACHE_COMMON)
 
     return render(request, 'product/product_detail.html', {
-        'product': product,  # 🔥 实时商品数据
+        'product': product,
         'custom_prices': custom_prices,
         'total_sales': total_sales,
         'sales_7d': sales_7d,
@@ -530,35 +551,33 @@ def product_detail(request, pk):
         'can_stock_operation': request.user.has_permission(PERM_PRODUCT_STOCK_OP)
     })
 
-# ====================== 销售排行（修复：无整页缓存，动态缓存键，超高实时性） ======================
+
+# ====================== 销售排行（无修改） ======================
 @login_required
 @permission_required('product_sales_rank')
 def sales_rank(request):
-    # 区域缓存（静态数据）
     areas = cache.get(KEY_AREA)
     if not areas:
         areas = list(Area.objects.only('id', 'name'))
         cache.set(KEY_AREA, areas, CACHE_AREA)
     return render(request, 'product/sales_rank.html', {'areas': areas})
 
+
 @login_required
 @permission_required('product_sales_rank')
 def sales_rank_data(request):
     try:
-        # 接收所有请求参数
         sort_type = request.GET.get('sort', 'sales_volume')
         time_range = request.GET.get('time_range', 'today')
         area_id = request.GET.get('area_id', 'all')
         now = timezone.now()
 
-        # 🔥 动态缓存键：包含所有筛选参数（隔离不同查询）
         cache_key = f"{CACHE_PREFIX_SALES_RANK}{sort_type}:{time_range}:{area_id}"
         cached_data = cache.get(cache_key)
 
         if cached_data:
             return JsonResponse({'code': 1, 'msg': '获取成功', 'data': cached_data})
 
-        # 时间筛选
         if time_range == 'today':
             start_time = datetime(now.year, now.month, now.day, 0, 0, 0)
         elif time_range == 'week':
@@ -581,9 +600,8 @@ def sales_rank_data(request):
         if area_id != 'all' and area_id.isdigit():
             query_filters['order__area_id'] = int(area_id)
 
-        # 🔥 实时查询销售数据
         sales_data = OrderItem.objects.filter(**query_filters
-        ).values(
+                                              ).values(
             'product__id', 'product__name', 'product__unit'
         ).annotate(
             sales_volume=Sum('quantity'),
@@ -598,7 +616,6 @@ def sales_rank_data(request):
             'sales_amount': float(item['sales_amount'] or 0.0)
         } for item in sales_data]
 
-        # 🔥 极短缓存（10秒），平衡性能与实时性
         cache.set(cache_key, result, CACHE_SALES_RANK)
         return JsonResponse({'code': 1, 'msg': '获取成功', 'data': result})
     except Exception as e:
