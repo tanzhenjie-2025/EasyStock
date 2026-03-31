@@ -90,6 +90,40 @@
     #orderList tr td:last-child {
         cursor: default;
     }
+
+    /* 分页样式 */
+    .pagination {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 8px;
+        margin-top: 16px;
+    }
+    .page-btn {
+        padding: 4px 12px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background: #f8f9fa;
+        cursor: pointer;
+    }
+    .page-btn.active {
+        background: #007bff;
+        color: white;
+        border-color: #007bff;
+    }
+    .page-btn:disabled {
+        background: #e9ecef;
+        cursor: not-allowed;
+        color: #6c757d;
+    }
+    /* 页码输入框样式 */
+    .page-input {
+        width: 60px;
+        padding: 4px 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        text-align: center;
+    }
 </style>
 {% endblock %}
 
@@ -149,13 +183,13 @@
         </table>
     </div>
     
-    <!-- 客户全部订单（带筛选） -->
+    <!-- 客户全部订单（带筛选+分页） -->
     <div class="detail-card">
         <h5>客户全部订单</h5>
         <div class="filter-btn-group">
-            <button class="filter-btn active" onclick="loadOrders('all')">全部</button>
-            <button class="filter-btn" onclick="loadOrders('settled')">已结清</button>
-            <button class="filter-btn" onclick="loadOrders('unsettled')">未结清</button>
+            <button class="filter-btn active" onclick="loadOrders('all', 1)">全部</button>
+            <button class="filter-btn" onclick="loadOrders('settled', 1)">已结清</button>
+            <button class="filter-btn" onclick="loadOrders('unsettled', 1)">未结清</button>
         </div>
         <table class="table table-sm table-bordered">
             <thead class="table-light">
@@ -172,6 +206,8 @@
                 <tr><td colspan="6" class="text-center">加载中...</td></tr>
             </tbody>
         </table>
+        <!-- 🔥 分页控件 -->
+        <div id="orderPagination" class="pagination"></div>
     </div>
     
     <!-- 客户购买商品统计 -->
@@ -216,24 +252,24 @@
     // 获取客户ID和来源参数
     const customerId = '{{ customer_id }}';
     const urlParams = new URLSearchParams(window.location.search);
-    const fromPage = urlParams.get('from') || 'customer_list'; // 默认返回客户列表
+    const fromPage = urlParams.get('from') || 'customer_list';
     let currentSettleStatus = 'all';
+    let currentPage = 1;
+    let totalPages = 1;
     
     // 页面加载初始化
     $(document).ready(function() {
-        // 初始化返回按钮事件（4. 智能返回）
+        // 返回按钮
         $('#backBtn').click(function() {
             if (fromPage === 'sales_rank') {
-                // 从消费排行进入，返回消费排行页
                 window.location.href = '/customer-manage/customer/sales-rank/page/';
             } else {
-                // 默认返回客户列表页
                 window.location.href = '/customer-manage/customer/page/';
             }
         });
 
         loadCustomerDetail();
-        loadOrders(currentSettleStatus);
+        loadOrders(currentSettleStatus, currentPage);
     });
     
     // 加载客户基本信息
@@ -254,7 +290,7 @@
             $('#unpaidCount').text(res.debt_info.unpaid_order_count);
             $('#remark').text(res.customer_info.remark || '无');
             
-            // 填充还款记录
+            // 还款记录
             let repayHtml = '';
             if (res.repayments && res.repayments.length > 0) {
                 res.repayments.forEach(repay => {
@@ -270,42 +306,44 @@
             }
             $('#repaymentRecords').html(repayHtml);
             
-            // 填充商品统计
+            // 商品统计
             loadProductStats(res);
         }, 'json').fail(function(xhr) {
-            alert('加载客户详情失败：' + (xhr.responseJSON?.msg || xhr.responseText || '未知错误'));
+            alert('加载客户详情失败：' + (xhr.responseJSON?.msg || '未知错误'));
         });
     }
     
-    // 加载订单列表（带筛选）
-    function loadOrders(settleStatus) {
-        $('.filter-btn').removeClass('active');
-        $(`.filter-btn[onclick="loadOrders('${settleStatus}')"]`).addClass('active');
+    // 🔥 加载订单列表（带筛选+分页）
+    function loadOrders(settleStatus, page) {
         currentSettleStatus = settleStatus;
+        currentPage = page;
         
-        $.get(`/customer-manage/customer/detail/${customerId}/?settle_status=${settleStatus}`, function(res) {
+        $('.filter-btn').removeClass('active');
+        $(`.filter-btn[onclick="loadOrders('${settleStatus}', 1)"]`).addClass('active');
+        
+        $.get(`/customer-manage/customer/detail/${customerId}/?settle_status=${settleStatus}&page=${page}`, function(res) {
             if (res.code !== 1) {
                 alert(res.msg);
                 return;
             }
             
+            totalPages = res.total_pages;
             let orderHtml = '';
+            
             if (res.orders && res.orders.length > 0) {
                 res.orders.forEach(order => {
                     const settleTag = order.is_settled 
                         ? '<span class="status-tag status-settled">已结清</span>' 
                         : '<span class="status-tag status-unsettled">未结清</span>';
-                    const statusText = order.status_text || '未知';
                     const detailUrl = `/bill/orders/detail/${order.order_no}/?from_customer=${customerId}`;
                     const operateBtn = `<a href="${detailUrl}" class="btn btn-sm btn-info" onclick="event.stopPropagation()">查看详情</a>`;
                     
-                    // 订单行点击跳转
                     orderHtml += `<tr onclick="window.location.href='${detailUrl}'">
                         <td>${order.order_no || '-'}</td>
                         <td>${order.create_time || '-'}</td>
                         <td>¥${order.total_amount.toFixed(2)}</td>
                         <td>${settleTag}</td>
-                        <td>${statusText}</td>
+                        <td>${order.status_text || '未知'}</td>
                         <td>${operateBtn}</td>
                     </tr>`;
                 });
@@ -313,11 +351,55 @@
                 const emptyText = settleStatus === 'all' ? '' : (settleStatus === 'settled' ? '已结清' : '未结清');
                 orderHtml = `<tr><td colspan="6" class="text-center">暂无${emptyText}订单</td></tr>`;
             }
+            
             $('#orderList').html(orderHtml);
+            renderPagination(); // 渲染分页
         }, 'json').fail(function(xhr) {
-            alert('加载订单失败：' + (xhr.responseJSON?.msg || xhr.responseText || '未知错误'));
             $('#orderList').html('<tr><td colspan="6" class="text-center text-danger">加载失败</td></tr>');
         });
+    }
+    
+    // 🔥 渲染分页控件（含输入框+跳转）
+    function renderPagination() {
+        let paginationHtml = '';
+        
+        // 上一页
+        paginationHtml += `<button class="page-btn" ${currentPage <= 1 ? 'disabled' : ''} onclick="loadOrders('${currentSettleStatus}', ${currentPage - 1})">上一页</button>`;
+        
+        // 页码显示
+        paginationHtml += `<span class="page-btn active">${currentPage} / ${totalPages}</span>`;
+        
+        // 页码输入框
+        paginationHtml += `<input type="number" class="page-input" id="pageInput" placeholder="页码" min="1" max="${totalPages}">`;
+        
+        // 跳转按钮
+        paginationHtml += `<button class="page-btn" onclick="jumpToPage()">跳转</button>`;
+        
+        // 下一页
+        paginationHtml += `<button class="page-btn" ${currentPage >= totalPages ? 'disabled' : ''} onclick="loadOrders('${currentSettleStatus}', ${currentPage + 1})">下一页</button>`;
+        
+        $('#orderPagination').html(paginationHtml);
+        
+        // 绑定回车跳转
+        $('#pageInput').keydown(function(e) {
+            if (e.key === 'Enter') {
+                jumpToPage();
+            }
+        });
+    }
+    
+    // 🔥 页码跳转函数（自动校验）
+    function jumpToPage() {
+        let inputPage = parseInt($('#pageInput').val());
+        // 校验页码合法性
+        if (isNaN(inputPage) || inputPage < 1) {
+            inputPage = 1;
+        }
+        if (inputPage > totalPages) {
+            inputPage = totalPages;
+        }
+        // 跳转
+        loadOrders(currentSettleStatus, inputPage);
     }
     
     // 加载商品统计

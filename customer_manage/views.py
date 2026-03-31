@@ -16,6 +16,10 @@ import unicodedata  # 新增：处理全角半角转换
 from django.contrib.auth.decorators import login_required
 from accounts.views import permission_required, create_operation_log  # 复用用户模块的日志和权限装饰器
 
+from django.db.models import Sum, F, Q, OuterRef, Subquery, DecimalField
+from django.db.models.functions import Coalesce
+from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
+
 # ========== 缓存时长常量配置 ==========
 CACHE_HIGH_PRIORITY = 300  # 复杂聚合查询 5分钟
 CACHE_MID_PRIORITY = 600  # 静态数据/搜索接口 10分钟
@@ -39,9 +43,7 @@ def full_to_half(s):
     return ''.join(result)
 
 
-from django.db.models import Sum, F, Q, OuterRef, Subquery, DecimalField
-from django.db.models.functions import Coalesce
-from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
+
 
 
 @login_required
@@ -139,21 +141,25 @@ def customer_list(request):
 
 
 # 2. 客户详情（需customer_view权限）
+# 2. 客户详情（需customer_view权限）
 @login_required
 @permission_required('customer_view')
 @csrf_exempt
 # 🔥 高优缓存：客户详情多表关联+统计计算
 @cache_page(CACHE_HIGH_PRIORITY)
 def customer_detail(request, pk):
-    """客户详情接口：支持订单筛选 + 商品统计【性能优化版】"""
+    """客户详情接口：支持订单筛选 + 分页【性能优化版】"""
     try:
         customer = get_object_or_404(Customer, pk=pk)
         settle_status = request.GET.get('settle_status', 'all')
+        # 分页参数
+        page = request.GET.get('page', 1)
+        page_size = 10  # 每页10条
 
-        # 1. 🔥 优化：订单预加载开单人+角色（解决N+1）✅ 修复：添加status排除作废，命中索引
+        # 1. 订单基础查询
         base_orders = Order.objects.filter(
             customer=customer,
-            status__in=['pending', 'printed', 'reopened']  # 索引必填+排除作废
+            status__in=['pending', 'printed', 'reopened']
         ).select_related('creator__role')
 
         if settle_status == 'settled':
@@ -163,17 +169,26 @@ def customer_detail(request, pk):
         else:
             orders_query = base_orders
 
-        # 2. 欠款计算（逻辑不变，优化查询复用）✅ 继承base_orders的索引条件
+        # 2. 欠款统计
         unpaid_orders = base_orders.filter(is_settled=False)
         unpaid_order_count = unpaid_orders.count()
         unpaid_amount = unpaid_orders.aggregate(total=Sum('total_amount'))['total'] or 0
-        paid_amount = RepaymentRecord.objects.filter(customer=customer).aggregate(total=Sum('repayment_amount'))[
-                          'total'] or 0
+        paid_amount = RepaymentRecord.objects.filter(customer=customer).aggregate(total=Sum('repayment_amount'))['total'] or 0
         total_debt = max(float(unpaid_amount) - float(paid_amount), 0)
 
-        # 3. 订单列表（无冗余查询）
+        # 3. 🔥 订单分页核心逻辑
+        orders_query = orders_query.order_by('-create_time')
+        paginator = Paginator(orders_query, page_size)
+        try:
+            order_page = paginator.page(page)
+        except PageNotAnInteger:
+            order_page = paginator.page(1)
+        except EmptyPage:
+            order_page = paginator.page(paginator.num_pages)
+
+        # 4. 分页订单数据格式化
         order_list = []
-        for order in orders_query.order_by('-create_time'):
+        for order in order_page:
             order_list.append({
                 'order_no': order.order_no or '',
                 'create_time': order.create_time.strftime('%Y-%m-%d %H:%M') if order.create_time else '',
@@ -183,14 +198,13 @@ def customer_detail(request, pk):
                 'status_text': dict(Order.ORDER_STATUS).get(order.status, '未知'),
                 'overdue_days': order.get_overdue_days(),
                 'order_date': order.create_time.strftime('%Y-%m-%d') if order.create_time else '',
-                # 可选：返回开单人角色，无额外查询
                 'creator_name': order.creator.username if order.creator else '未知',
                 'creator_role': order.creator.role.name if (order.creator and order.creator.role) else '未知'
             })
 
-        # 4. 🔥 优化：还款记录预加载操作人+角色（解决N+1）
+        # 5. 还款记录（无分页，限制100条防超时）
         repayment_list = []
-        repayments = RepaymentRecord.objects.filter(customer=customer).select_related('operator__role')
+        repayments = RepaymentRecord.objects.filter(customer=customer).select_related('operator__role').order_by('-repayment_time')[:100]
         for repay in repayments:
             repayment_list.append({
                 'id': repay.id,
@@ -202,7 +216,7 @@ def customer_detail(request, pk):
                 'create_time': repay.create_time.strftime('%Y-%m-%d %H:%M') if repay.create_time else ''
             })
 
-        # 5. 商品统计（逻辑不变，已优化）
+        # 6. 商品统计
         product_stats = OrderItem.objects.filter(
             order__customer=customer, product__isnull=False
         ).values(
@@ -219,7 +233,7 @@ def customer_detail(request, pk):
             'last_purchase_time': stat['last_purchase_time'].strftime('%Y-%m-%d') if stat['last_purchase_time'] else '无'
         } for stat in product_stats]
 
-        # 返回数据
+        # 返回数据（新增分页字段）
         return JsonResponse({
             'code': 1, 'msg': '查询成功',
             'customer_info': {
@@ -231,7 +245,11 @@ def customer_detail(request, pk):
                 'total_debt': total_debt, 'unpaid_order_count': unpaid_order_count,
                 'unpaid_amount': float(unpaid_amount), 'paid_amount': float(paid_amount)
             },
+            # 分页数据
             'orders': order_list,
+            'current_page': order_page.number,
+            'total_pages': paginator.num_pages,
+            'total_orders': paginator.count,
             'repayments': repayment_list,
             'product_stats': product_stats_list
         }, safe=False)
@@ -567,7 +585,6 @@ def customer_price_list(request):
             prices = prices.filter(customer__area_id=int(area_id))
 
         # 4. 分页逻辑（保留）
-        from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
         paginator = Paginator(prices, page_size)
         try:
             price_page = paginator.page(page)
@@ -813,28 +830,24 @@ def search_customer_for_price(request):
 # 📊 中优缓存：价格页商品高频搜索
 @cache_page(CACHE_MID_PRIORITY)
 def search_product_for_price(request):
-    """商品搜索：匹配名称/拼音/别名，返回输入法式候选数据"""
+    """商品搜索：匹配名称/拼音/别名，返回输入法式候选数据【优化：1次DB查询】"""
     keyword = request.GET.get('keyword', '').strip()
     if not keyword:
         return JsonResponse({'code': 0, 'data': []})
 
-    # 1. 匹配商品名称/拼音
-    product_matches = Product.objects.filter(
+    # 🔥 核心优化：合并两次查询为1次 OR 查询，仅执行1次数据库请求
+    # 1. 商品自身名称/拼音匹配
+    # 2. 关联别名表匹配，一次性查询完成
+    all_products = Product.objects.filter(
         Q(name__icontains=keyword) |
         Q(pinyin_full__icontains=keyword) |
-        Q(pinyin_abbr__icontains=keyword)
-    )
-
-    # 2. 匹配商品别名
-    alias_matches = ProductAlias.objects.filter(
-        Q(alias_name__icontains=keyword) |
-        Q(alias_pinyin_full__icontains=keyword) |
-        Q(alias_pinyin_abbr__icontains=keyword)
-    ).values_list('product_id', flat=True)
-    alias_products = Product.objects.filter(id__in=alias_matches)
-
-    # 3. 合并去重，取前8条
-    all_products = (product_matches | alias_products).distinct()[:8]
+        Q(pinyin_abbr__icontains=keyword) |
+        Q(id__in=ProductAlias.objects.filter(
+            Q(alias_name__icontains=keyword) |
+            Q(alias_pinyin_full__icontains=keyword) |
+            Q(alias_pinyin_abbr__icontains=keyword)
+        ).values('product_id'))
+    ).distinct()[:8]
 
     # 构造返回数据
     data = []
