@@ -90,12 +90,16 @@ def customer_list(request):
             paid_amount=Coalesce(Subquery(paid_subquery), 0, output_field=DecimalField()),
         )
 
-        # 搜索筛选
+        # 搜索筛选 ✅ 修复：整型id不支持icontains，改为数字精准匹配
         if keyword:
+            id_q = Q()
+            if keyword.isdigit():
+                id_q = Q(id=int(keyword))
+
             customers = customers.filter(
                 Q(name__icontains=keyword) |
                 Q(phone__icontains=keyword) |
-                Q(id__icontains=keyword) |
+                id_q |
                 Q(area__name__icontains=keyword)
             )
 
@@ -898,21 +902,28 @@ def customer_sales_rank_data(request):
             customer__isnull=False
         )
 
-        # 1. 日期筛选（保留）
+        # 1. 日期筛选 ✅ 修复：移除__date，使用原生时间范围，命中索引
         today = datetime.date.today()
+        today_start = timezone.make_aware(datetime.datetime.combine(today, datetime.time.min))
+        today_end = timezone.make_aware(datetime.datetime.combine(today, datetime.time.max))
+
         if time_range == 'today':
-            base_orders = base_orders.filter(create_time__date=today)
+            base_orders = base_orders.filter(create_time__gte=today_start, create_time__lte=today_end)
         elif time_range == 'week':
             week_start = today - datetime.timedelta(days=today.weekday())
             week_end = week_start + datetime.timedelta(days=6)
-            base_orders = base_orders.filter(create_time__date__range=[week_start, week_end])
+            week_start_dt = timezone.make_aware(datetime.datetime.combine(week_start, datetime.time.min))
+            week_end_dt = timezone.make_aware(datetime.datetime.combine(week_end, datetime.time.max))
+            base_orders = base_orders.filter(create_time__gte=week_start_dt, create_time__lte=week_end_dt)
         elif time_range == 'month':
             month_start = datetime.date(today.year, today.month, 1)
             if today.month == 12:
                 month_end = datetime.date(today.year, 12, 31)
             else:
                 month_end = datetime.date(today.year, today.month + 1, 1) - datetime.timedelta(days=1)
-            base_orders = base_orders.filter(create_time__date__range=[month_start, month_end])
+            month_start_dt = timezone.make_aware(datetime.datetime.combine(month_start, datetime.time.min))
+            month_end_dt = timezone.make_aware(datetime.datetime.combine(month_end, datetime.time.max))
+            base_orders = base_orders.filter(create_time__gte=month_start_dt, create_time__lte=month_end_dt)
 
         # 2. 区域筛选（保留）
         if area_id and area_id.isdigit():

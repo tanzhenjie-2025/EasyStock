@@ -408,5 +408,5 @@ class RepaymentRecord(models.Model):
         verbose_name_plural = '还款记录管理'
         ordering = ['-repayment_time']
         indexes = [
-            models.Index(fields=['customer']),
+            models.Index(fields=['customer', 'repayment_time']),
         ]
