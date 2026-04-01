@@ -38,7 +38,7 @@ def log_list(request):
 
     # 分页参数
     page = request.GET.get('page', 1)
-    page_size = 20
+    page_size = 15
 
     # 生成唯一缓存键（权限+所有筛选参数，避免参数乱序冲突）
     cache_params = (

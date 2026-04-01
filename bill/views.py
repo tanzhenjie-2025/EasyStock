@@ -393,7 +393,7 @@ def order_list(request):
             pass
 
     # 分页
-    paginator = Paginator(orders, 20)
+    paginator = Paginator(orders, 10)
     try:
         page_orders = paginator.page(page)
     except PageNotAnInteger:
