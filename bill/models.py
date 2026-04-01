@@ -263,13 +263,15 @@ class Order(models.Model):
         overdue_days = (today - order_date).days
         return max(overdue_days, 0)
 
-    # Order 模型的 save 方法，用 select_for_update 锁表，避免重复单号
     def save(self, *args, **kwargs):
         if not self.order_no:
-            # 优化：使用 Django 时区日期
             date_str = timezone.now().strftime('%Y%m%d')
             with transaction.atomic():
-                last_order = Order.objects.filter(order_no__startswith=date_str).select_for_update().last()
+                # 只锁最新一行 + 按订单号倒序 + 跳过已锁定行（高并发安全）
+                last_order = Order.objects.filter(
+                    order_no__startswith=date_str
+                ).select_for_update(skip_locked=True).order_by('-order_no').first()
+
                 seq = int(last_order.order_no[-4:]) + 1 if last_order else 1
                 self.order_no = f'{date_str}{seq:04d}'
         super().save(*args, **kwargs)

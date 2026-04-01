@@ -295,8 +295,8 @@ def stock_list(request):
     # 后端搜索筛选（匹配名称/拼音首字母）
     if keyword:
         products = products.filter(
-            Q(name__icontains=keyword) |
-            Q(pinyin_abbr__icontains=keyword)
+            Q(name__istartswith=keyword) |
+            Q(pinyin_abbr__istartswith=keyword)
         )
 
     # 核心：分页逻辑（固定每页20条）
