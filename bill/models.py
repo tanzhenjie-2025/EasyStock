@@ -110,9 +110,10 @@ class AreaGroup(models.Model):
     class Meta:
         verbose_name = '区域组'
         verbose_name_plural = '区域组管理'
-        # 联合索引，优化搜索性能
         indexes = [
             models.Index(fields=['name', 'create_time']),
+            # 🔥 优化：多对多查询专用索引（加速 areas.values_list()）
+            models.Index(fields=['id']),
         ]
 
 class Customer(models.Model):
@@ -300,9 +301,10 @@ class Order(models.Model):
         verbose_name_plural = '订单管理'
         indexes = [
             # 原有索引（保留，status 筛选自动复用此索引）
-            models.Index(fields=['status', 'is_settled', 'area', 'create_time']),
-            models.Index(fields=['status', 'is_settled', 'customer', 'create_time']),
-            models.Index(fields=['status', 'is_settled', 'creator', 'create_time'])
+            models.Index(fields=['status', 'is_settled', 'creator', 'create_time']),
+            # 🔥 修复2：覆盖索引（聚合+排序 total_amount，消除内存排序+回表）
+            models.Index(fields=['status', 'is_settled', 'area', 'customer','create_time']),
+            models.Index(fields=['status','area', 'create_time', 'total_amount']),
         ]
 
 class OrderItem(models.Model):
@@ -329,9 +331,7 @@ class OrderItem(models.Model):
         verbose_name = '订单明细'
         verbose_name_plural = '订单明细管理'
         indexes = [
-            models.Index(fields=['order', 'product', 'quantity', 'amount']),
-            # 🔥 新增：商品详情核心索引（解决商品订单明细查询）
-            models.Index(fields=['product_id', 'order_id', 'quantity', 'amount']),
+            models.Index(fields=['product', 'order', 'quantity', 'amount'])
         ]
 
 
