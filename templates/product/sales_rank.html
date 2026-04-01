@@ -19,6 +19,7 @@
             min-height: calc(100vh - 80px); /* 撑满视口高度，避免内容过短 */
             box-shadow: 0 2px 10px rgba(0,0,0,0.05); /* 轻微阴影，强化独立容器 */
             border-radius: 10px; /* 柔和边角，提升质感 */
+            position: relative;
         }
         .sales-rank-container * {
             margin: 0;
@@ -94,6 +95,39 @@
             background: #f0f0f0;
             border-color: #ccc;
         }
+
+        /* ===================== 新增：区域下拉筛选样式 ===================== */
+        .area-dropdown {
+            position: relative; /* 下拉菜单定位父级 */
+        }
+        .area-dropdown-menu {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            margin-top: 8px;
+            min-width: 200px;
+            max-height: 300px; /* 限制最大高度，超出滚动 */
+            overflow-y: auto; /* 区域过多时自动滚动 */
+            background: #fff;
+            border: 1px solid #eee;
+            border-radius: 6px;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+            z-index: 999; /* 确保在最上层 */
+            display: none; /* 默认隐藏 */
+            padding: 8px;
+            gap: 6px;
+            flex-direction: column;
+        }
+        .area-dropdown-menu.show {
+            display: flex; /* 展开显示 */
+        }
+        .area-dropdown-menu .filter-btn {
+            width: 100%;
+            text-align: left;
+            white-space: nowrap;
+        }
+        /* ================================================================ */
+
         .rank-table {
             width: 100%;
             border-collapse: collapse;
@@ -192,14 +226,22 @@
                 <button class="filter-btn" data-type="time" data-value="year">全年</button>
             </div>
             
-            <!-- 区域筛选：默认选中“全部区域” -->
-            <div class="filter-group">
+            <!-- ===================== 修改：区域下拉筛选 ===================== -->
+            <div class="filter-group area-dropdown">
                 <label>区域：</label>
-                <button class="filter-btn active" data-type="area" data-value="all">全部区域</button>
-                {% for area in areas %}
-                    <button class="filter-btn" data-type="area" data-value="{{ area.id }}">{{ area.name }}</button>
-                {% endfor %}
+                <!-- 下拉主按钮（显示当前选中区域） -->
+                <button class="filter-btn active area-dropdown-main" id="areaMainBtn">
+                    全部区域
+                </button>
+                <!-- 下拉菜单（默认隐藏） -->
+                <div class="area-dropdown-menu" id="areaDropdownMenu">
+                    <button class="filter-btn active" data-type="area" data-value="all">全部区域</button>
+                    {% for area in areas %}
+                        <button class="filter-btn" data-type="area" data-value="{{ area.id }}">{{ area.name }}</button>
+                    {% endfor %}
+                </div>
             </div>
+            <!-- ============================================================== -->
         </div>
         
         <!-- 排行表格：样式优化 -->
@@ -229,11 +271,31 @@
             time: 'month',         // 默认：本月
             area: 'all'            // 默认：全部区域
         };
+
+        // 下拉菜单DOM元素
+        const areaMainBtn = document.getElementById('areaMainBtn');
+        const areaDropdownMenu = document.getElementById('areaDropdownMenu');
+
+        // 切换区域下拉菜单显示/隐藏
+        function toggleAreaDropdown() {
+            areaDropdownMenu.classList.toggle('show');
+        }
+
+        // 点击页面其他区域关闭下拉菜单
+        document.addEventListener('click', function(e) {
+            const isClickInside = areaMainBtn.contains(e.target) || areaDropdownMenu.contains(e.target);
+            if (!isClickInside) {
+                areaDropdownMenu.classList.remove('show');
+            }
+        });
         
         // 初始化筛选按钮事件
         document.addEventListener('DOMContentLoaded', function() {
-            // 筛选按钮点击事件
-            document.querySelectorAll('.filter-btn').forEach(btn => {
+            // 1. 普通筛选按钮（排序、时间）
+            document.querySelectorAll('.filter-btn:not(.area-dropdown-main)').forEach(btn => {
+                // 跳过区域下拉内的按钮，单独处理
+                if(btn.closest('#areaDropdownMenu')) return;
+                
                 btn.addEventListener('click', function() {
                     // 移除同类型按钮的active状态
                     document.querySelectorAll(`.filter-btn[data-type="${this.dataset.type}"]`).forEach(b => {
@@ -247,12 +309,39 @@
                     loadRankData();
                 });
             });
+
+            // 2. 区域下拉主按钮点击事件
+            areaMainBtn.addEventListener('click', function(e) {
+                e.stopPropagation(); // 阻止事件冒泡
+                toggleAreaDropdown();
+            });
+
+            // 3. 区域下拉菜单内按钮点击事件
+            document.querySelectorAll('#areaDropdownMenu .filter-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    // 移除所有区域按钮active
+                    document.querySelectorAll('.filter-btn[data-type="area"]').forEach(b => {
+                        b.classList.remove('active');
+                    });
+                    // 当前按钮+主按钮添加active
+                    this.classList.add('active');
+                    areaMainBtn.classList.add('active');
+                    // 更新主按钮显示文字
+                    areaMainBtn.textContent = this.textContent;
+                    // 更新筛选状态
+                    filterState[this.dataset.type] = this.dataset.value;
+                    // 关闭下拉菜单
+                    areaDropdownMenu.classList.remove('show');
+                    // 重新加载数据
+                    loadRankData();
+                });
+            });
             
-            // 初始加载数据（核心：页面打开即加载默认数据）
+            // 初始加载数据
             loadRankData();
         });
         
-        // 加载排行数据
+        // 加载排行数据（原逻辑完全不变）
         async function loadRankData() {
             const tableBody = document.getElementById('rank-table-body');
             tableBody.innerHTML = '<tr><td colspan="5" class="no-data">加载中...</td></tr>';
@@ -265,7 +354,7 @@
                     area_id: filterState.area
                 });
                 
-                // 请求后端数据（确保接口路径正确）
+                // 请求后端数据
                 const res = await fetch(`/product/sales-rank/data/?${params}`);
                 if (!res.ok) throw new Error('数据加载失败');
                 
