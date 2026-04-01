@@ -5,6 +5,7 @@ from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ValidationError
 from django.db.models.signals import post_migrate
 from django.dispatch import receiver
+from django.core.cache import cache
 
 # ========== 全局常量（去硬编码） ==========
 # 固定角色编码
@@ -315,20 +316,29 @@ class User(AbstractUser):
 
     # ========== 核心RBAC权限判断 ==========
     def has_permission(self, permission_code):
-        """
-        判断用户是否拥有指定权限
-        规则：超级管理员→拥有所有权限；普通用户→继承角色权限
-        """
+        cache_key = f"user_perm_{self.id}_{permission_code}"
+        res = cache.get(cache_key)
+        if res is not None:
+            return res
         if self.role and self.role.is_super_admin:
-            return True
-        if self.role:
-            return self.role.permissions.filter(code=permission_code, is_active=True).exists()
-        return False
+            res = True
+        elif self.role:
+            res = self.role.permissions.filter(code=permission_code, is_active=True).exists()
+        else:
+            res = False
+        cache.set(cache_key, res, 3600)
+        return res
 
-    # 批量权限判断（支持多个权限，满足一个即可）
     def has_any_permission(self, *permission_codes):
+        cache_key = f"user_any_perm_{self.id}_{''.join(permission_codes)}"
+        res = cache.get(cache_key)
+        if res is not None:
+            return res
         if self.role and self.role.is_super_admin:
-            return True
-        if self.role:
-            return self.role.permissions.filter(code__in=permission_codes, is_active=True).exists()
-        return False
+            res = True
+        elif self.role:
+            res = self.role.permissions.filter(code__in=permission_codes, is_active=True).exists()
+        else:
+            res = False
+        cache.set(cache_key, res, 3600)
+        return res

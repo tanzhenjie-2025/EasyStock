@@ -305,6 +305,7 @@ class Order(models.Model):
             # 🔥 修复2：覆盖索引（聚合+排序 total_amount，消除内存排序+回表）
             models.Index(fields=['status', 'is_settled', 'area', 'customer','create_time']),
             models.Index(fields=['status','area', 'create_time', 'total_amount']),
+            models.Index(fields=['create_time']),
         ]
 
 class OrderItem(models.Model):
