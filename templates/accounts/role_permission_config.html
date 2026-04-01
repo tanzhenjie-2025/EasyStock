@@ -29,12 +29,32 @@
     .perm-group-body {
         padding: 0 1rem;
         max-height: 0;
-        overflow: hidden;
-        transition: max-height 0.3s ease;
+        overflow: hidden; /* 收起时完全隐藏内容 */
+        transition: max-height 0.3s ease; /* 保留折叠展开动画 */
     }
+    /* ✅ 核心修复：自适应高度 + 垂直滚动 */
     .perm-group-body.show {
-        max-height: 500px;
+        max-height: 60vh; /* 最大高度为屏幕高度的60%（适配所有设备），也可改为 800px 固定大值 */
         padding: 1rem;
+        overflow-y: auto; /* 内容超出时显示垂直滚动条 */
+        /* 滚动条基础样式（火狐） */
+        scrollbar-width: thin;
+        scrollbar-color: #0d6efd #f1f1f1;
+    }
+    /* ✅ 美化滚动条（Chrome/Edge/Safari） */
+    .perm-group-body.show::-webkit-scrollbar {
+        width: 6px;
+    }
+    .perm-group-body.show::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 3px;
+    }
+    .perm-group-body.show::-webkit-scrollbar-thumb {
+        background: #0d6efd;
+        border-radius: 3px;
+    }
+    .perm-group-body.show::-webkit-scrollbar-thumb:hover {
+        background: #0b5ed7;
     }
     /* 权限项样式 */
     .perm-item {

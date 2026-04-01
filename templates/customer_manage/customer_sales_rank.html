@@ -62,6 +62,41 @@
         background: #f0f0f0;
         border-color: #ccc;
     }
+
+    /* ===================== 新增：区域下拉筛选样式 ===================== */
+    .area-dropdown {
+        position: relative; /* 下拉菜单定位父级 */
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .area-dropdown-menu {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        margin-top: 8px;
+        min-width: 200px;
+        max-height: 300px; /* 限制高度，超出滚动 */
+        overflow-y: auto;
+        background: #fff;
+        border: 1px solid #eee;
+        border-radius: 6px;
+        box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+        z-index: 999;
+        display: none; /* 默认隐藏 */
+        padding: 8px;
+        flex-direction: column;
+        gap: 6px;
+    }
+    .area-dropdown-menu.show {
+        display: flex;
+    }
+    .area-dropdown-menu .filter-btn {
+        width: 100%;
+        text-align: left;
+        white-space: nowrap;
+    }
+    /* ================================================================ */
 </style>
 {% endblock %}
 
@@ -73,14 +108,24 @@
 
         <!-- 筛选栏：区域 + 日期（参考示例的实时筛选） -->
         <div class="filter-group">
-            <!-- 区域筛选 -->
-            <label for="areaFilter">按区域筛选：</label>
-            <button class="filter-btn active" data-type="area" data-value="">全部区域</button>
-            {% for area in areas %}
-                <button class="filter-btn" data-type="area" data-value="{{ area.id }}">{{ area.name }}</button>
-            {% endfor %}
+            <!-- ===================== 修改：区域下拉筛选 ===================== -->
+            <div class="area-dropdown">
+                <label for="areaFilter">按区域筛选：</label>
+                <!-- 下拉主按钮（显示当前选中） -->
+                <button class="filter-btn active area-dropdown-main" id="areaMainBtn">
+                    全部区域
+                </button>
+                <!-- 下拉菜单（默认隐藏） -->
+                <div class="area-dropdown-menu" id="areaDropdownMenu">
+                    <button class="filter-btn active" data-type="area" data-value="">全部区域</button>
+                    {% for area in areas %}
+                        <button class="filter-btn" data-type="area" data-value="{{ area.id }}">{{ area.name }}</button>
+                    {% endfor %}
+                </div>
+            </div>
+            <!-- ============================================================== -->
             
-            <!-- 日期筛选（新增） -->
+            <!-- 日期筛选（不变） -->
             <label style="margin-left: 20px;">时间范围：</label>
             <button class="filter-btn" data-type="time" data-value="today">今日</button>
             <button class="filter-btn" data-type="time" data-value="week">本周</button>
@@ -115,12 +160,49 @@
     };
 
     $(document).ready(function() {
-        $('.filter-btn').click(function() {
-            $(`.filter-btn[data-type="${$(this).data('type')}"]`).removeClass('active');
+        // 下拉菜单元素
+        const $areaMainBtn = $('#areaMainBtn');
+        const $areaDropdownMenu = $('#areaDropdownMenu');
+
+        // 1. 时间筛选按钮（原有逻辑）
+        $('.filter-btn[data-type="time"]').click(function() {
+            $(`.filter-btn[data-type="time"]`).removeClass('active');
             $(this).addClass('active');
             filterState[$(this).data('type')] = $(this).data('value');
             loadSalesRankData();
         });
+
+        // 2. 区域下拉主按钮：展开/收起
+        $areaMainBtn.click(function(e) {
+            e.stopPropagation();
+            $areaDropdownMenu.toggleClass('show');
+        });
+
+        // 3. 区域下拉菜单内按钮点击
+        $('#areaDropdownMenu .filter-btn').click(function() {
+            // 重置所有区域按钮状态
+            $('#areaDropdownMenu .filter-btn').removeClass('active');
+            $(this).addClass('active');
+            $areaMainBtn.addClass('active');
+            
+            // 更新主按钮显示文字
+            $areaMainBtn.text($(this).text());
+            // 更新筛选条件
+            filterState[$(this).data('type')] = $(this).data('value');
+            // 关闭下拉菜单
+            $areaDropdownMenu.removeClass('show');
+            // 刷新数据
+            loadSalesRankData();
+        });
+
+        // 4. 点击页面空白处关闭下拉菜单
+        $(document).click(function(e) {
+            if (!$(e.target).closest('.area-dropdown').length) {
+                $areaDropdownMenu.removeClass('show');
+            }
+        });
+
+        // 初始加载数据
         loadSalesRankData();
     });
 
