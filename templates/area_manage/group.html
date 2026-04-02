@@ -4,247 +4,104 @@
 
 {% block extra_css %}
 <style>
-    /* 行高亮样式 */
-    #list tr {
-        transition: background-color 0.2s ease;
-        cursor: pointer;
-    }
-    #list tr:hover td {
-        background-color: #f1f1f1 !important;
-    }
-    #list tr td:last-child {
-        cursor: default;
-    }
+    /* 复用之前的样式，加上上面第1步新增的CSS */
+    #list tr { transition: background-color 0.2s ease; cursor: pointer; }
+    #list tr:hover td { background-color: #f1f1f1 !important; }
+    #list tr td:last-child { cursor: default; }
 
-    /* 搜索框样式 */
-    .search-container {
-        margin: 10px 0;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-    .search-input {
-        padding: 4px 8px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        width: 300px;
-    }
-    .search-btn, .clear-btn {
-        padding: 4px 12px;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        color: white;
-    }
+    .search-container { margin: 10px 0; display: flex; align-items: center; gap: 8px; }
+    .search-input { padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; width: 300px; }
+    .search-btn, .clear-btn { padding: 4px 12px; border: none; border-radius: 4px; cursor: pointer; color: white; }
     .search-btn { background: #007bff; }
     .clear-btn { background: #dc3545; }
+    .no-result { text-align: center; color: #999; padding: 20px; }
 
-    /* 搜索记录样式 */
-    .search-history {
-        margin: 8px 0;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-    }
-    .history-tag {
-        padding: 2px 8px;
-        background: #e9ecef;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 12px;
-    }
-    .history-tag:hover {
-        background: #007bff;
-        color: white;
-    }
-
-    /* 无结果提示 */
-    .no-result {
-        text-align: center;
-        color: #999;
-        padding: 20px;
-    }
-
-    /* 吐司提示样式 */
-    .toast-container {
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        z-index: 9999;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-    }
-    .toast {
-        padding: 12px 20px;
-        border-radius: 4px;
-        color: white;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-        animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s;
-        opacity: 0;
-        transform: translateX(100%);
-    }
+    /* Toast */
+    .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
+    .toast { padding: 12px 20px; border-radius: 4px; color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.15); animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s; opacity: 0; transform: translateX(100%); }
     .toast-success { background-color: #28a745; }
     .toast-error { background-color: #dc3545; }
     .toast-warning { background-color: #ffc107; color: #333; }
     .toast-info { background-color: #17a2b8; }
-
     @keyframes slideIn { from { opacity:0; transform:translateX(100%); } to { opacity:1; transform:translateX(0); } }
     @keyframes fadeOut { from { opacity:1; transform:translateX(0); } to { opacity:0; transform:translateX(100%); } }
 
-    /* 弹窗样式 */
-    .modal-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background-color: rgba(0,0,0,0.5);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 10000;
-        opacity: 0;
-        visibility: hidden;
-        transition: opacity 0.3s ease, visibility 0.3s ease;
-    }
+    /* Modal Base */
+    .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000; opacity: 0; visibility: hidden; transition: opacity 0.3s ease, visibility 0.3s ease; }
     .modal-overlay.active { opacity:1; visibility:visible; }
-    .modal-box {
-        background:white;
-        padding:20px;
-        border-radius:8px;
-        width:90%;
-        max-width:400px;
-        box-shadow:0 4px 12px rgba(0,0,0,0.15);
-    }
+    .modal-box { background:white; padding:20px; border-radius:8px; width:90%; box-shadow:0 4px 12px rgba(0,0,0,0.15); }
     .modal-title { font-size:16px; font-weight:600; margin-bottom:15px; color:#333; }
-    .modal-input { width:100%; padding:8px 12px; border:1px solid #ddd; border-radius:4px; margin-bottom:15px; }
     .modal-buttons { display:flex; justify-content:flex-end; gap:10px; margin-top:20px; }
     .modal-btn { padding:8px 16px; border:none; border-radius:4px; cursor:pointer; font-size:14px; }
     .modal-btn-confirm { background:#007bff; color:white; }
     .modal-btn-cancel { background:#6c757d; color:white; }
     .confirm-modal .modal-box { max-width:350px; }
-    .area-select-modal .modal-box { max-width:450px; }
-    .area-select-modal .modal-tips { font-size:12px; color:#666; margin-bottom:10px; line-height:1.5; }
 
-    /* 分页样式（新增） */
-    .pagination-container {
-        margin: 10px 0;
-        display: flex;
-        gap: 5px;
-        justify-content: center;
-    }
-    .page-btn {
-        padding: 4px 8px;
-        border: 1px solid #ddd;
-        background: #fff;
-        cursor: pointer;
-        border-radius: 4px;
-    }
-    .page-btn.active {
-        background: #007bff;
-        color: #fff;
-        border-color: #007bff;
-    }
-    .page-btn:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
+    /* --- 新增：复合表单弹窗样式 --- */
+    .form-modal .modal-box { max-width: 700px; } /* 更宽以容纳表格 */
+    .form-group { margin-bottom: 15px; }
+    .form-label { display: block; margin-bottom: 5px; font-weight: 500; color: #333; font-size: 14px; }
+    .form-input { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box; }
+    .form-textarea { min-height: 80px; resize: vertical; }
+
+    /* --- 新增：区域选择表格样式 --- */
+    .area-select-table-container { max-height: 250px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px; margin-top: 5px; }
+    .area-select-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .area-select-table th, .area-select-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #eee; }
+    .area-select-table th { background-color: #f8f9fa; position: sticky; top: 0; z-index: 1; }
+    .area-select-table tr { cursor: pointer; transition: background-color 0.15s; }
+    .area-select-table tr:hover { background-color: #e9ecef; }
+    /* 选中状态样式 */
+    .area-select-table tr.selected { background-color: #cce5ff; color: #004085; }
+    .area-select-table tr.selected:hover { background-color: #b8daff; }
+    
+    .selected-count-tip { font-size: 12px; color: #666; margin-top: 5px; }
+
+    /* 分页 */
+    .page-item.active .page-link { background-color: #007bff; border-color: #007bff; }
 </style>
 {% endblock %}
 
 {% block content %}
-    <h3>区域组管理（可多选区域组合）</h3>
+    <h3>区域组管理</h3>
     <div class="my-3">
-        <button class="btn btn-sm btn-primary" onclick="add()">新建组</button>
+        <button class="btn btn-sm btn-primary" onclick="add()">新增区域组</button>
     </div>
 
-    <!-- 搜索框 -->
     <div class="search-container">
-        <input type="text" class="search-input" id="searchInput" 
-               placeholder="输入组名/备注/包含区域关键词搜索" 
-               onkeydown="if(event.keyCode===13) searchGroups()">
-        <button class="search-btn" onclick="searchGroups()">搜索</button>
+        <input type="text" class="search-input" id="searchInput" placeholder="输入组名/备注/区域名搜索" onkeydown="if(event.keyCode===13) search()">
+        <button class="search-btn" onclick="search()">搜索</button>
         <button class="clear-btn" onclick="clearSearch()">× 清空</button>
     </div>
-    <div class="search-history" id="searchHistory"></div>
 
     <table class="table table-sm table-bordered">
         <thead>
-            <tr><th>ID</th><th>组名</th><th>包含区域</th><th>备注</th><th>操作</th></tr>
+            <tr><th>ID</th><th>组名</th><th>包含区域</th><th>客户数</th><th>备注</th><th>操作</th></tr>
         </thead>
         <tbody id="list"></tbody>
     </table>
-
-    <!-- 分页容器（新增） -->
-    <div id="pagination"></div>
 {% endblock %}
 
 {% block extra_js %}
     <script>
-        let allAreas=[];
-        const SEARCH_HISTORY_KEY = 'groupSearchHistory';
-        const MAX_HISTORY_COUNT = 5;
-        // 分页全局变量（新增）
-        let currentKeyword = '';
-        let currentPage = 1;
-        const pageSize = 20;
+        // 全局缓存所有区域列表，供选择器使用
+        let allAreasCache = [];
 
-        // 吐司提示
-        function showToast(message, type = 'info', duration = 3000) {
-            let toastContainer = document.getElementById('toastContainer');
-            if (!toastContainer) {
-                toastContainer = document.createElement('div');
-                toastContainer.id = 'toastContainer';
-                toastContainer.className = 'toast-container';
-                document.body.appendChild(toastContainer);
+        function showToast(message, type = 'info') {
+            let container = document.getElementById('toastContainer');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'toastContainer';
+                container.className = 'toast-container';
+                document.body.appendChild(container);
             }
             const toast = document.createElement('div');
             toast.className = `toast toast-${type}`;
             toast.textContent = message;
-            toastContainer.appendChild(toast);
-            setTimeout(() => toast.remove(), duration);
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
         }
 
-        // 自定义弹窗
-        function showInputModal(title, defaultValue = '', callback, isAreaSelect = false) {
-            document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
-            let overlay = document.createElement('div');
-            overlay.className = `modal-overlay ${isAreaSelect ? 'area-select-modal' : ''}`;
-            
-            let tipsHtml = isAreaSelect ? `<div class="modal-tips">${defaultValue}</div>` : '';
-
-            overlay.innerHTML = `
-                <div class="modal-box">
-                    <div class="modal-title">${title}</div>
-                    ${tipsHtml}
-                    <input type="text" class="modal-input" value="${isAreaSelect ? '' : defaultValue}">
-                    <div class="modal-buttons">
-                        <button class="modal-btn modal-btn-cancel">取消</button>
-                        <button class="modal-btn modal-btn-confirm">确认</button>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(overlay);
-            setTimeout(() => overlay.classList.add('active'), 10);
-            
-            const input = overlay.querySelector('.modal-input');
-            const cancelBtn = overlay.querySelector('.modal-btn-cancel');
-            const confirmBtn = overlay.querySelector('.modal-btn-confirm');
-            
-            input.focus();
-            cancelBtn.addEventListener('click', () => { overlay.remove(); callback(null); });
-            confirmBtn.addEventListener('click', () => {
-                const value = input.value.trim();
-                overlay.remove();
-                callback(value);
-            });
-            document.addEventListener('keydown', function escHandler(e) {
-                if (e.key === 'Escape') { overlay.remove(); callback(null); document.removeEventListener('keydown', escHandler); }
-            });
-        }
-
-        // 确认弹窗
         function showConfirmModal(message, callback) {
             document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
             let overlay = document.createElement('div');
@@ -261,227 +118,203 @@
             `;
             document.body.appendChild(overlay);
             setTimeout(() => overlay.classList.add('active'), 10);
-            
-            const cancelBtn = overlay.querySelector('.modal-btn-cancel');
-            const confirmBtn = overlay.querySelector('.modal-btn-confirm');
-            cancelBtn.addEventListener('click', () => { overlay.remove(); callback(false); });
-            confirmBtn.addEventListener('click', () => { overlay.remove(); callback(true); });
-            document.addEventListener('keydown', function escHandler(e) {
-                if (e.key === 'Escape') { overlay.remove(); callback(false); document.removeEventListener('keydown', escHandler); }
-            });
+            overlay.querySelector('.modal-btn-cancel').addEventListener('click', () => { overlay.remove(); callback(false); });
+            overlay.querySelector('.modal-btn-confirm').addEventListener('click', () => { overlay.remove(); callback(true); });
         }
 
-        // 加载区域
-        function loadArea(){ 
-            $.get('/area-manage/api/area/list/', function(res){
-                if(res.code === 0){
-                    showToast(res.msg, 'error');
+        // --- 核心：区域组表单弹窗 (包含表格选择器) ---
+        function showGroupFormModal(title, initialData = {}, callback) {
+            document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
+            
+            // 初始数据
+            const name = initialData.name || '';
+            const remark = initialData.remark || '';
+            const selectedIds = initialData.area_ids || []; // 数组
+            
+            let overlay = document.createElement('div');
+            overlay.className = 'modal-overlay form-modal';
+            
+            overlay.innerHTML = `
+                <div class="modal-box">
+                    <div class="modal-title">${title}</div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">组名 <span style="color:red">*</span></label>
+                        <input type="text" class="form-input" id="form-group-name" value="${name}" placeholder="请输入区域组名称">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label class="form-label">备注</label>
+                        <textarea class="form-input form-textarea" id="form-group-remark" placeholder="选填">${remark}</textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">包含区域 <span style="color:red">*</span> <span class="selected-count-tip" id="selectedCountTip">(已选 0 个)</span></label>
+                        <div class="area-select-table-container">
+                            <table class="area-select-table" id="areaSelectTable">
+                                <thead>
+                                    <tr>
+                                        <th style="width:50px">选择</th>
+                                        <th>ID</th>
+                                        <th>区域名</th>
+                                        <th>备注</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="areaSelectTbody">
+                                    <!-- 由JS填充 -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="modal-buttons">
+                        <button class="modal-btn modal-btn-cancel">取消</button>
+                        <button class="modal-btn modal-btn-confirm">保存</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+            setTimeout(() => overlay.classList.add('active'), 10);
+
+            // 状态管理
+            let currentSelection = new Set(selectedIds.map(id => parseInt(id)));
+            
+            // 渲染区域列表
+            const tbody = overlay.querySelector('#areaSelectTbody');
+            const tipEl = overlay.querySelector('#selectedCountTip');
+            
+            function updateTip() {
+                tipEl.innerText = `(已选 ${currentSelection.size} 个)`;
+            }
+
+            function renderAreaOptions() {
+                let html = '';
+                allAreasCache.forEach(area => {
+                    const isSelected = currentSelection.has(area.id);
+                    html += `
+                        <tr data-id="${area.id}" class="${isSelected ? 'selected' : ''}">
+                            <td>${isSelected ? '✓' : ''}</td>
+                            <td>${area.id}</td>
+                            <td>${area.name}</td>
+                            <td>${area.remark || '-'}</td>
+                        </tr>
+                    `;
+                });
+                tbody.innerHTML = html;
+                updateTip();
+
+                // 绑定点击事件
+                tbody.querySelectorAll('tr').forEach(tr => {
+                    tr.addEventListener('click', () => {
+                        const id = parseInt(tr.dataset.id);
+                        if (currentSelection.has(id)) {
+                            currentSelection.delete(id);
+                            tr.classList.remove('selected');
+                            tr.querySelector('td:first-child').innerText = '';
+                        } else {
+                            currentSelection.add(id);
+                            tr.classList.add('selected');
+                            tr.querySelector('td:first-child').innerText = '✓';
+                        }
+                        updateTip();
+                    });
+                });
+            }
+
+            // 如果缓存有数据直接渲染，否则先去拉取
+            if (allAreasCache.length > 0) {
+                renderAreaOptions();
+            } else {
+                $.get('/area-manage/api/area/list/?page_size=100', function(res) {
+                    if (res.code === 1) {
+                        allAreasCache = res.data; // 缓存起来
+                        renderAreaOptions();
+                    }
+                }, 'json');
+            }
+
+            const inputName = overlay.querySelector('#form-group-name');
+            inputName.focus();
+            
+            const closeModal = () => overlay.remove();
+
+            overlay.querySelector('.modal-btn-cancel').addEventListener('click', () => { closeModal(); callback(null); });
+            overlay.querySelector('.modal-btn-confirm').addEventListener('click', () => {
+                const valName = inputName.value.trim();
+                const valRemark = overlay.querySelector('#form-group-remark').value.trim();
+                
+                if (!valName) {
+                    showToast('组名不能为空', 'warning');
+                    inputName.focus();
                     return;
                 }
-                allAreas= res.data || [];
-            },'json').fail(function(error){
-                showToast('加载区域列表失败！', 'error');
+                if (currentSelection.size === 0) {
+                    showToast('请至少选择一个区域', 'warning');
+                    return;
+                }
+
+                closeModal();
+                callback({ 
+                    name: valName, 
+                    remark: valRemark, 
+                    area_ids: Array.from(currentSelection) 
+                });
             });
         }
 
-        // 优化版：支持分页加载（整合后）
-        function loadGroup(keyword = '', page = 1){
-            currentKeyword = keyword;
-            currentPage = page;
-            // 拼接分页+搜索参数
-            let params = new URLSearchParams();
-            params.append('keyword', keyword);
-            params.append('page', page);
-            params.append('page_size', pageSize);
-            
-            let url = '/area-manage/api/group/list/?' + params.toString();
-            
+        function load(keyword = '', page = 1){
+            let url = `/area-manage/api/group/list/?page=${page}`;
+            if (keyword) url += `&keyword=${encodeURIComponent(keyword)}`;
+
             $.get(url, function(res){
                 let html='';
                 if(res.code === 0){
-                    showToast(res.msg, 'error');
-                    $('#list').html(`<tr><td colspan="5" class="no-result">${res.msg}</td></tr>`);
-                    renderPagination(res.pagination || {total_pages:0});
+                    $('#list').html(`<tr><td colspan="6" class="no-result">${res.msg}</td></tr>`);
                     return;
                 }
                 const list = res.data || [];
-                const pagination = res.pagination || {};
                 if(list.length === 0){
-                    html = `<tr><td colspan="5" class="no-result">未搜索到相关内容</td></tr>`;
-                    $('#list').html(html);
-                    renderPagination(pagination);
-                    return;
-                }
-                list.forEach(g=>{
-                    html+=`<tr onclick="goToDetail(${g.id})">
-                        <td>${g.id}</td>
-                        <td>${g.name}</td>
-                        <td>${g.area_names.join('、') || '无'}</td>
-                        <td>${g.remark || '无'}</td>
-                        <td>
-                            <button class="btn btn-sm btn-info me-1" onclick="event.stopPropagation();goToDetail(${g.id})">详情</button>
-                            <button class="btn btn-sm btn-warning me-1" onclick="event.stopPropagation();edit(${g.id})">改</button>
-                            <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();del(${g.id})">删</button>
-                        </td>
-                    </tr>`;
-                });
-                $('#list').html(html);
-                renderPagination(pagination);
-            },'json').fail(function(error){
-                showToast(`加载区域组失败！`, 'error');
-                $('#list').html(`<tr><td colspan="5" class="no-result">加载失败</td></tr>`);
-                renderPagination({total_pages:0});
-            });
-        }
-
-        // 渲染分页控件（新增）
-        function renderPagination(pagination){
-            const totalPages = pagination.total_pages || 0;
-            const current = pagination.page || 1;
-            let html = '';
-            if(totalPages <= 1) {
-                $('#pagination').html('');
-                return;
-            }
-            html += `<div class="pagination-container">`;
-            html += `<button class="page-btn" ${current<=1?'disabled':''} onclick="loadGroup('${currentKeyword}',${current-1})">上一页</button>`;
-            for(let i=1;i<=totalPages;i++){
-                html += `<button class="page-btn ${i==current?'active':''}" onclick="loadGroup('${currentKeyword}',${i})">${i}</button>`;
-            }
-            html += `<button class="page-btn" ${current>=totalPages?'disabled':''} onclick="loadGroup('${currentKeyword}',${current+1})">下一页</button>`;
-            html += `</div>`;
-            $('#pagination').html(html);
-        }
-
-        // 跳转详情
-        function goToDetail(id) {
-            window.location.href = `/area-manage/group/detail/${id}/`;
-        }
-
-        // 搜索（优化版）
-        function searchGroups(){
-            const keyword = $('#searchInput').val().trim();
-            if (!keyword) { showToast('请输入搜索关键词', 'warning'); $('#searchInput').focus(); return; }
-            saveSearchHistory(keyword);
-            loadGroup(keyword, 1); // 搜索重置为第一页
-            loadSearchHistory();
-        }
-
-        // 清空搜索（优化版）
-        function clearSearch(){
-            $('#searchInput').val('');
-            currentKeyword = '';
-            loadGroup('', 1);
-        }
-
-        // 搜索记录
-        function saveSearchHistory(keyword){
-            if (!keyword) return;
-            let history = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]');
-            history = history.filter(item => item !== keyword);
-            history.unshift(keyword);
-            if (history.length > MAX_HISTORY_COUNT) history = history.slice(0, MAX_HISTORY_COUNT);
-            localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history));
-        }
-
-        function loadSearchHistory(){
-            const history = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || '[]');
-            const $historyContainer = $('#searchHistory');
-            if (history.length === 0) { $historyContainer.html(''); return; }
-            let html = '';
-            history.forEach(keyword => { html += `<span class="history-tag" onclick="useHistory('${keyword}')">${keyword}</span>`; });
-            $historyContainer.html(html);
-        }
-
-        function useHistory(keyword){
-            $('#searchInput').val(keyword);
-            searchGroups();
-        }
-
-        // 新增
-        function add(){
-            showInputModal('请输入组名：', '', (name) => {
-                if(!name) return;
-                showInputModal('请输入备注（可选）：', '', (remark) => {
-                    remark = remark || '';
-                    if(allAreas.length === 0){ showToast('暂无可用区域，请先添加区域！', 'warning'); return; }
-                    
-                    let areaSelectTips = '请选择要包含的区域（输入区域ID，多个用英文逗号分隔）：\n';
-                    allAreas.forEach(a => { areaSelectTips += `${a.id} - ${a.name}\n`; });
-                    
-                    showInputModal('选择包含区域', areaSelectTips, (selectedIds) => {
-                        if(!selectedIds) return;
-                        let areaIds = selectedIds.split(',').map(id => id.trim()).filter(id => id);
-                        $.ajax({
-                            url: '/area-manage/api/group/add/',
-                            type: 'POST',
-                            data: {name, remark, 'area_ids[]': areaIds},
-                            headers: {'X-CSRFToken': getCsrfToken()},
-                            dataType: 'json',
-                            success: function(res){
-                                showToast(res.msg, res.code === 1 ? 'success' : 'error');
-                                if(res.code === 1) loadGroup();
-                            },
-                            error: function(){ showToast('新增区域组失败！', 'error'); }
-                        });
-                    }, true);
-                });
-            });
-        }
-
-        // 编辑
-        function edit(id){
-            $.get('/area-manage/api/group/list/', function(res){
-                const groups = res.data || [];
-                let g=groups.find(x=>x.id == id);
-                if(!g){ showToast('该区域组不存在！', 'error'); return; }
-                showInputModal('请输入新组名：', g.name, (name) => {
-                    if(!name) return;
-                    showInputModal('请输入备注（可选）：', g.remark || '', (remark) => {
-                        remark = remark || '';
-                        let areaSelectTips = `当前已选：${g.area_names.join('、') || '无'}\n请输入新的区域ID：\n`;
-                        allAreas.forEach(a => { areaSelectTips += `${a.id} - ${a.name}\n`; });
-                        
-                        showInputModal('修改包含区域', areaSelectTips, (selectedIds) => {
-                            if(!selectedIds) return;
-                            let areaIds = selectedIds.split(',').map(id => id.trim()).filter(id => id);
-                            $.ajax({
-                                url: `/area-manage/api/group/edit/${id}/`,
-                                type: 'POST',
-                                data: {name, remark, 'area_ids[]': areaIds},
-                                headers: {'X-CSRFToken': getCsrfToken()},
-                                dataType: 'json',
-                                success: function(res){
-                                    showToast(res.msg, res.code === 1 ? 'success' : 'error');
-                                    if(res.code === 1) loadGroup();
-                                },
-                                error: function(){ showToast('编辑区域组失败！', 'error'); }
-                            });
-                        }, true);
+                    html = `<tr><td colspan="6" class="no-result">暂无数据</td></tr>`;
+                } else {
+                    list.forEach(i=>{
+                        const areasDisplay = (i.area_names || []).slice(0, 3).join(', ') + ((i.area_names || []).length > 3 ? '...' : '');
+                        html+=`<tr onclick="goToDetail(${i.id})">
+                            <td>${i.id}</td>
+                            <td>${i.name}</td>
+                            <td title="${(i.area_names || []).join(', ')}">${areasDisplay} <span class="badge bg-secondary">${i.area_count}</span></td>
+                            <td>${i.customer_count}</td>
+                            <td>${i.remark || '无'}</td>
+                            <td>
+                                <button class="btn btn-sm btn-info me-1" onclick="event.stopPropagation();goToDetail(${i.id})">详情</button>
+                                <button class="btn btn-sm btn-warning me-1" onclick="event.stopPropagation();edit(${i.id})">改</button>
+                                <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();del(${i.id})">删</button>
+                            </td>
+                        </tr>`;
                     });
-                });
-            },'json').fail(function(){ showToast('获取区域组信息失败！', 'error'); });
+                }
+                $('#list').html(html);
+                renderPagination(res.pagination, keyword);
+            },'json').fail(function(){ showToast('加载失败！', 'error'); });
         }
 
-        // 删除
-        function del(id){
-            showConfirmModal('确定要删除该区域组吗？', (isConfirm) => {
-                if(!isConfirm) return;
-                $.ajax({
-                    url: `/area-manage/api/group/delete/${id}/`,
-                    type: 'POST',
-                    headers: {'X-CSRFToken': getCsrfToken()},
-                    dataType: 'json',
-                    success: function(res){
-                        showToast(res.msg, res.code === 1 ? 'success' : 'error');
-                        loadGroup();
-                    },
-                    error: function(){ showToast('删除区域组失败！', 'error'); }
-                });
-            });
+        function renderPagination(pagination, keyword) {
+            $('.pagination').remove();
+            if (!pagination || pagination.total_pages <= 1) return;
+            const { total, page, total_pages } = pagination;
+            let html = `<nav class="mt-3"><ul class="pagination justify-content-center">`;
+            if(page > 1) html += `<li class="page-item"><a class="page-link" onclick="load('${keyword}', ${page-1})">上一页</a></li>`;
+            for(let i=1; i<=total_pages; i++){
+                html += `<li class="page-item ${i===page ? 'active' : ''}"><a class="page-link" onclick="load('${keyword}', ${i})">${i}</a></li>`;
+            }
+            if(page < total_pages) html += `<li class="page-item"><a class="page-link" onclick="load('${keyword}', ${page+1})">下一页</a></li>`;
+            html += `</ul></nav>`;
+            $('.table').after(html);
         }
 
-        // 获取CSRF Token
+        function goToDetail(id) { window.location.href = `/area-manage/group/detail/${id}/`; }
+        function search(){ const kw = $('#searchInput').val().trim(); load(kw); }
+        function clearSearch(){ $('#searchInput').val(''); load(); }
+
         function getCsrfToken() {
             const cookies = document.cookie.split(';');
             for (let cookie of cookies) {
@@ -491,11 +324,87 @@
             return '';
         }
 
-        // 页面初始化
+        // --- 新增组 ---
+        function add(){
+            // 打开弹窗前尝试预加载区域列表
+            if (allAreasCache.length === 0) {
+                 $.get('/area-manage/api/area/list/?page_size=100', function(res) {
+                    if (res.code === 1) allAreasCache = res.data;
+                 });
+            }
+
+            showGroupFormModal('新增区域组', {}, (data) => {
+                if(!data) return;
+                $.ajax({
+                    url: '/area-manage/api/group/add/',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify(data),
+                    headers: {'X-CSRFToken': getCsrfToken()},
+                    dataType: 'json',
+                    success: function(res){
+                        showToast(res.msg, res.code === 1 ? 'success' : 'error');
+                        if(res.code===1) load();
+                    },
+                    error: function(){ showToast('操作失败！', 'error'); }
+                });
+            });
+        }
+
+        // --- 编辑组 ---
+        function edit(id){
+            $.get(`/area-manage/api/group/detail/${id}/`,function(res){
+                if(res.code === 0 || !res.data){ showToast('获取失败！', 'error'); return; }
+                let g = res.data;
+                // 转换数据结构：详情接口返回的是 objects，我们需要 ids
+                let currentAreaIds = (g.areas || []).map(a => a.id);
+                
+                showGroupFormModal('编辑区域组', {
+                    name: g.name, 
+                    remark: g.remark, 
+                    area_ids: currentAreaIds
+                }, (data) => {
+                    if(!data) return;
+                    $.ajax({
+                        url: `/area-manage/api/group/edit/${id}/`,
+                        type: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify(data),
+                        headers: {'X-CSRFToken': getCsrfToken()},
+                        dataType: 'json',
+                        success: function(res){
+                            showToast(res.msg, res.code === 1 ? 'success' : 'error');
+                            if(res.code===1) load();
+                        },
+                        error: function(){ showToast('操作失败！', 'error'); }
+                    });
+                });
+            },'json').fail(function(){ showToast('加载信息失败！', 'error'); });
+        }
+
+        function del(id){
+            showConfirmModal('确定删除该区域组吗？', (isConfirm) => {
+                if(!isConfirm) return;
+                $.ajax({
+                    url: `/area-manage/api/group/delete/${id}/`,
+                    type: 'POST',
+                    headers: {'X-CSRFToken': getCsrfToken()},
+                    dataType: 'json',
+                    success: function(res){
+                        showToast(res.msg, res.code === 1 ? 'success' : 'error');
+                        load();
+                    },
+                    error: function(){ showToast('删除失败！', 'error'); }
+                });
+            });
+        }
+
         $(document).ready(function(){
-            loadArea();
-            loadGroup();
-            loadSearchHistory();
+            load();
+            // 预加载区域列表缓存
+            $.get('/area-manage/api/area/list/?page_size=100', function(res) {
+                if (res.code === 1) allAreasCache = res.data;
+            });
         });
     </script>
 {% endblock %}
