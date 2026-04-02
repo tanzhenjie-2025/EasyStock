@@ -40,6 +40,11 @@
         padding: 2px 8px;
         font-size: 0.75rem;
     }
+
+    /* 新增：整行可点击的鼠标样式 */
+    .clickable-row {
+        cursor: pointer;
+    }
 </style>
 {% endblock %}
 
@@ -115,7 +120,8 @@
                 </thead>
                 <tbody>
                     {% for user in users %}
-                    <tr>
+                    <!-- 新增：class="clickable-row" 和 data-detail-url -->
+                    <tr class="clickable-row" data-detail-url="{% url 'accounts:user_detail' user.id %}">
                         <td class="col-serial">{{ forloop.counter }}</td>
                         <td class="col-user-code">{{ user.user_code }}</td>
                         <td class="col-username">{{ user.username }}</td>
@@ -216,6 +222,20 @@
 function getCsrfToken() {
     return document.querySelector('meta[name="csrf-token"]').content;
 }
+
+// 新增：整行点击跳转详情逻辑
+$(document).on('click', '.clickable-row', function(e) {
+    // 如果点击的是操作按钮组内的元素（按钮、图标等），则不触发行跳转
+    if ($(e.target).closest('.btn-group').length) {
+        return;
+    }
+    
+    // 获取详情页URL并跳转
+    const detailUrl = $(this).data('detail-url');
+    if (detailUrl) {
+        window.location.href = detailUrl;
+    }
+});
 
 // 切换用户状态
 $(document).on('click', '.status-toggle-btn', function() {
