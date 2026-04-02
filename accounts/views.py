@@ -193,18 +193,16 @@ def user_list(request):
 
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
     if is_super_admin:
-        # 🔥 核心优化：替换子查询为annotate，100%命中Order索引，性能暴增
+        # ✅ 修复：移除 is_settled=False，只要不作废都统计
         queryset = queryset.annotate(
             orders=Coalesce(
                 Count('created_orders', filter=Q(
-                    created_orders__status__in=['pending', 'printed', 'reopened'],
-                    created_orders__is_settled=False
+                    created_orders__status__in=['pending', 'printed', 'reopened']
                 )), Value(0)
             ),
             sales=Coalesce(
                 Sum('created_orders__total_amount', filter=Q(
-                    created_orders__status__in=['pending', 'printed', 'reopened'],
-                    created_orders__is_settled=False
+                    created_orders__status__in=['pending', 'printed', 'reopened']
                 )), Decimal('0')
             )
         )
@@ -221,9 +219,10 @@ def user_list(request):
     # 店铺统计（命中索引）
     shop_stats = {'total_orders': 0, 'total_sales': 0, 'total_cancelled': 0}
     if is_super_admin:
+        # ✅ 修复：移除 is_settled=False
         shop_stats = Order.objects.aggregate(
-            total_orders=Count('id', filter=Q(status__in=['pending', 'printed', 'reopened'], is_settled=False)),
-            total_sales=Coalesce(Sum('total_amount', filter=Q(status__in=['pending', 'printed', 'reopened'], is_settled=False)), Decimal('0')),
+            total_orders=Count('id', filter=Q(status__in=['pending', 'printed', 'reopened'])),
+            total_sales=Coalesce(Sum('total_amount', filter=Q(status__in=['pending', 'printed', 'reopened'])), Decimal('0')),
             total_cancelled=Count('id', filter=Q(status='cancelled'))
         )
 
@@ -343,10 +342,11 @@ def user_detail(request, user_id):
     user_stats = {'total_orders': 0, 'total_sales': 0, 'total_cancelled': 0, 'sales_ratio': 0}
 
     if is_super_admin and user.is_active:
+        # ✅ 修复：移除所有 is_settled=False 限制
         stats = Order.objects.aggregate(
-            shop_total=Coalesce(Sum('total_amount', filter=Q(status__in=['pending', 'printed', 'reopened'], is_settled=False)), 0, output_field=DecimalField()),
-            user_orders=Count('id', filter=Q(creator=user, status__in=['pending', 'printed', 'reopened'], is_settled=False)),
-            user_sales=Coalesce(Sum('total_amount', filter=Q(creator=user, status__in=['pending', 'printed', 'reopened'], is_settled=False)), 0, output_field=DecimalField()),
+            shop_total=Coalesce(Sum('total_amount', filter=Q(status__in=['pending', 'printed', 'reopened'])), 0, output_field=DecimalField()),
+            user_orders=Count('id', filter=Q(creator=user, status__in=['pending', 'printed', 'reopened'])),
+            user_sales=Coalesce(Sum('total_amount', filter=Q(creator=user, status__in=['pending', 'printed', 'reopened'])), 0, output_field=DecimalField()),
             user_canceled=Count('id', filter=Q(creator=user, status='cancelled'))
         )
         user_stats['total_orders'] = stats['user_orders']
