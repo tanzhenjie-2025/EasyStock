@@ -11,10 +11,9 @@ import json
 
 from accounts.models import Permission
 from accounts.views import permission_required, create_operation_log
-from bill.models import  Order
+from bill.models import Order
 from area_manage.models import Area, AreaGroup
 from customer_manage.models import Customer
-
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -49,6 +48,8 @@ CACHE_PREFIX = {
     "GROUP_STAT": "group_stats_",
 }
 
+# 🔥 这里必须和 customer_manage/views.py 里定义的完全一致
+CACHE_KEY_AREA_LIST_FOR_CUSTOMER = "global:area_list_for_customer"
 
 # ===================== 缓存工具函数 =====================
 def generate_cache_key(request, prefix: str, *args) -> str:
@@ -56,13 +57,20 @@ def generate_cache_key(request, prefix: str, *args) -> str:
     params = "_".join([str(arg) for arg in args])
     return f"{prefix}{user_id}_{params}"
 
-
 def clear_area_cache(area_id: int = None):
+    """
+    清理区域相关缓存
+    """
     if area_id:
         cache.delete(f"{CACHE_PREFIX['AREA_STAT']}{area_id}")
         cache.delete(f"{CACHE_PREFIX['AREA_DETAIL']}{area_id}")
+
+    # 1. 清理区域管理自身的列表缓存
     cache.delete_pattern(f"{CACHE_PREFIX['AREA_LIST']}*")
 
+    # 🔥 2. 关键修改：精准清理客户管理页面的区域列表缓存
+    cache.delete(CACHE_KEY_AREA_LIST_FOR_CUSTOMER)
+    logger.info(f"已清理区域缓存，包括跨App Key: {CACHE_KEY_AREA_LIST_FOR_CUSTOMER}")
 
 def clear_group_cache(group_id: int = None):
     if group_id:
@@ -225,7 +233,10 @@ def area_add(request):
             area = Area.objects.create(name=name, remark=remark)
             create_operation_log(request=request, op_type='create', obj_type='area',
                                  obj_id=area.id, obj_name=area.name, detail=f"新增区域：{area.name}")
+
+            # 调用增强版的缓存清理
             clear_area_cache()
+
             return JsonResponse({'code': 1, 'msg': '添加成功'})
         except Exception as e:
             logger.error(f"新增区域失败：{str(e)}")
@@ -253,7 +264,10 @@ def area_edit(request, pk):
             area.save()
             create_operation_log(request=request, op_type='update', obj_type='area',
                                  obj_id=area.id, obj_name=area.name, detail=f"编辑区域")
+
+            # 调用增强版的缓存清理
             clear_area_cache(area_id=pk)
+
             return JsonResponse({'code': 1, 'msg': '修改成功'})
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
     except Exception as e:
@@ -271,7 +285,10 @@ def area_delete(request, pk):
         area.delete()
         create_operation_log(request=request, op_type='delete', obj_type='area',
                              obj_id=pk, obj_name=area.name, detail=f"删除区域")
+
+        # 调用增强版的缓存清理
         clear_area_cache(area_id=pk)
+
         return JsonResponse({'code': 1, 'msg': '删除成功'})
     except Exception as e:
         logger.error(f"删除区域失败：{str(e)}")
