@@ -27,7 +27,10 @@ from accounts.models import (
 )
 
 # 业务模型
-from bill.models import Product, ProductAlias, Order, OrderItem, CustomerPrice, Area
+from bill.models import Order, OrderItem
+from product.models import Product,ProductAlias
+from customer_manage.models import CustomerPrice,RepaymentRecord
+from area_manage.models import Area
 
 # ====================== 缓存常量配置 ======================
 CACHE_AREA = 3600

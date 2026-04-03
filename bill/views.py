@@ -8,10 +8,15 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 # ========== 新增：页面缓存装饰器 ==========
 from django.views.decorators.cache import cache_page
-from .models import Product, Order, OrderItem, ProductAlias, DailySalesSummary, CustomerPrice, Customer, Area
+from .models import Order, OrderItem
+from product.models import Product,ProductAlias
+from customer_manage.models import Customer,CustomerPrice
+from area_manage.models import Area
+from summary.models import DailySalesSummary
+
 from django.db.models import Q, Sum, Count, Case, When, DecimalField
 import json
-from datetime import date, datetime, timedelta
+from datetime import  datetime, timedelta
 from .utils import generate_daily_summary, auto_summary_yesterday
 from django.contrib.auth.decorators import login_required
 from functools import wraps

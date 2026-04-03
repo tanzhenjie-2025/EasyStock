@@ -3,11 +3,15 @@ from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
-# ========== 新增缓存导入 ==========
 from django.views.decorators.cache import cache_page
 
 from accounts.models import ROLE_SUPER_ADMIN, PERM_LOG_VIEW_ALL
-from bill.models import Customer, Area, ProductAlias, CustomerPrice, Product, OrderItem, Order, RepaymentRecord
+from bill.models import OrderItem, Order
+from product.models import Product,ProductAlias
+from customer_manage.models import Customer,CustomerPrice,RepaymentRecord
+from area_manage.models import Area
+
+
 from django.db.models import Sum, F, Q, Max, Count
 from django.db.models.functions import Coalesce
 import datetime

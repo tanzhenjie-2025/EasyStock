@@ -1,7 +1,9 @@
 # bill/utils.py
 from datetime import date, datetime, timedelta
 from django.db.models import Sum
-from .models import Order, OrderItem, DailySalesSummary, Product
+from .models import Order, OrderItem
+from product.models import Product
+from summary.models import DailySalesSummary
 
 
 def generate_daily_summary(target_date: date, is_manual=False):

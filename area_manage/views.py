@@ -11,7 +11,10 @@ import json
 
 from accounts.models import Permission
 from accounts.views import permission_required, create_operation_log
-from bill.models import Area, AreaGroup, Customer, Order
+from bill.models import  Order
+from area_manage.models import Area, AreaGroup
+from customer_manage.models import Customer
+
 
 # 配置日志
 logger = logging.getLogger(__name__)

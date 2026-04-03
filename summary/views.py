@@ -3,7 +3,7 @@ from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.cache import cache_page
-from datetime import datetime, date
+from datetime import datetime
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill
 from io import BytesIO
@@ -13,17 +13,32 @@ from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.db.models import Sum, F, DecimalField, Q, Prefetch
 from django.db.models.functions import Coalesce
 
+# ========== 核心导入 ==========
+from accounts.models import User, Role, Permission, ROLE_SUPER_ADMIN, PERM_ORDER_SUMMARY, PERM_PRODUCT_VIEW
+from accounts.views import permission_required, create_operation_log, get_client_ip
+from bill.models import Order, OrderItem
+from product.models import Product
+from customer_manage.models import Customer
+from area_manage.models import Area, AreaGroup
+
+from operation_log.models import OperationLog
+from django.utils import timezone
+
 # ========== 缓存时长常量配置 ==========
-CACHE_HIGH_PRIORITY = 300    # 复杂聚合查询 5分钟
-CACHE_MID_PRIORITY = 600     # 静态数据 10分钟
+CACHE_HIGH_PRIORITY = 300  # 复杂聚合查询 5分钟
+CACHE_MID_PRIORITY = 600  # 静态数据 10分钟
+
 
 # ========== 通用优化函数 ==========
 def parse_datetime(date_str):
-    """通用时间解析函数"""
+    """通用时间解析函数 - 返回 Django aware datetime"""
     try:
-        return datetime.strptime(date_str.replace('T', ' '), '%Y-%m-%d %H:%M')
+        naive_dt = datetime.strptime(date_str.replace('T', ' '), '%Y-%m-%d %H:%M')
+        # 关键修改：将原生 datetime 转换为带时区信息的 aware datetime
+        return timezone.make_aware(naive_dt)
     except ValueError:
         return None
+
 
 def get_area_ids_by_group(group_id):
     """【优化】极速获取区域ID列表"""
@@ -34,12 +49,6 @@ def get_area_ids_by_group(group_id):
     except AreaGroup.DoesNotExist:
         return []
 
-# ========== 核心导入 ==========
-from accounts.models import User, Role, Permission, ROLE_SUPER_ADMIN, PERM_ORDER_SUMMARY, PERM_PRODUCT_VIEW
-from accounts.views import permission_required, create_operation_log, get_client_ip
-from bill.models import Product, Order, OrderItem, AreaGroup, Area, Customer
-from operation_log.models import OperationLog
-from django.utils import timezone
 
 # ========== 通用日志 ==========
 def create_summary_operation_log(request, operation_type, object_type, object_id=None, object_name=None,
@@ -49,12 +58,14 @@ def create_summary_operation_log(request, operation_type, object_type, object_id
         obj_id=object_id, obj_name=object_name, detail=operation_detail
     )
 
+
 # ========== 核心业务视图 ==========
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
 def summary_page(request):
     """商品汇总页面"""
     return render(request, 'summary/summary.html')
+
 
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
@@ -73,11 +84,10 @@ def summary_by_group(request):
     area_ids = get_area_ids_by_group(group_id)
     group_name = '全部区域' if group_id == '0' else AreaGroup.objects.get(id=group_id).name
 
-    # 时间校验
-    try:
-        start = datetime.strptime(start_datetime.replace('T', ' '), '%Y-%m-%d %H:%M')
-        end = datetime.strptime(end_datetime.replace('T', ' '), '%Y-%m-%d %H:%M')
-    except ValueError:
+    # 时间校验 (修改：统一使用 parse_datetime)
+    start = parse_datetime(start_datetime)
+    end = parse_datetime(end_datetime)
+    if not start or not end:
         return JsonResponse({'code': 0, 'msg': '时间格式错误'})
 
     # 🔥 核心优化：查询顺序匹配索引前缀，100%命中索引
@@ -115,6 +125,7 @@ def summary_by_group(request):
 
     return JsonResponse({'code': 1, 'data': data, 'total_amount': float(total_amount)})
 
+
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
 @cache_page(CACHE_MID_PRIORITY)
@@ -128,11 +139,13 @@ def group_list(request):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'加载失败：{str(e)}'}, status=400)
 
+
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
 def customer_summary_page(request):
     """客户汇总页面"""
     return render(request, 'summary/customer_summary.html')
+
 
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
@@ -147,11 +160,10 @@ def summary_customer_by_group(request):
     if not all([group_id, start_datetime, end_datetime]):
         return JsonResponse({'code': 0, 'msg': '请选择组和时间范围'})
 
-    # 时间校验
-    try:
-        start = datetime.strptime(start_datetime.replace('T', ' '), '%Y-%m-%d %H:%M')
-        end = datetime.strptime(end_datetime.replace('T', ' '), '%Y-%m-%d %H:%M')
-    except ValueError:
+    # 时间校验 (修改：统一使用 parse_datetime)
+    start = parse_datetime(start_datetime)
+    end = parse_datetime(end_datetime)
+    if not start or not end:
         return JsonResponse({'code': 0, 'msg': '时间格式错误'})
 
     # 区域处理
@@ -182,7 +194,9 @@ def summary_customer_by_group(request):
     } for idx, item in enumerate(customer_summary, 1)]
 
     create_summary_operation_log(request=request, operation_type='query', object_type='customer_summary')
-    return JsonResponse({'code': 1, 'data': data, 'total_amount': float(total_amount), 'msg': '查询成功' if data else '无消费数据'})
+    return JsonResponse(
+        {'code': 1, 'data': data, 'total_amount': float(total_amount), 'msg': '查询成功' if data else '无消费数据'})
+
 
 # ========== Excel导出（优化索引匹配） ==========
 def export_to_excel(data, title, headers, selected_fields, custom_fields, file_name, total_row=None):
@@ -246,6 +260,7 @@ def export_to_excel(data, title, headers, selected_fields, custom_fields, file_n
     response['Content-Disposition'] = f'attachment; filename="{file_name}.xlsx"'
     return response
 
+
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
 @csrf_exempt
@@ -263,8 +278,12 @@ def export_product_summary(request):
             if not all([group_id, start_datetime, end_datetime, selected_fields]):
                 return JsonResponse({'code': 0, 'msg': '参数不完整'})
 
-            start = datetime.strptime(start_datetime.replace('T', ' '), '%Y-%m-%d %H:%M')
-            end = datetime.strptime(end_datetime.replace('T', ' '), '%Y-%m-%d %H:%M')
+            # 修改：统一使用 parse_datetime
+            start = parse_datetime(start_datetime)
+            end = parse_datetime(end_datetime)
+            if not start or not end:
+                return JsonResponse({'code': 0, 'msg': '时间格式错误'})
+
             area_ids = get_area_ids_by_group(group_id)
             group_name = '全部区域' if group_id == '0' else AreaGroup.objects.get(id=group_id).name
 
@@ -290,15 +309,20 @@ def export_product_summary(request):
             } for idx, item in enumerate(items, 1)]
 
             create_summary_operation_log(request=request, operation_type='export', object_type='product_summary')
+
+            # 修改：使用 timezone.localdate() 替代 date.today()
+            file_date_str = timezone.localdate().strftime("%Y%m%d")
+
             return export_to_excel(
                 data=export_data, title='商品汇总', headers={
                     'serial': '序号', 'name': '商品名称', 'unit': '单位', 'price': '单价',
                     'total_qty': '数量', 'total_amt': '总金额', 'remark': '备注'
                 }, selected_fields=selected_fields, custom_fields=custom_fields,
-                file_name=f'{date.today().strftime("%Y%m%d")}商品汇总_{group_name}', total_row={'total_amt': total_amount}
+                file_name=f'{file_date_str}商品汇总_{group_name}', total_row={'total_amt': total_amount}
             )
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'}, status=500)
+
 
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
@@ -317,8 +341,12 @@ def export_customer_summary(request):
             if not all([group_id, start_datetime, end_datetime, selected_fields]):
                 return JsonResponse({'code': 0, 'msg': '参数不完整'})
 
-            start = datetime.strptime(start_datetime.replace('T', ' '), '%Y-%m-%d %H:%M')
-            end = datetime.strptime(end_datetime.replace('T', ' '), '%Y-%m-%d %H:%M')
+            # 修改：统一使用 parse_datetime
+            start = parse_datetime(start_datetime)
+            end = parse_datetime(end_datetime)
+            if not start or not end:
+                return JsonResponse({'code': 0, 'msg': '时间格式错误'})
+
             area_ids = get_area_ids_by_group(group_id)
 
             # 🔥 索引匹配查询
@@ -332,23 +360,29 @@ def export_customer_summary(request):
                 'customer__name', 'customer__remark'
             ).annotate(total_amount=Sum('total_amount')).order_by('-total_amount')
 
-            total_amount = customer_summary.aggregate(total=Coalesce(Sum('total_amount'), 0, output_field=DecimalField()))['total']
+            total_amount = \
+            customer_summary.aggregate(total=Coalesce(Sum('total_amount'), 0, output_field=DecimalField()))['total']
             export_data = [{
                 'serial': idx, 'customer_name': item['customer__name'],
                 'total_amount': float(item['total_amount'] or 0), 'remark': item['customer__remark'] or ''
             } for idx, item in enumerate(customer_summary, 1)]
 
             create_summary_operation_log(request=request, operation_type='export', object_type='customer_summary')
+
+            # 修改：使用 timezone.localdate() 替代 date.today()
+            file_date_str = timezone.localdate().strftime("%Y%m%d")
+
             return export_to_excel(
                 data=export_data, title='客户汇总', headers={
                     'serial': '序号', 'customer_name': '客户名称',
                     'total_amount': '金额', 'remark': '备注'
                 }, selected_fields=selected_fields, custom_fields=custom_fields,
-                file_name=f'{date.today().strftime("%Y%m%d")}{"全部区域" if group_id=="0" else AreaGroup.objects.get(id=group_id).name}',
+                file_name=f'{file_date_str}{"全部区域" if group_id == "0" else AreaGroup.objects.get(id=group_id).name}',
                 total_row={'total_amount': total_amount}
             )
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'}, status=500)
+
 
 @login_required
 @permission_required(PERM_PRODUCT_VIEW)
@@ -362,11 +396,13 @@ def product_list_for_price(request):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'}, status=500)
 
+
 @login_required
 def customer_amount_detail_page(request, customer_id):
     """客户金额详情页"""
     customer = get_object_or_404(Customer, id=customer_id)
     return render(request, 'summary/amount_detail.html', {'customer': customer, 'customer_id': customer_id})
+
 
 @login_required
 def get_customer_order_source(request, customer_id):
@@ -417,6 +453,7 @@ def get_customer_order_source(request, customer_id):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'}, status=500)
 
+
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
 def product_summary_detail_page(request, product_id):
@@ -430,6 +467,7 @@ def product_summary_detail_page(request, product_id):
         'group_name': group_name, 'start_date': request.GET.get('start_date', ''),
         'end_date': request.GET.get('end_date', '')
     })
+
 
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
