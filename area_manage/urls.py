@@ -23,4 +23,7 @@ urlpatterns = [
     path('api/group/edit/<int:pk>/', views.group_edit, name='group_edit'),
     path('api/group/delete/<int:pk>/', views.group_delete, name='group_delete'),
     path('api/group/detail/<int:pk>/', views.group_detail_api, name='group_detail_api'),
+    # 区域导出导入
+    path('api/area/import/', views.area_import, name='area_import'),
+    path('api/area/export/', views.area_export, name='area_export'),
 ]

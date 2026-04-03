@@ -6,196 +6,93 @@
 <!-- 页面专属样式 -->
 {% block extra_css %}
 <style>
-    /* 行高亮样式 */
-    #list tr {
-        transition: background-color 0.2s ease;
-        cursor: pointer;
-    }
-    #list tr:hover td {
-        background-color: #f1f1f1 !important;
-    }
-    #list tr td:last-child {
-        cursor: default;
-    }
-
-    /* 搜索框样式 */
-    .search-container {
-        margin: 10px 0;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-    .search-input {
-        padding: 4px 8px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        width: 300px;
-    }
-    .search-btn, .clear-btn {
-        padding: 4px 12px;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-    }
-    .search-btn {
-        background: #007bff;
-        color: white;
-    }
-    .clear-btn {
-        background: #dc3545;
-        color: white;
-    }
-    /* 搜索记录样式 */
-    .search-history {
-        margin: 8px 0;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-    }
-    .history-tag {
-        padding: 2px 8px;
-        background: #e9ecef;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 12px;
-    }
-    .history-tag:hover {
-        background: #007bff;
-        color: white;
-    }
-    /* 无结果提示 */
-    .no-result {
-        text-align: center;
-        color: #999;
-        padding: 20px;
-    }
-
-    /* 吐司提示样式 */
-    .toast-container {
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        z-index: 9999;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-    }
-    .toast {
-        padding: 12px 20px;
-        border-radius: 4px;
-        color: white;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-        animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s;
-        opacity: 0;
-        transform: translateX(100%);
-    }
+    /* 原有样式保持不变 */
+    #list tr { transition: background-color 0.2s ease; cursor: pointer; }
+    #list tr:hover td { background-color: #f1f1f1 !important; }
+    #list tr td:last-child { cursor: default; }
+    .search-container { margin: 10px 0; display: flex; align-items: center; gap: 8px; }
+    .search-input { padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; width: 300px; }
+    .search-btn, .clear-btn { padding: 4px 12px; border: none; border-radius: 4px; cursor: pointer; }
+    .search-btn { background: #007bff; color: white; }
+    .clear-btn { background: #dc3545; color: white; }
+    .search-history { margin: 8px 0; display: flex; flex-wrap: wrap; gap: 6px; }
+    .history-tag { padding: 2px 8px; background: #e9ecef; border-radius: 4px; cursor: pointer; font-size: 12px; }
+    .history-tag:hover { background: #007bff; color: white; }
+    .no-result { text-align: center; color: #999; padding: 20px; }
+    .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
+    .toast { padding: 12px 20px; border-radius: 4px; color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.15); animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s; opacity: 0; transform: translateX(100%); }
     .toast-success { background-color: #28a745; }
     .toast-error { background-color: #dc3545; }
     .toast-warning { background-color: #ffc107; color: #333; }
     .toast-info { background-color: #17a2b8; }
-
-    @keyframes slideIn {
-        from { opacity: 0; transform: translateX(100%); }
-        to { opacity: 1; transform: translateX(0); }
-    }
-    @keyframes fadeOut {
-        from { opacity: 1; transform: translateX(0); }
-        to { opacity: 0; transform: translateX(100%); }
-    }
-
-    /* 弹窗样式 */
-    .modal-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background-color: rgba(0,0,0,0.5);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 10000;
-        opacity: 0;
-        visibility: hidden;
-        transition: opacity 0.3s ease, visibility 0.3s ease;
-    }
-    .modal-overlay.active {
-        opacity: 1;
-        visibility: visible;
-    }
-    .modal-box {
-        background-color: white;
-        padding: 20px;
-        border-radius: 8px;
-        width: 90%;
-        max-width: 400px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    }
-    .modal-title {
-        font-size: 16px;
-        font-weight: 600;
-        margin-bottom: 15px;
-        color: #333;
-    }
-    .modal-input {
-        width: 100%;
-        padding: 8px 12px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        margin-bottom: 15px;
-        font-size: 14px;
-    }
-    .modal-buttons {
-        display: flex;
-        justify-content: flex-end;
-        gap: 10px;
-        margin-top: 20px;
-    }
-    .modal-btn {
-        padding: 8px 16px;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 14px;
-    }
-    .modal-btn-confirm {
-        background-color: #007bff;
-        color: white;
-    }
-    .modal-btn-cancel {
-        background-color: #6c757d;
-        color: white;
-    }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }
+    @keyframes fadeOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(100%); } }
+    .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000; opacity: 0; visibility: hidden; transition: opacity 0.3s ease, visibility 0.3s ease; }
+    .modal-overlay.active { opacity: 1; visibility: visible; }
+    .modal-box { background-color: white; padding: 20px; border-radius: 8px; width: 90%; max-width: 400px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+    .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 15px; color: #333; }
+    .modal-input { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 15px; font-size: 14px; }
+    .modal-buttons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+    .modal-btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+    .modal-btn-confirm { background-color: #007bff; color: white; }
+    .modal-btn-cancel { background-color: #6c757d; color: white; }
     .confirm-modal .modal-box { max-width: 350px; }
     .confirm-modal .modal-content { margin-bottom: 20px; color: #555; }
-
-    /* --- 新增：复合表单弹窗样式 --- */
     .form-modal .modal-box { max-width: 600px; }
     .form-group { margin-bottom: 15px; }
     .form-label { display: block; margin-bottom: 5px; font-weight: 500; color: #333; font-size: 14px; }
     .form-input { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box; }
     .form-textarea { min-height: 80px; resize: vertical; }
-
-    /* --- 新增：区域选择表格样式 --- */
     .area-select-table-container { max-height: 300px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px; margin-top: 5px; }
     .area-select-table { width: 100%; border-collapse: collapse; font-size: 13px; }
     .area-select-table th, .area-select-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #eee; }
     .area-select-table th { background-color: #f8f9fa; position: sticky; top: 0; z-index: 1; }
     .area-select-table tr { cursor: pointer; transition: background-color 0.15s; }
     .area-select-table tr:hover { background-color: #e9ecef; }
-    /* 选中状态样式 */
     .area-select-table tr.selected { background-color: #cce5ff; color: #004085; }
     .area-select-table tr.selected:hover { background-color: #b8daff; }
-    
     .selected-count-tip { font-size: 12px; color: #666; margin-top: 5px; }
+
+    /* 🔥 新增：按钮组间距 */
+    .btn-group-action { gap: 8px; display: flex; align-items: center; }
+
+    /* 🔥 新增：导出模态框相关样式 */
+    .field-checkbox { margin: 5px 0; }
+    .select-all-btn { margin-bottom: 10px; }
+    .custom-fields-section {
+        border-top: 1px solid #eee;
+        margin-top: 15px;
+        padding-top: 15px;
+    }
+    .custom-field-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 10px;
+        padding: 8px;
+        background: #f8f9fa;
+        border-radius: 4px;
+    }
+    .custom-field-item input {
+        flex: 1;
+    }
+    .custom-field-item select {
+        width: 120px;
+    }
+    .btn-add-custom {
+        margin-top: 10px;
+        margin-bottom: 15px;
+    }
 </style>
 {% endblock %}
 
 <!-- 页面专属内容 -->
 {% block content %}
     <h3>区域管理</h3>
-    <div class="my-3">
+    <div class="my-3 btn-group-action">
         <button class="btn btn-sm btn-primary" onclick="add()">新增区域</button>
+        <button class="btn btn-sm btn-success" onclick="exportData()">📥 导出数据</button>
+        <button class="btn btn-sm btn-warning" onclick="showImportModal()">📤 导入数据</button>
     </div>
 
     <!-- 搜索框 -->
@@ -212,6 +109,58 @@
         </thead>
         <tbody id="list"></tbody>
     </table>
+
+    <!-- 🔥 新增：导出字段选择模态框 -->
+    <div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="exportModalLabel">选择导出字段</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- 全选/取消全选按钮 -->
+                    <div class="select-all-btn">
+                        <button type="button" class="btn btn-xs btn-outline-primary" onclick="selectAllFields(true)">全选</button>
+                        <button type="button" class="btn btn-xs btn-outline-secondary ms-1" onclick="selectAllFields(false)">取消全选</button>
+                    </div>
+                    
+                    <!-- 区域字段选项 -->
+                    <div class="field-checkbox">
+                        <input type="checkbox" id="field_serial" name="export_fields" value="serial" checked>
+                        <label for="field_serial">序号</label>
+                    </div>
+                    <div class="field-checkbox">
+                        <input type="checkbox" id="field_id" name="export_fields" value="id" checked>
+                        <label for="field_id">ID</label>
+                    </div>
+                    <div class="field-checkbox">
+                        <input type="checkbox" id="field_name" name="export_fields" value="name" checked>
+                        <label for="field_name">区域名</label>
+                    </div>
+                    <div class="field-checkbox">
+                        <input type="checkbox" id="field_remark" name="export_fields" value="remark" checked>
+                        <label for="field_remark">备注</label>
+                    </div>
+                    
+                    <!-- 自定义字段区域 -->
+                    <div class="custom-fields-section">
+                        <h6>自定义字段（用于手动填写）</h6>
+                        <div id="customFieldsContainer">
+                            <!-- 自定义字段项将动态添加到这里 -->
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-success btn-add-custom" onclick="addCustomField()">
+                            + 添加自定义字段
+                        </button>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="exportExcel()">确认导出</button>
+                </div>
+            </div>
+        </div>
+    </div>
 {% endblock %}
 
 <!-- 页面专属JS -->
@@ -220,7 +169,10 @@
         // 常量定义
         const SEARCH_HISTORY_KEY = 'areaSearchHistory';
         const MAX_HISTORY_COUNT = 5;
-        let currentPage = 1; // 新增：当前页码
+        let currentPage = 1; 
+
+        // 全局变量（导出用）
+        let customFieldCount = 0;
 
         // 吐司提示
         function showToast(message, type = 'info', duration = 3000) {
@@ -265,7 +217,7 @@
             });
         }
 
-        // --- 新增：复合表单弹窗 (区域编辑/新增通用) ---
+        // 复合表单弹窗
         function showAreaFormModal(title, initialData = {}, callback) {
             document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
             let overlay = document.createElement('div');
@@ -299,7 +251,6 @@
             const confirmBtn = overlay.querySelector('.modal-btn-confirm');
 
             inputName.focus();
-            
             const closeModal = () => overlay.remove();
 
             cancelBtn.addEventListener('click', () => { closeModal(); callback(null); });
@@ -319,9 +270,217 @@
             });
         }
 
-        // ✅ 修复：支持分页+搜索的加载函数
+        // 🔥 新增：导入弹窗
+        function showImportModal() {
+            document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
+            let overlay = document.createElement('div');
+            overlay.className = 'modal-overlay form-modal';
+            
+            overlay.innerHTML = `
+                <div class="modal-box">
+                    <div class="modal-title">导入区域数据</div>
+                    <div class="form-group">
+                        <label class="form-label">选择 Excel 文件</label>
+                        <input type="file" class="form-input" id="import-file-input" accept=".xlsx, .xls">
+                        <div class="selected-count-tip" style="margin-top: 10px;">
+                            提示：请确保格式为 [序号, 区域, 备注]，系统会自动跳过重复的区域名。
+                        </div>
+                    </div>
+                    <div class="modal-buttons">
+                        <button class="modal-btn modal-btn-cancel">取消</button>
+                        <button class="modal-btn modal-btn-confirm" id="btn-confirm-import">开始导入</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+            setTimeout(() => overlay.classList.add('active'), 10);
+
+            const cancelBtn = overlay.querySelector('.modal-btn-cancel');
+            const confirmBtn = overlay.querySelector('#btn-confirm-import');
+            const fileInput = overlay.querySelector('#import-file-input');
+
+            const closeModal = () => overlay.remove();
+
+            cancelBtn.addEventListener('click', closeModal);
+            confirmBtn.addEventListener('click', () => {
+                if (!fileInput.files || fileInput.files.length === 0) {
+                    showToast('请先选择文件', 'warning');
+                    return;
+                }
+                
+                let formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+
+                confirmBtn.disabled = true;
+                confirmBtn.textContent = '导入中...';
+
+                $.ajax({
+                    url: '/area-manage/api/area/import/',
+                    type: 'POST',
+                    data: formData,
+                    headers: {'X-CSRFToken': getCsrfToken()},
+                    processData: false,
+                    contentType: false,
+                    success: function(res){
+                        showToast(res.msg, res.code === 1 ? 'success' : 'error');
+                        if(res.code === 1) {
+                            closeModal();
+                            load(); // 刷新列表
+                        }
+                    },
+                    error: function(){
+                        showToast('网络错误，导入失败！', 'error');
+                    },
+                    complete: function(){
+                        confirmBtn.disabled = false;
+                        confirmBtn.textContent = '开始导入';
+                    }
+                });
+            });
+        }
+
+        // ==================== 导出相关函数开始 ====================
+        
+        // 🔥 修改：导出按钮点击事件（打开模态框）
+        function exportData() {
+            showExportModal();
+        }
+
+        // 显示导出模态框
+        function showExportModal() {
+            // 重置自定义字段
+            customFieldCount = 0;
+            $('#customFieldsContainer').empty();
+            const modal = new bootstrap.Modal(document.getElementById('exportModal'));
+            modal.show();
+        }
+
+        // 全选/取消全选字段
+        function selectAllFields(isSelect) {
+            $('input[name="export_fields"]').prop('checked', isSelect);
+        }
+
+        // 添加自定义字段
+        function addCustomField() {
+            customFieldCount++;
+            
+            // 获取所有可选的目标字段
+            let targetFieldsHtml = '';
+            $('input[name="export_fields"]').each(function() {
+                const fieldValue = $(this).val();
+                const fieldLabel = $(this).next('label').text();
+                targetFieldsHtml += `<option value="${fieldValue}">${fieldLabel}</option>`;
+            });
+            
+            const customFieldHtml = `
+            <div class="custom-field-item" data-index="${customFieldCount}">
+                <input type="text" class="form-control form-control-sm custom-field-name" placeholder="字段名称（如：上次金额）" value="备注${customFieldCount}">
+                <select class="form-select form-select-sm custom-field-position">
+                    <option value="after">在...之后</option>
+                    <option value="before">在...之前</option>
+                </select>
+                <select class="form-select form-select-sm custom-field-target">
+                    ${targetFieldsHtml}
+                </select>
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeCustomField(${customFieldCount})">×</button>
+            </div>
+            `;
+            
+            $('#customFieldsContainer').append(customFieldHtml);
+        }
+
+        // 移除自定义字段
+        function removeCustomField(index) {
+            $(`.custom-field-item[data-index="${index}"]`).remove();
+        }
+
+        // 执行导出Excel
+        function exportExcel() {
+            // 1. 获取选中的字段
+            let selectedFields = [];
+            $('input[name="export_fields"]:checked').each(function() {
+                selectedFields.push($(this).val());
+            });
+
+            if (selectedFields.length === 0) {
+                return alert('请至少选择一个导出字段');
+            }
+
+            // 2. 获取自定义字段配置
+            let customFields = [];
+            $('.custom-field-item').each(function() {
+                const name = $(this).find('.custom-field-name').val().trim();
+                const position = $(this).find('.custom-field-position').val();
+                const target = $(this).find('.custom-field-target').val();
+                
+                if (name) {
+                    customFields.push({
+                        name: name,
+                        position: position,
+                        target: target
+                    });
+                }
+            });
+
+            // 3. 构建表单数据
+            let formData = new FormData();
+            formData.append('custom_fields', JSON.stringify(customFields));
+            
+            selectedFields.forEach(field => {
+                formData.append('fields[]', field);
+            });
+
+            // 4. 发起导出请求
+            $.ajax({
+                url: '/area-manage/api/area/export/',
+                type: 'POST',
+                data: formData,
+                headers: {'X-CSRFToken': getCsrfToken()},
+                processData: false,
+                contentType: false,
+                xhrFields: {
+                    responseType: 'blob'
+                },
+                success: function(res, status, xhr) {
+                    // 检查是否是错误响应
+                    const contentType = xhr.getResponseHeader('Content-Type');
+                    if (contentType && contentType.includes('application/json')) {
+                        const reader = new FileReader();
+                        reader.onload = function() {
+                            const error = JSON.parse(this.result);
+                            alert('导出失败：' + error.msg);
+                        };
+                        reader.readAsText(res);
+                        return;
+                    }
+
+                    // 关闭模态框
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
+                    modal.hide();
+
+                    // 生成下载链接
+                    const url = window.URL.createObjectURL(res);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    let today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+                    a.download = `${today}区域管理导出.xlsx`;
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                },
+                error: function(xhr) {
+                    let errorMsg = '导出失败，请重试';
+                    if (xhr.responseJSON) {
+                        errorMsg = xhr.responseJSON.msg || errorMsg;
+                    }
+                    alert(errorMsg);
+                }
+            });
+        }
+        // ==================== 导出相关函数结束 ====================
+
+        // 加载数据
         function load(keyword = '', page = 1){
-            currentPage = page; // 更新当前页
+            currentPage = page;
             let url = `/area-manage/api/area/list/?page=${page}`;
             if (keyword) url += `&keyword=${encodeURIComponent(keyword)}`;
 
@@ -330,7 +489,7 @@
                 if(res.code === 0){
                     showToast(res.msg, 'error');
                     $('#list').html(`<tr><td colspan="4" class="no-result">${res.msg}</td></tr>`);
-                    renderPagination(res.pagination); // 渲染分页
+                    renderPagination(res.pagination);
                     return;
                 }
                 const list = res.data || [];
@@ -340,7 +499,6 @@
                     renderPagination(res.pagination);
                     return;
                 }
-                // 渲染数据
                 list.forEach(i=>{
                     html+=`<tr onclick="goToDetail(${i.id})">
                         <td>${i.id}</td>
@@ -354,36 +512,27 @@
                     </tr>`;
                 });
                 $('#list').html(html);
-                renderPagination(res.pagination); // 渲染分页组件
+                renderPagination(res.pagination);
             },'json').fail(function(error){
                 showToast(`加载失败！`, 'error');
                 $('#list').html(`<tr><td colspan="4" class="no-result">加载失败</td></tr>`);
             });
         }
 
-        // ✅ 新增：渲染分页按钮
+        // 渲染分页
         function renderPagination(pagination) {
-            // 先移除旧分页
             $('.pagination').remove();
             if (!pagination) return;
-            
             const { total, page, total_pages } = pagination;
             if(total_pages <= 1) return;
 
             let paginationHtml = `<nav class="mt-3"><ul class="pagination justify-content-center">`;
-            // 上一页
-            if(page > 1){
-                paginationHtml += `<li class="page-item"><a class="page-link" onclick="load($('#searchInput').val(), ${page-1})">上一页</a></li>`;
-            }
-            // 页码
+            if(page > 1) paginationHtml += `<li class="page-item"><a class="page-link" onclick="load($('#searchInput').val(), ${page-1})">上一页</a></li>`;
             for(let i=1; i<=total_pages; i++){
                 paginationHtml += `<li class="page-item ${i===page ? 'active' : ''}">
                     <a class="page-link" onclick="load($('#searchInput').val(), ${i})">${i}</a></li>`;
             }
-            // 下一页
-            if(page < total_pages){
-                paginationHtml += `<li class="page-item"><a class="page-link" onclick="load($('#searchInput').val(), ${page+1})">下一页</a></li>`;
-            }
+            if(page < total_pages) paginationHtml += `<li class="page-item"><a class="page-link" onclick="load($('#searchInput').val(), ${page+1})">下一页</a></li>`;
             paginationHtml += `</ul></nav>`;
             $('.table').after(paginationHtml);
         }
@@ -432,7 +581,7 @@
             searchAreas();
         }
 
-        // --- 修改：新增区域 ---
+        // 新增区域
         function add(){
             showAreaFormModal('新增区域', {}, (data) => {
                 if(!data) return;
@@ -451,7 +600,7 @@
             });
         }
 
-        // --- 修改：编辑区域 ---
+        // 编辑区域
         function edit(id){
             $.get(`/area-manage/api/area/detail/${id}/`,function(res){
                 if(res.code === 0 || !res.data){ showToast('区域不存在！', 'error'); return; }

@@ -1,6 +1,7 @@
 from django.db.models.functions import Coalesce
 from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
+from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
@@ -14,6 +15,12 @@ from accounts.views import permission_required, create_operation_log
 from bill.models import Order
 from area_manage.models import Area, AreaGroup
 from customer_manage.models import Customer
+
+import openpyxl
+from django.http import HttpResponse
+from io import BytesIO
+
+from summary.views import export_to_excel
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -543,3 +550,140 @@ def group_detail_page(request, pk):
         'update_time': format_datetime(group.update_time)  # 🔧 修复：不再错误使用create_time
     }
     return render(request, 'area_manage/group_detail.html', {'group': group_data})
+
+
+# ===================== 区域管理：导入导出新增代码 =====================
+@csrf_exempt
+@login_required
+@permission_required('area_add')
+def area_import(request):
+    """
+    区域批量导入：
+    读取Excel，跳过表头和序号列，区域名重复则跳过
+    """
+    if request.method == 'POST':
+        try:
+            file = request.FILES.get('file')
+            if not file:
+                return JsonResponse({'code': 0, 'msg': '请选择文件'})
+
+            wb = openpyxl.load_workbook(file)
+            ws = wb.active
+
+            imported_count = 0
+            skipped_count = 0
+            errors = []
+
+            # 从第2行开始遍历（第1行是表头）
+            for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+                # row结构: (序号, 区域名, 备注)
+                if len(row) < 2:
+                    continue
+
+                # 提取数据，忽略第一列序号
+                area_name = str(row[1]).strip() if row[1] else ''
+                remark = str(row[2]).strip() if len(row) > 2 and row[2] else ''
+
+                if not area_name:
+                    continue
+
+                # 检查是否已存在
+                if Area.objects.filter(name=area_name).exists():
+                    skipped_count += 1
+                    continue
+
+                # 创建新区域
+                Area.objects.create(name=area_name, remark=remark)
+                imported_count += 1
+
+            # 清理缓存
+            clear_area_cache()
+
+            # 记录日志
+            create_operation_log(
+                request=request, op_type='import', obj_type='area',
+                obj_id=0, obj_name='批量导入',
+                detail=f"导入成功：新增{imported_count}条，跳过{skipped_count}条重复"
+            )
+
+            return JsonResponse({
+                'code': 1,
+                'msg': f'导入完成！新增 {imported_count} 条，跳过 {skipped_count} 条重复数据'
+            })
+
+        except Exception as e:
+            logger.error(f"导入区域失败：{str(e)}", exc_info=True)
+            return JsonResponse({'code': 0, 'msg': f'导入失败：文件格式错误或数据异常'})
+    return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
+
+
+# ========== 区域导出新逻辑（支持字段选择） ==========
+@login_required
+@permission_required('area_view')
+def area_export(request):
+    """
+    区域批量导出（支持字段选择和自定义字段）
+    """
+    try:
+        if request.method == 'POST':
+            # 1. 获取选中的字段
+            selected_fields = request.POST.getlist('fields[]')
+            if not selected_fields:
+                return JsonResponse({'code': 0, 'msg': '请至少选择一个导出字段'})
+
+            # 2. 获取自定义字段
+            custom_fields_json = request.POST.get('custom_fields', '[]')
+            try:
+                custom_fields = json.loads(custom_fields_json)
+            except json.JSONDecodeError:
+                custom_fields = []
+
+            # 3. 定义表头映射
+            headers = {
+                'serial': '序号',
+                'id': 'ID',
+                'name': '区域名',
+                'remark': '备注'
+            }
+
+            # 4. 查询并格式化数据
+            areas = Area.objects.only('id', 'name', 'remark').order_by('id')
+            data = []
+            seq = 1
+            for area in areas:
+                data.append({
+                    'serial': seq,
+                    'id': area.id,
+                    'name': area.name,
+                    'remark': area.remark or ''
+                })
+                seq += 1
+
+            # 5. 生成文件名
+            date_str = timezone.now().strftime('%Y年%m月%d日')
+            file_name = f'{date_str}区域管理导出'
+
+            # 6. 调用通用导出函数（不传 total_row 即无合计）
+            response = export_to_excel(
+                data=data,
+                title='区域列表',
+                headers=headers,
+                selected_fields=selected_fields,
+                custom_fields=custom_fields,
+                file_name=file_name,
+                total_row=None
+            )
+
+            # 7. 记录日志
+            # 请确保你有 create_operation_log 函数，或者注释掉下面这一段
+            # create_operation_log(
+            #     request=request, op_type='export', obj_type='area',
+            #     obj_id=0, obj_name='批量导出', detail=f"导出区域数据共{len(data)}条"
+            # )
+
+            return response
+        else:
+            return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+    except Exception as e:
+        logger.error(f"导出区域失败：{str(e)}", exc_info=True)
+        return JsonResponse({'code': 0, 'msg': '导出失败'})
