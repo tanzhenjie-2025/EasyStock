@@ -116,7 +116,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'zh-hans'  # ✅ 正确：中文界面
 TIME_ZONE = 'Asia/Shanghai'  # ✅ 正确：中国时区
-USE_TZ = False  # ✅ 开发环境推荐：关闭时区转换，避免时间混乱
+USE_TZ = True  # ✅ 开发环境推荐：关闭时区转换，避免时间混乱
 USE_I18N = True
 
 
