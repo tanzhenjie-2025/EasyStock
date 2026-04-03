@@ -4,6 +4,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 from django.views.decorators.cache import cache_page
+from django.core.cache import cache
 
 from accounts.models import ROLE_SUPER_ADMIN, PERM_LOG_VIEW_ALL
 from bill.models import OrderItem, Order
@@ -28,6 +29,8 @@ from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
 CACHE_HIGH_PRIORITY = 300  # 复杂聚合查询 5分钟
 CACHE_MID_PRIORITY = 600  # 静态数据/搜索接口 10分钟
 
+# 🔥 定义全局统一的缓存 Key
+CACHE_KEY_AREA_LIST_FOR_CUSTOMER = "global:area_list_for_customer"
 
 # 新增：全角转半角函数（处理输入容错）
 def full_to_half(s):
@@ -496,13 +499,21 @@ def customer_delete(request, pk):
 @login_required
 @permission_required('customer_view')
 @csrf_exempt
-# 📊 中优缓存：客户管理页静态区域列表
-@cache_page(CACHE_MID_PRIORITY)
 def area_list_for_customer(request):
-    """供客户管理页面获取区域下拉列表"""
+    """供客户管理页面获取区域下拉列表 - 手动缓存版"""
     try:
+        # 1. 尝试读取缓存
+        cached_data = cache.get(CACHE_KEY_AREA_LIST_FOR_CUSTOMER)
+        if cached_data:
+            return JsonResponse(cached_data, safe=False, content_type='application/json')
+
+        # 2. 缓存未命中，查询数据库
         areas = Area.objects.all().order_by('name')
         result = [{'id': a.id, 'name': a.name} for a in areas]
+
+        # 3. 写入缓存
+        cache.set(CACHE_KEY_AREA_LIST_FOR_CUSTOMER, result, CACHE_MID_PRIORITY)
+
         return JsonResponse(result, safe=False, content_type='application/json')
     except Exception as e:
         return JsonResponse(
