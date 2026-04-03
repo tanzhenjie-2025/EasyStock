@@ -31,8 +31,27 @@ CACHE_MID_PRIORITY = 600  # 静态数据/搜索接口 10分钟
 
 # 🔥 定义全局统一的缓存 Key
 CACHE_KEY_AREA_LIST_FOR_CUSTOMER = "global:area_list_for_customer"
+CACHE_PREFIX_CUSTOMER_LIST = "customer_list_"
+CACHE_PREFIX_CUSTOMER_DETAIL = "customer_detail_"
 
-# 新增：全角转半角函数（处理输入容错）
+import logging  # 1. 导入 logging 模块
+
+# 2. 获取 logger 实例
+logger = logging.getLogger(__name__)
+
+def clear_customer_cache(customer_id: int = None):
+    """
+    清理客户相关缓存
+    """
+    # 1. 清理所有客户列表缓存（因为分页/搜索参数多，直接通配符删除）
+    cache.delete_pattern(f"{CACHE_PREFIX_CUSTOMER_LIST}*")
+
+    # 2. 如果指定了ID，清理该客户的详情页缓存
+    if customer_id:
+        cache.delete_pattern(f"{CACHE_PREFIX_CUSTOMER_DETAIL}{customer_id}*")
+
+    logger.info(f"已清理客户缓存: {customer_id if customer_id else '全列表'}")
+
 def full_to_half(s):
     """将全角字符转换为半角"""
     if not s:
@@ -49,62 +68,55 @@ def full_to_half(s):
         result.append(chr(code_point))
     return ''.join(result)
 
-
-
-
-
 @login_required
 @permission_required('customer_view')
 @csrf_exempt
-# 🔥 高优缓存：客户列表复杂聚合+分页
-@cache_page(CACHE_HIGH_PRIORITY)
 def customer_list(request):
-    """优化版：无N+1、批量聚合、带分页"""
+    """优化版：无N+1、批量聚合、带分页 + 手动缓存"""
     try:
         keyword = request.GET.get('keyword', '').strip()
-        # 分页参数（默认10条/页，可修改）
         page = request.GET.get('page', 1)
         page_size = 10
 
-        # 1. 构建子查询：批量统计所有客户的 未结清金额、总消费、还款金额
-        # 子查询1：未结清订单总额 ✅ 修复：添加status排除作废，命中索引
+        # 1. 生成缓存 Key (包含用户、关键词、页码)
+        cache_key = f"{CACHE_PREFIX_CUSTOMER_LIST}{request.user.id}_{keyword}_{page}"
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return JsonResponse(cached_data, safe=False)
+
+        # 2. 构建子查询
         unpaid_subquery = Order.objects.filter(
             customer=OuterRef('pk'),
-            status__in=['pending', 'printed', 'reopened'],  # 索引必填+排除作废
+            status__in=['pending', 'printed', 'reopened'],
             is_settled=False
         ).values('customer').annotate(
             total=Sum('total_amount')
         ).values('total')
 
-        # 子查询2：总消费金额 ✅ 修复：添加status排除作废，命中索引
         consumption_subquery = Order.objects.filter(
             customer=OuterRef('pk'),
-            status__in=['pending', 'printed', 'reopened']  # 索引必填+排除作废
+            status__in=['pending', 'printed', 'reopened']
         ).values('customer').annotate(
             total=Sum('total_amount')
         ).values('total')
 
-        # 子查询3：还款总额
         paid_subquery = RepaymentRecord.objects.filter(
             customer=OuterRef('pk')
         ).values('customer').annotate(
             total=Sum('repayment_amount')
         ).values('total')
 
-        # 2. 主查询：一次性注解所有统计字段（核心优化）
+        # 3. 主查询
         customers = Customer.objects.all().select_related('area').annotate(
-            # 用Coalesce将NULL转为0，避免强转报错
             unpaid_amount=Coalesce(Subquery(unpaid_subquery), 0, output_field=DecimalField()),
             total_consumption=Coalesce(Subquery(consumption_subquery), 0, output_field=DecimalField()),
             paid_amount=Coalesce(Subquery(paid_subquery), 0, output_field=DecimalField()),
         )
 
-        # 搜索筛选 ✅ 修复：整型id不支持icontains，改为数字精准匹配
         if keyword:
             id_q = Q()
             if keyword.isdigit():
                 id_q = Q(id=int(keyword))
-
             customers = customers.filter(
                 Q(name__icontains=keyword) |
                 Q(phone__icontains=keyword) |
@@ -112,7 +124,7 @@ def customer_list(request):
                 Q(area__name__icontains=keyword)
             )
 
-        # 3. 分页（必加，防止全表拉取）
+        # 4. 分页
         paginator = Paginator(customers, page_size)
         try:
             customer_page = paginator.page(page)
@@ -121,13 +133,11 @@ def customer_list(request):
         except EmptyPage:
             customer_page = paginator.page(paginator.num_pages)
 
-        # 4. 构造结果（无任何数据库查询，纯内存处理）
+        # 5. 构造结果
         result = []
         for c in customer_page:
-            # 直接使用注解好的字段，无需查询
             total_debt = float(c.unpaid_amount - c.paid_amount)
             total_debt = max(total_debt, 0)
-
             result.append({
                 'id': c.id,
                 'name': c.name,
@@ -137,10 +147,12 @@ def customer_list(request):
                 'remark': c.remark or '',
                 'total_debt': total_debt,
                 'total_consumption': float(c.total_consumption),
-                # 可选：返回分页参数
                 'page': int(page),
                 'total': paginator.count
             })
+
+        # 6. 写入缓存
+        cache.set(cache_key, result, CACHE_HIGH_PRIORITY)
 
         return JsonResponse(result, safe=False)
     except Exception as e:
@@ -148,20 +160,23 @@ def customer_list(request):
 
 
 # 2. 客户详情（需customer_view权限）
-# 2. 客户详情（需customer_view权限）
 @login_required
 @permission_required('customer_view')
 @csrf_exempt
-# 🔥 高优缓存：客户详情多表关联+统计计算
-@cache_page(CACHE_HIGH_PRIORITY)
 def customer_detail(request, pk):
-    """客户详情接口：支持订单筛选 + 分页【性能优化版】"""
+    """客户详情接口 - 手动缓存版"""
     try:
-        customer = get_object_or_404(Customer, pk=pk)
+        # 1. 生成缓存 Key (包含 pk 和 GET 参数)
         settle_status = request.GET.get('settle_status', 'all')
-        # 分页参数
         page = request.GET.get('page', 1)
-        page_size = 10  # 每页10条
+        cache_key = f"{CACHE_PREFIX_CUSTOMER_DETAIL}{pk}_{settle_status}_{page}"
+
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return JsonResponse(cached_data, safe=False)
+
+        customer = get_object_or_404(Customer, pk=pk)
+        page_size = 10
 
         # 1. 订单基础查询
         base_orders = Order.objects.filter(
@@ -180,10 +195,11 @@ def customer_detail(request, pk):
         unpaid_orders = base_orders.filter(is_settled=False)
         unpaid_order_count = unpaid_orders.count()
         unpaid_amount = unpaid_orders.aggregate(total=Sum('total_amount'))['total'] or 0
-        paid_amount = RepaymentRecord.objects.filter(customer=customer).aggregate(total=Sum('repayment_amount'))['total'] or 0
+        paid_amount = RepaymentRecord.objects.filter(customer=customer).aggregate(total=Sum('repayment_amount'))[
+                          'total'] or 0
         total_debt = max(float(unpaid_amount) - float(paid_amount), 0)
 
-        # 3. 🔥 订单分页核心逻辑
+        # 3. 订单分页
         orders_query = orders_query.order_by('-create_time')
         paginator = Paginator(orders_query, page_size)
         try:
@@ -193,7 +209,7 @@ def customer_detail(request, pk):
         except EmptyPage:
             order_page = paginator.page(paginator.num_pages)
 
-        # 4. 分页订单数据格式化
+        # 4. 格式化数据
         order_list = []
         for order in order_page:
             order_list.append({
@@ -209,9 +225,10 @@ def customer_detail(request, pk):
                 'creator_role': order.creator.role.name if (order.creator and order.creator.role) else '未知'
             })
 
-        # 5. 还款记录（无分页，限制100条防超时）
+        # 5. 还款记录
         repayment_list = []
-        repayments = RepaymentRecord.objects.filter(customer=customer).select_related('operator__role').order_by('-repayment_time')[:100]
+        repayments = RepaymentRecord.objects.filter(customer=customer).select_related('operator__role').order_by(
+            '-repayment_time')[:100]
         for repay in repayments:
             repayment_list.append({
                 'id': repay.id,
@@ -240,8 +257,8 @@ def customer_detail(request, pk):
             'last_purchase_time': stat['last_purchase_time'].strftime('%Y-%m-%d') if stat['last_purchase_time'] else '无'
         } for stat in product_stats]
 
-        # 返回数据（新增分页字段）
-        return JsonResponse({
+        # 返回数据
+        response_data = {
             'code': 1, 'msg': '查询成功',
             'customer_info': {
                 'id': customer.id, 'name': customer.name,
@@ -252,14 +269,18 @@ def customer_detail(request, pk):
                 'total_debt': total_debt, 'unpaid_order_count': unpaid_order_count,
                 'unpaid_amount': float(unpaid_amount), 'paid_amount': float(paid_amount)
             },
-            # 分页数据
             'orders': order_list,
             'current_page': order_page.number,
             'total_pages': paginator.num_pages,
             'total_orders': paginator.count,
             'repayments': repayment_list,
             'product_stats': product_stats_list
-        }, safe=False)
+        }
+
+        # 写入缓存
+        cache.set(cache_key, response_data, CACHE_HIGH_PRIORITY)
+
+        return JsonResponse(response_data, safe=False)
 
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'}, safe=False)
@@ -273,17 +294,14 @@ def repayment_register(request):
     """还款登记接口"""
     if request.method == 'POST':
         try:
-            # 获取参数
             customer_id = request.POST.get('customer_id', '').strip()
             repayment_amount = request.POST.get('repayment_amount', '').strip()
             repayment_time = request.POST.get('repayment_time', '').strip()
             repayment_remark = request.POST.get('repayment_remark', '').strip()
 
-            # 校验必填项
             if not customer_id or not repayment_amount:
                 return JsonResponse({'code': 0, 'msg': '客户和还款金额不能为空'}, content_type='application/json')
 
-            # 校验金额
             try:
                 repayment_amount = float(repayment_amount)
                 if repayment_amount <= 0:
@@ -291,20 +309,16 @@ def repayment_register(request):
             except:
                 return JsonResponse({'code': 0, 'msg': '还款金额必须是数字'}, content_type='application/json')
 
-            # 校验客户
             customer = get_object_or_404(Customer, id=customer_id)
 
-            # 处理还款时间
             if repayment_time:
                 try:
                     repayment_time = timezone.make_aware(datetime.datetime.strptime(repayment_time, '%Y-%m-%d %H:%M'))
                 except:
-                    return JsonResponse({'code': 0, 'msg': '还款时间格式错误（正确格式：YYYY-MM-DD HH:MM）'},
-                                        content_type='application/json')
+                    return JsonResponse({'code': 0, 'msg': '还款时间格式错误'}, content_type='application/json')
             else:
                 repayment_time = timezone.now()
 
-            # 创建还款记录
             repayment = RepaymentRecord.objects.create(
                 customer=customer,
                 repayment_amount=repayment_amount,
@@ -313,20 +327,23 @@ def repayment_register(request):
                 operator=request.user if request.user.is_authenticated else None
             )
 
-            # 记录操作日志（复用accounts的函数）
             create_operation_log(
                 request=request,
                 op_type='repayment_register',
                 obj_type='repayment',
                 obj_id=repayment.id,
                 obj_name=f'{customer.name} - 还款¥{repayment_amount}',
-                detail=f"为客户{customer.name}登记还款：金额¥{repayment_amount}，时间{repayment_time.strftime('%Y-%m-%d %H:%M')}，备注：{repayment_remark if repayment_remark else '无'}"
+                detail=f"为客户{customer.name}登记还款"
             )
+
+            # 🔥 新增：还款后清理缓存
+            clear_customer_cache(customer_id=int(customer_id))
 
             return JsonResponse({'code': 1, 'msg': '还款登记成功'}, content_type='application/json')
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'登记失败：{str(e)}'}, content_type='application/json')
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
+
 
 
 # 4. 客户详情页面入口（需customer_view权限）✅ 页面，不缓存
@@ -353,13 +370,11 @@ def customer_add(request):
     """新增客户接口"""
     if request.method == 'POST':
         try:
-            # 获取前端参数
             name = request.POST.get('name', '').strip()
             area_id = request.POST.get('area_id', '').strip()
             phone = request.POST.get('phone', '').strip()
             remark = request.POST.get('remark', '').strip()
 
-            # 校验必填项
             if not name:
                 return JsonResponse({'code': 0, 'msg': '客户名称不能为空'}, content_type='application/json')
             if not area_id:
@@ -367,17 +382,14 @@ def customer_add(request):
             if not phone:
                 return JsonResponse({'code': 0, 'msg': '联系电话不能为空'}, content_type='application/json')
 
-            # 校验唯一性
             if Customer.objects.filter(name=name).exists():
                 return JsonResponse({'code': 0, 'msg': '客户名称已存在'}, content_type='application/json')
             if Customer.objects.filter(phone=phone).exists():
                 return JsonResponse({'code': 0, 'msg': '联系电话已存在'}, content_type='application/json')
 
-            # 校验区域是否存在
             area = get_object_or_404(Area, id=area_id)
             area_name = area.name
 
-            # 创建客户
             customer = Customer.objects.create(
                 name=name,
                 area=area,
@@ -385,15 +397,17 @@ def customer_add(request):
                 remark=remark
             )
 
-            # 记录操作日志（复用accounts的函数）
             create_operation_log(
                 request=request,
                 op_type='create',
                 obj_type='customer',
                 obj_id=customer.id,
                 obj_name=customer.name,
-                detail=f"新增客户：名称={customer.name}，所属区域={area_name}，联系电话={phone}，备注={remark if remark else '无'}"
+                detail=f"新增客户：名称={customer.name}"
             )
+
+            # 🔥 新增：清理缓存
+            clear_customer_cache()
 
             return JsonResponse({'code': 1, 'msg': '新增客户成功'}, content_type='application/json')
         except Exception as e:
@@ -410,13 +424,11 @@ def customer_edit(request, pk):
     try:
         customer = get_object_or_404(Customer, pk=pk)
         if request.method == 'POST':
-            # 获取参数
             name = request.POST.get('name', '').strip()
             area_id = request.POST.get('area_id', '').strip()
             phone = request.POST.get('phone', '').strip()
             remark = request.POST.get('remark', '').strip()
 
-            # 校验必填项
             if not name:
                 return JsonResponse({'code': 0, 'msg': '客户名称不能为空'}, content_type='application/json')
             if not area_id:
@@ -424,38 +436,30 @@ def customer_edit(request, pk):
             if not phone:
                 return JsonResponse({'code': 0, 'msg': '联系电话不能为空'}, content_type='application/json')
 
-            # 校验唯一性（排除自身）
             if Customer.objects.filter(name=name).exclude(pk=pk).exists():
                 return JsonResponse({'code': 0, 'msg': '客户名称已存在'}, content_type='application/json')
             if Customer.objects.filter(phone=phone).exclude(pk=pk).exists():
                 return JsonResponse({'code': 0, 'msg': '联系电话已存在'}, content_type='application/json')
 
-            # 校验区域
             area = get_object_or_404(Area, id=area_id)
-            new_area_name = area.name
 
-            # 保存修改前的信息（用于日志对比）
-            old_name = customer.name
-            old_area = customer.area.name if customer.area else '无'
-            old_phone = customer.phone
-            old_remark = customer.remark if customer.remark else '无'
-
-            # 更新客户信息
             customer.name = name
             customer.area = area
             customer.phone = phone
             customer.remark = remark
             customer.save()
 
-            # 记录操作日志（复用accounts的函数）
             create_operation_log(
                 request=request,
                 op_type='update',
                 obj_type='customer',
                 obj_id=customer.id,
                 obj_name=customer.name,
-                detail=f"编辑客户：原名称={old_name}→新名称={name}，原区域={old_area}→新区域={new_area_name}，原电话={old_phone}→新电话={phone}，原备注={old_remark}→新备注={remark if remark else '无'}"
+                detail=f"编辑客户"
             )
+
+            # 🔥 新增：清理缓存
+            clear_customer_cache(customer_id=pk)
 
             return JsonResponse({'code': 1, 'msg': '编辑客户成功'}, content_type='application/json')
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
@@ -471,24 +475,21 @@ def customer_delete(request, pk):
     """删除客户接口"""
     try:
         customer = get_object_or_404(Customer, pk=pk)
-        # 保存删除前的信息（删除后无法获取）
         customer_name = customer.name
-        customer_area = customer.area.name if customer.area else '无'
-        customer_phone = customer.phone
-        customer_remark = customer.remark if customer.remark else '无'
 
-        # 删除客户
         customer.delete()
 
-        # 记录操作日志（复用accounts的函数）
         create_operation_log(
             request=request,
             op_type='delete',
             obj_type='customer',
             obj_id=pk,
             obj_name=customer_name,
-            detail=f"删除客户：ID={pk}，名称={customer_name}，所属区域={customer_area}，联系电话={customer_phone}，备注={customer_remark}"
+            detail=f"删除客户"
         )
+
+        # 🔥 新增：清理缓存
+        clear_customer_cache(customer_id=pk)
 
         return JsonResponse({'code': 1, 'msg': '删除客户成功'}, content_type='application/json')
     except Exception as e:
@@ -502,16 +503,12 @@ def customer_delete(request, pk):
 def area_list_for_customer(request):
     """供客户管理页面获取区域下拉列表 - 手动缓存版"""
     try:
-        # 1. 尝试读取缓存
         cached_data = cache.get(CACHE_KEY_AREA_LIST_FOR_CUSTOMER)
         if cached_data:
             return JsonResponse(cached_data, safe=False, content_type='application/json')
 
-        # 2. 缓存未命中，查询数据库
         areas = Area.objects.all().order_by('name')
         result = [{'id': a.id, 'name': a.name} for a in areas]
-
-        # 3. 写入缓存
         cache.set(CACHE_KEY_AREA_LIST_FOR_CUSTOMER, result, CACHE_MID_PRIORITY)
 
         return JsonResponse(result, safe=False, content_type='application/json')
