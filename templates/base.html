@@ -54,6 +54,8 @@
     {% block extra_css %}{% endblock %}
 </head>
 <body>
+<!-- 这里的 主要是为了确保 Django 发送 cookie，非必须但推荐保留 -->
+    {% csrf_token %}
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
             <a class="navbar-brand" href="/bill/">EasyStock 系统</a>
@@ -141,20 +143,39 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        function getCsrfToken() {
-            let cookieValue = null;
-            if (document.cookie && document.cookie !== '') {
-                const cookies = document.cookie.split(';');
-                for (let i = 0; i < cookies.length; i++) {
-                    const cookie = cookies[i].trim();
-                    if (cookie.substring(0, 10) === 'csrftoken=') {
-                        cookieValue = decodeURIComponent(cookie.substring(10));
-                        break;
+        $(function () {
+            // 1. 从 Cookie 中获取 CSRF Token
+            function getCookie(name) {
+                let cookieValue = null;
+                if (document.cookie && document.cookie !== '') {
+                    const cookies = document.cookie.split(';');
+                    for (let i = 0; i < cookies.length; i++) {
+                        const cookie = jQuery.trim(cookies[i]);
+                        if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                            break;
+                        }
                     }
                 }
+                return cookieValue;
             }
-            return cookieValue;
-        }
+            const csrftoken = getCookie('csrftoken');
+
+            // 2. 定义安全的 HTTP 方法（这些方法不需要 CSRF）
+            function csrfSafeMethod(method) {
+                return (/^(GET|HEAD|OPTIONS|TRACE)$/.test(method));
+            }
+
+            // 3. 全局 AJAX 设置
+            $.ajaxSetup({
+                beforeSend: function (xhr, settings) {
+                    // 如果不是安全方法且不是跨域请求，则添加 CSRF Token 到 Header
+                    if (!csrfSafeMethod(settings.type) && !this.crossDomain) {
+                        xhr.setRequestHeader("X-CSRFToken", csrftoken);
+                    }
+                }
+            });
+        });
     </script>
     {% block extra_js %}{% endblock %}
 </body>

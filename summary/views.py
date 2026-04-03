@@ -69,7 +69,6 @@ def summary_page(request):
 
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
-@csrf_exempt
 @cache_page(CACHE_HIGH_PRIORITY)
 def summary_by_group(request):
     """商品汇总接口 - 严格匹配 OrderItem 统一索引 [product, order, quantity, amount]"""
@@ -149,7 +148,6 @@ def customer_summary_page(request):
 
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
-@csrf_exempt
 @cache_page(CACHE_HIGH_PRIORITY)
 def summary_customer_by_group(request):
     """客户汇总接口 - 匹配 Order 统一合并索引"""
@@ -263,7 +261,6 @@ def export_to_excel(data, title, headers, selected_fields, custom_fields, file_n
 
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
-@csrf_exempt
 def export_product_summary(request):
     """商品导出 - 命中OrderItem统一索引"""
     if request.method == 'POST':
@@ -326,7 +323,6 @@ def export_product_summary(request):
 
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
-@csrf_exempt
 def export_customer_summary(request):
     """客户导出 - 命中Order合并索引"""
     if request.method == 'POST':
@@ -386,7 +382,6 @@ def export_customer_summary(request):
 
 @login_required
 @permission_required(PERM_PRODUCT_VIEW)
-@csrf_exempt
 @cache_page(CACHE_MID_PRIORITY)
 def product_list_for_price(request):
     """商品列表接口"""
