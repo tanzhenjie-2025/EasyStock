@@ -120,7 +120,7 @@ def get_group_statistics(group_id):
 
 
 # ===================== 区域管理 CRUD =====================
-@csrf_exempt
+
 @login_required
 @permission_required('area_view')
 def area_list(request):
@@ -182,7 +182,7 @@ def area_list(request):
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'})
 
 
-@csrf_exempt
+
 @login_required
 @permission_required('area_view')
 def area_detail_api(request, pk):
@@ -224,7 +224,6 @@ def area_detail_api(request, pk):
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'})
 
 
-@csrf_exempt
 @login_required
 @permission_required('area_add')
 def area_add(request):
@@ -251,7 +250,6 @@ def area_add(request):
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
 
-@csrf_exempt
 @login_required
 @permission_required('area_edit')
 def area_edit(request, pk):
@@ -282,7 +280,6 @@ def area_edit(request, pk):
         return JsonResponse({'code': 0, 'msg': f'编辑失败：{str(e)}'})
 
 
-@csrf_exempt
 @login_required
 @permission_required('area_delete')
 def area_delete(request, pk):
@@ -303,7 +300,6 @@ def area_delete(request, pk):
 
 
 # ===================== 区域组管理 =====================
-@csrf_exempt
 @login_required
 @permission_required('area_view')
 def group_list(request):
@@ -376,7 +372,6 @@ def group_list(request):
         return JsonResponse({'code': 0, 'msg': f'加载失败：{str(e)}'})
 
 
-@csrf_exempt
 @login_required
 @permission_required('area_view')
 def group_detail_api(request, pk):
@@ -421,7 +416,6 @@ def group_detail_api(request, pk):
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'})
 
 
-@csrf_exempt
 @login_required
 @permission_required('area_add')
 def group_add(request):
@@ -450,7 +444,6 @@ def group_add(request):
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
 
-@csrf_exempt
 @login_required
 @permission_required('area_edit')
 def group_edit(request, pk):
@@ -483,7 +476,6 @@ def group_edit(request, pk):
         return JsonResponse({'code': 0, 'msg': f'修改失败：{str(e)}'})
 
 
-@csrf_exempt
 @login_required
 @permission_required('area_delete')
 def group_delete(request, pk):
@@ -553,7 +545,6 @@ def group_detail_page(request, pk):
 
 
 # ===================== 区域管理：导入导出新增代码 =====================
-@csrf_exempt
 @login_required
 @permission_required('area_add')
 def area_import(request):
@@ -689,7 +680,6 @@ def area_export(request):
         return JsonResponse({'code': 0, 'msg': '导出失败'})
 
 # ===================== 区域组管理：导入导出新增代码 =====================
-@csrf_exempt
 @login_required
 @permission_required('area_add')
 def group_import(request):

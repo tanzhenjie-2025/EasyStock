@@ -22,9 +22,10 @@ from django.http import HttpResponse
 from io import BytesIO
 import json
 import logging
-
 # ========== 缓存核心导入 ==========
 from django.core.cache import cache
+
+logger = logging.getLogger(__name__)
 
 # ========== RBAC权限组件 ==========
 from accounts.views import permission_required, create_operation_log
@@ -170,7 +171,6 @@ def product_manage(request):
 
 
 # ====================== 商品CRUD（无修改，保留缓存清理） ======================
-@csrf_exempt
 @permission_required(PERM_PRODUCT_ADD)
 def product_add(request):
     if request.method == 'POST':
@@ -208,7 +208,6 @@ def product_add(request):
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
 
-@csrf_exempt
 @permission_required(PERM_PRODUCT_EDIT)
 def product_edit(request, pk):
     product = get_object_or_404(Product.objects.prefetch_related('aliases'), pk=pk)
@@ -250,7 +249,6 @@ def product_edit(request, pk):
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
 
-@csrf_exempt
 @permission_required(PERM_PRODUCT_DELETE)
 def product_delete(request, pk):
     try:
@@ -270,7 +268,6 @@ def product_delete(request, pk):
 
 
 # ====================== 别名CRUD（无修改） ======================
-@csrf_exempt
 @permission_required(PERM_PRODUCT_ALIAS_ADD)
 def alias_add(request):
     if request.method == 'POST':
@@ -300,7 +297,6 @@ def alias_add(request):
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
 
-@csrf_exempt
 @permission_required(PERM_PRODUCT_ALIAS_DELETE)
 def alias_delete(request, pk):
     try:
@@ -322,7 +318,6 @@ def alias_delete(request, pk):
 
 
 # ====================== 商品数据接口（无修改） ======================
-@csrf_exempt
 @permission_required(PERM_PRODUCT_EDIT)
 def product_edit_data(request, pk):
     product = get_object_or_404(Product.objects.prefetch_related('aliases'), pk=pk)
@@ -334,7 +329,6 @@ def product_edit_data(request, pk):
 
 
 # ====================== 商品导入功能（无修改） ======================
-@csrf_exempt
 @require_POST
 @permission_required(PERM_PRODUCT_IMPORT)
 def product_import(request):
@@ -423,7 +417,6 @@ def product_import(request):
 
 
 # ====================== 快速出入库（核心修复：循环save → bulk_update 批量优化） ======================
-@csrf_exempt
 @require_POST
 @permission_required(PERM_PRODUCT_STOCK_OP)
 def quick_stock_operation(request):

@@ -2,7 +2,6 @@
 from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.cache import cache_page
 from django.core.cache import cache
 
 from accounts.models import ROLE_SUPER_ADMIN, PERM_LOG_VIEW_ALL
@@ -12,10 +11,9 @@ from customer_manage.models import Customer,CustomerPrice,RepaymentRecord
 from area_manage.models import Area
 
 import datetime
-import unicodedata  # 新增：处理全角半角转换
-# ========== 新增：导入用户模块的权限装饰器和日志函数 ==========
+import unicodedata
 from django.contrib.auth.decorators import login_required
-from accounts.views import permission_required, create_operation_log  # 复用用户模块的日志和权限装饰器
+from accounts.views import permission_required, create_operation_log
 
 from django.db.models import Sum, F, Q, OuterRef, Subquery, DecimalField, Max
 from django.db.models.functions import Coalesce
@@ -32,29 +30,50 @@ import openpyxl
 CACHE_HIGH_PRIORITY = 300  # 复杂聚合查询 5分钟
 CACHE_MID_PRIORITY = 600  # 静态数据/搜索接口 10分钟
 
-# 🔥 定义全局统一的缓存 Key
-CACHE_KEY_AREA_LIST_FOR_CUSTOMER = "global:area_list_for_customer"
+# ========== 全局统一缓存 Key 定义 ==========
+CACHE_KEY_AREA_LIST = "global:area_list"  # 统一区域列表缓存
 CACHE_PREFIX_CUSTOMER_LIST = "customer_list_"
 CACHE_PREFIX_CUSTOMER_DETAIL = "customer_detail_"
-CACHE_PREFIX_CUSTOMER_PRICE = "customer_price_"  # 新增：专属价格缓存前缀
+CACHE_PREFIX_CUSTOMER_PRICE = "customer_price_"
+# 新增：辅助接口缓存前缀
+CACHE_PREFIX_PRODUCT_LIST_FOR_PRICE = "product_list_for_price_"
+CACHE_PREFIX_SEARCH_CUSTOMER_FOR_PRICE = "search_customer_for_price_"
+CACHE_PREFIX_SEARCH_PRODUCT_FOR_PRICE = "search_product_for_price_"
+CACHE_PREFIX_CUSTOMER_SALES_RANK = "customer_sales_rank_"
 
-import logging  # 1. 导入 logging 模块
-
-# 2. 获取 logger 实例
+import logging
 logger = logging.getLogger(__name__)
 
+# ========== 统一缓存清理函数 ==========
 def clear_customer_cache(customer_id: int = None):
     """
-    清理客户相关缓存
+    清理客户相关缓存（含客户列表、详情、消费排行）
     """
-    # 1. 清理所有客户列表缓存（因为分页/搜索参数多，直接通配符删除）
+    # 1. 清理所有客户列表缓存
     cache.delete_pattern(f"{CACHE_PREFIX_CUSTOMER_LIST}*")
 
-    # 2. 如果指定了ID，清理该客户的详情页缓存
+    # 2. 清理指定客户的详情缓存
     if customer_id:
         cache.delete_pattern(f"{CACHE_PREFIX_CUSTOMER_DETAIL}{customer_id}*")
 
+    # 3. 清理客户消费排行缓存（数据变化会影响排行）
+    cache.delete_pattern(f"{CACHE_PREFIX_CUSTOMER_SALES_RANK}*")
+
     logger.info(f"已清理客户缓存: {customer_id if customer_id else '全列表'}")
+
+def clear_customer_price_cache():
+    """
+    清理客户专属价格相关缓存（含列表、商品/客户搜索）
+    """
+    # 1. 清理客户专属价格列表缓存
+    cache.delete_pattern(f"{CACHE_PREFIX_CUSTOMER_PRICE}*")
+
+    # 2. 清理价格页辅助接口缓存
+    cache.delete_pattern(f"{CACHE_PREFIX_PRODUCT_LIST_FOR_PRICE}*")
+    cache.delete_pattern(f"{CACHE_PREFIX_SEARCH_CUSTOMER_FOR_PRICE}*")
+    cache.delete_pattern(f"{CACHE_PREFIX_SEARCH_PRODUCT_FOR_PRICE}*")
+
+    logger.info(f"已清理客户专属价格全量缓存")
 
 def full_to_half(s):
     """将全角字符转换为半角"""
@@ -63,15 +82,14 @@ def full_to_half(s):
     result = []
     for char in s:
         code_point = ord(char)
-        # 全角空格转半角空格
         if code_point == 0x3000:
             code_point = 0x20
-        # 其他全角字符（除空格）转半角
         elif 0xFF01 <= code_point <= 0xFF5E:
             code_point -= 0xFEE0
         result.append(chr(code_point))
     return ''.join(result)
 
+# ========== 客户列表（手动缓存） ==========
 @login_required
 @permission_required('customer_view')
 def customer_list(request):
@@ -81,13 +99,11 @@ def customer_list(request):
         page = request.GET.get('page', 1)
         page_size = 10
 
-        # 1. 生成缓存 Key (包含用户、关键词、页码)
         cache_key = f"{CACHE_PREFIX_CUSTOMER_LIST}{request.user.id}_{keyword}_{page}"
         cached_data = cache.get(cache_key)
         if cached_data:
             return JsonResponse(cached_data, safe=False)
 
-        # 2. 构建子查询
         unpaid_subquery = Order.objects.filter(
             customer=OuterRef('pk'),
             status__in=['pending', 'printed', 'reopened'],
@@ -109,7 +125,6 @@ def customer_list(request):
             total=Sum('repayment_amount')
         ).values('total')
 
-        # 3. 主查询
         customers = Customer.objects.all().select_related('area').annotate(
             unpaid_amount=Coalesce(Subquery(unpaid_subquery), 0, output_field=DecimalField()),
             total_consumption=Coalesce(Subquery(consumption_subquery), 0, output_field=DecimalField()),
@@ -127,7 +142,6 @@ def customer_list(request):
                 Q(area__name__icontains=keyword)
             )
 
-        # 4. 分页
         paginator = Paginator(customers, page_size)
         try:
             customer_page = paginator.page(page)
@@ -136,7 +150,6 @@ def customer_list(request):
         except EmptyPage:
             customer_page = paginator.page(paginator.num_pages)
 
-        # 5. 构造结果
         result = []
         for c in customer_page:
             total_debt = float(c.unpaid_amount - c.paid_amount)
@@ -154,21 +167,17 @@ def customer_list(request):
                 'total': paginator.count
             })
 
-        # 6. 写入缓存
         cache.set(cache_key, result, CACHE_HIGH_PRIORITY)
-
         return JsonResponse(result, safe=False)
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'})
 
-
-# 2. 客户详情（需customer_view权限）
+# ========== 客户详情（手动缓存） ==========
 @login_required
 @permission_required('customer_view')
 def customer_detail(request, pk):
     """客户详情接口 - 手动缓存版"""
     try:
-        # 1. 生成缓存 Key (包含 pk 和 GET 参数)
         settle_status = request.GET.get('settle_status', 'all')
         page = request.GET.get('page', 1)
         cache_key = f"{CACHE_PREFIX_CUSTOMER_DETAIL}{pk}_{settle_status}_{page}"
@@ -180,7 +189,6 @@ def customer_detail(request, pk):
         customer = get_object_or_404(Customer, pk=pk)
         page_size = 10
 
-        # 1. 订单基础查询
         base_orders = Order.objects.filter(
             customer=customer,
             status__in=['pending', 'printed', 'reopened']
@@ -193,7 +201,6 @@ def customer_detail(request, pk):
         else:
             orders_query = base_orders
 
-        # 2. 欠款统计
         unpaid_orders = base_orders.filter(is_settled=False)
         unpaid_order_count = unpaid_orders.count()
         unpaid_amount = unpaid_orders.aggregate(total=Sum('total_amount'))['total'] or 0
@@ -201,7 +208,6 @@ def customer_detail(request, pk):
                           'total'] or 0
         total_debt = max(float(unpaid_amount) - float(paid_amount), 0)
 
-        # 3. 订单分页
         orders_query = orders_query.order_by('-create_time')
         paginator = Paginator(orders_query, page_size)
         try:
@@ -211,7 +217,6 @@ def customer_detail(request, pk):
         except EmptyPage:
             order_page = paginator.page(paginator.num_pages)
 
-        # 4. 格式化数据
         order_list = []
         for order in order_page:
             order_list.append({
@@ -227,7 +232,6 @@ def customer_detail(request, pk):
                 'creator_role': order.creator.role.name if (order.creator and order.creator.role) else '未知'
             })
 
-        # 5. 还款记录
         repayment_list = []
         repayments = RepaymentRecord.objects.filter(customer=customer).select_related('operator__role').order_by(
             '-repayment_time')[:100]
@@ -242,7 +246,6 @@ def customer_detail(request, pk):
                 'create_time': repay.create_time.strftime('%Y-%m-%d %H:%M') if repay.create_time else ''
             })
 
-        # 6. 商品统计
         product_stats = OrderItem.objects.filter(
             order__customer=customer, product__isnull=False
         ).values(
@@ -259,7 +262,6 @@ def customer_detail(request, pk):
             'last_purchase_time': stat['last_purchase_time'].strftime('%Y-%m-%d') if stat['last_purchase_time'] else '无'
         } for stat in product_stats]
 
-        # 返回数据
         response_data = {
             'code': 1, 'msg': '查询成功',
             'customer_info': {
@@ -279,16 +281,13 @@ def customer_detail(request, pk):
             'product_stats': product_stats_list
         }
 
-        # 写入缓存
         cache.set(cache_key, response_data, CACHE_HIGH_PRIORITY)
-
         return JsonResponse(response_data, safe=False)
 
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'}, safe=False)
 
-
-# 3. 还款登记（需customer_repayment权限）✅ 写操作，不缓存
+# ========== 还款登记（写操作，清理缓存） ==========
 @login_required
 @permission_required('customer_repayment')
 def repayment_register(request):
@@ -337,33 +336,27 @@ def repayment_register(request):
                 detail=f"为客户{customer.name}登记还款"
             )
 
-            # 🔥 新增：还款后清理缓存
             clear_customer_cache(customer_id=int(customer_id))
-
             return JsonResponse({'code': 1, 'msg': '还款登记成功'}, content_type='application/json')
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'登记失败：{str(e)}'}, content_type='application/json')
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
 
-
-
-# 4. 客户详情页面入口（需customer_view权限）✅ 页面，不缓存
+# ========== 客户详情页面入口（不缓存） ==========
 @login_required
 @permission_required('customer_view')
 def customer_detail_page(request, pk):
     """客户详情页面"""
     return render(request, 'customer_manage/customer_detail.html', {'customer_id': pk})
 
-
-# 5. 还款登记页面入口（需customer_repayment权限）✅ 页面，不缓存
+# ========== 还款登记页面入口（不缓存） ==========
 @login_required
 @permission_required('customer_repayment')
 def repayment_page(request):
     """还款登记页面"""
     return render(request, 'customer_manage/repayment.html')
 
-
-# 6. 新增客户（需customer_add权限）✅ 写操作，不缓存
+# ========== 新增客户（写操作，清理缓存） ==========
 @login_required
 @permission_required('customer_add')
 def customer_add(request):
@@ -388,8 +381,6 @@ def customer_add(request):
                 return JsonResponse({'code': 0, 'msg': '联系电话已存在'}, content_type='application/json')
 
             area = get_object_or_404(Area, id=area_id)
-            area_name = area.name
-
             customer = Customer.objects.create(
                 name=name,
                 area=area,
@@ -406,16 +397,13 @@ def customer_add(request):
                 detail=f"新增客户：名称={customer.name}"
             )
 
-            # 🔥 新增：清理缓存
             clear_customer_cache()
-
             return JsonResponse({'code': 1, 'msg': '新增客户成功'}, content_type='application/json')
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'新增失败：{str(e)}'}, content_type='application/json')
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
 
-
-# 7. 编辑客户（需customer_edit权限）✅ 写操作，不缓存
+# ========== 编辑客户（写操作，清理缓存） ==========
 @login_required
 @permission_required('customer_edit')
 def customer_edit(request, pk):
@@ -441,7 +429,6 @@ def customer_edit(request, pk):
                 return JsonResponse({'code': 0, 'msg': '联系电话已存在'}, content_type='application/json')
 
             area = get_object_or_404(Area, id=area_id)
-
             customer.name = name
             customer.area = area
             customer.phone = phone
@@ -457,16 +444,13 @@ def customer_edit(request, pk):
                 detail=f"编辑客户"
             )
 
-            # 🔥 新增：清理缓存
             clear_customer_cache(customer_id=pk)
-
             return JsonResponse({'code': 1, 'msg': '编辑客户成功'}, content_type='application/json')
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'编辑失败：{str(e)}'}, content_type='application/json')
 
-
-# 8. 删除客户（需customer_delete权限）✅ 写操作，不缓存
+# ========== 删除客户（写操作，清理缓存） ==========
 @login_required
 @permission_required('customer_delete')
 def customer_delete(request, pk):
@@ -474,7 +458,6 @@ def customer_delete(request, pk):
     try:
         customer = get_object_or_404(Customer, pk=pk)
         customer_name = customer.name
-
         customer.delete()
 
         create_operation_log(
@@ -486,27 +469,24 @@ def customer_delete(request, pk):
             detail=f"删除客户"
         )
 
-        # 🔥 新增：清理缓存
         clear_customer_cache(customer_id=pk)
-
         return JsonResponse({'code': 1, 'msg': '删除客户成功'}, content_type='application/json')
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'删除失败：{str(e)}'}, content_type='application/json')
 
-
-# ===================== 辅助接口：获取区域列表（需customer_view权限） =====================
+# ========== 区域列表（手动缓存，共用） ==========
 @login_required
 @permission_required('customer_view')
 def area_list_for_customer(request):
-    """供客户管理页面获取区域下拉列表 - 手动缓存版"""
+    """供客户管理页面获取区域下拉列表 - 手动缓存版（共用）"""
     try:
-        cached_data = cache.get(CACHE_KEY_AREA_LIST_FOR_CUSTOMER)
+        cached_data = cache.get(CACHE_KEY_AREA_LIST)
         if cached_data:
             return JsonResponse(cached_data, safe=False, content_type='application/json')
 
         areas = Area.objects.all().order_by('name')
         result = [{'id': a.id, 'name': a.name} for a in areas]
-        cache.set(CACHE_KEY_AREA_LIST_FOR_CUSTOMER, result, CACHE_MID_PRIORITY)
+        cache.set(CACHE_KEY_AREA_LIST, result, CACHE_MID_PRIORITY)
 
         return JsonResponse(result, safe=False, content_type='application/json')
     except Exception as e:
@@ -516,53 +496,39 @@ def area_list_for_customer(request):
             content_type='application/json'
         )
 
-
-# ===================== 页面入口（需customer_view权限） =====================
+# ========== 客户管理页面入口（不缓存） ==========
 @login_required
 @permission_required('customer_view')
 def customer_page(request):
     """客户管理页面"""
     return render(request, 'customer_manage/customer.html')
 
-
+# ========== 客户专属价格列表（手动缓存） ==========
 @login_required
 @permission_required('customer_price_view')
 def customer_price_list(request):
-    """获取客户专属价格列表 - 【改为手动缓存版】"""
+    """获取客户专属价格列表 - 手动缓存版"""
     try:
-        # 1. 获取所有筛选参数 + 分页参数
         keyword = request.GET.get('keyword', '').strip()
         min_price = request.GET.get('min_price', '').strip()
         max_price = request.GET.get('max_price', '').strip()
         area_id = request.GET.get('area_id', '').strip()
         page = request.GET.get('page', 1)
 
-        # 🔥 2. 生成手动缓存 Key (参考 customer_list 的做法)
-        # 包含用户ID、关键词、价格区间、区域、页码，确保不同人看到不同的缓存
         cache_key = f"{CACHE_PREFIX_CUSTOMER_PRICE}{request.user.id}_{keyword}_{min_price}_{max_price}_{area_id}_{page}"
-
-        # 🔥 3. 尝试读取缓存
         cached_data = cache.get(cache_key)
         if cached_data:
             logger.info(f"命中专属价格缓存: {cache_key}")
             return JsonResponse(cached_data, safe=False, content_type='application/json')
 
         page_size = 15
-
-        # 4. 🔥 核心优化：预加载 客户/区域/商品 + 商品别名（彻底解决N+1）
         prices = CustomerPrice.objects.all() \
             .select_related('customer__area', 'product') \
             .prefetch_related('product__aliases')
 
-        # 5. 权限/筛选逻辑（完全保留）
         if not request.user.has_permission(PERM_LOG_VIEW_ALL):
-            # 注意：原代码这里有 filter(operator=request.user)，
-            # 但你的 CustomerPrice Model 里没有 operator 字段！
-            # 如果没有这个字段，建议注释掉这行，否则会报错。
-            # prices = prices.filter(operator=request.user)
             pass
 
-            # 关键词筛选
         if keyword:
             keyword = full_to_half(keyword).strip()
             keywords = [k for k in keyword.split() if k]
@@ -585,7 +551,6 @@ def customer_price_list(request):
                 base_q &= kw_q
             prices = prices.filter(base_q)
 
-        # 价格区间筛选
         if min_price:
             try:
                 min_price = float(min_price)
@@ -599,11 +564,9 @@ def customer_price_list(request):
             except:
                 pass
 
-        # 区域筛选
         if area_id and area_id.isdigit():
             prices = prices.filter(customer__area_id=int(area_id))
 
-        # 6. 分页逻辑
         paginator = Paginator(prices, page_size)
         try:
             price_page = paginator.page(page)
@@ -612,7 +575,6 @@ def customer_price_list(request):
         except EmptyPage:
             price_page = paginator.page(paginator.num_pages)
 
-        # 7. 构造数据
         result = []
         for cp in price_page:
             result.append({
@@ -635,10 +597,8 @@ def customer_price_list(request):
             'has_next': price_page.has_next(), 'has_previous': price_page.has_previous(),
         }
 
-        # 🔥 8. 写入缓存 (关键步骤)
         cache.set(cache_key, response_data, CACHE_HIGH_PRIORITY)
         logger.info(f"设置专属价格缓存: {cache_key}")
-
         return JsonResponse(response_data, safe=False, content_type='application/json')
 
     except Exception as e:
@@ -648,8 +608,7 @@ def customer_price_list(request):
             safe=False, content_type='application/json'
         )
 
-
-# 2. 新增客户价格（需customer_price_add权限）✅ 写操作，不缓存
+# ========== 新增客户价格（写操作，清理缓存） ==========
 @login_required
 @permission_required('customer_price_add')
 def customer_price_add(request):
@@ -661,11 +620,9 @@ def customer_price_add(request):
             custom_price = request.POST.get('custom_price', '').strip()
             remark = request.POST.get('remark', '').strip()
 
-            # 校验必填项
             if not customer_id or not product_id or not custom_price:
                 return JsonResponse({'code': 0, 'msg': '客户、商品、专属价不能为空'}, content_type='application/json')
 
-            # 校验价格格式
             try:
                 custom_price = float(custom_price)
                 if custom_price < 0:
@@ -673,16 +630,13 @@ def customer_price_add(request):
             except:
                 return JsonResponse({'code': 0, 'msg': '专属价必须是数字'}, content_type='application/json')
 
-            # 校验客户和商品存在
             customer = get_object_or_404(Customer, id=customer_id)
             product = get_object_or_404(Product, id=product_id)
             product_standard_price = float(product.price)
 
-            # 校验是否已存在该客户-商品的专属价
             if CustomerPrice.objects.filter(customer=customer, product=product).exists():
                 return JsonResponse({'code': 0, 'msg': '该客户已设置过此商品的专属价'}, content_type='application/json')
 
-            # 创建专属价
             cp = CustomerPrice.objects.create(
                 customer=customer,
                 product=product,
@@ -690,7 +644,6 @@ def customer_price_add(request):
                 remark=remark
             )
 
-            # 记录操作日志（复用accounts的函数）
             create_operation_log(
                 request=request,
                 op_type='create',
@@ -700,14 +653,12 @@ def customer_price_add(request):
                 detail=f"新增客户专属价：客户={customer.name}，商品={product.name}，标准价={product_standard_price}元，专属价={custom_price}元，备注={remark if remark else '无'}"
             )
             clear_customer_price_cache()
-
             return JsonResponse({'code': 1, 'msg': '新增专属价成功'}, content_type='application/json')
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'新增失败：{str(e)}'}, content_type='application/json')
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
 
-
-# 3. 编辑客户价格（需customer_price_edit权限）✅ 写操作，不缓存
+# ========== 编辑客户价格（写操作，清理缓存） ==========
 @login_required
 @permission_required('customer_price_edit')
 def customer_price_edit(request, pk):
@@ -718,7 +669,6 @@ def customer_price_edit(request, pk):
             custom_price = request.POST.get('custom_price', '').strip()
             remark = request.POST.get('remark', '').strip()
 
-            # 校验价格
             if not custom_price:
                 return JsonResponse({'code': 0, 'msg': '专属价不能为空'}, content_type='application/json')
             try:
@@ -728,19 +678,16 @@ def customer_price_edit(request, pk):
             except:
                 return JsonResponse({'code': 0, 'msg': '专属价必须是数字'}, content_type='application/json')
 
-            # 保存修改前的信息
             old_price = float(cp.custom_price)
             old_remark = cp.remark if cp.remark else '无'
             customer_name = cp.customer.name
             product_name = cp.product.name
             product_standard_price = float(cp.product.price)
 
-            # 更新
             cp.custom_price = custom_price
             cp.remark = remark
             cp.save()
 
-            # 记录操作日志（复用accounts的函数）
             create_operation_log(
                 request=request,
                 op_type='update',
@@ -750,31 +697,26 @@ def customer_price_edit(request, pk):
                 detail=f"编辑客户专属价：客户={customer_name}，商品={product_name}，标准价={product_standard_price}元，原专属价={old_price}元→新专属价={custom_price}元，原备注={old_remark}→新备注={remark if remark else '无'}"
             )
             clear_customer_price_cache()
-
             return JsonResponse({'code': 1, 'msg': '编辑专属价成功'}, content_type='application/json')
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'编辑失败：{str(e)}'}, content_type='application/json')
 
-
-# 4. 删除客户价格（需customer_price_delete权限）✅ 写操作，不缓存
+# ========== 删除客户价格（写操作，清理缓存） ==========
 @login_required
 @permission_required('customer_price_delete')
 def customer_price_delete(request, pk):
     """删除客户专属价格"""
     try:
         cp = get_object_or_404(CustomerPrice, pk=pk)
-        # 保存删除前的信息
         customer_name = cp.customer.name
         product_name = cp.product.name
         custom_price = float(cp.custom_price)
         product_standard_price = float(cp.product.price)
         remark = cp.remark if cp.remark else '无'
 
-        # 删除专属价
         cp.delete()
 
-        # 记录操作日志（复用accounts的函数）
         create_operation_log(
             request=request,
             op_type='delete',
@@ -784,30 +726,32 @@ def customer_price_delete(request, pk):
             detail=f"删除客户专属价：ID={pk}，客户={customer_name}，商品={product_name}，标准价={product_standard_price}元，专属价={custom_price}元，备注={remark}"
         )
         clear_customer_price_cache()
-
         return JsonResponse({'code': 1, 'msg': '删除专属价成功'}, content_type='application/json')
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'删除失败：{str(e)}'}, content_type='application/json')
 
-
-# ===================== 页面入口（需customer_price_view权限） =====================
+# ========== 客户专属价格管理页面入口（不缓存） ==========
 @login_required
 @permission_required('customer_price_view')
 def customer_price_page(request):
     """客户专属价格管理页面"""
     return render(request, 'customer_manage/customer_price.html')
 
-
-# ===================== 辅助接口（商品/客户搜索，需customer_price_view权限） =====================
+# ========== 价格页商品列表（手动缓存） ==========
 @login_required
 @permission_required('customer_price_view')
-# 📊 中优缓存：价格页商品静态列表
-@cache_page(CACHE_MID_PRIORITY)
 def product_list_for_price(request):
-    """供客户价格管理页面获取商品列表"""
+    """供客户价格管理页面获取商品列表 - 手动缓存版"""
     try:
+        cache_key = CACHE_PREFIX_PRODUCT_LIST_FOR_PRICE
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return JsonResponse(cached_data, safe=False, content_type='application/json')
+
         products = Product.objects.all().order_by('name')
         result = [{'id': p.id, 'name': p.name, 'price': float(p.price)} for p in products]
+        cache.set(cache_key, result, CACHE_MID_PRIORITY)
+
         return JsonResponse(result, safe=False, content_type='application/json')
     except Exception as e:
         return JsonResponse(
@@ -816,25 +760,25 @@ def product_list_for_price(request):
             content_type='application/json'
         )
 
-
+# ========== 价格页客户搜索（手动缓存） ==========
 @login_required
 @permission_required('customer_price_view')
-@csrf_exempt
-# 📊 中优缓存：价格页客户高频搜索
-@cache_page(CACHE_MID_PRIORITY)
 def search_customer_for_price(request):
-    """客户搜索：匹配名称/区域，返回输入法式候选数据"""
+    """客户搜索：匹配名称/区域 - 手动缓存版"""
     keyword = request.GET.get('keyword', '').strip()
     if not keyword:
         return JsonResponse({'code': 0, 'data': []})
 
-    # 匹配客户名称 或 区域名称
+    cache_key = f"{CACHE_PREFIX_SEARCH_CUSTOMER_FOR_PRICE}{keyword}"
+    cached_data = cache.get(cache_key)
+    if cached_data:
+        return JsonResponse(cached_data, safe=False, content_type='application/json')
+
     customer_matches = Customer.objects.select_related('area').filter(
         Q(name__icontains=keyword) |
         Q(area__name__icontains=keyword)
     ).distinct()[:8]
 
-    # 构造返回数据（格式：区域 | 客户名）
     data = []
     for customer in customer_matches:
         area_name = customer.area.name if customer.area else '无区域'
@@ -846,23 +790,23 @@ def search_customer_for_price(request):
             'full_name': full_name
         })
 
+    cache.set(cache_key, {'code': 1, 'data': data}, CACHE_MID_PRIORITY)
     return JsonResponse({'code': 1, 'data': data}, content_type='application/json')
 
-
+# ========== 价格页商品搜索（手动缓存） ==========
 @login_required
 @permission_required('customer_price_view')
-@csrf_exempt
-# 📊 中优缓存：价格页商品高频搜索
-@cache_page(CACHE_MID_PRIORITY)
 def search_product_for_price(request):
-    """商品搜索：匹配名称/拼音/别名，返回输入法式候选数据【优化：1次DB查询】"""
+    """商品搜索：匹配名称/拼音/别名 - 手动缓存版"""
     keyword = request.GET.get('keyword', '').strip()
     if not keyword:
         return JsonResponse({'code': 0, 'data': []})
 
-    # 🔥 核心优化：合并两次查询为1次 OR 查询，仅执行1次数据库请求
-    # 1. 商品自身名称/拼音匹配
-    # 2. 关联别名表匹配，一次性查询完成
+    cache_key = f"{CACHE_PREFIX_SEARCH_PRODUCT_FOR_PRICE}{keyword}"
+    cached_data = cache.get(cache_key)
+    if cached_data:
+        return JsonResponse(cached_data, safe=False, content_type='application/json')
+
     all_products = Product.objects.filter(
         Q(name__icontains=keyword) |
         Q(pinyin_full__icontains=keyword) |
@@ -874,7 +818,6 @@ def search_product_for_price(request):
         ).values('product_id'))
     ).distinct()[:8]
 
-    # 构造返回数据
     data = []
     for product in all_products:
         data.append({
@@ -884,19 +827,23 @@ def search_product_for_price(request):
             'unit': product.unit
         })
 
+    cache.set(cache_key, {'code': 1, 'data': data}, CACHE_MID_PRIORITY)
     return JsonResponse({'code': 1, 'data': data}, content_type='application/json')
 
-
+# ========== 价格页区域列表（手动缓存，共用） ==========
 @login_required
 @permission_required('customer_price_view')
-@csrf_exempt
-# 📊 中优缓存：价格页静态区域筛选列表
-@cache_page(CACHE_MID_PRIORITY)
 def area_list_for_price(request):
-    """供专属价高级筛选获取区域列表"""
+    """供专属价高级筛选获取区域列表 - 手动缓存版（共用）"""
     try:
+        cached_data = cache.get(CACHE_KEY_AREA_LIST)
+        if cached_data:
+            return JsonResponse({'code': 1, 'data': cached_data}, content_type='application/json')
+
         areas = Area.objects.all().order_by('name')
         result = [{'id': a.id, 'name': a.name} for a in areas]
+        cache.set(CACHE_KEY_AREA_LIST, result, CACHE_MID_PRIORITY)
+
         return JsonResponse({'code': 1, 'data': result}, content_type='application/json')
     except Exception as e:
         return JsonResponse(
@@ -904,44 +851,41 @@ def area_list_for_price(request):
             content_type='application/json'
         )
 
-
-# ========== 客户消费TOP30排行（仅超级管理员可见） ==========
+# ========== 客户消费TOP30页面入口（不缓存） ==========
 @login_required
 @permission_required('customer_sales_rank')
 def customer_sales_rank_page(request):
     """客户消费TOP30排行页面"""
-    # 获取所有区域（用于筛选）
     areas = Area.objects.all().order_by('name')
     return render(request, 'customer_manage/customer_sales_rank.html', {
         'areas': areas,
         'is_super_admin': request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
     })
 
-
+# ========== 客户消费TOP30数据（手动缓存） ==========
 @login_required
 @permission_required('customer_sales_rank')
-@csrf_exempt
-# 🔥 高优缓存：客户消费TOP30大数据聚合统计
-@cache_page(CACHE_HIGH_PRIORITY)
 def customer_sales_rank_data(request):
-    """获取客户消费TOP30数据（支持区域+日期筛选 + 新增总欠款字段）【优化：批量查询，无循环DB请求】"""
+    """获取客户消费TOP30数据 - 手动缓存版"""
     try:
         from django.db.models import Sum
         import datetime
         from django.utils import timezone
 
-        # 获取筛选参数
         area_id = request.GET.get('area_id', '').strip()
         time_range = request.GET.get('time_range', 'year').strip()
 
-        # 基础查询：统计正常有效订单 ✅ 修复：添加is_settled索引前缀，命中联合索引
+        cache_key = f"{CACHE_PREFIX_CUSTOMER_SALES_RANK}{area_id}_{time_range}"
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return JsonResponse(cached_data, safe=False, content_type='application/json')
+
         base_orders = Order.objects.filter(
             status__in=['pending', 'printed', 'reopened'],
-            is_settled__in=[True, False],  # 索引必填，不限制结清状态
+            is_settled__in=[True, False],
             customer__isnull=False
         )
 
-        # 1. 日期筛选 ✅ 修复：移除__date，使用原生时间范围，命中索引
         today = datetime.date.today()
         today_start = timezone.make_aware(datetime.datetime.combine(today, datetime.time.min))
         today_end = timezone.make_aware(datetime.datetime.combine(today, datetime.time.max))
@@ -964,31 +908,24 @@ def customer_sales_rank_data(request):
             month_end_dt = timezone.make_aware(datetime.datetime.combine(month_end, datetime.time.max))
             base_orders = base_orders.filter(create_time__gte=month_start_dt, create_time__lte=month_end_dt)
 
-        # 2. 区域筛选（保留）
         if area_id and area_id.isdigit():
             base_orders = base_orders.filter(customer__area_id=int(area_id))
 
-        # 3. 分组统计TOP30客户（保留）
         customer_sales = base_orders.values(
             'customer__id', 'customer__name', 'customer__area__name'
         ).annotate(
             total_amount=Sum('total_amount')
         ).order_by('-total_amount')[:30]
 
-        # 🔥 核心优化：批量查询，避免循环内N+1查询
         if customer_sales:
-            # 提取所有TOP30客户ID
             customer_ids = [item['customer__id'] for item in customer_sales]
-
-            # 批量查询：所有客户未结清订单总额 ✅ 修复：添加status排除作废，命中索引
             unpaid_data = Order.objects.filter(
                 customer_id__in=customer_ids,
-                status__in=['pending', 'printed', 'reopened'],  # 索引必填+排除作废
+                status__in=['pending', 'printed', 'reopened'],
                 is_settled=False
             ).values('customer_id').annotate(total=Sum('total_amount'))
             unpaid_dict = {item['customer_id']: float(item['total'] or 0) for item in unpaid_data}
 
-            # 批量查询：所有客户还款总额（1次查询）
             paid_data = RepaymentRecord.objects.filter(
                 customer_id__in=customer_ids
             ).values('customer_id').annotate(total=Sum('repayment_amount'))
@@ -997,11 +934,9 @@ def customer_sales_rank_data(request):
             unpaid_dict = {}
             paid_dict = {}
 
-        # 4. 构造数据：循环内**无任何数据库查询**
         result = []
         for idx, item in enumerate(customer_sales, 1):
             customer_id = item['customer__id']
-            # 直接从字典取值，性能提升90%
             unpaid_amount = unpaid_dict.get(customer_id, 0)
             paid_amount = paid_dict.get(customer_id, 0)
             total_debt = max(unpaid_amount - paid_amount, 0)
@@ -1015,17 +950,16 @@ def customer_sales_rank_data(request):
                 'total_debt': total_debt
             })
 
-        return JsonResponse({
-            'code': 1, 'msg': '查询成功', 'data': result
-        }, content_type='application/json')
+        response_data = {'code': 1, 'msg': '查询成功', 'data': result}
+        cache.set(cache_key, response_data, CACHE_HIGH_PRIORITY)
+        return JsonResponse(response_data, content_type='application/json')
 
     except Exception as e:
         return JsonResponse({
             'code': 0, 'msg': f'查询失败：{str(e)}', 'data': []
         }, content_type='application/json')
 
-
-# ========== Excel导出（通用函数，直接复用） ==========
+# ========== Excel导出通用函数（保持不变） ==========
 def export_to_excel(data, title, headers, selected_fields, custom_fields, file_name, total_row=None):
     from openpyxl import Workbook
     wb = Workbook()
@@ -1088,13 +1022,9 @@ def export_to_excel(data, title, headers, selected_fields, custom_fields, file_n
     response['Content-Disposition'] = f'attachment; filename="{file_name}.xlsx"'
     return response
 
-
-# ========== 客户导出视图 ==========
+# ========== 客户导出（保持不变，导入后清理缓存已在原代码中） ==========
 @login_required
 def customer_export(request):
-    """
-    导出客户信息（支持字段选择和自定义字段）
-    """
     if request.method == 'POST':
         try:
             data = request.POST
@@ -1104,7 +1034,6 @@ def customer_export(request):
             if not selected_fields:
                 return JsonResponse({'code': 0, 'msg': '请至少选择一个导出字段'})
 
-            # 定义表头映射
             headers = {
                 'serial': '序号',
                 'id': 'ID',
@@ -1114,10 +1043,7 @@ def customer_export(request):
                 'remark': '备注'
             }
 
-            # 查询数据
             customers = Customer.objects.select_related('area').order_by('-create_time')
-
-            # 格式化数据
             export_data = []
             for idx, customer in enumerate(customers, 1):
                 export_data.append({
@@ -1129,9 +1055,7 @@ def customer_export(request):
                     'remark': customer.remark or ''
                 })
 
-            # 生成文件名
             file_date_str = timezone.localdate().strftime("%Y%m%d")
-
             return export_to_excel(
                 data=export_data,
                 title='客户列表',
@@ -1146,47 +1070,31 @@ def customer_export(request):
             return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'}, status=500)
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
-
-# ========== 客户导入视图 ==========
 @login_required
 def customer_import(request):
-    """
-    导入客户信息
-    逻辑：读取Excel，根据客户名称/手机号判断，已存在则跳过，不存在则新增
-    """
     if request.method == 'POST':
         try:
             file_obj = request.FILES.get('file')
             if not file_obj:
                 return JsonResponse({'code': 0, 'msg': '请上传文件'})
 
-            # 加载工作簿
             wb = load_workbook(file_obj)
             ws = wb.active
-
-            # 读取数据（假设第一行是表头，从第二行开始）
             new_count = 0
             skip_count = 0
             error_list = []
-
-            # 先获取所有区域名到ID的映射，加速查询
             area_map = {area.name: area for area in Area.objects.all()}
 
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), 2):
-                # 过滤掉空行
                 if not any(row):
                     continue
 
-                # 尝试解析数据 (容错处理)
                 name = ''
                 area_name = ''
                 phone = ''
                 remark = ''
-
-                # 简单的列分配逻辑（根据实际导出顺序调整）
                 cells = [str(cell).strip() if cell else '' for cell in row]
 
-                # 这里做一个假设：Excel列顺序为 [序号, 客户名称, 区域, 电话, 备注]
                 if len(cells) >= 4:
                     name = cells[1]
                     area_name = cells[2]
@@ -1194,23 +1102,19 @@ def customer_import(request):
                     if len(cells) > 4:
                         remark = cells[4]
 
-                # 校验核心字段
                 if not name or not phone:
                     error_list.append(f"第{row_idx}行：客户名称或电话为空，跳过")
                     continue
 
-                # 查重逻辑：根据 客户名称 或 手机号 判断是否存在
                 exists = Customer.objects.filter(name=name).exists() or Customer.objects.filter(phone=phone).exists()
                 if exists:
                     skip_count += 1
                     continue
 
-                # 处理区域
                 area_obj = None
                 if area_name and area_name in area_map:
                     area_obj = area_map[area_name]
 
-                # 创建客户
                 try:
                     Customer.objects.create(
                         name=name,
@@ -1226,7 +1130,6 @@ def customer_import(request):
             if error_list:
                 msg += f" 异常：{len(error_list)} 条。"
 
-            # 🔥 新增：导入成功后清理缓存（因为有新数据写入）
             if new_count > 0:
                 clear_customer_cache()
 
@@ -1237,39 +1140,9 @@ def customer_import(request):
             return JsonResponse({'code': 0, 'msg': f'导入失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
-
-
-# ========== 客户专属价格缓存清理函数 (修复版) ==========
-def clear_customer_price_cache():
-    """
-    清理客户专属价格相关缓存
-    注意：由于我们将 @cache_page 改为了手动缓存，
-    现在只需要清理特定前缀的 Key 即可。
-    """
-    # 1. 清理手动缓存的列表 Key
-    # 格式类似: customer_price_list_userid_keyword_page
-    cache.delete_pattern(f"{CACHE_PREFIX_CUSTOMER_PRICE}*")
-
-    # 2. 清理相关的辅助接口缓存 (这些还在用 @cache_page，为了彻底清理，我们也尝试匹配)
-    # 注意：如果下面这些接口不经常变，可以保留缓存不清理，或者也改成手动缓存
-    # 这里为了保险，尝试通配符删除 (取决于你的 Redis 配置是否支持)
-    try:
-        cache.delete_pattern("*product_list_for_price*")
-        cache.delete_pattern("*search_customer_for_price*")
-        cache.delete_pattern("*search_product_for_price*")
-        cache.delete_pattern("*area_list_for_price*")
-    except:
-        pass  # 如果不支持通配符删除则跳过
-
-    logger.info(f"已清理客户专属价格全量缓存 (手动Key模式)")
-
-
-# ========== 客户专属价格导出视图 ==========
+# ========== 客户专属价格导出/导入（保持不变，清理缓存已在原代码中） ==========
 @login_required
 def customer_price_export(request):
-    """
-    导出客户专属价格（支持字段选择和自定义字段）
-    """
     if request.method == 'POST':
         try:
             data = request.POST
@@ -1279,7 +1152,6 @@ def customer_price_export(request):
             if not selected_fields:
                 return JsonResponse({'code': 0, 'msg': '请至少选择一个导出字段'})
 
-            # 定义表头映射
             headers = {
                 'serial': '序号',
                 'id': 'ID',
@@ -1291,12 +1163,10 @@ def customer_price_export(request):
                 'remark': '备注'
             }
 
-            # 查询数据 (使用 select_related 优化性能)
             prices = CustomerPrice.objects.select_related(
                 'customer', 'customer__area', 'product'
             ).order_by('-create_time')
 
-            # 格式化数据
             export_data = []
             for idx, cp in enumerate(prices, 1):
                 export_data.append({
@@ -1310,9 +1180,7 @@ def customer_price_export(request):
                     'remark': cp.remark or ''
                 })
 
-            # 生成文件名
             file_date_str = timezone.localdate().strftime("%Y%m%d")
-
             return export_to_excel(
                 data=export_data,
                 title='客户专属价格',
@@ -1327,53 +1195,33 @@ def customer_price_export(request):
             return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'}, status=500)
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
-
-# ========== 客户专属价格导入视图 ==========
-# ========== 客户专属价格导入视图 (修复版) ==========
 @login_required
 def customer_price_import(request):
-    """
-    导入客户专属价格 (修复版)
-    逻辑：读取Excel，根据【客户名称 + 商品名称】判断，已存在则跳过，不存在则新增
-    """
     if request.method == 'POST':
         try:
             file_obj = request.FILES.get('file')
             if not file_obj:
                 return JsonResponse({'code': 0, 'msg': '请上传文件'})
 
-            # 加载工作簿
-            wb = load_workbook(file_obj, data_only=True)  # data_only=True 读取公式计算后的值
+            wb = load_workbook(file_obj, data_only=True)
             ws = wb.active
-
             new_count = 0
             skip_count = 0
             error_list = []
 
-            # 1. 预加载数据到内存 (加速查询)
-            # 格式: { '客户名': CustomerObj }
             customer_map = {c.name: c for c in Customer.objects.all()}
-            # 格式: { '商品名': ProductObj }
             product_map = {p.name: p for p in Product.objects.all()}
-            # 格式: { (customer_id, product_id): True }
             existing_price_keys = set(
                 CustomerPrice.objects.values_list('customer_id', 'product_id')
             )
 
             logger.info(f"开始导入专属价格，预加载客户数: {len(customer_map)}, 商品数: {len(product_map)}")
 
-            # 2. 遍历 Excel
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), 2):
-                # 过滤空行
                 if not any(row):
                     continue
 
-                # 解析数据
-                # 预期列顺序:
-                # [0]序号, [1]客户名称, [2]所属区域(忽略), [3]商品名称, [4]标准价(忽略), [5]专属价, [6]备注
                 cells = [str(cell).strip() if cell is not None else '' for cell in row]
-
-                # 安全填充
                 while len(cells) < 7:
                     cells.append('')
 
@@ -1382,7 +1230,6 @@ def customer_price_import(request):
                 custom_price_str = cells[5]
                 remark = cells[6]
 
-                # 校验核心字段
                 if not customer_name:
                     error_list.append(f"第{row_idx}行：客户名称为空，跳过")
                     continue
@@ -1393,9 +1240,7 @@ def customer_price_import(request):
                     error_list.append(f"第{row_idx}行：专属价格为空，跳过")
                     continue
 
-                # 校验价格格式
                 try:
-                    # 尝试清洗价格字符串 (去除 ¥, 逗号等)
                     price_clean = custom_price_str.replace('¥', '').replace(',', '').strip()
                     custom_price = float(price_clean)
                     if custom_price < 0:
@@ -1404,7 +1249,6 @@ def customer_price_import(request):
                     error_list.append(f"第{row_idx}行：专属价格格式错误 ({custom_price_str})")
                     continue
 
-                # 查找客户和商品 (内存中查找，极快)
                 if customer_name not in customer_map:
                     error_list.append(f"第{row_idx}行：客户【{customer_name}】在系统中不存在，跳过")
                     continue
@@ -1415,35 +1259,27 @@ def customer_price_import(request):
                 customer = customer_map[customer_name]
                 product = product_map[product_name]
 
-                # 查重：(客户ID, 商品ID) 是否已存在
                 if (customer.id, product.id) in existing_price_keys:
                     skip_count += 1
                     continue
 
-                # 创建专属价
                 try:
                     CustomerPrice.objects.create(
                         customer=customer,
                         product=product,
-                        custom_price=custom_price,  # 这里 Django 会自动把 float 转 Decimal
+                        custom_price=custom_price,
                         remark=remark
                     )
                     new_count += 1
-                    # 加入内存集合，防止同文件内重复导入
                     existing_price_keys.add((customer.id, product.id))
-
                 except Exception as e:
                     error_list.append(f"第{row_idx}行：数据库保存失败（{str(e)}）")
 
-            # 3. 构造返回消息
             msg = f"导入完成！新增：{new_count} 条，跳过重复/错误：{skip_count + len(error_list)} 条。"
             if error_list:
-                # 只显示前10个错误，防止消息太长
                 msg += f" (前10个错误: {'; '.join(error_list[:10])})"
 
             logger.info(msg)
-
-            # 4. 清理缓存 (关键步骤)
             if new_count > 0:
                 clear_customer_price_cache()
                 logger.info("已触发专属价格缓存清理")
@@ -1454,5 +1290,3 @@ def customer_price_import(request):
             logger.error(f"导入客户专属价格系统异常：{str(e)}", exc_info=True)
             return JsonResponse({'code': 0, 'msg': f'导入系统异常：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
-
-
