@@ -204,6 +204,28 @@
     #customerList tr td:last-child {
         cursor: default;
     }
+
+    /* ========== 🔥 新增：导入导出模态框专用样式 ========== */
+    .field-checkbox { margin: 5px 0; }
+    .select-all-btn { margin-bottom: 10px; }
+    .custom-fields-section {
+        border-top: 1px solid #eee;
+        margin-top: 15px;
+        padding-top: 15px;
+    }
+    .custom-field-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 10px;
+        padding: 8px;
+        background: #f8f9fa;
+        border-radius: 4px;
+    }
+    .custom-field-item input { flex: 1; }
+    .custom-field-item select { width: 120px; }
+    .btn-add-custom { margin-top: 10px; margin-bottom: 15px; }
+    .btn-group-action { gap: 8px; display: flex; align-items: center; }
 </style>
 {% endblock %}
 
@@ -212,11 +234,6 @@
 <div class="content-container">
     <div class="content-container">
      <h3>客户管理</h3>
-    <!-- 原有内容保持不变 -->
-    <!-- 新增：客户消费TOP30入口（仅超级管理员可见） -->
-   
-
-   
 </div>
 
     <!-- ========== 新增：搜索组件 ========== -->
@@ -243,10 +260,14 @@
     </div>
     {% endif %}
 
-    <div class="my-3">
+    <!-- 🔥 修改：按钮组，新增导入导出 -->
+    <div class="my-3 btn-group-action">
         <button class="btn btn-sm btn-primary" onclick="openAddModal()">新增客户</button>
         <button class="btn btn-sm btn-success ms-2" onclick="openRepaymentModal()">还款登记</button>
+        <button class="btn btn-sm btn-info ms-2" onclick="showExportModal()">📥 导出数据</button>
+        <button class="btn btn-sm btn-warning ms-2" onclick="showImportModal()">📤 导入数据</button>
     </div>
+
     <table class="table table-sm table-bordered">
         <thead class="table-light">
             <tr>
@@ -254,7 +275,7 @@
                 <th>客户名称</th>
                 <th>所属区域</th>
                 <th>联系电话</th>
-                <th>总消费金额</th>  <!-- 新增：总消费金额列 -->
+                <th>总消费金额</th>
                 <th>总欠款</th>
                 <th>备注</th>
                 <th>操作</th>
@@ -299,7 +320,7 @@
     </div>
 </div>
 
-<!-- 新增：还款登记弹窗 -->
+<!-- 原有：还款登记弹窗 -->
 <div class="modal-overlay" id="repaymentModal">
     <div class="modal-content repayment-modal">
         <h4>还款登记</h4>
@@ -336,6 +357,91 @@
         </form>
     </div>
 </div>
+
+<!-- 🔥 新增：导出字段选择模态框 -->
+<div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="exportModalLabel">选择导出字段</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- 全选/取消全选按钮 -->
+                <div class="select-all-btn">
+                    <button type="button" class="btn btn-xs btn-outline-primary" onclick="selectAllFields(true)">全选</button>
+                    <button type="button" class="btn btn-xs btn-outline-secondary ms-1" onclick="selectAllFields(false)">取消全选</button>
+                </div>
+
+                <!-- 客户字段选项 -->
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_serial" name="export_fields" value="serial" checked>
+                    <label for="field_serial">序号</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_id" name="export_fields" value="id" checked>
+                    <label for="field_id">ID</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_name" name="export_fields" value="name" checked>
+                    <label for="field_name">客户名称</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_area" name="export_fields" value="area_name" checked>
+                    <label for="field_area">所属区域</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_phone" name="export_fields" value="phone" checked>
+                    <label for="field_phone">联系电话</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_remark" name="export_fields" value="remark" checked>
+                    <label for="field_remark">备注</label>
+                </div>
+
+                <!-- 自定义字段区域 -->
+                <div class="custom-fields-section">
+                    <h6>自定义字段（用于手动填写）</h6>
+                    <div id="customFieldsContainer">
+                        <!-- 自定义字段项将动态添加到这里 -->
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-success btn-add-custom" onclick="addCustomField()">
+                        + 添加自定义字段
+                    </button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="exportExcel()">确认导出</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 🔥 新增：导入模态框 -->
+<div class="modal fade" id="importModal" tabindex="-1" aria-labelledby="importModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="importModalLabel">导入客户数据</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">选择 Excel 文件</label>
+                    <input type="file" class="form-control" id="import-file-input" accept=".xlsx, .xls">
+                    <div class="form-text text-muted mt-2">
+                        提示：请先导出一份 Excel 作为模板。系统会根据 <strong>客户名称</strong> 或 <strong>手机号</strong> 自动去重，已存在的数据将被跳过。
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="btn-confirm-import" onclick="importExcel()">开始导入</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 <!-- 页面专属JS -->
@@ -346,6 +452,7 @@
     let customerSuggestList = []; // 还款登记的客户搜索列表
     let searchTimer = null;      // 实时搜索防抖定时器
     let currentKeyword = '';     // 当前搜索关键词
+    let customFieldCount = 0;    // 导出用：自定义字段计数器
 
     // 页面加载初始化
     $(document).ready(function() {
@@ -355,7 +462,6 @@
     });
 
     // ========== 新增：搜索相关核心函数 ==========
-    // 1. 加载最近搜索记录（localStorage）
     function loadRecentSearches() {
         const recent = localStorage.getItem('customerRecentSearches') || '[]';
         const recentList = JSON.parse(recent);
@@ -373,90 +479,58 @@
         tagsContainer.html(html);
     }
 
-    // 2. 保存最近搜索记录（最多5条）
     function saveRecentSearch(keyword) {
         if (!keyword || keyword.trim() === '') return;
-        
         const recent = localStorage.getItem('customerRecentSearches') || '[]';
         let recentList = JSON.parse(recent);
-        
-        // 去重：如果已存在，移到最前面
         recentList = recentList.filter(item => item !== keyword);
         recentList.unshift(keyword);
-        
-        // 限制最多5条
-        if (recentList.length > 5) {
-            recentList = recentList.slice(0, 5);
-        }
-        
+        if (recentList.length > 5) recentList = recentList.slice(0, 5);
         localStorage.setItem('customerRecentSearches', JSON.stringify(recentList));
         loadRecentSearches();
     }
 
-    // 3. 搜索输入框输入处理（实时过滤 + 显示清空按钮）
     function handleSearchInput() {
         const keyword = $('#searchInput').val().trim();
         currentKeyword = keyword;
-        
-        // 显示/隐藏清空按钮
-        if (keyword) {
-            $('#clearBtn').show();
-        } else {
-            $('#clearBtn').hide();
-        }
-        
-        // 实时过滤（防抖：300ms内只执行一次）
+        if (keyword) $('#clearBtn').show(); else $('#clearBtn').hide();
         clearTimeout(searchTimer);
-        searchTimer = setTimeout(() => {
-            searchCustomers();
-        }, 300);
+        searchTimer = setTimeout(() => { searchCustomers(); }, 300);
     }
 
-    // 4. 清空搜索框
     function clearSearch() {
         $('#searchInput').val('');
         $('#clearBtn').hide();
         currentKeyword = '';
-        loadCustomerList(); // 恢复所有客户
-        $('#searchInput').focus(); // 光标回显
+        loadCustomerList();
+        $('#searchInput').focus();
     }
 
-     // ========== 核心修改：搜索/加载客户列表时渲染总消费金额 ==========
     function searchCustomers() {
         const keyword = $('#searchInput').val().trim();
         currentKeyword = keyword;
-        
-        if (keyword) {
-            saveRecentSearch(keyword);
-        }
+        if (keyword) saveRecentSearch(keyword);
         
         let url = '/customer-manage/customer/list/';
-        if (keyword) {
-            url += `?keyword=${encodeURIComponent(keyword)}`;
-        }
+        if (keyword) url += `?keyword=${encodeURIComponent(keyword)}`;
         
         $.get(url, function(res) {
             let html = '';
             if (Array.isArray(res) && res.length > 0) {
                 res.forEach(customer => {
-                    // 格式化金额
                     const totalDebt = customer.total_debt ? customer.total_debt.toFixed(2) : '0.00';
-                    // 新增：格式化总消费金额
                     const totalConsumption = customer.total_consumption ? customer.total_consumption.toFixed(2) : '0.00';
-                    
-                    // 关键词高亮处理
                     let name = highlightKeyword(customer.name, keyword);
                     let phone = highlightKeyword(customer.phone, keyword);
                     let areaName = highlightKeyword(customer.area_name || '无', keyword);
                     let id = highlightKeyword(customer.id.toString(), keyword);
                     
-                    // 表格行渲染（新增总消费金额列）
                     html += `<tr onclick="openCustomerDetail(${customer.id})">
                         <td>${id}</td>
                         <td>${name}</td>
                         <td>${areaName}</td>
                         <td>${phone}</td>
-                        <td>¥${totalConsumption}</td>  <!-- 新增：总消费金额 -->
+                        <td>¥${totalConsumption}</td>
                         <td class="debt-red">¥${totalDebt}</td>
                         <td>${customer.remark || '无'}</td>
                         <td>
@@ -467,7 +541,6 @@
                     </tr>`;
                 });
             } else {
-                // 无结果时colspan改为8（因为新增了一列）
                 html = '<tr><td colspan="8" class="no-result">暂无匹配的客户，请更换关键词重试</td></tr>';
             }
             $('#customerList').html(html);
@@ -479,14 +552,12 @@
         });
     }
 
-    // 6. 关键词高亮函数
     function highlightKeyword(text, keyword) {
         if (!keyword || !text) return text;
         const regex = new RegExp(`(${keyword})`, 'gi');
         return text.replace(regex, '<span class="highlight">$1</span>');
     }
 
-    // 7. 点击最近搜索记录重新搜索
     function searchByRecent(keyword) {
         $('#searchInput').val(keyword);
         $('#clearBtn').show();
@@ -494,8 +565,7 @@
         $('#searchInput').focus();
     }
 
-    // ========== 原有函数保持不变，仅修改loadCustomerList为支持搜索 ==========
-    // 1. 加载区域列表（用于下拉选择）
+    // ========== 原有业务函数 ==========
     function loadAreaList() {
         $.get('/customer-manage/area/list/', function(res) {
             console.log('区域列表：', res);
@@ -513,40 +583,29 @@
         });
     }
 
-    // 2. 加载客户列表（兼容搜索，无关键词时返回所有）
     function loadCustomerList() {
-        searchCustomers(); // 复用搜索函数，无关键词时返回所有客户
+        searchCustomers();
     }
 
-    // 3. 打开新增客户弹窗
     function openAddModal() {
-        // 重置表单
         $('#modalTitle').text('新增客户');
         $('#customerForm')[0].reset();
         $('#customerId').val('');
         currentCustomerId = '';
-        // 显示弹窗
         $('#customerModal').css('display', 'flex');
     }
 
-    // 4. 打开编辑客户弹窗
     function openEditModal(id) {
         currentCustomerId = id;
-        // 获取客户详情
         $.get('/customer-manage/customer/list/', function(res) {
             const customer = res.find(item => item.id === id);
-            if (!customer) {
-                alert('客户不存在！');
-                return;
-            }
-            // 填充表单
+            if (!customer) { alert('客户不存在！'); return; }
             $('#modalTitle').text('编辑客户');
             $('#customerId').val(customer.id);
             $('#customerName').val(customer.name);
             $('#areaSelect').val(customer.area_id);
             $('#customerPhone').val(customer.phone);
             $('#customerRemark').val(customer.remark || '');
-            // 显示弹窗
             $('#customerModal').css('display', 'flex');
         }, 'json').fail(function(xhr, status, error) {
             console.error('获取客户失败：', xhr.responseText);
@@ -554,63 +613,33 @@
         });
     }
 
-    // 5. 关闭新增/编辑弹窗
     function closeModal() {
         $('#customerModal').css('display', 'none');
-        // 重置表单
         $('#customerForm')[0].reset();
         currentCustomerId = '';
     }
 
-    // 6. 保存客户（新增/编辑）
     function saveCustomer() {
-        // 获取表单数据
         const name = $('#customerName').val().trim();
         const areaId = $('#areaSelect').val().trim();
         const phone = $('#customerPhone').val().trim();
         const remark = $('#customerRemark').val().trim();
 
-        // 基础校验
-        if (!name) {
-            alert('客户名称不能为空！');
-            return;
-        }
-        if (!areaId) {
-            alert('所属区域不能为空！');
-            return;
-        }
-        if (!phone) {
-            alert('联系电话不能为空！');
-            return;
-        }
+        if (!name) { alert('客户名称不能为空！'); return; }
+        if (!areaId) { alert('所属区域不能为空！'); return; }
+        if (!phone) { alert('联系电话不能为空！'); return; }
 
-        // 组装数据
-        const data = {
-            name: name,
-            area_id: areaId,
-            phone: phone,
-            remark: remark
-        };
-
-        // 确定请求URL和方式
+        const data = { name: name, area_id: areaId, phone: phone, remark: remark };
         let url = '/customer-manage/customer/add/';
-        if (currentCustomerId) {
-            url = `/customer-manage/customer/edit/${currentCustomerId}/`;
-        }
+        if (currentCustomerId) url = `/customer-manage/customer/edit/${currentCustomerId}/`;
 
-        // 发送请求
         $.ajax({
-            url: url,
-            type: 'POST',
-            data: data,
+            url: url, type: 'POST', data: data,
             headers: {'X-CSRFToken': getCsrfToken()},
             dataType: 'json',
             success: function(res) {
                 alert(res.msg);
-                if (res.code === 1) {
-                    closeModal();  // 关闭弹窗
-                    loadCustomerList();  // 刷新列表
-                }
+                if (res.code === 1) { closeModal(); loadCustomerList(); }
             },
             error: function(xhr, status, error) {
                 console.error('保存客户失败：', xhr.responseText);
@@ -619,11 +648,8 @@
         });
     }
 
-    // 7. 删除客户
     function deleteCustomer(id) {
-        if (!confirm('确定要删除该客户吗？删除后不可恢复！')) {
-            return;
-        }
+        if (!confirm('确定要删除该客户吗？删除后不可恢复！')) return;
         $.ajax({
             url: `/customer-manage/customer/delete/${id}/`,
             type: 'POST',
@@ -631,9 +657,7 @@
             dataType: 'json',
             success: function(res) {
                 alert(res.msg);
-                if (res.code === 1) {
-                    loadCustomerList();  // 刷新列表
-                }
+                if (res.code === 1) loadCustomerList();
             },
             error: function(xhr, status, error) {
                 console.error('删除客户失败：', xhr.responseText);
@@ -643,34 +667,24 @@
     }
 
     // ===================== 还款登记相关功能 =====================
-    // 8. 打开还款登记弹窗
     function openRepaymentModal() {
-        // 初始化时间为当前时间
         const now = new Date();
         const datetimeStr = now.toISOString().slice(0, 16);
         $('#repaymentTime').val(datetimeStr);
-        // 清空表单
         $('#repaymentForm')[0].reset();
         $('#repayCustomerId').val('');
         $('#customerSuggest').hide();
-        // 显示弹窗
         $('#repaymentModal').css('display', 'flex');
     }
 
-    // 9. 关闭还款登记弹窗
     function closeRepaymentModal() {
         $('#repaymentModal').css('display', 'none');
         $('#customerSuggest').hide();
     }
 
-    // 10. 搜索客户（还款登记弹窗用）
     function searchCustomer(keyword) {
-        if (!keyword || keyword.trim() === '') {
-            $('#customerSuggest').hide();
-            return;
-        }
+        if (!keyword || keyword.trim() === '') { $('#customerSuggest').hide(); return; }
         $.get('/customer-manage/customer/list/', function(res) {
-            // 模糊匹配客户名称
             const filtered = res.filter(item => item.name.includes(keyword.trim()));
             customerSuggestList = filtered;
             let html = '';
@@ -693,72 +707,41 @@
         });
     }
 
-    // 11. 选择搜索结果中的客户
     function selectCustomer(customerId, customerName) {
-        // 填充客户信息到表单
         $('#repayCustomer').val(customerName);
         $('#repayCustomerId').val(customerId);
-        // 隐藏搜索建议列表
         $('#customerSuggest').hide();
     }
 
-    // 12. 快捷添加备注
     function addRemark(remarkText) {
         const currentRemark = $('#repaymentRemark').val();
-        // 如果已有备注，换行后添加；否则直接添加
-        if (currentRemark) {
-            $('#repaymentRemark').val(currentRemark + '\n' + remarkText);
-        } else {
-            $('#repaymentRemark').val(remarkText);
-        }
+        if (currentRemark) $('#repaymentRemark').val(currentRemark + '\n' + remarkText);
+        else $('#repaymentRemark').val(remarkText);
     }
 
-    // 13. 保存还款记录
     function saveRepayment() {
-        // 获取表单数据
         const customerId = $('#repayCustomerId').val().trim();
         const amount = parseFloat($('#repaymentAmount').val().trim());
         const repaymentTime = $('#repaymentTime').val().trim();
         const remark = $('#repaymentRemark').val().trim();
 
-        // 表单验证
-        if (!customerId) {
-            alert('请先选择客户！');
-            $('#repayCustomer').focus();
-            return;
-        }
-        if (isNaN(amount) || amount <= 0) {
-            alert('请输入有效的还款金额（大于0）！');
-            $('#repaymentAmount').focus();
-            return;
-        }
-        if (!repaymentTime) {
-            alert('请选择还款时间！');
-            $('#repaymentTime').focus();
-            return;
-        }
+        if (!customerId) { alert('请先选择客户！'); $('#repayCustomer').focus(); return; }
+        if (isNaN(amount) || amount <= 0) { alert('请输入有效的还款金额（大于0）！'); $('#repaymentAmount').focus(); return; }
+        if (!repaymentTime) { alert('请选择还款时间！'); $('#repaymentTime').focus(); return; }
 
-        // 组装提交数据
         const data = {
-            customer_id: customerId,
-            repayment_amount: amount,
-            repayment_time: repaymentTime,
-            repayment_remark: remark
+            customer_id: customerId, repayment_amount: amount,
+            repayment_time: repaymentTime, repayment_remark: remark
         };
 
-        // 发送保存请求
         $.ajax({
             url: '/customer-manage/repayment/register/',
-            type: 'POST',
-            data: data,
+            type: 'POST', data: data,
             headers: {'X-CSRFToken': getCsrfToken()},
             dataType: 'json',
             success: function(res) {
                 alert(res.msg);
-                if (res.code === 1) {
-                    closeRepaymentModal();  // 关闭弹窗
-                    loadCustomerList();     // 刷新客户列表（更新欠款金额）
-                }
+                if (res.code === 1) { closeRepaymentModal(); loadCustomerList(); }
             },
             error: function(xhr, status, error) {
                 console.error('保存还款记录失败：', xhr.responseText);
@@ -767,22 +750,165 @@
         });
     }
 
-    // 14. 打开客户详情页面
     function openCustomerDetail(id) {
-        // 跳转到客户详情页面
         window.location.href = `/customer-manage/customer/detail/page/${id}/`;
     }
 
-    // 15. 获取CSRF Token
     function getCsrfToken() {
         const cookies = document.cookie.split(';');
         for (let cookie of cookies) {
             const [name, value] = cookie.trim().split('=');
-            if (name === 'csrftoken') {
-                return value;
-            }
+            if (name === 'csrftoken') return value;
         }
         return '';
+    }
+
+    // ===================== 🔥 新增：导入导出相关JS =====================
+    
+    // 1. 显示导出模态框
+    function showExportModal() {
+        customFieldCount = 0;
+        $('#customFieldsContainer').empty();
+        const modal = new bootstrap.Modal(document.getElementById('exportModal'));
+        modal.show();
+    }
+
+    // 2. 全选/取消全选
+    function selectAllFields(isSelect) {
+        $('input[name="export_fields"]').prop('checked', isSelect);
+    }
+
+    // 3. 添加自定义字段
+    function addCustomField() {
+        customFieldCount++;
+        let targetFieldsHtml = '';
+        $('input[name="export_fields"]').each(function() {
+            const fieldValue = $(this).val();
+            const fieldLabel = $(this).next('label').text();
+            targetFieldsHtml += `<option value="${fieldValue}">${fieldLabel}</option>`;
+        });
+        
+        const customFieldHtml = `
+        <div class="custom-field-item" data-index="${customFieldCount}">
+            <input type="text" class="form-control form-control-sm custom-field-name" placeholder="字段名称" value="备注${customFieldCount}">
+            <select class="form-select form-select-sm custom-field-position">
+                <option value="after">在...之后</option>
+                <option value="before">在...之前</option>
+            </select>
+            <select class="form-select form-select-sm custom-field-target">
+                ${targetFieldsHtml}
+            </select>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeCustomField(${customFieldCount})">×</button>
+        </div>
+        `;
+        $('#customFieldsContainer').append(customFieldHtml);
+    }
+
+    // 4. 移除自定义字段
+    function removeCustomField(index) {
+        $(`.custom-field-item[data-index="${index}"]`).remove();
+    }
+
+    // 5. 执行导出
+    function exportExcel() {
+        let selectedFields = [];
+        $('input[name="export_fields"]:checked').each(function() {
+            selectedFields.push($(this).val());
+        });
+        if (selectedFields.length === 0) return alert('请至少选择一个导出字段');
+
+        let customFields = [];
+        $('.custom-field-item').each(function() {
+            const name = $(this).find('.custom-field-name').val().trim();
+            const position = $(this).find('.custom-field-position').val();
+            const target = $(this).find('.custom-field-target').val();
+            if (name) {
+                customFields.push({ name: name, position: position, target: target });
+            }
+        });
+
+        let formData = new FormData();
+        formData.append('custom_fields', JSON.stringify(customFields));
+        selectedFields.forEach(field => { formData.append('fields[]', field); });
+
+        $.ajax({
+            url: '/customer-manage/api/customer/export/',
+            type: 'POST',
+            data: formData,
+            headers: {'X-CSRFToken': getCsrfToken()},
+            processData: false,
+            contentType: false,
+            xhrFields: { responseType: 'blob' },
+            success: function(res, status, xhr) {
+                const contentType = xhr.getResponseHeader('Content-Type');
+                if (contentType && contentType.includes('application/json')) {
+                    const reader = new FileReader();
+                    reader.onload = function() {
+                        const error = JSON.parse(this.result);
+                        alert('导出失败：' + error.msg);
+                    };
+                    reader.readAsText(res);
+                    return;
+                }
+                const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
+                modal.hide();
+                const url = window.URL.createObjectURL(res);
+                const a = document.createElement('a');
+                a.href = url;
+                let today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+                a.download = `${today}客户管理导出.xlsx`;
+                a.click();
+                window.URL.revokeObjectURL(url);
+            },
+            error: function(xhr) {
+                alert('导出失败，请重试');
+            }
+        });
+    }
+
+    // 6. 显示导入模态框
+    function showImportModal() {
+        $('#import-file-input').val(''); // 清空文件选择
+        const modal = new bootstrap.Modal(document.getElementById('importModal'));
+        modal.show();
+    }
+
+    // 7. 执行导入
+    function importExcel() {
+        const fileInput = document.getElementById('import-file-input');
+        if (!fileInput.files || fileInput.files.length === 0) {
+            alert('请先选择文件');
+            return;
+        }
+        
+        let formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+
+        const btn = $('#btn-confirm-import');
+        btn.prop('disabled', true).text('导入中...');
+
+        $.ajax({
+            url: '/customer-manage/api/customer/import/',
+            type: 'POST',
+            data: formData,
+            headers: {'X-CSRFToken': getCsrfToken()},
+            processData: false,
+            contentType: false,
+            success: function(res){
+                alert(res.msg);
+                if(res.code === 1) {
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('importModal'));
+                    modal.hide();
+                    loadCustomerList(); // 刷新列表
+                }
+            },
+            error: function(){
+                alert('网络错误，导入失败！');
+            },
+            complete: function(){
+                btn.prop('disabled', false).text('开始导入');
+            }
+        });
     }
 </script>
 {% endblock %}

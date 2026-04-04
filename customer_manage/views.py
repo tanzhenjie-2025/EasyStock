@@ -1,8 +1,7 @@
 # customer_manage\views.py
 from django.shortcuts import render, get_object_or_404
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.utils import timezone
 from django.views.decorators.cache import cache_page
 from django.core.cache import cache
 
@@ -12,18 +11,22 @@ from product.models import Product,ProductAlias
 from customer_manage.models import Customer,CustomerPrice,RepaymentRecord
 from area_manage.models import Area
 
-
-from django.db.models import Sum, F, Q, Max, Count
-from django.db.models.functions import Coalesce
 import datetime
 import unicodedata  # 新增：处理全角半角转换
 # ========== 新增：导入用户模块的权限装饰器和日志函数 ==========
 from django.contrib.auth.decorators import login_required
 from accounts.views import permission_required, create_operation_log  # 复用用户模块的日志和权限装饰器
 
-from django.db.models import Sum, F, Q, OuterRef, Subquery, DecimalField
+from django.db.models import Sum, F, Q, OuterRef, Subquery, DecimalField, Max
 from django.db.models.functions import Coalesce
 from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
+
+from django.utils import timezone
+import json
+from io import BytesIO
+from openpyxl import load_workbook
+from openpyxl.styles import Font, Alignment, PatternFill
+import openpyxl
 
 # ========== 缓存时长常量配置 ==========
 CACHE_HIGH_PRIORITY = 300  # 复杂聚合查询 5分钟
@@ -915,6 +918,7 @@ def customer_sales_rank_data(request):
     try:
         from django.db.models import Sum
         import datetime
+        from django.utils import timezone
 
         # 获取筛选参数
         area_id = request.GET.get('area_id', '').strip()
@@ -1009,3 +1013,224 @@ def customer_sales_rank_data(request):
         return JsonResponse({
             'code': 0, 'msg': f'查询失败：{str(e)}', 'data': []
         }, content_type='application/json')
+
+
+# ========== Excel导出（通用函数，直接复用） ==========
+def export_to_excel(data, title, headers, selected_fields, custom_fields, file_name, total_row=None):
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = title
+
+    final_fields = selected_fields.copy()
+    final_headers = {field: headers[field] for field in selected_fields}
+
+    if custom_fields:
+        for cf in custom_fields:
+            cf_name = cf.get('name', '')
+            cf_position = cf.get('position', 'after')
+            cf_target = cf.get('target', '')
+            if not cf_name or not cf_target: continue
+            custom_field_key = f'custom_{cf_name.replace(" ", "_")}_{len(final_fields)}'
+            final_headers[custom_field_key] = cf_name
+            try:
+                target_index = final_fields.index(cf_target)
+                insert_index = target_index + 1 if cf_position == 'after' else target_index
+                final_fields.insert(insert_index, custom_field_key)
+            except ValueError:
+                final_fields.append(custom_field_key)
+
+    selected_headers = [final_headers[field] for field in final_fields]
+    title_font = Font(bold=True, size=12)
+    alignment = Alignment(horizontal='center')
+
+    for col, header in enumerate(selected_headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = title_font
+        cell.alignment = alignment
+
+    for row, item in enumerate(data, 2):
+        for col, field in enumerate(final_fields, 1):
+            value = item.get(field, '') if not field.startswith('custom_') else ''
+            if isinstance(value, float): value = round(value, 2)
+            ws.cell(row=row, column=col, value=value)
+
+    if total_row:
+        total_row_num = len(data) + 2
+        total_font = Font(bold=True, color="FFFFFF")
+        total_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        ws.cell(row=total_row_num, column=1, value="总计").font = total_font
+        ws.cell(row=total_row_num, column=1).fill = total_fill
+        for col, field in enumerate(final_fields, 1):
+            if field in total_row:
+                cell = ws.cell(row=total_row_num, column=col, value=round(total_row[field], 2))
+                cell.font = total_font
+                cell.fill = total_fill
+                cell.alignment = Alignment(horizontal='center')
+
+    for col in range(1, len(selected_headers) + 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 15
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    response = HttpResponse(buffer, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = f'attachment; filename="{file_name}.xlsx"'
+    return response
+
+
+# ========== 客户导出视图 ==========
+@login_required
+def customer_export(request):
+    """
+    导出客户信息（支持字段选择和自定义字段）
+    """
+    if request.method == 'POST':
+        try:
+            data = request.POST
+            selected_fields = data.getlist('fields[]')
+            custom_fields = json.loads(data.get('custom_fields', '[]'))
+
+            if not selected_fields:
+                return JsonResponse({'code': 0, 'msg': '请至少选择一个导出字段'})
+
+            # 定义表头映射
+            headers = {
+                'serial': '序号',
+                'id': 'ID',
+                'name': '客户名称',
+                'area_name': '所属区域',
+                'phone': '联系电话',
+                'remark': '备注'
+            }
+
+            # 查询数据
+            customers = Customer.objects.select_related('area').order_by('-create_time')
+
+            # 格式化数据
+            export_data = []
+            for idx, customer in enumerate(customers, 1):
+                export_data.append({
+                    'serial': idx,
+                    'id': customer.id,
+                    'name': customer.name,
+                    'area_name': customer.area.name if customer.area else '无',
+                    'phone': customer.phone,
+                    'remark': customer.remark or ''
+                })
+
+            # 生成文件名
+            file_date_str = timezone.localdate().strftime("%Y%m%d")
+
+            return export_to_excel(
+                data=export_data,
+                title='客户列表',
+                headers=headers,
+                selected_fields=selected_fields,
+                custom_fields=custom_fields,
+                file_name=f'{file_date_str}客户管理导出',
+                total_row=None
+            )
+        except Exception as e:
+            logger.error(f"导出客户失败：{str(e)}", exc_info=True)
+            return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'}, status=500)
+    return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+
+
+# ========== 客户导入视图 ==========
+@login_required
+def customer_import(request):
+    """
+    导入客户信息
+    逻辑：读取Excel，根据客户名称/手机号判断，已存在则跳过，不存在则新增
+    """
+    if request.method == 'POST':
+        try:
+            file_obj = request.FILES.get('file')
+            if not file_obj:
+                return JsonResponse({'code': 0, 'msg': '请上传文件'})
+
+            # 加载工作簿
+            wb = load_workbook(file_obj)
+            ws = wb.active
+
+            # 读取数据（假设第一行是表头，从第二行开始）
+            new_count = 0
+            skip_count = 0
+            error_list = []
+
+            # 先获取所有区域名到ID的映射，加速查询
+            area_map = {area.name: area for area in Area.objects.all()}
+
+            for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), 2):
+                # 简单的列映射：A列序号(跳过), B列客户名称, C列区域, D列电话, E列备注
+                # 注意：这里的索引取决于你导出的格式，我们尽量智能匹配
+                # 格式暂定：[序号, 客户名称, 所属区域, 联系电话, 备注, ...]
+
+                # 过滤掉空行
+                if not any(row):
+                    continue
+
+                # 尝试解析数据 (容错处理)
+                name = ''
+                area_name = ''
+                phone = ''
+                remark = ''
+
+                # 简单的列分配逻辑（根据实际导出顺序调整）
+                cells = [str(cell).strip() if cell else '' for cell in row]
+
+                # 尝试寻找关键信息
+                # 这里做一个假设：Excel列顺序为 [序号, 客户名称, 区域, 电话, 备注]
+                if len(cells) >= 4:
+                    name = cells[1]
+                    area_name = cells[2]
+                    phone = cells[3]
+                    if len(cells) > 4:
+                        remark = cells[4]
+
+                # 校验核心字段
+                if not name or not phone:
+                    # 如果第二列第三列没数据，尝试整行找看起来像名字和电话的
+                    # 这里简化处理，直接记录错误
+                    error_list.append(f"第{row_idx}行：客户名称或电话为空，跳过")
+                    continue
+
+                # 查重逻辑：根据 客户名称 或 手机号 判断是否存在
+                exists = Customer.objects.filter(name=name).exists() or Customer.objects.filter(phone=phone).exists()
+                if exists:
+                    skip_count += 1
+                    continue
+
+                # 处理区域
+                area_obj = None
+                if area_name and area_name in area_map:
+                    area_obj = area_map[area_name]
+                elif area_name:
+                    # 如果填写了区域但找不到，尝试模糊匹配或者设为空，这里设为空
+                    pass
+
+                # 创建客户
+                try:
+                    Customer.objects.create(
+                        name=name,
+                        area=area_obj,
+                        phone=phone,
+                        remark=remark
+                    )
+                    new_count += 1
+                except Exception as e:
+                    error_list.append(f"第{row_idx}行：保存失败（{str(e)}）")
+
+            msg = f"导入完成！新增：{new_count} 条，跳过重复：{skip_count} 条。"
+            if error_list:
+                msg += f" 异常：{len(error_list)} 条。"
+
+            return JsonResponse({'code': 1, 'msg': msg})
+
+        except Exception as e:
+            logger.error(f"导入客户失败：{str(e)}", exc_info=True)
+            return JsonResponse({'code': 0, 'msg': f'导入失败：{str(e)}'})
+    return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+
+

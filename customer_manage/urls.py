@@ -35,5 +35,8 @@ path('area/list/for/price/', views.area_list_for_price, name='area_list_for_pric
 # 新增客户消费TOP30路由
 path('customer/sales-rank/page/', views.customer_sales_rank_page, name='customer_sales_rank_page'),
 path('customer/sales-rank/data/', views.customer_sales_rank_data, name='customer_sales_rank_data'),
+#     客户信息导出导出
+path('api/customer/export/', views.customer_export, name='customer_export'),
+    path('api/customer/import/', views.customer_import, name='customer_import'),
 ]
 
