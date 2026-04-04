@@ -687,3 +687,162 @@ def area_export(request):
     except Exception as e:
         logger.error(f"导出区域失败：{str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': '导出失败'})
+
+# ===================== 区域组管理：导入导出新增代码 =====================
+@csrf_exempt
+@login_required
+@permission_required('area_add')
+def group_import(request):
+    """
+    区域组批量导入：
+    读取Excel，格式：[序号, 组名, 包含区域(逗号分隔), 备注]
+    组名重复则跳过
+    """
+    if request.method == 'POST':
+        try:
+            file = request.FILES.get('file')
+            if not file:
+                return JsonResponse({'code': 0, 'msg': '请选择文件'})
+
+            wb = openpyxl.load_workbook(file)
+            ws = wb.active
+
+            imported_count = 0
+            skipped_count = 0
+
+            # 预加载所有区域到内存，加速匹配
+            area_map = {a.name: a for a in Area.objects.only('id', 'name')}
+
+            # 从第2行开始遍历
+            for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+                if len(row) < 2:
+                    continue
+
+                # 提取数据
+                group_name = str(row[1]).strip() if row[1] else ''
+                area_names_str = str(row[2]).strip() if len(row) > 2 and row[2] else ''
+                remark = str(row[3]).strip() if len(row) > 3 and row[3] else ''
+
+                if not group_name:
+                    continue
+
+                # 检查组名是否已存在
+                if AreaGroup.objects.filter(name=group_name).exists():
+                    skipped_count += 1
+                    continue
+
+                # 解析包含区域
+                valid_areas = []
+                if area_names_str:
+                    area_names = [n.strip() for n in area_names_str.split(',')]
+                    for name in area_names:
+                        if name in area_map:
+                            valid_areas.append(area_map[name])
+
+                if not valid_areas:
+                    skipped_count += 1
+                    continue
+
+                # 创建区域组
+                g = AreaGroup.objects.create(name=group_name, remark=remark)
+                g.areas.set(valid_areas)
+                imported_count += 1
+
+            # 清理缓存
+            clear_group_cache()
+
+            # 记录日志
+            create_operation_log(
+                request=request, op_type='import', obj_type='area_group',
+                obj_id=0, obj_name='批量导入',
+                detail=f"导入成功：新增{imported_count}条，跳过{skipped_count}条"
+            )
+
+            return JsonResponse({
+                'code': 1,
+                'msg': f'导入完成！新增 {imported_count} 条，跳过 {skipped_count} 条'
+            })
+
+        except Exception as e:
+            logger.error(f"导入区域组失败：{str(e)}", exc_info=True)
+            return JsonResponse({'code': 0, 'msg': f'导入失败：文件格式错误或数据异常'})
+    return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
+
+
+@login_required
+@permission_required('area_view')
+def group_export(request):
+    """
+    区域组批量导出（支持字段选择和自定义字段）
+    """
+    try:
+        if request.method == 'POST':
+            # 1. 获取选中的字段
+            selected_fields = request.POST.getlist('fields[]')
+            if not selected_fields:
+                return JsonResponse({'code': 0, 'msg': '请至少选择一个导出字段'})
+
+            # 2. 获取自定义字段
+            custom_fields_json = request.POST.get('custom_fields', '[]')
+            try:
+                custom_fields = json.loads(custom_fields_json)
+            except json.JSONDecodeError:
+                custom_fields = []
+
+            # 3. 定义表头映射
+            headers = {
+                'serial': '序号',
+                'id': 'ID',
+                'name': '组名',
+                'areas': '包含区域',
+                'customer_count': '客户数',
+                'remark': '备注'
+            }
+
+            # 4. 查询并格式化数据（使用之前优化过的统计逻辑）
+            customer_subquery = Customer.objects.filter(
+                area_id=OuterRef('areas__id')
+            ).values('area_id').annotate(count=Count('id')).values('count')
+
+            groups = AreaGroup.objects.only('id', 'name', 'remark')\
+                .prefetch_related(Prefetch('areas', queryset=Area.objects.only('id', 'name')))\
+                .annotate(
+                    customer_count=Coalesce(Sum(Subquery(customer_subquery)), 0),
+                    area_count=Count('areas', distinct=True)
+                ).order_by('id')
+
+            data = []
+            seq = 1
+            for g in groups:
+                area_names = ', '.join([a.name for a in g.areas.all()])
+                data.append({
+                    'serial': seq,
+                    'id': g.id,
+                    'name': g.name,
+                    'areas': area_names,
+                    'customer_count': g.customer_count,
+                    'remark': g.remark or ''
+                })
+                seq += 1
+
+            # 5. 生成文件名
+            date_str = timezone.now().strftime('%Y年%m月%d日')
+            file_name = f'{date_str}区域组管理导出'
+
+            # 6. 调用通用导出函数
+            response = export_to_excel(
+                data=data,
+                title='区域组列表',
+                headers=headers,
+                selected_fields=selected_fields,
+                custom_fields=custom_fields,
+                file_name=file_name,
+                total_row=None
+            )
+
+            return response
+        else:
+            return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+    except Exception as e:
+        logger.error(f"导出区域组失败：{str(e)}", exc_info=True)
+        return JsonResponse({'code': 0, 'msg': '导出失败'})

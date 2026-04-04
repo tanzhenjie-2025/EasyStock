@@ -4,7 +4,7 @@
 
 {% block extra_css %}
 <style>
-    /* 复用之前的样式，加上上面第1步新增的CSS */
+    /* 复用原有样式 */
     #list tr { transition: background-color 0.2s ease; cursor: pointer; }
     #list tr:hover td { background-color: #f1f1f1 !important; }
     #list tr td:last-child { cursor: default; }
@@ -37,21 +37,20 @@
     .modal-btn-cancel { background:#6c757d; color:white; }
     .confirm-modal .modal-box { max-width:350px; }
 
-    /* --- 新增：复合表单弹窗样式 --- */
-    .form-modal .modal-box { max-width: 700px; } /* 更宽以容纳表格 */
+    /* --- 复合表单弹窗样式 --- */
+    .form-modal .modal-box { max-width: 700px; }
     .form-group { margin-bottom: 15px; }
     .form-label { display: block; margin-bottom: 5px; font-weight: 500; color: #333; font-size: 14px; }
     .form-input { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box; }
     .form-textarea { min-height: 80px; resize: vertical; }
 
-    /* --- 新增：区域选择表格样式 --- */
+    /* --- 区域选择表格样式 --- */
     .area-select-table-container { max-height: 250px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px; margin-top: 5px; }
     .area-select-table { width: 100%; border-collapse: collapse; font-size: 13px; }
     .area-select-table th, .area-select-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #eee; }
     .area-select-table th { background-color: #f8f9fa; position: sticky; top: 0; z-index: 1; }
     .area-select-table tr { cursor: pointer; transition: background-color 0.15s; }
     .area-select-table tr:hover { background-color: #e9ecef; }
-    /* 选中状态样式 */
     .area-select-table tr.selected { background-color: #cce5ff; color: #004085; }
     .area-select-table tr.selected:hover { background-color: #b8daff; }
     
@@ -59,13 +58,46 @@
 
     /* 分页 */
     .page-item.active .page-link { background-color: #007bff; border-color: #007bff; }
+
+    /* 🔥 新增：按钮组间距 */
+    .btn-group-action { gap: 8px; display: flex; align-items: center; }
+
+    /* 🔥 新增：导出模态框相关样式 */
+    .field-checkbox { margin: 5px 0; }
+    .select-all-btn { margin-bottom: 10px; }
+    .custom-fields-section {
+        border-top: 1px solid #eee;
+        margin-top: 15px;
+        padding-top: 15px;
+    }
+    .custom-field-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 10px;
+        padding: 8px;
+        background: #f8f9fa;
+        border-radius: 4px;
+    }
+    .custom-field-item input {
+        flex: 1;
+    }
+    .custom-field-item select {
+        width: 120px;
+    }
+    .btn-add-custom {
+        margin-top: 10px;
+        margin-bottom: 15px;
+    }
 </style>
 {% endblock %}
 
 {% block content %}
     <h3>区域组管理</h3>
-    <div class="my-3">
+    <div class="my-3 btn-group-action">
         <button class="btn btn-sm btn-primary" onclick="add()">新增区域组</button>
+        <button class="btn btn-sm btn-success" onclick="exportData()">📥 导出数据</button>
+        <button class="btn btn-sm btn-warning" onclick="showImportModal()">📤 导入数据</button>
     </div>
 
     <div class="search-container">
@@ -80,12 +112,75 @@
         </thead>
         <tbody id="list"></tbody>
     </table>
+
+    <!-- 🔥 新增：导出字段选择模态框 -->
+    <div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="exportModalLabel">选择导出字段</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- 全选/取消全选按钮 -->
+                    <div class="select-all-btn">
+                        <button type="button" class="btn btn-xs btn-outline-primary" onclick="selectAllFields(true)">全选</button>
+                        <button type="button" class="btn btn-xs btn-outline-secondary ms-1" onclick="selectAllFields(false)">取消全选</button>
+                    </div>
+                    
+                    <!-- 区域组字段选项 -->
+                    <div class="field-checkbox">
+                        <input type="checkbox" id="field_serial" name="export_fields" value="serial" checked>
+                        <label for="field_serial">序号</label>
+                    </div>
+                    <div class="field-checkbox">
+                        <input type="checkbox" id="field_id" name="export_fields" value="id" checked>
+                        <label for="field_id">ID</label>
+                    </div>
+                    <div class="field-checkbox">
+                        <input type="checkbox" id="field_name" name="export_fields" value="name" checked>
+                        <label for="field_name">组名</label>
+                    </div>
+                    <div class="field-checkbox">
+                        <input type="checkbox" id="field_areas" name="export_fields" value="areas" checked>
+                        <label for="field_areas">包含区域</label>
+                    </div>
+                    <div class="field-checkbox">
+                        <input type="checkbox" id="field_customer_count" name="export_fields" value="customer_count" checked>
+                        <label for="field_customer_count">客户数</label>
+                    </div>
+                    <div class="field-checkbox">
+                        <input type="checkbox" id="field_remark" name="export_fields" value="remark" checked>
+                        <label for="field_remark">备注</label>
+                    </div>
+                    
+                    <!-- 自定义字段区域 -->
+                    <div class="custom-fields-section">
+                        <h6>自定义字段（用于手动填写）</h6>
+                        <div id="customFieldsContainer">
+                            <!-- 自定义字段项将动态添加到这里 -->
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-success btn-add-custom" onclick="addCustomField()">
+                            + 添加自定义字段
+                        </button>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="exportExcel()">确认导出</button>
+                </div>
+            </div>
+        </div>
+    </div>
 {% endblock %}
 
 {% block extra_js %}
     <script>
         // 全局缓存所有区域列表，供选择器使用
         let allAreasCache = [];
+
+        // 全局变量（导出用）
+        let customFieldCount = 0;
 
         function showToast(message, type = 'info') {
             let container = document.getElementById('toastContainer');
@@ -124,49 +219,33 @@
 
         // --- 核心：区域组表单弹窗 (包含表格选择器) ---
         function showGroupFormModal(title, initialData = {}, callback) {
+            // ... (保持原有代码不变) ...
             document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
-            
-            // 初始数据
             const name = initialData.name || '';
             const remark = initialData.remark || '';
-            const selectedIds = initialData.area_ids || []; // 数组
-            
+            const selectedIds = initialData.area_ids || []; 
             let overlay = document.createElement('div');
             overlay.className = 'modal-overlay form-modal';
-            
             overlay.innerHTML = `
                 <div class="modal-box">
                     <div class="modal-title">${title}</div>
-                    
                     <div class="form-group">
                         <label class="form-label">组名 <span style="color:red">*</span></label>
                         <input type="text" class="form-input" id="form-group-name" value="${name}" placeholder="请输入区域组名称">
                     </div>
-                    
                     <div class="form-group">
                         <label class="form-label">备注</label>
                         <textarea class="form-input form-textarea" id="form-group-remark" placeholder="选填">${remark}</textarea>
                     </div>
-
                     <div class="form-group">
                         <label class="form-label">包含区域 <span style="color:red">*</span> <span class="selected-count-tip" id="selectedCountTip">(已选 0 个)</span></label>
                         <div class="area-select-table-container">
                             <table class="area-select-table" id="areaSelectTable">
-                                <thead>
-                                    <tr>
-                                        <th style="width:50px">选择</th>
-                                        <th>ID</th>
-                                        <th>区域名</th>
-                                        <th>备注</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="areaSelectTbody">
-                                    <!-- 由JS填充 -->
-                                </tbody>
+                                <thead><tr><th style="width:50px">选择</th><th>ID</th><th>区域名</th><th>备注</th></tr></thead>
+                                <tbody id="areaSelectTbody"></tbody>
                             </table>
                         </div>
                     </div>
-
                     <div class="modal-buttons">
                         <button class="modal-btn modal-btn-cancel">取消</button>
                         <button class="modal-btn modal-btn-confirm">保存</button>
@@ -176,114 +255,236 @@
             document.body.appendChild(overlay);
             setTimeout(() => overlay.classList.add('active'), 10);
 
-            // 状态管理
             let currentSelection = new Set(selectedIds.map(id => parseInt(id)));
-            
-            // 渲染区域列表
             const tbody = overlay.querySelector('#areaSelectTbody');
             const tipEl = overlay.querySelector('#selectedCountTip');
             
-            function updateTip() {
-                tipEl.innerText = `(已选 ${currentSelection.size} 个)`;
-            }
-
+            function updateTip() { tipEl.innerText = `(已选 ${currentSelection.size} 个)`; }
             function renderAreaOptions() {
                 let html = '';
                 allAreasCache.forEach(area => {
                     const isSelected = currentSelection.has(area.id);
-                    html += `
-                        <tr data-id="${area.id}" class="${isSelected ? 'selected' : ''}">
-                            <td>${isSelected ? '✓' : ''}</td>
-                            <td>${area.id}</td>
-                            <td>${area.name}</td>
-                            <td>${area.remark || '-'}</td>
-                        </tr>
-                    `;
+                    html += `<tr data-id="${area.id}" class="${isSelected ? 'selected' : ''}">
+                        <td>${isSelected ? '✓' : ''}</td><td>${area.id}</td><td>${area.name}</td><td>${area.remark || '-'}</td>
+                    </tr>`;
                 });
                 tbody.innerHTML = html;
                 updateTip();
-
-                // 绑定点击事件
                 tbody.querySelectorAll('tr').forEach(tr => {
                     tr.addEventListener('click', () => {
                         const id = parseInt(tr.dataset.id);
-                        if (currentSelection.has(id)) {
-                            currentSelection.delete(id);
-                            tr.classList.remove('selected');
-                            tr.querySelector('td:first-child').innerText = '';
-                        } else {
-                            currentSelection.add(id);
-                            tr.classList.add('selected');
-                            tr.querySelector('td:first-child').innerText = '✓';
-                        }
+                        if (currentSelection.has(id)) { currentSelection.delete(id); tr.classList.remove('selected'); tr.querySelector('td:first-child').innerText = ''; } 
+                        else { currentSelection.add(id); tr.classList.add('selected'); tr.querySelector('td:first-child').innerText = '✓'; }
                         updateTip();
                     });
                 });
             }
-
-            // 如果缓存有数据直接渲染，否则先去拉取
-            if (allAreasCache.length > 0) {
-                renderAreaOptions();
-            } else {
-                $.get('/area-manage/api/area/list/?page_size=100', function(res) {
-                    if (res.code === 1) {
-                        allAreasCache = res.data; // 缓存起来
-                        renderAreaOptions();
-                    }
-                }, 'json');
-            }
+            if (allAreasCache.length > 0) renderAreaOptions();
+            else $.get('/area-manage/api/area/list/?page_size=100', function(res) { if (res.code === 1) { allAreasCache = res.data; renderAreaOptions(); } }, 'json');
 
             const inputName = overlay.querySelector('#form-group-name');
             inputName.focus();
-            
             const closeModal = () => overlay.remove();
-
             overlay.querySelector('.modal-btn-cancel').addEventListener('click', () => { closeModal(); callback(null); });
             overlay.querySelector('.modal-btn-confirm').addEventListener('click', () => {
                 const valName = inputName.value.trim();
                 const valRemark = overlay.querySelector('#form-group-remark').value.trim();
-                
-                if (!valName) {
-                    showToast('组名不能为空', 'warning');
-                    inputName.focus();
-                    return;
-                }
-                if (currentSelection.size === 0) {
-                    showToast('请至少选择一个区域', 'warning');
-                    return;
-                }
-
+                if (!valName) { showToast('组名不能为空', 'warning'); inputName.focus(); return; }
+                if (currentSelection.size === 0) { showToast('请至少选择一个区域', 'warning'); return; }
                 closeModal();
-                callback({ 
-                    name: valName, 
-                    remark: valRemark, 
-                    area_ids: Array.from(currentSelection) 
+                callback({ name: valName, remark: valRemark, area_ids: Array.from(currentSelection) });
+            });
+        }
+
+        // 🔥 新增：导入弹窗
+        function showImportModal() {
+            document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
+            let overlay = document.createElement('div');
+            overlay.className = 'modal-overlay form-modal';
+            
+            overlay.innerHTML = `
+                <div class="modal-box">
+                    <div class="modal-title">导入区域组数据</div>
+                    <div class="form-group">
+                        <label class="form-label">选择 Excel 文件</label>
+                        <input type="file" class="form-input" id="import-file-input" accept=".xlsx, .xls">
+                        <div class="selected-count-tip" style="margin-top: 10px;">
+                            提示：请确保格式为 [序号, 组名, 包含区域(逗号分隔), 备注]，系统会自动跳过重复的组名。
+                        </div>
+                    </div>
+                    <div class="modal-buttons">
+                        <button class="modal-btn modal-btn-cancel">取消</button>
+                        <button class="modal-btn modal-btn-confirm" id="btn-confirm-import">开始导入</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+            setTimeout(() => overlay.classList.add('active'), 10);
+
+            const cancelBtn = overlay.querySelector('.modal-btn-cancel');
+            const confirmBtn = overlay.querySelector('#btn-confirm-import');
+            const fileInput = overlay.querySelector('#import-file-input');
+            const closeModal = () => overlay.remove();
+
+            cancelBtn.addEventListener('click', closeModal);
+            confirmBtn.addEventListener('click', () => {
+                if (!fileInput.files || fileInput.files.length === 0) {
+                    showToast('请先选择文件', 'warning');
+                    return;
+                }
+                
+                let formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+                confirmBtn.disabled = true;
+                confirmBtn.textContent = '导入中...';
+
+                $.ajax({
+                    url: '/area-manage/api/group/import/',
+                    type: 'POST',
+                    data: formData,
+                    headers: {'X-CSRFToken': getCsrfToken()},
+                    processData: false,
+                    contentType: false,
+                    success: function(res){
+                        showToast(res.msg, res.code === 1 ? 'success' : 'error');
+                        if(res.code === 1) {
+                            closeModal();
+                            load();
+                        }
+                    },
+                    error: function(){
+                        showToast('网络错误，导入失败！', 'error');
+                    },
+                    complete: function(){
+                        confirmBtn.disabled = false;
+                        confirmBtn.textContent = '开始导入';
+                    }
                 });
             });
         }
 
+        // ==================== 导出相关函数开始 ====================
+        
+        function exportData() {
+            showExportModal();
+        }
+
+        function showExportModal() {
+            customFieldCount = 0;
+            $('#customFieldsContainer').empty();
+            const modal = new bootstrap.Modal(document.getElementById('exportModal'));
+            modal.show();
+        }
+
+        function selectAllFields(isSelect) {
+            $('input[name="export_fields"]').prop('checked', isSelect);
+        }
+
+        function addCustomField() {
+            customFieldCount++;
+            let targetFieldsHtml = '';
+            $('input[name="export_fields"]').each(function() {
+                const fieldValue = $(this).val();
+                const fieldLabel = $(this).next('label').text();
+                targetFieldsHtml += `<option value="${fieldValue}">${fieldLabel}</option>`;
+            });
+            
+            const customFieldHtml = `
+            <div class="custom-field-item" data-index="${customFieldCount}">
+                <input type="text" class="form-control form-control-sm custom-field-name" placeholder="字段名称" value="备注${customFieldCount}">
+                <select class="form-select form-select-sm custom-field-position">
+                    <option value="after">在...之后</option>
+                    <option value="before">在...之前</option>
+                </select>
+                <select class="form-select form-select-sm custom-field-target">
+                    ${targetFieldsHtml}
+                </select>
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeCustomField(${customFieldCount})">×</button>
+            </div>
+            `;
+            $('#customFieldsContainer').append(customFieldHtml);
+        }
+
+        function removeCustomField(index) {
+            $(`.custom-field-item[data-index="${index}"]`).remove();
+        }
+
+        function exportExcel() {
+            let selectedFields = [];
+            $('input[name="export_fields"]:checked').each(function() {
+                selectedFields.push($(this).val());
+            });
+
+            if (selectedFields.length === 0) {
+                return alert('请至少选择一个导出字段');
+            }
+
+            let customFields = [];
+            $('.custom-field-item').each(function() {
+                const name = $(this).find('.custom-field-name').val().trim();
+                const position = $(this).find('.custom-field-position').val();
+                const target = $(this).find('.custom-field-target').val();
+                if (name) {
+                    customFields.push({ name: name, position: position, target: target });
+                }
+            });
+
+            let formData = new FormData();
+            formData.append('custom_fields', JSON.stringify(customFields));
+            selectedFields.forEach(field => {
+                formData.append('fields[]', field);
+            });
+
+            $.ajax({
+                url: '/area-manage/api/group/export/',
+                type: 'POST',
+                data: formData,
+                headers: {'X-CSRFToken': getCsrfToken()},
+                processData: false,
+                contentType: false,
+                xhrFields: { responseType: 'blob' },
+                success: function(res, status, xhr) {
+                    const contentType = xhr.getResponseHeader('Content-Type');
+                    if (contentType && contentType.includes('application/json')) {
+                        const reader = new FileReader();
+                        reader.onload = function() { const error = JSON.parse(this.result); alert('导出失败：' + error.msg); };
+                        reader.readAsText(res);
+                        return;
+                    }
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
+                    modal.hide();
+                    const url = window.URL.createObjectURL(res);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    let today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+                    a.download = `${today}区域组管理导出.xlsx`;
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                },
+                error: function(xhr) {
+                    let errorMsg = '导出失败，请重试';
+                    if (xhr.responseJSON) errorMsg = xhr.responseJSON.msg || errorMsg;
+                    alert(errorMsg);
+                }
+            });
+        }
+        // ==================== 导出相关函数结束 ====================
+
         function load(keyword = '', page = 1){
             let url = `/area-manage/api/group/list/?page=${page}`;
             if (keyword) url += `&keyword=${encodeURIComponent(keyword)}`;
-
             $.get(url, function(res){
                 let html='';
-                if(res.code === 0){
-                    $('#list').html(`<tr><td colspan="6" class="no-result">${res.msg}</td></tr>`);
-                    return;
-                }
+                if(res.code === 0){ $('#list').html(`<tr><td colspan="6" class="no-result">${res.msg}</td></tr>`); return; }
                 const list = res.data || [];
-                if(list.length === 0){
-                    html = `<tr><td colspan="6" class="no-result">暂无数据</td></tr>`;
-                } else {
+                if(list.length === 0) html = `<tr><td colspan="6" class="no-result">暂无数据</td></tr>`;
+                else {
                     list.forEach(i=>{
                         const areasDisplay = (i.area_names || []).slice(0, 3).join(', ') + ((i.area_names || []).length > 3 ? '...' : '');
                         html+=`<tr onclick="goToDetail(${i.id})">
-                            <td>${i.id}</td>
-                            <td>${i.name}</td>
+                            <td>${i.id}</td><td>${i.name}</td>
                             <td title="${(i.area_names || []).join(', ')}">${areasDisplay} <span class="badge bg-secondary">${i.area_count}</span></td>
-                            <td>${i.customer_count}</td>
-                            <td>${i.remark || '无'}</td>
+                            <td>${i.customer_count}</td><td>${i.remark || '无'}</td>
                             <td>
                                 <button class="btn btn-sm btn-info me-1" onclick="event.stopPropagation();goToDetail(${i.id})">详情</button>
                                 <button class="btn btn-sm btn-warning me-1" onclick="event.stopPropagation();edit(${i.id})">改</button>
@@ -303,9 +504,7 @@
             const { total, page, total_pages } = pagination;
             let html = `<nav class="mt-3"><ul class="pagination justify-content-center">`;
             if(page > 1) html += `<li class="page-item"><a class="page-link" onclick="load('${keyword}', ${page-1})">上一页</a></li>`;
-            for(let i=1; i<=total_pages; i++){
-                html += `<li class="page-item ${i===page ? 'active' : ''}"><a class="page-link" onclick="load('${keyword}', ${i})">${i}</a></li>`;
-            }
+            for(let i=1; i<=total_pages; i++) html += `<li class="page-item ${i===page ? 'active' : ''}"><a class="page-link" onclick="load('${keyword}', ${i})">${i}</a></li>`;
             if(page < total_pages) html += `<li class="page-item"><a class="page-link" onclick="load('${keyword}', ${page+1})">下一页</a></li>`;
             html += `</ul></nav>`;
             $('.table').after(html);
@@ -324,15 +523,8 @@
             return '';
         }
 
-        // --- 新增组 ---
         function add(){
-            // 打开弹窗前尝试预加载区域列表
-            if (allAreasCache.length === 0) {
-                 $.get('/area-manage/api/area/list/?page_size=100', function(res) {
-                    if (res.code === 1) allAreasCache = res.data;
-                 });
-            }
-
+            if (allAreasCache.length === 0) $.get('/area-manage/api/area/list/?page_size=100', function(res) { if (res.code === 1) allAreasCache = res.data; });
             showGroupFormModal('新增区域组', {}, (data) => {
                 if(!data) return;
                 $.ajax({
@@ -342,28 +534,18 @@
                     data: JSON.stringify(data),
                     headers: {'X-CSRFToken': getCsrfToken()},
                     dataType: 'json',
-                    success: function(res){
-                        showToast(res.msg, res.code === 1 ? 'success' : 'error');
-                        if(res.code===1) load();
-                    },
+                    success: function(res){ showToast(res.msg, res.code === 1 ? 'success' : 'error'); if(res.code===1) load(); },
                     error: function(){ showToast('操作失败！', 'error'); }
                 });
             });
         }
 
-        // --- 编辑组 ---
         function edit(id){
             $.get(`/area-manage/api/group/detail/${id}/`,function(res){
                 if(res.code === 0 || !res.data){ showToast('获取失败！', 'error'); return; }
                 let g = res.data;
-                // 转换数据结构：详情接口返回的是 objects，我们需要 ids
                 let currentAreaIds = (g.areas || []).map(a => a.id);
-                
-                showGroupFormModal('编辑区域组', {
-                    name: g.name, 
-                    remark: g.remark, 
-                    area_ids: currentAreaIds
-                }, (data) => {
+                showGroupFormModal('编辑区域组', { name: g.name, remark: g.remark, area_ids: currentAreaIds }, (data) => {
                     if(!data) return;
                     $.ajax({
                         url: `/area-manage/api/group/edit/${id}/`,
@@ -372,10 +554,7 @@
                         data: JSON.stringify(data),
                         headers: {'X-CSRFToken': getCsrfToken()},
                         dataType: 'json',
-                        success: function(res){
-                            showToast(res.msg, res.code === 1 ? 'success' : 'error');
-                            if(res.code===1) load();
-                        },
+                        success: function(res){ showToast(res.msg, res.code === 1 ? 'success' : 'error'); if(res.code===1) load(); },
                         error: function(){ showToast('操作失败！', 'error'); }
                     });
                 });
@@ -390,10 +569,7 @@
                     type: 'POST',
                     headers: {'X-CSRFToken': getCsrfToken()},
                     dataType: 'json',
-                    success: function(res){
-                        showToast(res.msg, res.code === 1 ? 'success' : 'error');
-                        load();
-                    },
+                    success: function(res){ showToast(res.msg, res.code === 1 ? 'success' : 'error'); load(); },
                     error: function(){ showToast('删除失败！', 'error'); }
                 });
             });
@@ -401,10 +577,7 @@
 
         $(document).ready(function(){
             load();
-            // 预加载区域列表缓存
-            $.get('/area-manage/api/area/list/?page_size=100', function(res) {
-                if (res.code === 1) allAreasCache = res.data;
-            });
+            $.get('/area-manage/api/area/list/?page_size=100', function(res) { if (res.code === 1) allAreasCache = res.data; });
         });
     </script>
 {% endblock %}

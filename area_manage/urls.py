@@ -26,4 +26,7 @@ urlpatterns = [
     # 区域导出导入
     path('api/area/import/', views.area_import, name='area_import'),
     path('api/area/export/', views.area_export, name='area_export'),
+#     区域组导入导出
+path('api/group/import/', views.group_import, name='group_import'),
+    path('api/group/export/', views.group_export, name='group_export'),
 ]
