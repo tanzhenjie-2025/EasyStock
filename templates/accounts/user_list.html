@@ -45,6 +45,45 @@
     .clickable-row {
         cursor: pointer;
     }
+
+    /* 🔥 新增：按钮组间距 */
+    .btn-group-action { gap: 8px; display: flex; align-items: center; }
+
+    /* 🔥 新增：导出模态框相关样式 */
+    .field-checkbox { margin: 5px 0; }
+    .select-all-btn { margin-bottom: 10px; }
+    .custom-fields-section {
+        border-top: 1px solid #eee;
+        margin-top: 15px;
+        padding-top: 15px;
+    }
+    .custom-field-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 10px;
+        padding: 8px;
+        background: #f8f9fa;
+        border-radius: 4px;
+    }
+    .custom-field-item input {
+        flex: 1;
+    }
+    .custom-field-item select {
+        width: 120px;
+    }
+    .btn-add-custom {
+        margin-top: 10px;
+        margin-bottom: 15px;
+    }
+    .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
+    .toast { padding: 12px 20px; border-radius: 4px; color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.15); animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s; opacity: 0; transform: translateX(100%); }
+    .toast-success { background-color: #28a745; }
+    .toast-error { background-color: #dc3545; }
+    .toast-warning { background-color: #ffc107; color: #333; }
+    .toast-info { background-color: #17a2b8; }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }
+    @keyframes fadeOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(100%); } }
 </style>
 {% endblock %}
 
@@ -57,6 +96,8 @@
             <a href="{% url 'accounts:user_add' %}" class="btn btn-primary btn-sm">
                 <i class="bi bi-plus-circle"></i> 添加用户
             </a>
+            <button class="btn btn-sm btn-success" onclick="exportData()">📥 导出数据</button>
+            <button class="btn btn-sm btn-warning" onclick="showImportModal()">📤 导入数据</button>
             <!-- 权限管理按钮：仅超级管理员可见 -->
             {% if is_super_admin %}
             <a href="{% url 'accounts:role_permission_config' 'operator' %}" class="btn btn-outline-primary btn-sm">
@@ -214,14 +255,317 @@
         {% endif %}
     </div>
 </div>
+
+<!-- 🔥 新增：导出字段选择模态框 -->
+<div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="exportModalLabel">选择导出字段</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- 全选/取消全选按钮 -->
+                <div class="select-all-btn">
+                    <button type="button" class="btn btn-xs btn-outline-primary" onclick="selectAllFields(true)">全选</button>
+                    <button type="button" class="btn btn-xs btn-outline-secondary ms-1" onclick="selectAllFields(false)">取消全选</button>
+                </div>
+                
+                <!-- 用户字段选项 -->
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_serial" name="export_fields" value="serial" checked>
+                    <label for="field_serial">序号</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_id" name="export_fields" value="id" checked>
+                    <label for="field_id">ID</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_user_code" name="export_fields" value="user_code" checked>
+                    <label for="field_user_code">用户编号</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_username" name="export_fields" value="username" checked>
+                    <label for="field_username">用户名</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_name" name="export_fields" value="name" checked>
+                    <label for="field_name">姓名</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_phone" name="export_fields" value="phone" checked>
+                    <label for="field_phone">联系电话</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_email" name="export_fields" value="email">
+                    <label for="field_email">邮箱</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_role" name="export_fields" value="role" checked>
+                    <label for="field_role">所属角色</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_status" name="export_fields" value="status" checked>
+                    <label for="field_status">状态</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_create_time" name="export_fields" value="create_time" checked>
+                    <label for="field_create_time">创建时间</label>
+                </div>
+                
+                <!-- 自定义字段区域 -->
+                <div class="custom-fields-section">
+                    <h6>自定义字段（用于手动填写）</h6>
+                    <div id="customFieldsContainer">
+                        <!-- 自定义字段项将动态添加到这里 -->
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-success btn-add-custom" onclick="addCustomField()">
+                        + 添加自定义字段
+                    </button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="exportExcel()">确认导出</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
+// 全局变量（导出用）
+let customFieldCount = 0;
+
 // 获取CSRF Token
 function getCsrfToken() {
     return document.querySelector('meta[name="csrf-token"]').content;
 }
+
+// 吐司提示
+function showToast(message, type = 'info', duration = 3000) {
+    let toastContainer = document.getElementById('toastContainer');
+    if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.id = 'toastContainer';
+        toastContainer.className = 'toast-container';
+        document.body.appendChild(toastContainer);
+    }
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = message;
+    toastContainer.appendChild(toast);
+    setTimeout(() => toast.remove(), duration);
+}
+
+// 🔥 新增：导入弹窗
+function showImportModal() {
+    document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
+    let overlay = document.createElement('div');
+    overlay.className = 'modal-overlay form-modal';
+    
+    overlay.innerHTML = `
+        <div class="modal-box">
+            <div class="modal-title">导入用户数据</div>
+            <div class="form-group">
+                <label class="form-label">选择 Excel 文件</label>
+                <input type="file" class="form-input" id="import-file-input" accept=".xlsx, .xls">
+                <div class="selected-count-tip" style="margin-top: 10px;">
+                    提示：请确保格式为 [序号, 用户编号, 用户名, 姓名, 联系电话, 邮箱, 所属角色, 状态]，系统会自动跳过重复的用户编号。
+                </div>
+            </div>
+            <div class="modal-buttons">
+                <button class="modal-btn modal-btn-cancel">取消</button>
+                <button class="modal-btn modal-btn-confirm" id="btn-confirm-import">开始导入</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+    setTimeout(() => overlay.classList.add('active'), 10);
+
+    const cancelBtn = overlay.querySelector('.modal-btn-cancel');
+    const confirmBtn = overlay.querySelector('#btn-confirm-import');
+    const fileInput = overlay.querySelector('#import-file-input');
+
+    const closeModal = () => overlay.remove();
+
+    cancelBtn.addEventListener('click', closeModal);
+    confirmBtn.addEventListener('click', () => {
+        if (!fileInput.files || fileInput.files.length === 0) {
+            showToast('请先选择文件', 'warning');
+            return;
+        }
+        
+        let formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = '导入中...';
+
+        $.ajax({
+            url: '/accounts/api/user/import/',
+            type: 'POST',
+            data: formData,
+            headers: {'X-CSRFToken': getCsrfToken()},
+            processData: false,
+            contentType: false,
+            success: function(res){
+                showToast(res.msg, res.code === 1 ? 'success' : 'error');
+                if(res.code === 1) {
+                    closeModal();
+                    window.location.reload(); // 刷新列表
+                }
+            },
+            error: function(){
+                showToast('网络错误，导入失败！', 'error');
+            },
+            complete: function(){
+                confirmBtn.disabled = false;
+                confirmBtn.textContent = '开始导入';
+            }
+        });
+    });
+}
+
+// ==================== 导出相关函数开始 ====================
+
+// 🔥 修改：导出按钮点击事件（打开模态框）
+function exportData() {
+    showExportModal();
+}
+
+// 显示导出模态框
+function showExportModal() {
+    // 重置自定义字段
+    customFieldCount = 0;
+    $('#customFieldsContainer').empty();
+    const modal = new bootstrap.Modal(document.getElementById('exportModal'));
+    modal.show();
+}
+
+// 全选/取消全选字段
+function selectAllFields(isSelect) {
+    $('input[name="export_fields"]').prop('checked', isSelect);
+}
+
+// 添加自定义字段
+function addCustomField() {
+    customFieldCount++;
+    
+    // 获取所有可选的目标字段
+    let targetFieldsHtml = '';
+    $('input[name="export_fields"]').each(function() {
+        const fieldValue = $(this).val();
+        const fieldLabel = $(this).next('label').text();
+        targetFieldsHtml += `<option value="${fieldValue}">${fieldLabel}</option>`;
+    });
+    
+    const customFieldHtml = `
+    <div class="custom-field-item" data-index="${customFieldCount}">
+        <input type="text" class="form-control form-control-sm custom-field-name" placeholder="字段名称（如：备注）" value="备注${customFieldCount}">
+        <select class="form-select form-select-sm custom-field-position">
+            <option value="after">在...之后</option>
+            <option value="before">在...之前</option>
+        </select>
+        <select class="form-select form-select-sm custom-field-target">
+            ${targetFieldsHtml}
+        </select>
+        <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeCustomField(${customFieldCount})">×</button>
+    </div>
+    `;
+    
+    $('#customFieldsContainer').append(customFieldHtml);
+}
+
+// 移除自定义字段
+function removeCustomField(index) {
+    $(`.custom-field-item[data-index="${index}"]`).remove();
+}
+
+// 执行导出Excel
+function exportExcel() {
+    // 1. 获取选中的字段
+    let selectedFields = [];
+    $('input[name="export_fields"]:checked').each(function() {
+        selectedFields.push($(this).val());
+    });
+
+    if (selectedFields.length === 0) {
+        return alert('请至少选择一个导出字段');
+    }
+
+    // 2. 获取自定义字段配置
+    let customFields = [];
+    $('.custom-field-item').each(function() {
+        const name = $(this).find('.custom-field-name').val().trim();
+        const position = $(this).find('.custom-field-position').val();
+        const target = $(this).find('.custom-field-target').val();
+        
+        if (name) {
+            customFields.push({
+                name: name,
+                position: position,
+                target: target
+            });
+        }
+    });
+
+    // 3. 构建表单数据
+    let formData = new FormData();
+    formData.append('custom_fields', JSON.stringify(customFields));
+    
+    selectedFields.forEach(field => {
+        formData.append('fields[]', field);
+    });
+
+    // 4. 发起导出请求
+    $.ajax({
+        url: '/accounts/api/user/export/',
+        type: 'POST',
+        data: formData,
+        headers: {'X-CSRFToken': getCsrfToken()},
+        processData: false,
+        contentType: false,
+        xhrFields: {
+            responseType: 'blob'
+        },
+        success: function(res, status, xhr) {
+            // 检查是否是错误响应
+            const contentType = xhr.getResponseHeader('Content-Type');
+            if (contentType && contentType.includes('application/json')) {
+                const reader = new FileReader();
+                reader.onload = function() {
+                    const error = JSON.parse(this.result);
+                    alert('导出失败：' + error.msg);
+                };
+                reader.readAsText(res);
+                return;
+            }
+
+            // 关闭模态框
+            const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
+            modal.hide();
+
+            // 生成下载链接
+            const url = window.URL.createObjectURL(res);
+            const a = document.createElement('a');
+            a.href = url;
+            let today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+            a.download = `${today}用户管理导出.xlsx`;
+            a.click();
+            window.URL.revokeObjectURL(url);
+        },
+        error: function(xhr) {
+            let errorMsg = '导出失败，请重试';
+            if (xhr.responseJSON) {
+                errorMsg = xhr.responseJSON.msg || errorMsg;
+            }
+            alert(errorMsg);
+        }
+    });
+}
+// ==================== 导出相关函数结束 ====================
 
 // 新增：整行点击跳转详情逻辑
 $(document).on('click', '.clickable-row', function(e) {

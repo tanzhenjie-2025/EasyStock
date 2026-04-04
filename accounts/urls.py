@@ -26,4 +26,8 @@ path('user-detail/<int:user_id>/', views.user_detail, name='user_detail'),
 
     # 其他
     path('no-permission/', views.no_permission, name='no_permission'),
+
+# 用户导入导出
+    path('api/user/import/', views.user_import, name='user_import'),
+    path('api/user/export/', views.user_export, name='user_export'),
 ]
