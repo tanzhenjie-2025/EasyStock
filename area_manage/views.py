@@ -2,7 +2,6 @@ from django.db.models.functions import Coalesce
 from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from django.utils import timezone
-from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.db.models import Q, Count, Prefetch, OuterRef, Subquery, Sum

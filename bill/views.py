@@ -5,7 +5,6 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse
 
 from django.utils import timezone
-from django.views.decorators.csrf import csrf_exempt
 # ========== 新增：页面缓存装饰器 ==========
 from django.views.decorators.cache import cache_page
 from .models import Order, OrderItem

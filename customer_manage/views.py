@@ -1,7 +1,6 @@
 # customer_manage\views.py
 from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse, HttpResponse
-from django.views.decorators.csrf import csrf_exempt
 from django.core.cache import cache
 
 from accounts.models import ROLE_SUPER_ADMIN, PERM_LOG_VIEW_ALL

@@ -2,7 +2,6 @@ from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse
 from django.db import IntegrityError, transaction
-from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 from django.core.files.uploadedfile import InMemoryUploadedFile
 import os

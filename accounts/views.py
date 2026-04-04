@@ -6,10 +6,9 @@ from django.contrib.auth import authenticate, login, logout
 
 from django.contrib import messages
 from django.db import IntegrityError
-from django.utils import timezone
 import logging
 from bill.models import Order, Area
-from django.views.decorators.csrf import csrf_exempt
+
 
 from django.core.cache import cache
 from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
@@ -27,7 +26,6 @@ from django.db.models import Q
 from django.http import JsonResponse, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
 
 from accounts.models import User, Role
@@ -580,7 +578,6 @@ def no_permission(request):
 
 
 # ===================== 用户管理：导入导出新增代码 =====================
-@csrf_exempt
 @login_required
 @permission_required('area_add')  # 可根据实际权限配置修改，如 'user_add'
 def user_import(request):
