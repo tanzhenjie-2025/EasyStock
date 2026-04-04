@@ -304,6 +304,59 @@
             background: #0066cc;
             color: #fff;
         }
+
+        /* 🔥 新增：按钮组间距 */
+        .btn-group-action { gap: 8px; display: flex; align-items: center; }
+
+        /* 🔥 新增：导出模态框相关样式 */
+        .field-checkbox { margin: 5px 0; }
+        .select-all-btn { margin-bottom: 10px; }
+        .custom-fields-section {
+            border-top: 1px solid #eee;
+            margin-top: 15px;
+            padding-top: 15px;
+        }
+        .custom-field-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+            padding: 8px;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+        .custom-field-item input {
+            flex: 1;
+        }
+        .custom-field-item select {
+            width: 120px;
+        }
+        .btn-add-custom {
+            margin-top: 10px;
+            margin-bottom: 15px;
+        }
+        
+        /* 🔥 新增：Toast 提示样式 */
+        .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
+        .toast { padding: 12px 20px; border-radius: 4px; color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.15); animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s; opacity: 0; transform: translateX(100%); }
+        .toast-success { background-color: #28a745; }
+        .toast-error { background-color: #dc3545; }
+        .toast-warning { background-color: #ffc107; color: #333; }
+        .toast-info { background-color: #17a2b8; }
+        @keyframes slideIn { from { opacity: 0; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes fadeOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(100%); } }
+        
+        /* 🔥 新增：通用模态框样式（用于导入） */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000; opacity: 0; visibility: hidden; transition: opacity 0.3s ease, visibility 0.3s ease; }
+        .modal-overlay.active { opacity: 1; visibility: visible; }
+        .modal-box { background-color: white; padding: 20px; border-radius: 8px; width: 90%; max-width: 400px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+        .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 15px; color: #333; }
+        .modal-input { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 15px; font-size: 14px; box-sizing: border-box; }
+        .modal-buttons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+        .modal-btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .modal-btn-confirm { background-color: #007bff; color: white; }
+        .modal-btn-cancel { background-color: #6c757d; color: white; }
+        .selected-count-tip { font-size: 12px; color: #666; margin-top: 5px; }
     </style>
 {% endblock %}
 
@@ -354,10 +407,10 @@
             </div>
             <button class="btn btn-primary" id="btn-add-product">新增商品</button>
             
-            <!-- Excel导入控件 -->
-            <div style="margin-left: 20px; display: flex; align-items: center; gap: 10px;">
-                <input type="file" id="import-file" accept=".xlsx,.xls" style="font-size: 14px;">
-                <button class="btn btn-success" id="btn-import-product">批量导入商品</button>
+            <!-- 🔥 替换：导入导出按钮组 -->
+            <div style="margin-left: 20px; display: flex; align-items: center; gap: 10px;" class="btn-group-action">
+                <button class="btn btn-success" onclick="exportData()">📥 导出数据</button>
+                <button class="btn btn-warning" onclick="showImportModal()">📤 导入数据</button>
             </div>
         </div>
 
@@ -511,10 +564,75 @@
             </div>
         </div>
     </div>
+
+    <!-- 🔥 新增：导出字段选择模态框 -->
+    <div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="exportModalLabel">选择导出字段</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- 全选/取消全选按钮 -->
+                    <div class="select-all-btn">
+                        <button type="button" class="btn btn-xs btn-outline-primary" onclick="selectAllFields(true)">全选</button>
+                        <button type="button" class="btn btn-xs btn-outline-secondary ms-1" onclick="selectAllFields(false)">取消全选</button>
+                    </div>
+                    
+                    <!-- 商品字段选项 -->
+                    <div class="field-checkbox">
+                        <input type="checkbox" id="field_serial" name="export_fields" value="serial" checked>
+                        <label for="field_serial">序号</label>
+                    </div>
+                    <div class="field-checkbox">
+                        <input type="checkbox" id="field_id" name="export_fields" value="id" checked>
+                        <label for="field_id">ID</label>
+                    </div>
+                    <div class="field-checkbox">
+                        <input type="checkbox" id="field_name" name="export_fields" value="name" checked>
+                        <label for="field_name">商品名称</label>
+                    </div>
+                    <div class="field-checkbox">
+                        <input type="checkbox" id="field_price" name="export_fields" value="price" checked>
+                        <label for="field_price">零售价</label>
+                    </div>
+                    <div class="field-checkbox">
+                        <input type="checkbox" id="field_unit" name="export_fields" value="unit" checked>
+                        <label for="field_unit">辅助单位</label>
+                    </div>
+                    <div class="field-checkbox">
+                        <input type="checkbox" id="field_stock" name="export_fields" value="stock" checked>
+                        <label for="field_stock">库存数量</label>
+                    </div>
+                    <div class="field-checkbox">
+                        <input type="checkbox" id="field_alias_names" name="export_fields" value="alias_names">
+                        <label for="field_alias_names">商品别名</label>
+                    </div>
+                    
+                    <!-- 自定义字段区域 -->
+                    <div class="custom-fields-section">
+                        <h6>自定义字段（用于手动填写）</h6>
+                        <div id="customFieldsContainer">
+                            <!-- 自定义字段项将动态添加到这里 -->
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-success btn-add-custom" onclick="addCustomField()">
+                            + 添加自定义字段
+                        </button>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="exportExcel()">确认导出</button>
+                </div>
+            </div>
+        </div>
+    </div>
 {% endblock %}
 
 
 {% block extra_js %}
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script>
         // 原有变量保留（已删除无用变量）
         let currentEditProductId = null;
@@ -525,12 +643,114 @@
         let currentStockSuggestList = [];
         let suggestBox = null;
 
+        // ==================== 🔥 新增：全局变量（导出用） ====================
+        let customFieldCount = 0;
+
         // 工具函数：显示提示
         function showMsg(text, isSuccess = true) {
             const msgBox = document.getElementById('msg-box');
             msgBox.textContent = text;
             msgBox.className = isSuccess ? 'msg msg-success' : 'msg msg-error';
             setTimeout(() => { msgBox.className = 'msg'; }, 3000);
+        }
+
+        // ==================== 🔥 新增：Toast 提示函数（替代 showMsg 用于异步操作） ====================
+        function showToast(message, type = 'info', duration = 3000) {
+            let toastContainer = document.getElementById('toastContainer');
+            if (!toastContainer) {
+                toastContainer = document.createElement('div');
+                toastContainer.id = 'toastContainer';
+                toastContainer.className = 'toast-container';
+                document.body.appendChild(toastContainer);
+            }
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+            toastContainer.appendChild(toast);
+            setTimeout(() => toast.remove(), duration);
+        }
+
+        // ==================== 🔥 新增：简易模态框生成器（用于导入，防止依赖 Bootstrap） ====================
+        function showSimpleModal(title, contentHtml, callback) {
+            document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
+            let overlay = document.createElement('div');
+            overlay.className = 'modal-overlay form-modal';
+            overlay.innerHTML = `
+                <div class="modal-box">
+                    <div class="modal-title">${title}</div>
+                    <div class="modal-content-wrapper">${contentHtml}</div>
+                    <div class="modal-buttons">
+                        <button class="modal-btn modal-btn-cancel">取消</button>
+                        <button class="modal-btn modal-btn-confirm" id="btn-confirm-action">确认</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+            setTimeout(() => overlay.classList.add('active'), 10);
+
+            const cancelBtn = overlay.querySelector('.modal-btn-cancel');
+            const confirmBtn = overlay.querySelector('#btn-confirm-action');
+            
+            const closeModal = () => overlay.remove();
+
+            cancelBtn.addEventListener('click', () => { closeModal(); if(callback) callback(null); });
+            confirmBtn.addEventListener('click', () => { if(callback) callback(overlay, closeModal); });
+            
+            document.addEventListener('keydown', function escHandler(e) {
+                if (e.key === 'Escape') { closeModal(); if(callback) callback(null); document.removeEventListener('keydown', escHandler); }
+            });
+        }
+
+        // ==================== 🔥 新增：导入弹窗逻辑 ====================
+        function showImportModal() {
+            const content = `
+                <div class="form-group">
+                    <label class="form-label" style="display:block; margin-bottom:5px; font-weight:500;">选择 Excel 文件</label>
+                    <input type="file" class="modal-input" id="import-file-input" accept=".xlsx, .xls">
+                    <div class="selected-count-tip">
+                        提示：请确保格式包含"商品名称"列，系统会自动跳过重复的商品名。
+                    </div>
+                </div>
+            `;
+
+            showSimpleModal('导入商品数据', content, function(overlay, closeModal) {
+                if(!overlay) return;
+                
+                const fileInput = overlay.querySelector('#import-file-input');
+                const confirmBtn = overlay.querySelector('#btn-confirm-action');
+
+                if (!fileInput.files || fileInput.files.length === 0) {
+                    showToast('请先选择文件', 'warning');
+                    return;
+                }
+                
+                let formData = new FormData();
+                formData.append('file', fileInput.files[0]);
+
+                confirmBtn.disabled = true;
+                confirmBtn.textContent = '导入中...';
+
+                fetch('/product/import/', { // 注意：这里的 URL 要和 urls.py 对应
+                    method: 'POST',
+                    headers: {'X-CSRFToken': getCsrfToken()},
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(res => {
+                    showToast(res.msg, res.code === 1 ? 'success' : 'error');
+                    if(res.code === 1) {
+                        closeModal();
+                        window.location.reload(); // 刷新列表
+                    }
+                })
+                .catch(() => {
+                    showToast('网络错误，导入失败！', 'error');
+                })
+                .finally(() => {
+                    confirmBtn.disabled = false;
+                    confirmBtn.textContent = '确认';
+                });
+            });
         }
 
         // 跳转到商品详情页函数
@@ -779,46 +999,6 @@
             } catch (error) {
                 showMsg('删除别名失败：' + error.message, false);
                 console.error(error);
-            }
-        }
-
-        // ========== 原有导入逻辑保留 ==========
-        async function importProduct() {
-            const fileInput = document.getElementById('import-file');
-            if (!fileInput.files || fileInput.files.length === 0) {
-                showMsg('请选择要导入的Excel文件', false);
-                return;
-            }
-
-            const file = fileInput.files[0];
-            if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
-                showMsg('仅支持xlsx/xls格式的Excel文件', false);
-                return;
-            }
-
-            const formData = new FormData();
-            formData.append('file', file);
-
-            try {
-                showMsg('正在导入商品数据，请稍候...', true);
-                const res = await fetch('/product/import/', {
-                    method: 'POST',
-                    headers: {
-                        'X-CSRFToken': getCsrfToken()
-                    },
-                    body: formData
-                });
-                const data = await res.json();
-                if (data.code === 1) {
-                    showMsg(data.msg, true);
-                    fileInput.value = '';
-                    window.location.reload();
-                } else {
-                    showMsg(data.msg, false);
-                }
-            } catch (error) {
-                showMsg('导入失败：' + error.message, false);
-                console.error('导入商品失败：', error);
             }
         }
 
@@ -1135,6 +1315,150 @@
             return cookieValue;
         }
 
+        // ==================== 🔥 新增：导出相关函数 ====================
+        
+        // 导出按钮点击事件（打开模态框）
+        function exportData() {
+            // 如果你有 Bootstrap 5
+            if (typeof bootstrap !== 'undefined') {
+                showExportModalBootstrap();
+            } else {
+                // 简易版导出模态框逻辑（如果不依赖 Bootstrap，代码会很长，这里建议直接用 Bootstrap）
+                // 为了简化，这里假设你有 Bootstrap，如果没有，请参考区域管理的 HTML 结构
+                alert('请确保页面引入了 Bootstrap 5 JS 以使用导出功能');
+            }
+        }
+
+        // 显示 Bootstrap 导出模态框
+        function showExportModalBootstrap() {
+            // 重置自定义字段
+            customFieldCount = 0;
+            $('#customFieldsContainer').empty();
+            const modal = new bootstrap.Modal(document.getElementById('exportModal'));
+            modal.show();
+        }
+
+        // 全选/取消全选字段
+        function selectAllFields(isSelect) {
+            $('input[name="export_fields"]').prop('checked', isSelect);
+        }
+
+        // 添加自定义字段
+        function addCustomField() {
+            customFieldCount++;
+            
+            // 获取所有可选的目标字段
+            let targetFieldsHtml = '';
+            $('input[name="export_fields"]').each(function() {
+                const fieldValue = $(this).val();
+                const fieldLabel = $(this).next('label').text();
+                targetFieldsHtml += `<option value="${fieldValue}">${fieldLabel}</option>`;
+            });
+            
+            const customFieldHtml = `
+            <div class="custom-field-item" data-index="${customFieldCount}">
+                <input type="text" class="form-control form-control-sm custom-field-name" placeholder="字段名称（如：上次金额）" value="备注${customFieldCount}">
+                <select class="form-select form-select-sm custom-field-position">
+                    <option value="after">在...之后</option>
+                    <option value="before">在...之前</option>
+                </select>
+                <select class="form-select form-select-sm custom-field-target">
+                    ${targetFieldsHtml}
+                </select>
+                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeCustomField(${customFieldCount})">×</button>
+            </div>
+            `;
+            
+            $('#customFieldsContainer').append(customFieldHtml);
+        }
+
+        // 移除自定义字段
+        function removeCustomField(index) {
+            $(`.custom-field-item[data-index="${index}"]`).remove();
+        }
+
+        // 执行导出Excel
+        function exportExcel() {
+            // 1. 获取选中的字段
+            let selectedFields = [];
+            $('input[name="export_fields"]:checked').each(function() {
+                selectedFields.push($(this).val());
+            });
+
+            if (selectedFields.length === 0) {
+                return alert('请至少选择一个导出字段');
+            }
+
+            // 2. 获取自定义字段配置
+            let customFields = [];
+            $('.custom-field-item').each(function() {
+                const name = $(this).find('.custom-field-name').val().trim();
+                const position = $(this).find('.custom-field-position').val();
+                const target = $(this).find('.custom-field-target').val();
+                
+                if (name) {
+                    customFields.push({
+                        name: name,
+                        position: position,
+                        target: target
+                    });
+                }
+            });
+
+            // 3. 构建表单数据
+            let formData = new FormData();
+            formData.append('custom_fields', JSON.stringify(customFields));
+            
+            selectedFields.forEach(field => {
+                formData.append('fields[]', field);
+            });
+
+            // 4. 发起导出请求
+            $.ajax({
+                url: '/product/api/product/export/', // 注意：这里的 URL 要和 urls.py 对应
+                type: 'POST',
+                data: formData,
+                headers: {'X-CSRFToken': getCsrfToken()},
+                processData: false,
+                contentType: false,
+                xhrFields: {
+                    responseType: 'blob'
+                },
+                success: function(res, status, xhr) {
+                    // 检查是否是错误响应
+                    const contentType = xhr.getResponseHeader('Content-Type');
+                    if (contentType && contentType.includes('application/json')) {
+                        const reader = new FileReader();
+                        reader.onload = function() {
+                            const error = JSON.parse(this.result);
+                            alert('导出失败：' + error.msg);
+                        };
+                        reader.readAsText(res);
+                        return;
+                    }
+
+                    // 关闭模态框
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
+                    modal.hide();
+
+                    // 生成下载链接
+                    const url = window.URL.createObjectURL(res);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    let today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+                    a.download = `${today}商品管理导出.xlsx`;
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                },
+                error: function(xhr) {
+                    let errorMsg = '导出失败，请重试';
+                    // 注意：因为是 blob 类型，错误信息解析比较麻烦，这里简化处理
+                    alert(errorMsg);
+                }
+            });
+        }
+        // ==================== 导出相关函数结束 ====================
+
         // ========== 初始化和事件绑定 ==========
         document.addEventListener('DOMContentLoaded', function() {
             initSuggestBox();
@@ -1150,7 +1474,7 @@
             document.getElementById('btn-close-modal').addEventListener('click', closeModal);
             document.getElementById('btn-save-edit').addEventListener('click', saveEdit);
             document.getElementById('btn-add-alias').addEventListener('click', addAlias);
-            document.getElementById('btn-import-product').addEventListener('click', importProduct);
+            // 注意：旧的 btn-import-product 已在 HTML 中移除，无需绑定
 
             // 快速出入库
             document.getElementById('btn-quick-stock').addEventListener('click', openStockModal);

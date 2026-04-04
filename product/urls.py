@@ -18,6 +18,7 @@ urlpatterns = [
 
     # 商品导入接口
     path('import/', views.product_import, name='product_import'),
+    path('api/product/export/', views.product_export, name='product_export'),
 
     # 快速出入库接口
     path('quick-stock/', views.quick_stock_operation, name='quick_stock_operation'),

@@ -15,6 +15,14 @@ from django.db.models import Sum, Count, Q, F, Prefetch, Case, When, DateTimeFie
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.utils import timezone
 
+# ====================== 新增：导出功能依赖导入 ======================
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill
+from django.http import HttpResponse
+from io import BytesIO
+import json
+import logging
+
 # ========== 缓存核心导入 ==========
 from django.core.cache import cache
 
@@ -623,3 +631,135 @@ def sales_rank_data(request):
         return JsonResponse({'code': 1, 'msg': '获取成功', 'data': result})
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'获取数据失败：{str(e)}', 'data': []})
+
+
+
+
+
+
+# ====================== 新增：通用导出函数（如果项目中没有的话） ======================
+def export_to_excel(data, title, headers, selected_fields, custom_fields, file_name, total_row=None):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = title
+
+    final_fields = selected_fields.copy()
+    final_headers = {field: headers[field] for field in selected_fields}
+
+    if custom_fields:
+        for cf in custom_fields:
+            cf_name = cf.get('name', '')
+            cf_position = cf.get('position', 'after')
+            cf_target = cf.get('target', '')
+            if not cf_name or not cf_target: continue
+            custom_field_key = f'custom_{cf_name.replace(" ", "_")}_{len(final_fields)}'
+            final_headers[custom_field_key] = cf_name
+            try:
+                target_index = final_fields.index(cf_target)
+                insert_index = target_index + 1 if cf_position == 'after' else target_index
+                final_fields.insert(insert_index, custom_field_key)
+            except ValueError:
+                final_fields.append(custom_field_key)
+
+    selected_headers = [final_headers[field] for field in final_fields]
+    title_font = Font(bold=True, size=12)
+    alignment = Alignment(horizontal='center')
+
+    for col, header in enumerate(selected_headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = title_font
+        cell.alignment = alignment
+
+    for row, item in enumerate(data, 2):
+        for col, field in enumerate(final_fields, 1):
+            value = item.get(field, '') if not field.startswith('custom_') else ''
+            if isinstance(value, float): value = round(value, 2)
+            ws.cell(row=row, column=col, value=value)
+
+    if total_row:
+        total_row_num = len(data) + 2
+        total_font = Font(bold=True, color="FFFFFF")
+        total_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+        ws.cell(row=total_row_num, column=1, value="总计").font = total_font
+        ws.cell(row=total_row_num, column=1).fill = total_fill
+        for col, field in enumerate(final_fields, 1):
+            if field in total_row:
+                cell = ws.cell(row=total_row_num, column=col, value=round(total_row[field], 2))
+                cell.font = total_font
+                cell.fill = total_fill
+                cell.alignment = Alignment(horizontal='center')
+
+    for col in range(1, len(selected_headers) + 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 15
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    response = HttpResponse(buffer, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    response['Content-Disposition'] = f'attachment; filename="{file_name}.xlsx"'
+    return response
+
+
+# ====================== 新增：商品导出视图 ======================
+@login_required
+@permission_required(PERM_PRODUCT_IMPORT)  # 复用导入权限，或新建 PERM_PRODUCT_EXPORT
+def product_export(request):
+    """
+    导出商品信息（支持字段选择和自定义字段）
+    """
+    if request.method == 'POST':
+        try:
+            data = request.POST
+            selected_fields = data.getlist('fields[]')
+            custom_fields = json.loads(data.get('custom_fields', '[]'))
+
+            if not selected_fields:
+                return JsonResponse({'code': 0, 'msg': '请至少选择一个导出字段'})
+
+            # 定义表头映射
+            headers = {
+                'serial': '序号',
+                'id': 'ID',
+                'name': '商品名称',
+                'price': '零售价',
+                'unit': '辅助单位',
+                'stock': '库存数量',
+                'alias_names': '商品别名'
+            }
+
+            # 查询数据
+            products = Product.objects.prefetch_related('aliases').order_by('name')
+
+            # 格式化数据
+            export_data = []
+            for idx, product in enumerate(products, 1):
+                # 拼接别名
+                alias_names = ', '.join([a.alias_name for a in product.aliases.all()])
+
+                export_data.append({
+                    'serial': idx,
+                    'id': product.id,
+                    'name': product.name,
+                    'price': float(product.price),
+                    'unit': product.unit,
+                    'stock': product.stock,
+                    'alias_names': alias_names
+                })
+
+            # 生成文件名
+            file_date_str = timezone.localdate().strftime("%Y%m%d")
+
+            return export_to_excel(
+                data=export_data,
+                title='商品列表',
+                headers=headers,
+                selected_fields=selected_fields,
+                custom_fields=custom_fields,
+                file_name=f'{file_date_str}商品管理导出',
+                total_row=None
+            )
+        except Exception as e:
+            logger.error(f"导出商品失败：{str(e)}", exc_info=True)
+            return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'}, status=500)
+    return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+
