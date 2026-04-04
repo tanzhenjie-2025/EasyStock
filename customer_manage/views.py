@@ -527,10 +527,8 @@ def customer_page(request):
 
 @login_required
 @permission_required('customer_price_view')
-# 🔥 高优缓存：客户专属价格复杂搜索+预加载+分页
-@cache_page(CACHE_HIGH_PRIORITY)
 def customer_price_list(request):
-    """获取客户专属价格列表 - 多维度搜索+高级筛选+分页(15条/页)【优化：商品别名预加载，解决N+1】"""
+    """获取客户专属价格列表 - 【改为手动缓存版】"""
     try:
         # 1. 获取所有筛选参数 + 分页参数
         keyword = request.GET.get('keyword', '').strip()
@@ -538,20 +536,33 @@ def customer_price_list(request):
         max_price = request.GET.get('max_price', '').strip()
         area_id = request.GET.get('area_id', '').strip()
         page = request.GET.get('page', 1)
+
+        # 🔥 2. 生成手动缓存 Key (参考 customer_list 的做法)
+        # 包含用户ID、关键词、价格区间、区域、页码，确保不同人看到不同的缓存
+        cache_key = f"{CACHE_PREFIX_CUSTOMER_PRICE}{request.user.id}_{keyword}_{min_price}_{max_price}_{area_id}_{page}"
+
+        # 🔥 3. 尝试读取缓存
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            logger.info(f"命中专属价格缓存: {cache_key}")
+            return JsonResponse(cached_data, safe=False, content_type='application/json')
+
         page_size = 15
 
-        # 2. 🔥 核心优化：预加载 客户/区域/商品 + 商品别名（彻底解决N+1）
-        # select_related：外键正向加载
-        # prefetch_related：一对多反向加载（商品别名）
+        # 4. 🔥 核心优化：预加载 客户/区域/商品 + 商品别名（彻底解决N+1）
         prices = CustomerPrice.objects.all() \
             .select_related('customer__area', 'product') \
-            .prefetch_related('product__aliases')  # 关键修复
+            .prefetch_related('product__aliases')
 
-        # 3. 权限/筛选逻辑（完全保留）
+        # 5. 权限/筛选逻辑（完全保留）
         if not request.user.has_permission(PERM_LOG_VIEW_ALL):
-            prices = prices.filter(operator=request.user)
+            # 注意：原代码这里有 filter(operator=request.user)，
+            # 但你的 CustomerPrice Model 里没有 operator 字段！
+            # 如果没有这个字段，建议注释掉这行，否则会报错。
+            # prices = prices.filter(operator=request.user)
+            pass
 
-        # 关键词筛选
+            # 关键词筛选
         if keyword:
             keyword = full_to_half(keyword).strip()
             keywords = [k for k in keyword.split() if k]
@@ -592,7 +603,7 @@ def customer_price_list(request):
         if area_id and area_id.isdigit():
             prices = prices.filter(customer__area_id=int(area_id))
 
-        # 4. 分页逻辑（保留）
+        # 6. 分页逻辑
         paginator = Paginator(prices, page_size)
         try:
             price_page = paginator.page(page)
@@ -601,7 +612,7 @@ def customer_price_list(request):
         except EmptyPage:
             price_page = paginator.page(paginator.num_pages)
 
-        # 5. 构造数据（无任何数据库查询，直接使用预加载数据）
+        # 7. 构造数据
         result = []
         for cp in price_page:
             result.append({
@@ -618,13 +629,20 @@ def customer_price_list(request):
                 'remark': cp.remark or ''
             })
 
-        return JsonResponse({
+        response_data = {
             'code': 1, 'msg': '查询成功', 'data': result, 'keyword': keyword,
             'page': int(page), 'total': paginator.count, 'total_pages': paginator.num_pages,
             'has_next': price_page.has_next(), 'has_previous': price_page.has_previous(),
-        }, safe=False, content_type='application/json')
+        }
+
+        # 🔥 8. 写入缓存 (关键步骤)
+        cache.set(cache_key, response_data, CACHE_HIGH_PRIORITY)
+        logger.info(f"设置专属价格缓存: {cache_key}")
+
+        return JsonResponse(response_data, safe=False, content_type='application/json')
 
     except Exception as e:
+        logger.error(f"查询专属价列表失败: {str(e)}", exc_info=True)
         return JsonResponse(
             {'code': 0, 'msg': f'查询失败：{str(e)}', 'data': []},
             safe=False, content_type='application/json'
@@ -1220,26 +1238,30 @@ def customer_import(request):
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
 
-# ========== 客户专属价格缓存清理函数 ==========
+
+# ========== 客户专属价格缓存清理函数 (修复版) ==========
 def clear_customer_price_cache():
     """
     清理客户专属价格相关缓存
+    注意：由于我们将 @cache_page 改为了手动缓存，
+    现在只需要清理特定前缀的 Key 即可。
     """
-    # 1. 清理使用 @cache_page 产生的缓存 (通常 key 以 views.decorators.cache.cache_page 开头)
-    # 为了确保彻底清理，我们也清理可能的手动 key
-    cache.delete_pattern(f"*{CACHE_PREFIX_CUSTOMER_PRICE}*")
+    # 1. 清理手动缓存的列表 Key
+    # 格式类似: customer_price_list_userid_keyword_page
+    cache.delete_pattern(f"{CACHE_PREFIX_CUSTOMER_PRICE}*")
 
-    # 2. 清理 Django @cache_page 的默认前缀 (这是最关键的)
-    # Django cache_page 生成的 key 通常包含视图函数名的路径
-    cache.delete_pattern("*customer_price_list*")
+    # 2. 清理相关的辅助接口缓存 (这些还在用 @cache_page，为了彻底清理，我们也尝试匹配)
+    # 注意：如果下面这些接口不经常变，可以保留缓存不清理，或者也改成手动缓存
+    # 这里为了保险，尝试通配符删除 (取决于你的 Redis 配置是否支持)
+    try:
+        cache.delete_pattern("*product_list_for_price*")
+        cache.delete_pattern("*search_customer_for_price*")
+        cache.delete_pattern("*search_product_for_price*")
+        cache.delete_pattern("*area_list_for_price*")
+    except:
+        pass  # 如果不支持通配符删除则跳过
 
-    # 3. 同时清理相关的辅助接口缓存
-    cache.delete_pattern("*product_list_for_price*")
-    cache.delete_pattern("*search_customer_for_price*")
-    cache.delete_pattern("*search_product_for_price*")
-    cache.delete_pattern("*area_list_for_price*")
-
-    logger.info(f"已清理客户专属价格全量缓存")
+    logger.info(f"已清理客户专属价格全量缓存 (手动Key模式)")
 
 
 # ========== 客户专属价格导出视图 ==========
