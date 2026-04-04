@@ -283,19 +283,19 @@ def area_edit(request, pk):
 @permission_required('area_delete')
 def area_delete(request, pk):
     try:
-        # 🔧 优化：only()限制字段
         area = get_object_or_404(Area.objects.only('id', 'name'), pk=pk)
-        area.delete()
-        create_operation_log(request=request, op_type='delete', obj_type='area',
-                             obj_id=pk, obj_name=area.name, detail=f"删除区域")
+        # 🔥 修改为软删除
+        area.is_active = False
+        area.save()
 
-        # 调用增强版的缓存清理
+        create_operation_log(request=request, op_type='disable', obj_type='area',
+                             obj_id=pk, obj_name=area.name, detail=f"禁用区域")
+
         clear_area_cache(area_id=pk)
-
-        return JsonResponse({'code': 1, 'msg': '删除成功'})
+        return JsonResponse({'code': 1, 'msg': '禁用成功'})
     except Exception as e:
-        logger.error(f"删除区域失败：{str(e)}")
-        return JsonResponse({'code': 0, 'msg': f'删除失败：{str(e)}'})
+        logger.error(f"禁用区域失败：{str(e)}")
+        return JsonResponse({'code': 0, 'msg': f'禁用失败：{str(e)}'})
 
 
 # ===================== 区域组管理 =====================
@@ -479,16 +479,18 @@ def group_edit(request, pk):
 @permission_required('area_delete')
 def group_delete(request, pk):
     try:
-        # 🔧 优化：only()限制字段
         g = get_object_or_404(AreaGroup.objects.only('id', 'name'), pk=pk)
-        g.delete()
-        create_operation_log(request=request, op_type='delete', obj_type='area_group',
-                             obj_id=pk, obj_name=g.name, detail=f"删除区域组")
+        # 🔥 修改为软删除
+        g.is_active = False
+        g.save()
+
+        create_operation_log(request=request, op_type='disable', obj_type='area_group',
+                             obj_id=pk, obj_name=g.name, detail=f"禁用区域组")
         clear_group_cache(group_id=pk)
-        return JsonResponse({'code': 1, 'msg': '删除成功'})
+        return JsonResponse({'code': 1, 'msg': '禁用成功'})
     except Exception as e:
-        logger.error(f"删除区域组失败：{str(e)}")
-        return JsonResponse({'code': 0, 'msg': f'删除失败：{str(e)}'})
+        logger.error(f"禁用区域组失败：{str(e)}")
+        return JsonResponse({'code': 0, 'msg': f'禁用失败：{str(e)}'})
 
 
 # ===================== 页面入口 =====================

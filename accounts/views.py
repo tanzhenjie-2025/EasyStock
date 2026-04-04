@@ -572,11 +572,6 @@ def profile(request):
 def no_permission(request):
     return render(request, 'accounts/no_permission.html')
 
-
-
-
-
-
 # ===================== 用户管理：导入导出新增代码 =====================
 @login_required
 @permission_required('area_add')  # 可根据实际权限配置修改，如 'user_add'

@@ -178,7 +178,6 @@
     <script>
         // 全局缓存所有区域列表，供选择器使用
         let allAreasCache = [];
-
         // 全局变量（导出用）
         let customFieldCount = 0;
 
@@ -219,7 +218,6 @@
 
         // --- 核心：区域组表单弹窗 (包含表格选择器) ---
         function showGroupFormModal(title, initialData = {}, callback) {
-            // ... (保持原有代码不变) ...
             document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
             const name = initialData.name || '';
             const remark = initialData.remark || '';
@@ -488,7 +486,7 @@
                             <td>
                                 <button class="btn btn-sm btn-info me-1" onclick="event.stopPropagation();goToDetail(${i.id})">详情</button>
                                 <button class="btn btn-sm btn-warning me-1" onclick="event.stopPropagation();edit(${i.id})">改</button>
-                                <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();del(${i.id})">删</button>
+                                <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();del(${i.id})">禁用</button>
                             </td>
                         </tr>`;
                     });
@@ -562,7 +560,7 @@
         }
 
         function del(id){
-            showConfirmModal('确定删除该区域组吗？', (isConfirm) => {
+            showConfirmModal('确定禁用该区域组吗？', (isConfirm) => {
                 if(!isConfirm) return;
                 $.ajax({
                     url: `/area-manage/api/group/delete/${id}/`,
@@ -570,7 +568,7 @@
                     headers: {'X-CSRFToken': getCsrfToken()},
                     dataType: 'json',
                     success: function(res){ showToast(res.msg, res.code === 1 ? 'success' : 'error'); load(); },
-                    error: function(){ showToast('删除失败！', 'error'); }
+                    error: function(){ showToast('禁用失败！', 'error'); }
                 });
             });
         }
