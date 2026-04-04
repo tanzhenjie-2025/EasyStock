@@ -36,6 +36,7 @@ CACHE_MID_PRIORITY = 600  # 静态数据/搜索接口 10分钟
 CACHE_KEY_AREA_LIST_FOR_CUSTOMER = "global:area_list_for_customer"
 CACHE_PREFIX_CUSTOMER_LIST = "customer_list_"
 CACHE_PREFIX_CUSTOMER_DETAIL = "customer_detail_"
+CACHE_PREFIX_CUSTOMER_PRICE = "customer_price_"  # 新增：专属价格缓存前缀
 
 import logging  # 1. 导入 logging 模块
 
@@ -73,7 +74,6 @@ def full_to_half(s):
 
 @login_required
 @permission_required('customer_view')
-@csrf_exempt
 def customer_list(request):
     """优化版：无N+1、批量聚合、带分页 + 手动缓存"""
     try:
@@ -165,7 +165,6 @@ def customer_list(request):
 # 2. 客户详情（需customer_view权限）
 @login_required
 @permission_required('customer_view')
-@csrf_exempt
 def customer_detail(request, pk):
     """客户详情接口 - 手动缓存版"""
     try:
@@ -292,7 +291,6 @@ def customer_detail(request, pk):
 # 3. 还款登记（需customer_repayment权限）✅ 写操作，不缓存
 @login_required
 @permission_required('customer_repayment')
-@csrf_exempt
 def repayment_register(request):
     """还款登记接口"""
     if request.method == 'POST':
@@ -368,7 +366,6 @@ def repayment_page(request):
 # 6. 新增客户（需customer_add权限）✅ 写操作，不缓存
 @login_required
 @permission_required('customer_add')
-@csrf_exempt
 def customer_add(request):
     """新增客户接口"""
     if request.method == 'POST':
@@ -421,7 +418,6 @@ def customer_add(request):
 # 7. 编辑客户（需customer_edit权限）✅ 写操作，不缓存
 @login_required
 @permission_required('customer_edit')
-@csrf_exempt
 def customer_edit(request, pk):
     """编辑客户接口"""
     try:
@@ -473,7 +469,6 @@ def customer_edit(request, pk):
 # 8. 删除客户（需customer_delete权限）✅ 写操作，不缓存
 @login_required
 @permission_required('customer_delete')
-@csrf_exempt
 def customer_delete(request, pk):
     """删除客户接口"""
     try:
@@ -502,7 +497,6 @@ def customer_delete(request, pk):
 # ===================== 辅助接口：获取区域列表（需customer_view权限） =====================
 @login_required
 @permission_required('customer_view')
-@csrf_exempt
 def area_list_for_customer(request):
     """供客户管理页面获取区域下拉列表 - 手动缓存版"""
     try:
@@ -533,7 +527,6 @@ def customer_page(request):
 
 @login_required
 @permission_required('customer_price_view')
-@csrf_exempt
 # 🔥 高优缓存：客户专属价格复杂搜索+预加载+分页
 @cache_page(CACHE_HIGH_PRIORITY)
 def customer_price_list(request):
@@ -641,7 +634,6 @@ def customer_price_list(request):
 # 2. 新增客户价格（需customer_price_add权限）✅ 写操作，不缓存
 @login_required
 @permission_required('customer_price_add')
-@csrf_exempt
 def customer_price_add(request):
     """新增客户专属价格"""
     if request.method == 'POST':
@@ -689,6 +681,7 @@ def customer_price_add(request):
                 obj_name=f"{customer.name}-{product.name}",
                 detail=f"新增客户专属价：客户={customer.name}，商品={product.name}，标准价={product_standard_price}元，专属价={custom_price}元，备注={remark if remark else '无'}"
             )
+            clear_customer_price_cache()
 
             return JsonResponse({'code': 1, 'msg': '新增专属价成功'}, content_type='application/json')
         except Exception as e:
@@ -699,7 +692,6 @@ def customer_price_add(request):
 # 3. 编辑客户价格（需customer_price_edit权限）✅ 写操作，不缓存
 @login_required
 @permission_required('customer_price_edit')
-@csrf_exempt
 def customer_price_edit(request, pk):
     """编辑客户专属价格"""
     try:
@@ -739,6 +731,7 @@ def customer_price_edit(request, pk):
                 obj_name=f"{customer_name}-{product_name}",
                 detail=f"编辑客户专属价：客户={customer_name}，商品={product_name}，标准价={product_standard_price}元，原专属价={old_price}元→新专属价={custom_price}元，原备注={old_remark}→新备注={remark if remark else '无'}"
             )
+            clear_customer_price_cache()
 
             return JsonResponse({'code': 1, 'msg': '编辑专属价成功'}, content_type='application/json')
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
@@ -749,7 +742,6 @@ def customer_price_edit(request, pk):
 # 4. 删除客户价格（需customer_price_delete权限）✅ 写操作，不缓存
 @login_required
 @permission_required('customer_price_delete')
-@csrf_exempt
 def customer_price_delete(request, pk):
     """删除客户专属价格"""
     try:
@@ -773,6 +765,7 @@ def customer_price_delete(request, pk):
             obj_name=f"{customer_name}-{product_name}",
             detail=f"删除客户专属价：ID={pk}，客户={customer_name}，商品={product_name}，标准价={product_standard_price}元，专属价={custom_price}元，备注={remark}"
         )
+        clear_customer_price_cache()
 
         return JsonResponse({'code': 1, 'msg': '删除专属价成功'}, content_type='application/json')
     except Exception as e:
@@ -790,7 +783,6 @@ def customer_price_page(request):
 # ===================== 辅助接口（商品/客户搜索，需customer_price_view权限） =====================
 @login_required
 @permission_required('customer_price_view')
-@csrf_exempt
 # 📊 中优缓存：价格页商品静态列表
 @cache_page(CACHE_MID_PRIORITY)
 def product_list_for_price(request):
@@ -1225,6 +1217,220 @@ def customer_import(request):
         except Exception as e:
             logger.error(f"导入客户失败：{str(e)}", exc_info=True)
             return JsonResponse({'code': 0, 'msg': f'导入失败：{str(e)}'})
+    return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+
+
+# ========== 客户专属价格缓存清理函数 ==========
+def clear_customer_price_cache():
+    """
+    清理客户专属价格相关缓存
+    """
+    # 1. 清理使用 @cache_page 产生的缓存 (通常 key 以 views.decorators.cache.cache_page 开头)
+    # 为了确保彻底清理，我们也清理可能的手动 key
+    cache.delete_pattern(f"*{CACHE_PREFIX_CUSTOMER_PRICE}*")
+
+    # 2. 清理 Django @cache_page 的默认前缀 (这是最关键的)
+    # Django cache_page 生成的 key 通常包含视图函数名的路径
+    cache.delete_pattern("*customer_price_list*")
+
+    # 3. 同时清理相关的辅助接口缓存
+    cache.delete_pattern("*product_list_for_price*")
+    cache.delete_pattern("*search_customer_for_price*")
+    cache.delete_pattern("*search_product_for_price*")
+    cache.delete_pattern("*area_list_for_price*")
+
+    logger.info(f"已清理客户专属价格全量缓存")
+
+
+# ========== 客户专属价格导出视图 ==========
+@login_required
+def customer_price_export(request):
+    """
+    导出客户专属价格（支持字段选择和自定义字段）
+    """
+    if request.method == 'POST':
+        try:
+            data = request.POST
+            selected_fields = data.getlist('fields[]')
+            custom_fields = json.loads(data.get('custom_fields', '[]'))
+
+            if not selected_fields:
+                return JsonResponse({'code': 0, 'msg': '请至少选择一个导出字段'})
+
+            # 定义表头映射
+            headers = {
+                'serial': '序号',
+                'id': 'ID',
+                'customer_name': '客户名称',
+                'customer_area_name': '所属区域',
+                'product_name': '商品名称',
+                'standard_price': '商品标准价',
+                'custom_price': '客户专属价',
+                'remark': '备注'
+            }
+
+            # 查询数据 (使用 select_related 优化性能)
+            prices = CustomerPrice.objects.select_related(
+                'customer', 'customer__area', 'product'
+            ).order_by('-create_time')
+
+            # 格式化数据
+            export_data = []
+            for idx, cp in enumerate(prices, 1):
+                export_data.append({
+                    'serial': idx,
+                    'id': cp.id,
+                    'customer_name': cp.customer.name if cp.customer else '未知',
+                    'customer_area_name': cp.customer.area.name if (cp.customer and cp.customer.area) else '无',
+                    'product_name': cp.product.name if cp.product else '未知',
+                    'standard_price': float(cp.product.price) if cp.product else 0.0,
+                    'custom_price': float(cp.custom_price),
+                    'remark': cp.remark or ''
+                })
+
+            # 生成文件名
+            file_date_str = timezone.localdate().strftime("%Y%m%d")
+
+            return export_to_excel(
+                data=export_data,
+                title='客户专属价格',
+                headers=headers,
+                selected_fields=selected_fields,
+                custom_fields=custom_fields,
+                file_name=f'{file_date_str}客户专属价格导出',
+                total_row=None
+            )
+        except Exception as e:
+            logger.error(f"导出客户专属价格失败：{str(e)}", exc_info=True)
+            return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'}, status=500)
+    return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+
+
+# ========== 客户专属价格导入视图 ==========
+# ========== 客户专属价格导入视图 (修复版) ==========
+@login_required
+def customer_price_import(request):
+    """
+    导入客户专属价格 (修复版)
+    逻辑：读取Excel，根据【客户名称 + 商品名称】判断，已存在则跳过，不存在则新增
+    """
+    if request.method == 'POST':
+        try:
+            file_obj = request.FILES.get('file')
+            if not file_obj:
+                return JsonResponse({'code': 0, 'msg': '请上传文件'})
+
+            # 加载工作簿
+            wb = load_workbook(file_obj, data_only=True)  # data_only=True 读取公式计算后的值
+            ws = wb.active
+
+            new_count = 0
+            skip_count = 0
+            error_list = []
+
+            # 1. 预加载数据到内存 (加速查询)
+            # 格式: { '客户名': CustomerObj }
+            customer_map = {c.name: c for c in Customer.objects.all()}
+            # 格式: { '商品名': ProductObj }
+            product_map = {p.name: p for p in Product.objects.all()}
+            # 格式: { (customer_id, product_id): True }
+            existing_price_keys = set(
+                CustomerPrice.objects.values_list('customer_id', 'product_id')
+            )
+
+            logger.info(f"开始导入专属价格，预加载客户数: {len(customer_map)}, 商品数: {len(product_map)}")
+
+            # 2. 遍历 Excel
+            for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), 2):
+                # 过滤空行
+                if not any(row):
+                    continue
+
+                # 解析数据
+                # 预期列顺序:
+                # [0]序号, [1]客户名称, [2]所属区域(忽略), [3]商品名称, [4]标准价(忽略), [5]专属价, [6]备注
+                cells = [str(cell).strip() if cell is not None else '' for cell in row]
+
+                # 安全填充
+                while len(cells) < 7:
+                    cells.append('')
+
+                customer_name = cells[1]
+                product_name = cells[3]
+                custom_price_str = cells[5]
+                remark = cells[6]
+
+                # 校验核心字段
+                if not customer_name:
+                    error_list.append(f"第{row_idx}行：客户名称为空，跳过")
+                    continue
+                if not product_name:
+                    error_list.append(f"第{row_idx}行：商品名称为空，跳过")
+                    continue
+                if not custom_price_str:
+                    error_list.append(f"第{row_idx}行：专属价格为空，跳过")
+                    continue
+
+                # 校验价格格式
+                try:
+                    # 尝试清洗价格字符串 (去除 ¥, 逗号等)
+                    price_clean = custom_price_str.replace('¥', '').replace(',', '').strip()
+                    custom_price = float(price_clean)
+                    if custom_price < 0:
+                        raise ValueError("价格为负")
+                except Exception as e:
+                    error_list.append(f"第{row_idx}行：专属价格格式错误 ({custom_price_str})")
+                    continue
+
+                # 查找客户和商品 (内存中查找，极快)
+                if customer_name not in customer_map:
+                    error_list.append(f"第{row_idx}行：客户【{customer_name}】在系统中不存在，跳过")
+                    continue
+                if product_name not in product_map:
+                    error_list.append(f"第{row_idx}行：商品【{product_name}】在系统中不存在，跳过")
+                    continue
+
+                customer = customer_map[customer_name]
+                product = product_map[product_name]
+
+                # 查重：(客户ID, 商品ID) 是否已存在
+                if (customer.id, product.id) in existing_price_keys:
+                    skip_count += 1
+                    continue
+
+                # 创建专属价
+                try:
+                    CustomerPrice.objects.create(
+                        customer=customer,
+                        product=product,
+                        custom_price=custom_price,  # 这里 Django 会自动把 float 转 Decimal
+                        remark=remark
+                    )
+                    new_count += 1
+                    # 加入内存集合，防止同文件内重复导入
+                    existing_price_keys.add((customer.id, product.id))
+
+                except Exception as e:
+                    error_list.append(f"第{row_idx}行：数据库保存失败（{str(e)}）")
+
+            # 3. 构造返回消息
+            msg = f"导入完成！新增：{new_count} 条，跳过重复/错误：{skip_count + len(error_list)} 条。"
+            if error_list:
+                # 只显示前10个错误，防止消息太长
+                msg += f" (前10个错误: {'; '.join(error_list[:10])})"
+
+            logger.info(msg)
+
+            # 4. 清理缓存 (关键步骤)
+            if new_count > 0:
+                clear_customer_price_cache()
+                logger.info("已触发专属价格缓存清理")
+
+            return JsonResponse({'code': 1, 'msg': msg})
+
+        except Exception as e:
+            logger.error(f"导入客户专属价格系统异常：{str(e)}", exc_info=True)
+            return JsonResponse({'code': 0, 'msg': f'导入系统异常：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
 

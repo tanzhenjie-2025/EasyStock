@@ -38,5 +38,8 @@ path('customer/sales-rank/data/', views.customer_sales_rank_data, name='customer
 #     客户信息导出导出
 path('api/customer/export/', views.customer_export, name='customer_export'),
     path('api/customer/import/', views.customer_import, name='customer_import'),
+# 新增：客户专属价格导入导出
+    path('api/price/export/', views.customer_price_export, name='customer_price_export'),
+    path('api/price/import/', views.customer_price_import, name='customer_price_import'),
 ]
 

@@ -253,6 +253,28 @@
         cursor: default;
     }
 
+    /* ========== 🔥 新增：导入导出模态框专用样式 ========== */
+    .field-checkbox { margin: 5px 0; }
+    .select-all-btn { margin-bottom: 10px; }
+    .custom-fields-section {
+        border-top: 1px solid #eee;
+        margin-top: 15px;
+        padding-top: 15px;
+    }
+    .custom-field-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 10px;
+        padding: 8px;
+        background: #f8f9fa;
+        border-radius: 4px;
+    }
+    .custom-field-item input { flex: 1; }
+    .custom-field-item select { width: 120px; }
+    .btn-add-custom { margin-top: 10px; margin-bottom: 15px; }
+    .btn-group-action { gap: 8px; display: flex; align-items: center; }
+
 </style>
 {% endblock %}
 
@@ -304,8 +326,11 @@
         </div>
     </div>
 
-    <div class="my-3">
+    <!-- 🔥 修改：按钮组，新增导入导出 -->
+    <div class="my-3 btn-group-action">
         <button class="btn btn-sm btn-primary" onclick="openAddModal()">新增专属价</button>
+        <button class="btn btn-sm btn-info ms-2" onclick="showExportModal()">📥 导出数据</button>
+        <button class="btn btn-sm btn-warning ms-2" onclick="showImportModal()">📤 导入数据</button>
     </div>
 
     <table class="table table-sm table-bordered">
@@ -385,6 +410,99 @@
         </form>
     </div>
 </div>
+
+<!-- 🔥 新增：导出字段选择模态框 -->
+<div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="exportModalLabel">选择导出字段</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- 全选/取消全选按钮 -->
+                <div class="select-all-btn">
+                    <button type="button" class="btn btn-xs btn-outline-primary" onclick="selectAllFields(true)">全选</button>
+                    <button type="button" class="btn btn-xs btn-outline-secondary ms-1" onclick="selectAllFields(false)">取消全选</button>
+                </div>
+
+                <!-- 专属价格字段选项 -->
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_serial" name="export_fields" value="serial" checked>
+                    <label for="field_serial">序号</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_id" name="export_fields" value="id" checked>
+                    <label for="field_id">ID</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_customer_name" name="export_fields" value="customer_name" checked>
+                    <label for="field_customer_name">客户名称</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_area" name="export_fields" value="customer_area_name" checked>
+                    <label for="field_area">所属区域</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_product" name="export_fields" value="product_name" checked>
+                    <label for="field_product">商品名称</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_standard_price" name="export_fields" value="standard_price" checked>
+                    <label for="field_standard_price">商品标准价</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_custom_price" name="export_fields" value="custom_price" checked>
+                    <label for="field_custom_price">客户专属价</label>
+                </div>
+                <div class="field-checkbox">
+                    <input type="checkbox" id="field_remark" name="export_fields" value="remark" checked>
+                    <label for="field_remark">备注</label>
+                </div>
+
+                <!-- 自定义字段区域 -->
+                <div class="custom-fields-section">
+                    <h6>自定义字段（用于手动填写）</h6>
+                    <div id="customFieldsContainer">
+                        <!-- 自定义字段项将动态添加到这里 -->
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-success btn-add-custom" onclick="addCustomField()">
+                        + 添加自定义字段
+                    </button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" onclick="exportExcel()">确认导出</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 🔥 新增：导入模态框 -->
+<div class="modal fade" id="importModal" tabindex="-1" aria-labelledby="importModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="importModalLabel">导入客户专属价格</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">选择 Excel 文件</label>
+                    <input type="file" class="form-control" id="import-file-input" accept=".xlsx, .xls">
+                    <div class="form-text text-muted mt-2">
+                        提示：请先导出一份 Excel 作为模板。系统会根据 <strong>客户名称 + 商品名称</strong> 自动去重，已存在的组合将被跳过。
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="btn-confirm-import" onclick="importExcel()">开始导入</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -394,6 +512,7 @@
     let productList = [];
     let currentSearchKeyword = '';  // 新增：当前搜索关键词（用于标红）
     const SEARCH_HISTORY_KEY = 'customer_price_search_history';  // 最近搜索记录key
+    let customFieldCount = 0;    // 导出用：自定义字段计数器
 
     // ========== 输入法式选择核心变量 ==========
     let currentSearchInput = null;    // 当前激活的搜索输入框
@@ -1122,6 +1241,154 @@
             }
         }
         return cookieValue;
+    }
+
+    // ===================== 🔥 新增：导入导出相关JS =====================
+    
+    // 1. 显示导出模态框
+    function showExportModal() {
+        customFieldCount = 0;
+        $('#customFieldsContainer').empty();
+        const modal = new bootstrap.Modal(document.getElementById('exportModal'));
+        modal.show();
+    }
+
+    // 2. 全选/取消全选
+    function selectAllFields(isSelect) {
+        $('input[name="export_fields"]').prop('checked', isSelect);
+    }
+
+    // 3. 添加自定义字段
+    function addCustomField() {
+        customFieldCount++;
+        let targetFieldsHtml = '';
+        $('input[name="export_fields"]').each(function() {
+            const fieldValue = $(this).val();
+            const fieldLabel = $(this).next('label').text();
+            targetFieldsHtml += `<option value="${fieldValue}">${fieldLabel}</option>`;
+        });
+        
+        const customFieldHtml = `
+        <div class="custom-field-item" data-index="${customFieldCount}">
+            <input type="text" class="form-control form-control-sm custom-field-name" placeholder="字段名称" value="备注${customFieldCount}">
+            <select class="form-select form-select-sm custom-field-position">
+                <option value="after">在...之后</option>
+                <option value="before">在...之前</option>
+            </select>
+            <select class="form-select form-select-sm custom-field-target">
+                ${targetFieldsHtml}
+            </select>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeCustomField(${customFieldCount})">×</button>
+        </div>
+        `;
+        $('#customFieldsContainer').append(customFieldHtml);
+    }
+
+    // 4. 移除自定义字段
+    function removeCustomField(index) {
+        $(`.custom-field-item[data-index="${index}"]`).remove();
+    }
+
+    // 5. 执行导出
+    function exportExcel() {
+        let selectedFields = [];
+        $('input[name="export_fields"]:checked').each(function() {
+            selectedFields.push($(this).val());
+        });
+        if (selectedFields.length === 0) return alert('请至少选择一个导出字段');
+
+        let customFields = [];
+        $('.custom-field-item').each(function() {
+            const name = $(this).find('.custom-field-name').val().trim();
+            const position = $(this).find('.custom-field-position').val();
+            const target = $(this).find('.custom-field-target').val();
+            if (name) {
+                customFields.push({ name: name, position: position, target: target });
+            }
+        });
+
+        let formData = new FormData();
+        formData.append('custom_fields', JSON.stringify(customFields));
+        selectedFields.forEach(field => { formData.append('fields[]', field); });
+
+        $.ajax({
+            url: '/customer-manage/api/price/export/',
+            type: 'POST',
+            data: formData,
+            headers: {'X-CSRFToken': getCsrfToken()},
+            processData: false,
+            contentType: false,
+            xhrFields: { responseType: 'blob' },
+            success: function(res, status, xhr) {
+                const contentType = xhr.getResponseHeader('Content-Type');
+                if (contentType && contentType.includes('application/json')) {
+                    const reader = new FileReader();
+                    reader.onload = function() {
+                        const error = JSON.parse(this.result);
+                        alert('导出失败：' + error.msg);
+                    };
+                    reader.readAsText(res);
+                    return;
+                }
+                const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
+                modal.hide();
+                const url = window.URL.createObjectURL(res);
+                const a = document.createElement('a');
+                a.href = url;
+                let today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+                a.download = `${today}客户专属价格导出.xlsx`;
+                a.click();
+                window.URL.revokeObjectURL(url);
+            },
+            error: function(xhr) {
+                alert('导出失败，请重试');
+            }
+        });
+    }
+
+    // 6. 显示导入模态框
+    function showImportModal() {
+        $('#import-file-input').val(''); // 清空文件选择
+        const modal = new bootstrap.Modal(document.getElementById('importModal'));
+        modal.show();
+    }
+
+    // 7. 执行导入
+    function importExcel() {
+        const fileInput = document.getElementById('import-file-input');
+        if (!fileInput.files || fileInput.files.length === 0) {
+            alert('请先选择文件');
+            return;
+        }
+        
+        let formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+
+        const btn = $('#btn-confirm-import');
+        btn.prop('disabled', true).text('导入中...');
+
+        $.ajax({
+            url: '/customer-manage/api/price/import/',
+            type: 'POST',
+            data: formData,
+            headers: {'X-CSRFToken': getCsrfToken()},
+            processData: false,
+            contentType: false,
+            success: function(res){
+                alert(res.msg);
+                if(res.code === 1) {
+                    const modal = bootstrap.Modal.getInstance(document.getElementById('importModal'));
+                    modal.hide();
+                    loadPriceList(); // 刷新列表
+                }
+            },
+            error: function(){
+                alert('网络错误，导入失败！');
+            },
+            complete: function(){
+                btn.prop('disabled', false).text('开始导入');
+            }
+        });
     }
 </script>
 {% endblock %}
