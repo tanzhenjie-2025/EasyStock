@@ -1163,10 +1163,6 @@ def customer_import(request):
             area_map = {area.name: area for area in Area.objects.all()}
 
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), 2):
-                # 简单的列映射：A列序号(跳过), B列客户名称, C列区域, D列电话, E列备注
-                # 注意：这里的索引取决于你导出的格式，我们尽量智能匹配
-                # 格式暂定：[序号, 客户名称, 所属区域, 联系电话, 备注, ...]
-
                 # 过滤掉空行
                 if not any(row):
                     continue
@@ -1180,7 +1176,6 @@ def customer_import(request):
                 # 简单的列分配逻辑（根据实际导出顺序调整）
                 cells = [str(cell).strip() if cell else '' for cell in row]
 
-                # 尝试寻找关键信息
                 # 这里做一个假设：Excel列顺序为 [序号, 客户名称, 区域, 电话, 备注]
                 if len(cells) >= 4:
                     name = cells[1]
@@ -1191,8 +1186,6 @@ def customer_import(request):
 
                 # 校验核心字段
                 if not name or not phone:
-                    # 如果第二列第三列没数据，尝试整行找看起来像名字和电话的
-                    # 这里简化处理，直接记录错误
                     error_list.append(f"第{row_idx}行：客户名称或电话为空，跳过")
                     continue
 
@@ -1206,9 +1199,6 @@ def customer_import(request):
                 area_obj = None
                 if area_name and area_name in area_map:
                     area_obj = area_map[area_name]
-                elif area_name:
-                    # 如果填写了区域但找不到，尝试模糊匹配或者设为空，这里设为空
-                    pass
 
                 # 创建客户
                 try:
@@ -1225,6 +1215,10 @@ def customer_import(request):
             msg = f"导入完成！新增：{new_count} 条，跳过重复：{skip_count} 条。"
             if error_list:
                 msg += f" 异常：{len(error_list)} 条。"
+
+            # 🔥 新增：导入成功后清理缓存（因为有新数据写入）
+            if new_count > 0:
+                clear_customer_cache()
 
             return JsonResponse({'code': 1, 'msg': msg})
 
