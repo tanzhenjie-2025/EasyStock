@@ -449,30 +449,35 @@ def customer_edit(request, pk):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'编辑失败：{str(e)}'}, content_type='application/json')
 
-# ========== 删除客户（写操作，清理缓存） ==========
+
+# ========== 修改：禁用客户（原删除接口） ==========
 @login_required
 @permission_required('customer_delete')
 def customer_delete(request, pk):
-    """删除客户接口"""
+    """禁用客户接口（软删除）"""
     try:
         customer = get_object_or_404(Customer, pk=pk)
         customer_name = customer.name
-        customer.delete()
+
+        # 软删除操作
+        customer.is_active = False
+        customer.disabled_time = timezone.now()
+        customer.save()
 
         create_operation_log(
             request=request,
-            op_type='delete',
+            op_type='disable',  # 操作类型改为 disable
             obj_type='customer',
             obj_id=pk,
             obj_name=customer_name,
-            detail=f"删除客户"
+            detail=f"禁用客户：{customer_name}"
         )
 
         clear_customer_cache(customer_id=pk)
-        return JsonResponse({'code': 1, 'msg': '删除客户成功'}, content_type='application/json')
+        return JsonResponse({'code': 1, 'msg': '禁用客户成功'}, content_type='application/json')
     except Exception as e:
-        return JsonResponse({'code': 0, 'msg': f'删除失败：{str(e)}'}, content_type='application/json')
-
+        return JsonResponse({'code': 0, 'msg': f'禁用失败：{str(e)}'}, content_type='application/json')
+    
 # ========== 区域列表（手动缓存，共用） ==========
 @login_required
 @permission_required('customer_view')

@@ -3,6 +3,13 @@ from django.utils import timezone
 from accounts.models import User
 from area_manage.models import Area
 from product.models import Product
+
+# ========== 新增：软删除管理器 ==========
+class CustomerManager(models.Manager):
+    def get_queryset(self):
+        # 默认只返回未禁用的客户
+        return super().get_queryset().filter(is_active=True)
+
 class Customer(models.Model):
     """客户信息表"""
     # name 唯一 → 自动生成唯一索引
@@ -19,6 +26,14 @@ class Customer(models.Model):
     phone = models.CharField('联系电话', max_length=20, unique=True, db_index=True)
     remark = models.CharField('备注', max_length=200, blank=True, default='')
     create_time = models.DateTimeField('创建时间', auto_now_add=True, db_index=True)  # 排序→加索引
+
+    # ========== 新增：软删除字段 ==========
+    is_active = models.BooleanField('是否启用', default=True, db_index=True)
+    disabled_time = models.DateTimeField('禁用时间', null=True, blank=True)
+
+    # ========== 新增：管理器 ==========
+    objects = CustomerManager()  # 默认管理器：过滤禁用客户
+    all_objects = models.Manager()  # 全量管理器：如果需要查询包含禁用的客户
 
     def __str__(self):
         return f'{self.name} ({self.phone})'

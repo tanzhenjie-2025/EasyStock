@@ -536,7 +536,7 @@
                         <td>
                             <button class="btn btn-sm btn-info me-1" onclick="openCustomerDetail(${customer.id}); event.stopPropagation();">详情</button>
                             <button class="btn btn-sm btn-warning me-1" onclick="openEditModal(${customer.id}); event.stopPropagation();">编辑</button>
-                            <button class="btn btn-sm btn-danger" onclick="deleteCustomer(${customer.id}); event.stopPropagation();">删除</button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteCustomer(${customer.id}); event.stopPropagation();">禁用</button>
                         </td>
                     </tr>`;
                 });
@@ -649,19 +649,21 @@
     }
 
     function deleteCustomer(id) {
-        if (!confirm('确定要删除该客户吗？删除后不可恢复！')) return;
+        // 修改确认文案
+        if (!confirm('确定要禁用该客户吗？禁用后该客户将无法开单，但历史数据保留。')) return;
+        
         $.ajax({
             url: `/customer-manage/customer/delete/${id}/`,
             type: 'POST',
             headers: {'X-CSRFToken': getCsrfToken()},
             dataType: 'json',
             success: function(res) {
-                alert(res.msg);
+                alert(res.msg); // 后端返回“禁用成功”
                 if (res.code === 1) loadCustomerList();
             },
             error: function(xhr, status, error) {
-                console.error('删除客户失败：', xhr.responseText);
-                alert('删除客户失败！\n' + xhr.responseText);
+                console.error('禁用客户失败：', xhr.responseText);
+                alert('禁用客户失败！\n' + xhr.responseText);
             }
         });
     }
