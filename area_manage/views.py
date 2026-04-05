@@ -128,21 +128,36 @@ def area_list(request):
         sort_by = request.GET.get('sort', 'name')
         sort_order = request.GET.get('order', 'asc')
         page = max(int(request.GET.get('page', 1)), 1)
+        status = request.GET.get('status', 'all').strip()  # 新增：状态筛选参数
 
         if sort_by not in ALLOW_SORT_AREA:
             sort_by = 'name'
 
-        cache_key = generate_cache_key(request, CACHE_PREFIX['AREA_LIST'], keyword, sort_by, sort_order, page)
+        cache_key = generate_cache_key(request, CACHE_PREFIX['AREA_LIST'], keyword, sort_by, sort_order, page, status)
         cache_data = cache.get(cache_key)
         if cache_data:
             return JsonResponse(cache_data)
 
-        # 🔧 优化：仅加载必要字段
-        areas = Area.objects.only('id', 'name', 'remark', 'create_time')
+        # 🔧 优化：仅加载必要字段，包含is_active
+        base_areas = Area.objects.only('id', 'name', 'remark', 'create_time', 'is_active')
         if keyword:
-            areas = areas.filter(Q(name__icontains=keyword) | Q(remark__icontains=keyword))
+            base_areas = base_areas.filter(Q(name__icontains=keyword) | Q(remark__icontains=keyword))
+
+        # 根据状态过滤
+        areas = base_areas
+        if status == 'active':
+            areas = areas.filter(is_active=True)
+        elif status == 'inactive':
+            areas = areas.filter(is_active=False)
+
         areas = areas.order_by(f'-{sort_by}' if sort_order == 'desc' else sort_by)
         total = areas.count()
+
+        # 计算各状态数量
+        all_count = base_areas.count()
+        active_count = base_areas.filter(is_active=True).count()
+        inactive_count = all_count - active_count
+
         start = (page - 1) * AREA_PAGE_SIZE
         end = start + AREA_PAGE_SIZE
         areas_page = areas[start:end]
@@ -155,14 +170,15 @@ def area_list(request):
             .values_list('area_id', 'count')
         )
 
-        # 🔧 优化：统一时间格式化
+        # 🔧 优化：统一时间格式化，包含is_active
         result = [
             {
                 'id': a.id,
                 'name': a.name,
                 'remark': a.remark or '',
                 'customer_count': customer_count_map.get(a.id, 0),
-                'create_time': format_datetime(a.create_time)
+                'create_time': format_datetime(a.create_time),
+                'is_active': a.is_active  # 新增：返回状态字段
             }
             for a in areas_page
         ]
@@ -171,6 +187,11 @@ def area_list(request):
             'pagination': {
                 'total': total, 'page': page, 'page_size': AREA_PAGE_SIZE,
                 'total_pages': (total + AREA_PAGE_SIZE - 1) // AREA_PAGE_SIZE
+            },
+            'counts': {  # 新增：返回各状态数量
+                'all': all_count,
+                'active': active_count,
+                'inactive': inactive_count
             }
         }
         cache.set(cache_key, response_data, CACHE_API_LIST)
@@ -179,7 +200,6 @@ def area_list(request):
     except Exception as e:
         logger.error(f"查询区域列表失败：{str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'})
-
 
 
 @login_required
@@ -298,6 +318,25 @@ def area_delete(request, pk):
         return JsonResponse({'code': 0, 'msg': f'禁用失败：{str(e)}'})
 
 
+# 新增：区域启用功能
+@login_required
+@permission_required('area_edit')
+def area_enable(request, pk):
+    try:
+        area = get_object_or_404(Area.objects.only('id', 'name'), pk=pk)
+        area.is_active = True
+        area.save()
+
+        create_operation_log(request=request, op_type='enable', obj_type='area',
+                             obj_id=pk, obj_name=area.name, detail=f"启用区域")
+
+        clear_area_cache(area_id=pk)
+        return JsonResponse({'code': 1, 'msg': '启用成功'})
+    except Exception as e:
+        logger.error(f"启用区域失败：{str(e)}")
+        return JsonResponse({'code': 0, 'msg': f'启用失败：{str(e)}'})
+
+
 # ===================== 区域组管理 =====================
 @login_required
 @permission_required('area_view')
@@ -308,12 +347,13 @@ def group_list(request):
         sort_order = request.GET.get('order', 'asc')
         page = max(int(request.GET.get('page', 1)), 1)
         page_size = min(int(request.GET.get('page_size', 20)), PAGE_SIZE_MAX)
+        status = request.GET.get('status', 'all').strip()  # 新增：状态筛选参数
 
         if sort_by not in ALLOW_SORT_GROUP:
             sort_by = 'name'
 
         cache_key = generate_cache_key(request, CACHE_PREFIX['GROUP_LIST'], keyword, sort_by, sort_order, page,
-                                       page_size)
+                                       page_size, status)
         cache_data = cache.get(cache_key)
         if cache_data:
             return JsonResponse(cache_data)
@@ -323,9 +363,9 @@ def group_list(request):
             area_id=OuterRef('areas__id')
         ).values('area_id').annotate(count=Count('id')).values('count')
 
-        # 🔧 优化：only()限制字段 + 预加载 + 数据库聚合
-        groups = AreaGroup.objects.only('id', 'name', 'remark', 'create_time', 'update_time')
-        groups = groups.prefetch_related(
+        # 🔧 优化：only()限制字段 + 预加载 + 数据库聚合，包含is_active
+        base_groups = AreaGroup.objects.only('id', 'name', 'remark', 'create_time', 'update_time', 'is_active')
+        base_groups = base_groups.prefetch_related(
             Prefetch('areas', queryset=Area.objects.only('id', 'name'))
         ).annotate(
             customer_count=Coalesce(Sum(Subquery(customer_subquery)), 0),
@@ -333,18 +373,31 @@ def group_list(request):
         )
 
         if keyword:
-            groups = groups.filter(
+            base_groups = base_groups.filter(
                 Q(name__icontains=keyword) | Q(remark__icontains=keyword) | Q(areas__name__icontains=keyword)
             ).distinct()
+
+        # 根据状态过滤
+        groups = base_groups
+        if status == 'active':
+            groups = groups.filter(is_active=True)
+        elif status == 'inactive':
+            groups = groups.filter(is_active=False)
 
         sort_by = f'-{sort_by}' if sort_order == 'desc' else sort_by
         groups = groups.order_by(sort_by)
         total = groups.count()
+
+        # 计算各状态数量
+        all_count = base_groups.count()
+        active_count = base_groups.filter(is_active=True).count()
+        inactive_count = all_count - active_count
+
         start = (page - 1) * page_size
         end = start + page_size
         groups_page = groups[start:end]
 
-        # 🔧 优化：统一时间格式化，无冗余计算
+        # 🔧 优化：统一时间格式化，包含is_active
         result = [
             {
                 'id': g.id, 'name': g.name, 'remark': g.remark or '',
@@ -353,7 +406,8 @@ def group_list(request):
                 'customer_count': g.customer_count,
                 'area_count': g.area_count,
                 'create_time': format_datetime(g.create_time),
-                'update_time': format_datetime(g.update_time)
+                'update_time': format_datetime(g.update_time),
+                'is_active': g.is_active  # 新增：返回状态字段
             }
             for g in groups_page
         ]
@@ -361,7 +415,12 @@ def group_list(request):
         response_data = {
             'code': 1, 'data': result,
             'pagination': {'total': total, 'page': page, 'page_size': page_size,
-                           'total_pages': (total + page_size - 1) // page_size}
+                           'total_pages': (total + page_size - 1) // page_size},
+            'counts': {  # 新增：返回各状态数量
+                'all': all_count,
+                'active': active_count,
+                'inactive': inactive_count
+            }
         }
         cache.set(cache_key, response_data, CACHE_API_LIST)
         return JsonResponse(response_data)
@@ -491,6 +550,24 @@ def group_delete(request, pk):
     except Exception as e:
         logger.error(f"禁用区域组失败：{str(e)}")
         return JsonResponse({'code': 0, 'msg': f'禁用失败：{str(e)}'})
+
+
+# 新增：区域组启用功能
+@login_required
+@permission_required('area_edit')
+def group_enable(request, pk):
+    try:
+        g = get_object_or_404(AreaGroup.objects.only('id', 'name'), pk=pk)
+        g.is_active = True
+        g.save()
+
+        create_operation_log(request=request, op_type='enable', obj_type='area_group',
+                             obj_id=pk, obj_name=g.name, detail=f"启用区域组")
+        clear_group_cache(group_id=pk)
+        return JsonResponse({'code': 1, 'msg': '启用成功'})
+    except Exception as e:
+        logger.error(f"启用区域组失败：{str(e)}")
+        return JsonResponse({'code': 0, 'msg': f'启用失败：{str(e)}'})
 
 
 # ===================== 页面入口 =====================

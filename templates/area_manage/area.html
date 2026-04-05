@@ -83,6 +83,12 @@
         margin-top: 10px;
         margin-bottom: 15px;
     }
+
+    /* 🔥 新增：状态Tab和行样式 */
+    .status-tab { margin-right: 8px; }
+    .status-tab.active { background-color: #007bff; color: white; }
+    .row-inactive { color: #6c757d; background-color: #fff3f3; }
+    .row-inactive:hover td { background-color: #ffe6e6 !important; }
 </style>
 {% endblock %}
 
@@ -95,6 +101,13 @@
         <button class="btn btn-sm btn-warning" onclick="showImportModal()">📤 导入数据</button>
     </div>
 
+    <!-- 🔥 新增：状态Tab切换 -->
+    <div class="my-2">
+        <button class="btn btn-sm btn-outline-primary status-tab active" data-status="all" onclick="switchStatus('all')">全部 (<span id="total-count">0</span>)</button>
+        <button class="btn btn-sm btn-outline-success status-tab" data-status="active" onclick="switchStatus('active')">正常 (<span id="active-count">0</span>)</button>
+        <button class="btn btn-sm btn-outline-danger status-tab" data-status="inactive" onclick="switchStatus('inactive')">已停用 (<span id="inactive-count">0</span>)</button>
+    </div>
+
     <!-- 搜索框 -->
     <div class="search-container">
         <input type="text" class="search-input" id="searchInput" placeholder="输入区域名/备注关键词搜索" onkeydown="if(event.keyCode===13) searchAreas()">
@@ -105,7 +118,8 @@
 
     <table class="table table-sm table-bordered">
         <thead>
-            <tr><th>ID</th><th>区域名</th><th>备注</th><th>操作</th></tr>
+            <!-- 🔥 新增：状态列 -->
+            <tr><th>ID</th><th>区域名</th><th>备注</th><th>状态</th><th>操作</th></tr>
         </thead>
         <tbody id="list"></tbody>
     </table>
@@ -170,6 +184,7 @@
         const SEARCH_HISTORY_KEY = 'areaSearchHistory';
         const MAX_HISTORY_COUNT = 5;
         let currentPage = 1; 
+        let currentStatus = 'all';  // 🔥 新增：当前状态
 
         // 全局变量（导出用）
         let customFieldCount = 0;
@@ -478,44 +493,73 @@
         }
         // ==================== 导出相关函数结束 ====================
 
+        // 🔥 新增：状态Tab切换
+        function switchStatus(status){
+            currentStatus = status;
+            $('.status-tab').removeClass('active');
+            $(`.status-tab[data-status="${status}"]`).addClass('active');
+            load($('#searchInput').val().trim(), 1);
+        }
+
+        // 🔥 新增：更新Tab数量
+        function updateTabCounts(counts){
+            if(counts){
+                $('#total-count').text(counts.all || 0);
+                $('#active-count').text(counts.active || 0);
+                $('#inactive-count').text(counts.inactive || 0);
+            }
+        }
+
         // 加载数据
         function load(keyword = '', page = 1){
             currentPage = page;
-            let url = `/area-manage/api/area/list/?page=${page}`;
+            let url = `/area-manage/api/area/list/?page=${page}&status=${currentStatus}`;  // 🔥 新增：status参数
             if (keyword) url += `&keyword=${encodeURIComponent(keyword)}`;
 
             $.get(url, function(res){
                 let html='';
                 if(res.code === 0){
                     showToast(res.msg, 'error');
-                    $('#list').html(`<tr><td colspan="4" class="no-result">${res.msg}</td></tr>`);
+                    $('#list').html(`<tr><td colspan="5" class="no-result">${res.msg}</td></tr>`);
                     renderPagination(res.pagination);
+                    updateTabCounts(res.counts);  // 🔥 新增：更新Tab数量
                     return;
                 }
                 const list = res.data || [];
                 if(list.length === 0){
-                    html = `<tr><td colspan="4" class="no-result">未搜索到相关内容</td></tr>`;
+                    html = `<tr><td colspan="5" class="no-result">未搜索到相关内容</td></tr>`;
                     $('#list').html(html);
                     renderPagination(res.pagination);
+                    updateTabCounts(res.counts);  // 🔥 新增：更新Tab数量
                     return;
                 }
                 list.forEach(i=>{
-                    html+=`<tr onclick="goToDetail(${i.id})">
+                    const isInactive = !i.is_active;
+                    const rowClass = isInactive ? 'row-inactive' : '';
+                    const statusText = i.is_active ? '正常' : '已停用';
+                    const statusBadgeClass = i.is_active ? 'bg-success' : 'bg-danger';
+                    html+=`<tr class="${rowClass}" onclick="goToDetail(${i.id})">
                         <td>${i.id}</td>
                         <td>${i.name}</td>
                         <td>${i.remark || '无'}</td>
+                        <td><span class="badge ${statusBadgeClass}">${statusText}</span></td>
                         <td>
                             <button class="btn btn-sm btn-info me-1" onclick="event.stopPropagation();goToDetail(${i.id})">详情</button>
-                            <button class="btn btn-sm btn-warning me-1" onclick="event.stopPropagation();edit(${i.id})">改</button>
-                            <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();del(${i.id})">禁用</button>
+                            ${i.is_active ? `
+                                <button class="btn btn-sm btn-warning me-1" onclick="event.stopPropagation();edit(${i.id})">改</button>
+                                <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();del(${i.id})">禁用</button>
+                            ` : `
+                                <button class="btn btn-sm btn-success" onclick="event.stopPropagation();enable(${i.id})">启用</button>
+                            `}
                         </td>
                     </tr>`;
                 });
                 $('#list').html(html);
                 renderPagination(res.pagination);
+                updateTabCounts(res.counts);  // 🔥 新增：更新Tab数量
             },'json').fail(function(error){
                 showToast(`加载失败！`, 'error');
-                $('#list').html(`<tr><td colspan="4" class="no-result">加载失败</td></tr>`);
+                $('#list').html(`<tr><td colspan="5" class="no-result">加载失败</td></tr>`);
             });
         }
 
@@ -623,25 +667,42 @@
             },'json').fail(function(){ showToast('获取区域信息失败！', 'error'); });
         }
 
-        
         // 修改 del 函数中的确认文字
-function del(id){
-    // 🔥 修改提示文字
-    showConfirmModal('确定禁用该区域吗？禁用后数据将被隐藏。', (isConfirm) => {
-        if(!isConfirm) return;
-        $.ajax({
-            url: `/area-manage/api/area/delete/${id}/`,
-            type: 'POST',
-            headers: {'X-CSRFToken': getCsrfToken()},
-            dataType: 'json',
-            success: function(res){
-                showToast(res.msg, res.code === 1 ? 'success' : 'error');
-                load();
-            },
-            error: function(){ showToast('禁用失败！', 'error'); }
-        });
-    });
-}
+        function del(id){
+            showConfirmModal('确定禁用该区域吗？禁用后数据将被隐藏。', (isConfirm) => {
+                if(!isConfirm) return;
+                $.ajax({
+                    url: `/area-manage/api/area/delete/${id}/`,
+                    type: 'POST',
+                    headers: {'X-CSRFToken': getCsrfToken()},
+                    dataType: 'json',
+                    success: function(res){
+                        showToast(res.msg, res.code === 1 ? 'success' : 'error');
+                        load();
+                    },
+                    error: function(){ showToast('禁用失败！', 'error'); }
+                });
+            });
+        }
+
+        // 🔥 新增：区域启用功能
+        function enable(id){
+            showConfirmModal('确定启用该区域吗？', (isConfirm) => {
+                if(!isConfirm) return;
+                $.ajax({
+                    url: `/area-manage/api/area/enable/${id}/`,
+                    type: 'POST',
+                    headers: {'X-CSRFToken': getCsrfToken()},
+                    dataType: 'json',
+                    success: function(res){
+                        showToast(res.msg, res.code === 1 ? 'success' : 'error');
+                        load();
+                    },
+                    error: function(){ showToast('启用失败！', 'error'); }
+                });
+            });
+        }
+
         // 获取CSRF Token
         function getCsrfToken() {
             const cookies = document.cookie.split(';');
