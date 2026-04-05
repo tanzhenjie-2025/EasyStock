@@ -29,7 +29,7 @@ from accounts.views import (
     create_operation_log,  # 统一日志记录
     get_client_ip  # 获取客户端IP
 )
-
+from product.views import clear_stock_cache
 # ========== 开单模块权限常量（和用户模块保持一致） ==========
 PERM_ORDER_CREATE = 'order_create'
 PERM_ORDER_VIEW = 'order_view'
@@ -83,12 +83,7 @@ def clear_order_cache(order_no: str = None):
     logger.info(f"已清理订单缓存: {order_no if order_no else '全列表'}")
 
 
-def clear_stock_cache():
-    """
-    清理库存列表缓存
-    """
-    cache.delete_pattern(f"{CACHE_PREFIX_STOCK_LIST}*")
-    logger.info("已清理库存列表缓存")
+
 
 
 def clear_product_search_cache():
@@ -348,67 +343,7 @@ def save_order(request):
         return JsonResponse({'code': 0, 'msg': f'开单失败：{str(e)}'})
 
 
-@login_required
-@permission_required(PERM_PRODUCT_SEARCH)
-def stock_list(request):
-    """库存查询页面（手动缓存版）"""
-    # 获取搜索关键词 + 分页参数
-    keyword = request.GET.get('keyword', '').strip()
-    page = request.GET.get('page', 1)
 
-    # 🔥 手动缓存 Key
-    cache_key = f"{CACHE_PREFIX_STOCK_LIST}{request.user.id}_{keyword}_{page}"
-    cached_data = cache.get(cache_key)
-
-    # 由于这是渲染HTML的视图，我们缓存渲染后的内容或者数据
-    # 这里采用缓存上下文数据的方式，或者直接返回缓存的HttpResponse（较复杂）
-    # 为了保持逻辑简单，我们这里演示缓存查询集结果并重新渲染
-    # 注意：Django的cache_page实际上缓存的是HttpResponse对象
-
-    # 为了最大程度贴合你的需求，这里改为手动缓存渲染结果
-    # 但为了代码健壮性，我们先检查缓存
-    if cached_data:
-        # 注意：缓存HTML字符串在生产环境需谨慎，这里为了演示手动缓存逻辑
-        # 实际应用中建议缓存数据Context
-        from django.utils.safestring import mark_safe
-        return HttpResponse(cached_data)
-
-    # 基础查询：按商品名称排序
-    products = Product.objects.all().order_by('name')
-
-    # 后端搜索筛选（匹配名称/拼音首字母）
-    if keyword:
-        products = products.filter(
-            Q(name__istartswith=keyword) |
-            Q(pinyin_abbr__istartswith=keyword)
-        )
-
-    # 核心：分页逻辑（固定每页20条）
-    paginator = Paginator(products, 10)
-    try:
-        page_products = paginator.page(page)
-    except PageNotAnInteger:
-        page_products = paginator.page(1)
-    except EmptyPage:
-        page_products = paginator.page(paginator.num_pages)
-
-    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
-
-    context = {
-        'products': page_products,
-        'paginator': paginator,
-        'page_products': page_products,
-        'keyword': keyword,
-        'is_super_admin': is_super_admin
-    }
-
-    # 渲染页面
-    response = render(request, 'bill/stock.html', context)
-
-    # 设置缓存（缓存HTML响应）
-    cache.set(cache_key, response.content, CACHE_STOCK_LIST)
-
-    return response
 
 
 @login_required

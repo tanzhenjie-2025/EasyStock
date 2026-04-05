@@ -11,7 +11,7 @@ urlpatterns = [
     path('search-customer/', views.search_customer, name='search_customer'),  # 客户检索
     path('save-order/', views.save_order, name='save_order'),  # 保存订单
     path('print/<str:order_no>/', views.print_order, name='print_order'),  # 打印页面
-    path('stock/', views.stock_list, name='stock_list'),  # 库存查询
+
     path('orders/', views.order_list, name='order_list'),  # 订单列表（查单）
 
     # ========== 仅修复：订单详情添加detail（解决404的核心修改） ==========

@@ -797,3 +797,77 @@ def product_export(request):
             return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'}, status=500)
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
+
+from accounts.models import ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OPERATOR, PERM_ORDER_CANCEL_OWN
+
+CACHE_STOCK_LIST = 60  # 库存列表：60秒
+PERM_PRODUCT_SEARCH = 'product_search'
+CACHE_PREFIX_STOCK_LIST = "stock_list_"
+@login_required
+@permission_required(PERM_PRODUCT_SEARCH)
+def stock_list(request):
+    """库存查询页面（手动缓存版）"""
+    # 获取搜索关键词 + 分页参数
+    keyword = request.GET.get('keyword', '').strip()
+    page = request.GET.get('page', 1)
+
+    # 🔥 手动缓存 Key
+    cache_key = f"{CACHE_PREFIX_STOCK_LIST}{request.user.id}_{keyword}_{page}"
+    cached_data = cache.get(cache_key)
+
+    # 由于这是渲染HTML的视图，我们缓存渲染后的内容或者数据
+    # 这里采用缓存上下文数据的方式，或者直接返回缓存的HttpResponse（较复杂）
+    # 为了保持逻辑简单，我们这里演示缓存查询集结果并重新渲染
+    # 注意：Django的cache_page实际上缓存的是HttpResponse对象
+
+    # 为了最大程度贴合你的需求，这里改为手动缓存渲染结果
+    # 但为了代码健壮性，我们先检查缓存
+    if cached_data:
+        # 注意：缓存HTML字符串在生产环境需谨慎，这里为了演示手动缓存逻辑
+        # 实际应用中建议缓存数据Context
+        from django.utils.safestring import mark_safe
+        return HttpResponse(cached_data)
+
+    # 基础查询：按商品名称排序
+    products = Product.objects.all().order_by('name')
+
+    # 后端搜索筛选（匹配名称/拼音首字母）
+    if keyword:
+        products = products.filter(
+            Q(name__istartswith=keyword) |
+            Q(pinyin_abbr__istartswith=keyword)
+        )
+
+    # 核心：分页逻辑（固定每页20条）
+    paginator = Paginator(products, 10)
+    try:
+        page_products = paginator.page(page)
+    except PageNotAnInteger:
+        page_products = paginator.page(1)
+    except EmptyPage:
+        page_products = paginator.page(paginator.num_pages)
+
+    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+
+    context = {
+        'products': page_products,
+        'paginator': paginator,
+        'page_products': page_products,
+        'keyword': keyword,
+        'is_super_admin': is_super_admin
+    }
+
+    # 渲染页面
+    response = render(request, 'product/stock.html', context)
+
+    # 设置缓存（缓存HTML响应）
+    cache.set(cache_key, response.content, CACHE_STOCK_LIST)
+
+    return response
+
+def clear_stock_cache():
+    """
+    清理库存列表缓存
+    """
+    cache.delete_pattern(f"{CACHE_PREFIX_STOCK_LIST}*")
+    logger.info("已清理库存列表缓存")

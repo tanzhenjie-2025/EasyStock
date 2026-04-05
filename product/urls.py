@@ -30,5 +30,7 @@ path('restore/<int:pk>/', views.product_restore, name='product_restore'),  # 新
     # 销售排行（独立页面 + 数据接口）
     path('sales-rank/', views.sales_rank, name='sales_rank'),
     path('sales-rank/data/', views.sales_rank_data, name='sales_rank_data'),
+
+path('stock/', views.stock_list, name='stock_list'),
 ]
 
