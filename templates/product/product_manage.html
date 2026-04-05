@@ -115,31 +115,23 @@
         }
 
         /* ========== 新增/修改 行样式 ========== */
-        /* 正常行默认样式 */
         .product-manage-container .product-table tbody tr {
             transition: background-color 0.2s ease;
-            cursor: pointer; /* 提示可点击 */
+            cursor: pointer;
         }
-        /* 正常行hover高亮 */
         .product-manage-container .product-table tbody tr:not(.disabled-row):hover {
-            background: #f0f8ff; /* 浅蓝色高亮 */
+            background: #f0f8ff;
         }
-        /* 禁用/下架行默认样式 */
         .product-manage-container .product-table tbody tr.disabled-row {
-            background: #f5f5f5; /* 浅灰底 */
+            background: #f5f5f5;
             color: #999;
         }
-        /* 禁用行hover样式（低对比度高亮） */
         .product-manage-container .product-table tbody tr.disabled-row:hover {
-            background: #eeeeee; /* 比默认浅灰稍深，对比度低 */
+            background: #eeeeee;
         }
-        /* 行内按钮默认样式 */
         .product-manage-container .product-table .row-btn {
             transition: background-color 0.2s ease;
         }
-       
-       
-        /* 取消按钮的默认hover样式，统一由行hover控制 */
         .product-manage-container .product-table .row-btn:hover {
             background: inherit !important;
         }
@@ -357,6 +349,54 @@
         .modal-btn-confirm { background-color: #007bff; color: white; }
         .modal-btn-cancel { background-color: #6c757d; color: white; }
         .selected-count-tip { font-size: 12px; color: #666; margin-top: 5px; }
+
+        /* ========== 🔥 新增：状态 Tab 样式 ========== */
+        .status-tabs {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+        }
+        .status-tab {
+            padding: 8px 20px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            text-decoration: none;
+            color: #333;
+            background: #fff;
+            transition: all 0.2s;
+        }
+        .status-tab:hover {
+            background: #f0f0f0;
+        }
+        .status-tab.active {
+            background: #0066cc;
+            color: #fff;
+            border-color: #0066cc;
+        }
+        .status-tab-inactive {
+            color: #ff4400;
+        }
+        .status-tab-inactive.active {
+            background: #ff4400;
+            border-color: #ff4400;
+            color: #fff;
+        }
+
+        /* ========== 🔥 新增：状态徽章样式 ========== */
+        .status-badge {
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status-active {
+            background: #dff0d8;
+            color: #3c763d;
+        }
+        .status-inactive {
+            background: #f2dede;
+            color: #a94442;
+        }
     </style>
 {% endblock %}
 
@@ -367,7 +407,6 @@
         <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #0066cc;">
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <h3 style="margin: 0; color: #333;">销售TOP30</h3>
-                <!-- 修改：按钮点击事件改为跳转页面 -->
                 <button class="btn btn-primary" id="btn-sales-rank" style="padding: 8px 20px;" onclick="window.location.href='/product/sales-rank/'">
                     查看商品销售排行
                 </button>
@@ -377,15 +416,18 @@
         <!-- 提示消息 -->
         <div id="msg-box" class="msg"></div>
 
+        
+
         <!-- 商品搜索栏 → 后端搜索表单 -->
         <form method="get" class="search-form">
             <input type="text" name="keyword" id="search-keyword" class="search-input" 
                    placeholder="搜索商品名称/别名..." value="{{ keyword }}">
+            <input type="hidden" name="status" value="{{ status }}">
             <button type="submit" class="btn btn-primary" id="btn-search">搜索</button>
             <button type="button" class="btn btn-default" id="btn-reset-search">重置</button>
-            <!-- 快速出入库按钮 -->
             <button type="button" class="btn btn-success" id="btn-quick-stock" style="margin-left: 20px;">快速出入库</button>
         </form>
+        
         
         <!-- 新增商品表单 -->
         <div class="add-form">
@@ -407,11 +449,23 @@
             </div>
             <button class="btn btn-primary" id="btn-add-product">新增商品</button>
             
-            <!-- 🔥 替换：导入导出按钮组 -->
             <div style="margin-left: 20px; display: flex; align-items: center; gap: 10px;" class="btn-group-action">
                 <button class="btn btn-success" onclick="exportData()">📥 导出数据</button>
                 <button class="btn btn-warning" onclick="showImportModal()">📤 导入数据</button>
             </div>
+        </div>
+        
+        <!-- ========== 🔥 新增：状态筛选 Tab ========== -->
+        <div class="status-tabs">
+            <a href="?status=all&keyword={{ keyword }}" class="status-tab {% if status == 'all' %}active{% endif %}">
+                全部 ({{ count_all }})
+            </a>
+            <a href="?status=active&keyword={{ keyword }}" class="status-tab {% if status == 'active' %}active{% endif %}">
+                正常 ({{ count_active }})
+            </a>
+            <a href="?status=inactive&keyword={{ keyword }}" class="status-tab {% if status == 'inactive' %}active{% endif %} status-tab-inactive">
+                已停用 ({{ count_inactive }})
+            </a>
         </div>
 
         <!-- 商品列表 -->
@@ -424,13 +478,14 @@
                     <th>单位</th>
                     <th>库存数量</th>
                     <th>商品别名</th>
+                    <th>状态</th>
                     <th>操作</th>
                 </tr>
             </thead>
             <tbody id="product-list">
                 {% for product in products %}
                 <tr data-product-id="{{ product.id }}" {% if product.status == 0 %}class="disabled-row"{% endif %}
-    onclick="if(!this.classList.contains('disabled-row')){ goToProductDetail({{ product.id }}); }">
+                    onclick="if(!this.classList.contains('disabled-row')){ goToProductDetail({{ product.id }}); }">
                     <td>{{ product.id|default:'' }}</td>
                     <td>{{ product.name|default:'' }}</td>
                     <td>{{ product.price|floatformat:2 }}</td>
@@ -448,14 +503,26 @@
                         {% endif %}
                     </td>
                     <td>
+                        {% if product.status == 1 %}
+                            <span class="status-badge status-active">正常</span>
+                        {% else %}
+                            <span class="status-badge status-inactive">已停用</span>
+                        {% endif %}
+                    </td>
+                    <td>
                         <button class="btn btn-primary row-btn" onclick="editProduct({{ product.id }}); event.stopPropagation();" 
                                 style="padding: 4px 10px; font-size: 12px; margin-right: 5px;">编辑</button>
-                        <button class="btn btn-danger row-btn" onclick="deleteProduct({{ product.id }}); event.stopPropagation();" 
-                                style="padding: 4px 10px; font-size: 12px;">禁用</button>
+                        {% if product.status == 1 %}
+                            <button class="btn btn-danger row-btn" onclick="deleteProduct({{ product.id }}); event.stopPropagation();" 
+                                    style="padding: 4px 10px; font-size: 12px;">停用</button>
+                        {% else %}
+                            <button class="btn btn-success row-btn" onclick="restoreProduct({{ product.id }}); event.stopPropagation();" 
+                                    style="padding: 4px 10px; font-size: 12px;">启用</button>
+                        {% endif %}
                     </td>
                 </tr>
                 {% empty %}
-                <tr><td colspan="7" style="text-align:center; color:#999;">暂无商品数据</td></tr>
+                <tr><td colspan="8" style="text-align:center; color:#999;">暂无商品数据</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -465,7 +532,7 @@
         <nav style="margin-top: 20px;">
             <ul class="pagination" style="display: flex; gap: 5px; justify-content: center; list-style: none; padding: 0;">
                 {% if page_products.has_previous %}
-                <li><a href="?page={{ page_products.previous_page_number }}&keyword={{ keyword }}" 
+                <li><a href="?page={{ page_products.previous_page_number }}&keyword={{ keyword }}&status={{ status }}" 
                        style="padding: 6px 12px; border:1px solid #ddd; border-radius:4px; text-decoration:none; color:#0066cc;">上一页</a></li>
                 {% else %}
                 <li><span style="padding: 6px 12px; border:1px solid #ddd; border-radius:4px; color:#999;">上一页</span></li>
@@ -475,13 +542,13 @@
                     {% if page_products.number == num %}
                     <li><span style="padding: 6px 12px; border:1px solid #0066cc; border-radius:4px; background:#0066cc; color:#fff;">{{ num }}</span></li>
                     {% else %}
-                    <li><a href="?page={{ num }}&keyword={{ keyword }}" 
+                    <li><a href="?page={{ num }}&keyword={{ keyword }}&status={{ status }}" 
                            style="padding: 6px 12px; border:1px solid #ddd; border-radius:4px; text-decoration:none; color:#0066cc;">{{ num }}</a></li>
                     {% endif %}
                 {% endfor %}
 
                 {% if page_products.has_next %}
-                <li><a href="?page={{ page_products.next_page_number }}&keyword={{ keyword }}" 
+                <li><a href="?page={{ page_products.next_page_number }}&keyword={{ keyword }}&status={{ status }}" 
                        style="padding: 6px 12px; border:1px solid #ddd; border-radius:4px; text-decoration:none; color:#0066cc;">下一页</a></li>
                 {% else %}
                 <li><span style="padding: 6px 12px; border:1px solid #ddd; border-radius:4px; color:#999;">下一页</span></li>
@@ -574,13 +641,11 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <!-- 全选/取消全选按钮 -->
                     <div class="select-all-btn">
                         <button type="button" class="btn btn-xs btn-outline-primary" onclick="selectAllFields(true)">全选</button>
                         <button type="button" class="btn btn-xs btn-outline-secondary ms-1" onclick="selectAllFields(false)">取消全选</button>
                     </div>
                     
-                    <!-- 商品字段选项 -->
                     <div class="field-checkbox">
                         <input type="checkbox" id="field_serial" name="export_fields" value="serial" checked>
                         <label for="field_serial">序号</label>
@@ -610,12 +675,9 @@
                         <label for="field_alias_names">商品别名</label>
                     </div>
                     
-                    <!-- 自定义字段区域 -->
                     <div class="custom-fields-section">
                         <h6>自定义字段（用于手动填写）</h6>
-                        <div id="customFieldsContainer">
-                            <!-- 自定义字段项将动态添加到这里 -->
-                        </div>
+                        <div id="customFieldsContainer"></div>
                         <button type="button" class="btn btn-sm btn-outline-success btn-add-custom" onclick="addCustomField()">
                             + 添加自定义字段
                         </button>
@@ -634,7 +696,6 @@
 {% block extra_js %}
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script>
-        // 原有变量保留（已删除无用变量）
         let currentEditProductId = null;
         let currentAliases = [];
         let stockRowIdCounter = 0;
@@ -642,11 +703,8 @@
         let currentStockSearchInput = null;
         let currentStockSuggestList = [];
         let suggestBox = null;
-
-        // ==================== 🔥 新增：全局变量（导出用） ====================
         let customFieldCount = 0;
 
-        // 工具函数：显示提示
         function showMsg(text, isSuccess = true) {
             const msgBox = document.getElementById('msg-box');
             msgBox.textContent = text;
@@ -654,7 +712,6 @@
             setTimeout(() => { msgBox.className = 'msg'; }, 3000);
         }
 
-        // ==================== 🔥 新增：Toast 提示函数（替代 showMsg 用于异步操作） ====================
         function showToast(message, type = 'info', duration = 3000) {
             let toastContainer = document.getElementById('toastContainer');
             if (!toastContainer) {
@@ -670,7 +727,6 @@
             setTimeout(() => toast.remove(), duration);
         }
 
-        // ==================== 🔥 新增：简易模态框生成器（用于导入，防止依赖 Bootstrap） ====================
         function showSimpleModal(title, contentHtml, callback) {
             document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
             let overlay = document.createElement('div');
@@ -701,7 +757,6 @@
             });
         }
 
-        // ==================== 🔥 新增：导入弹窗逻辑 ====================
         function showImportModal() {
             const content = `
                 <div class="form-group">
@@ -730,7 +785,7 @@
                 confirmBtn.disabled = true;
                 confirmBtn.textContent = '导入中...';
 
-                fetch('/product/import/', { // 注意：这里的 URL 要和 urls.py 对应
+                fetch('/product/import/', {
                     method: 'POST',
                     headers: {'X-CSRFToken': getCsrfToken()},
                     body: formData
@@ -740,7 +795,7 @@
                     showToast(res.msg, res.code === 1 ? 'success' : 'error');
                     if(res.code === 1) {
                         closeModal();
-                        window.location.reload(); // 刷新列表
+                        window.location.reload();
                     }
                 })
                 .catch(() => {
@@ -753,12 +808,10 @@
             });
         }
 
-        // 跳转到商品详情页函数
         function goToProductDetail(productId) {
             window.location.href = `/product/detail/${productId}/`;
         }
 
-        // ========== 原有商品CRUD逻辑保留 ==========
         async function addProduct() {
             const name = document.getElementById('add-name').value.trim();
             const price = document.getElementById('add-price').value.trim();
@@ -919,7 +972,28 @@
             }
         }
 
-        // ========== 原有别名管理逻辑保留 ==========
+        // ========== 🔥 新增：启用商品函数 ==========
+        async function restoreProduct(productId) {
+            if (!confirm('确定要启用这个商品吗？')) return;
+
+            try {
+                const res = await fetch(`/product/restore/${productId}/`, {
+                    method: 'POST',
+                    headers: { 'X-CSRFToken': getCsrfToken() }
+                });
+                const data = await res.json();
+                if (data.code === 1) {
+                    showMsg(data.msg);
+                    window.location.reload();
+                } else {
+                    showMsg(data.msg, false);
+                }
+            } catch (error) {
+                showMsg('启用商品失败：' + error.message, false);
+                console.error(error);
+            }
+        }
+
         async function addAlias() {
             if (!currentEditProductId) {
                 showMsg('请先选择要编辑的商品', false);
@@ -1002,7 +1076,6 @@
             }
         }
 
-        // ========== 快速出入库功能（完整保留） ==========
         function initSuggestBox() {
             suggestBox = document.createElement('div');
             suggestBox.className = 'suggest-dropdown';
@@ -1299,7 +1372,6 @@
             }
         }
 
-        // CSRF Token获取
         function getCsrfToken() {
             let cookieValue = null;
             if (document.cookie && document.cookie !== '') {
@@ -1315,39 +1387,28 @@
             return cookieValue;
         }
 
-        // ==================== 🔥 新增：导出相关函数 ====================
-        
-        // 导出按钮点击事件（打开模态框）
         function exportData() {
-            // 如果你有 Bootstrap 5
             if (typeof bootstrap !== 'undefined') {
                 showExportModalBootstrap();
             } else {
-                // 简易版导出模态框逻辑（如果不依赖 Bootstrap，代码会很长，这里建议直接用 Bootstrap）
-                // 为了简化，这里假设你有 Bootstrap，如果没有，请参考区域管理的 HTML 结构
                 alert('请确保页面引入了 Bootstrap 5 JS 以使用导出功能');
             }
         }
 
-        // 显示 Bootstrap 导出模态框
         function showExportModalBootstrap() {
-            // 重置自定义字段
             customFieldCount = 0;
             $('#customFieldsContainer').empty();
             const modal = new bootstrap.Modal(document.getElementById('exportModal'));
             modal.show();
         }
 
-        // 全选/取消全选字段
         function selectAllFields(isSelect) {
             $('input[name="export_fields"]').prop('checked', isSelect);
         }
 
-        // 添加自定义字段
         function addCustomField() {
             customFieldCount++;
             
-            // 获取所有可选的目标字段
             let targetFieldsHtml = '';
             $('input[name="export_fields"]').each(function() {
                 const fieldValue = $(this).val();
@@ -1372,14 +1433,11 @@
             $('#customFieldsContainer').append(customFieldHtml);
         }
 
-        // 移除自定义字段
         function removeCustomField(index) {
             $(`.custom-field-item[data-index="${index}"]`).remove();
         }
 
-        // 执行导出Excel
         function exportExcel() {
-            // 1. 获取选中的字段
             let selectedFields = [];
             $('input[name="export_fields"]:checked').each(function() {
                 selectedFields.push($(this).val());
@@ -1389,7 +1447,6 @@
                 return alert('请至少选择一个导出字段');
             }
 
-            // 2. 获取自定义字段配置
             let customFields = [];
             $('.custom-field-item').each(function() {
                 const name = $(this).find('.custom-field-name').val().trim();
@@ -1405,7 +1462,6 @@
                 }
             });
 
-            // 3. 构建表单数据
             let formData = new FormData();
             formData.append('custom_fields', JSON.stringify(customFields));
             
@@ -1413,9 +1469,8 @@
                 formData.append('fields[]', field);
             });
 
-            // 4. 发起导出请求
             $.ajax({
-                url: '/product/api/product/export/', // 注意：这里的 URL 要和 urls.py 对应
+                url: '/product/api/product/export/',
                 type: 'POST',
                 data: formData,
                 headers: {'X-CSRFToken': getCsrfToken()},
@@ -1425,7 +1480,6 @@
                     responseType: 'blob'
                 },
                 success: function(res, status, xhr) {
-                    // 检查是否是错误响应
                     const contentType = xhr.getResponseHeader('Content-Type');
                     if (contentType && contentType.includes('application/json')) {
                         const reader = new FileReader();
@@ -1437,11 +1491,9 @@
                         return;
                     }
 
-                    // 关闭模态框
                     const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
                     modal.hide();
 
-                    // 生成下载链接
                     const url = window.URL.createObjectURL(res);
                     const a = document.createElement('a');
                     a.href = url;
@@ -1452,31 +1504,24 @@
                 },
                 error: function(xhr) {
                     let errorMsg = '导出失败，请重试';
-                    // 注意：因为是 blob 类型，错误信息解析比较麻烦，这里简化处理
                     alert(errorMsg);
                 }
             });
         }
-        // ==================== 导出相关函数结束 ====================
 
-        // ========== 初始化和事件绑定 ==========
         document.addEventListener('DOMContentLoaded', function() {
             initSuggestBox();
             window.addEventListener('click', hideAllSuggest);
 
-            // 重置搜索按钮
             document.getElementById('btn-reset-search').addEventListener('click', function() {
                 window.location.href = "{% url 'product_manage' %}";
             });
 
-            // 绑定按钮事件
             document.getElementById('btn-add-product').addEventListener('click', addProduct);
             document.getElementById('btn-close-modal').addEventListener('click', closeModal);
             document.getElementById('btn-save-edit').addEventListener('click', saveEdit);
             document.getElementById('btn-add-alias').addEventListener('click', addAlias);
-            // 注意：旧的 btn-import-product 已在 HTML 中移除，无需绑定
 
-            // 快速出入库
             document.getElementById('btn-quick-stock').addEventListener('click', openStockModal);
             document.getElementById('btn-close-stock-modal').addEventListener('click', closeStockModal);
             document.getElementById('btn-cancel-stock').addEventListener('click', closeStockModal);

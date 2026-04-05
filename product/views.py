@@ -78,36 +78,50 @@ def clear_product_all_cache():
 def product_manage(request):
     page = request.GET.get('page', 1)
     keyword = request.GET.get('keyword', '').strip()
+    status = request.GET.get('status', 'all')  # 新增：获取状态筛选参数
 
-    cache_key = f"{CACHE_PREFIX_PRODUCT_LIST}{keyword}:{page}"
+    cache_key = f"{CACHE_PREFIX_PRODUCT_LIST}{keyword}:{page}:{status}"  # 新增：status 加入缓存键
     cached_data = cache.get(cache_key)
 
     if cached_data:
         product_list = cached_data['product_list']
         paginator = cached_data['paginator']
         page_products = cached_data['page_products']
+        count_all = cached_data['count_all']
+        count_active = cached_data['count_active']
+        count_inactive = cached_data['count_inactive']
     else:
-        # ====================== 适配：Product.objects 已自动过滤 is_active=True ======================
-        products_query = Product.objects.order_by('name').only(
-            'id', 'name', 'price', 'unit', 'stock', 'is_active'  # 新增：查询 is_active 字段
+        # ====================== 适配：使用 all_objects 包含已停用商品 ======================
+        products_query = Product.all_objects.order_by('name').only(
+            'id', 'name', 'price', 'unit', 'stock', 'is_active'
         )
-        # ====================== 适配：ProductAlias.objects 已自动过滤 is_active=True ======================
-        alias_query = ProductAlias.objects.only('id', 'alias_name')
+        alias_query = ProductAlias.all_objects.only('id', 'alias_name')  # 别名也用 all_objects
         products_query = products_query.prefetch_related(
             Prefetch('aliases', queryset=alias_query)
         )
 
+        # ====================== 新增：状态筛选逻辑 ======================
+        if status == 'active':
+            products_query = products_query.filter(is_active=True)
+        elif status == 'inactive':
+            products_query = products_query.filter(is_active=False)
+
         # 搜索逻辑（不变）
         if keyword:
-            alias_product_ids = ProductAlias.objects.filter(
+            alias_product_ids = ProductAlias.all_objects.filter(
                 Q(alias_name__icontains=keyword)
             ).values_list('product_id', flat=True)
             products_query = products_query.filter(
                 Q(name__icontains=keyword) | Q(id__in=alias_product_ids)
             )
 
-        # 分页COUNT(*)优化（不变）
-        count_cache_key = f"{CACHE_PREFIX_PRODUCT_COUNT}{keyword}"
+        # ====================== 新增：统计各状态数量 ======================
+        count_all = Product.all_objects.count()
+        count_active = Product.all_objects.filter(is_active=True).count()
+        count_inactive = Product.all_objects.filter(is_active=False).count()
+
+        # 分页COUNT(*)优化（缓存键加入 status）
+        count_cache_key = f"{CACHE_PREFIX_PRODUCT_COUNT}{keyword}:{status}"
         total_count = cache.get(count_cache_key)
         if total_count is None:
             total_count = products_query.count()
@@ -129,7 +143,7 @@ def product_manage(request):
             page_products = paginator.page(paginator.num_pages)
             page_products.object_list = products_query[(paginator.num_pages - 1) * page_size:]
 
-        # ====================== 适配：序列化时传递 is_active 状态 ======================
+        # 序列化时传递 is_active 状态
         product_list = []
         for product in page_products:
             product_list.append({
@@ -139,13 +153,16 @@ def product_manage(request):
                 'unit': product.unit,
                 'stock': product.stock,
                 'aliases': [{'id': a.id, 'alias_name': a.alias_name} for a in product.aliases.all()],
-                'status': 1 if product.is_active else 0  # 新增：传递状态给前端
+                'status': 1 if product.is_active else 0
             })
 
         cache.set(cache_key, {
             'product_list': product_list,
             'paginator': paginator,
-            'page_products': page_products
+            'page_products': page_products,
+            'count_all': count_all,
+            'count_active': count_active,
+            'count_inactive': count_inactive
         }, CACHE_COMMON)
 
     # 区域缓存（不变）
@@ -159,6 +176,10 @@ def product_manage(request):
         'paginator': paginator,
         'page_products': page_products,
         'keyword': keyword,
+        'status': status,  # 新增：传递当前状态
+        'count_all': count_all,  # 新增：传递总数
+        'count_active': count_active,  # 新增：传递正常数
+        'count_inactive': count_inactive,  # 新增：传递停用数
         'areas': areas,
         'can_add_product': request.user.has_permission(PERM_PRODUCT_ADD),
         'can_edit_product': request.user.has_permission(PERM_PRODUCT_EDIT),
@@ -267,7 +288,23 @@ def product_delete(request, pk):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'禁用失败：{str(e)}'})
 
+@permission_required(PERM_PRODUCT_EDIT)
+def product_restore(request, pk):
+    try:
+        product = get_object_or_404(Product.all_objects, pk=pk)
+        product_name = product.name
+        product.is_active = True
+        product.save(update_fields=['is_active'])
 
+        create_operation_log(
+            request=request, op_type='update', obj_type='product',
+            obj_id=pk, obj_name=product_name, detail=f"启用商品：名称={product_name}，ID={pk}"
+        )
+
+        clear_product_all_cache()
+        return JsonResponse({'code': 1, 'msg': '商品启用成功'})
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': f'启用失败：{str(e)}'})
 # ====================== 别名CRUD（无修改） ======================
 @permission_required(PERM_PRODUCT_ALIAS_ADD)
 def alias_add(request):

@@ -11,6 +11,7 @@ urlpatterns = [
     path('edit/<int:pk>/', views.product_edit, name='product_edit'),
     path('edit/data/<int:pk>/', views.product_edit_data, name='product_edit_data'),
     path('delete/<int:pk>/', views.product_delete, name='product_delete'),
+path('restore/<int:pk>/', views.product_restore, name='product_restore'),  # 新增：启用路由
 
     # 别名CRUD接口
     path('alias/add/', views.alias_add, name='alias_add'),
@@ -30,3 +31,4 @@ urlpatterns = [
     path('sales-rank/', views.sales_rank, name='sales_rank'),
     path('sales-rank/data/', views.sales_rank_data, name='sales_rank_data'),
 ]
+
