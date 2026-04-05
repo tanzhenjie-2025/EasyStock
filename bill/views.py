@@ -1,21 +1,18 @@
-# bill\views
 # ========== 先导入所有必要模块（统一开头，避免重复） ==========
 from django.db import transaction
 from django.shortcuts import render, redirect, get_object_or_404
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 
 from django.utils import timezone
-# ========== 新增：页面缓存装饰器 ==========
-from django.views.decorators.cache import cache_page
 from .models import Order, OrderItem
-from product.models import Product,ProductAlias
-from customer_manage.models import Customer,CustomerPrice
+from product.models import Product, ProductAlias
+from customer_manage.models import Customer, CustomerPrice
 from area_manage.models import Area
 from summary.models import DailySalesSummary
 
 from django.db.models import Q, Sum, Count, Case, When, DecimalField
 import json
-from datetime import  datetime, timedelta
+from datetime import datetime, timedelta
 from .utils import generate_daily_summary, auto_summary_yesterday
 from django.contrib.auth.decorators import login_required
 from functools import wraps
@@ -45,14 +42,72 @@ PERM_ORDER_SUMMARY = 'order_summary'
 PERM_PRODUCT_SEARCH = 'product_search'
 
 # ========== 新增：订单模块缓存时长常量（统一管理） ==========
-CACHE_STOCK_LIST = 60            # 库存列表：60秒
-CACHE_ORDER_LIST = 60            # 订单列表：60秒
-CACHE_ORDER_DETAIL = 120         # 订单详情：2分钟
-CACHE_PRINT_ORDER = 300          # 订单打印：5分钟
-CACHE_CUSTOMER_RECENT_PRODUCT = 60 # 客户最近商品：60秒
+CACHE_STOCK_LIST = 60  # 库存列表：60秒
+CACHE_ORDER_LIST = 60  # 订单列表：60秒
+CACHE_ORDER_DETAIL = 120  # 订单详情：2分钟
+CACHE_PRINT_ORDER = 300  # 订单打印：5分钟
+CACHE_CUSTOMER_RECENT_PRODUCT = 60  # 客户最近商品：60秒
+CACHE_PRODUCT_SEARCH = 30  # 商品搜索：30秒
+CACHE_CUSTOMER_SEARCH = 10  # 客户搜索：10秒
+
+# ========== 新增：订单模块缓存 Key 定义 ==========
+CACHE_PREFIX_STOCK_LIST = "stock_list_"
+CACHE_PREFIX_ORDER_LIST = "order_list_"
+CACHE_PREFIX_ORDER_DETAIL = "order_detail_"
+CACHE_PREFIX_PRINT_ORDER = "print_order_"
+CACHE_PREFIX_PRODUCT_SEARCH = "product_search_"
+CACHE_PREFIX_CUSTOMER_SEARCH = "customer_search_"
+CACHE_PREFIX_CUSTOMER_RECENT_PRODUCT = "customer_recent_products_"
 
 # ========== 🔥 新增：订单有效状态常量（索引前缀核心字段） ==========
 ORDER_STATUS_VALID = ['pending', 'printed', 'reopened']
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+# ========== 新增：统一缓存清理函数 ==========
+def clear_order_cache(order_no: str = None):
+    """
+    清理订单相关缓存（含列表、详情、打印页）
+    """
+    # 1. 清理所有订单列表缓存
+    cache.delete_pattern(f"{CACHE_PREFIX_ORDER_LIST}*")
+
+    # 2. 清理指定订单的详情和打印缓存
+    if order_no:
+        cache.delete(f"{CACHE_PREFIX_ORDER_DETAIL}{order_no}")
+        cache.delete(f"{CACHE_PREFIX_PRINT_ORDER}{order_no}")
+
+    logger.info(f"已清理订单缓存: {order_no if order_no else '全列表'}")
+
+
+def clear_stock_cache():
+    """
+    清理库存列表缓存
+    """
+    cache.delete_pattern(f"{CACHE_PREFIX_STOCK_LIST}*")
+    logger.info("已清理库存列表缓存")
+
+
+def clear_product_search_cache():
+    """
+    清理商品搜索缓存
+    """
+    cache.delete_pattern(f"{CACHE_PREFIX_PRODUCT_SEARCH}*")
+    logger.info("已清理商品搜索缓存")
+
+
+def clear_customer_related_cache(customer_id: int = None):
+    """
+    清理客户相关业务缓存（最近购买商品等）
+    """
+    if customer_id:
+        cache.delete(f"{CACHE_PREFIX_CUSTOMER_RECENT_PRODUCT}{customer_id}")
+    cache.delete_pattern(f"{CACHE_PREFIX_CUSTOMER_RECENT_PRODUCT}*")
+    logger.info(f"已清理客户相关缓存: {customer_id if customer_id else '全量'}")
+
 
 # ========== 重构：自定义AJAX装饰器（适配RBAC） ==========
 def ajax_login_required(view_func):
@@ -91,7 +146,7 @@ def ajax_permission_required(permission_code):
                 # AJAX请求返回JSON
                 if request.headers.get(
                         'X-Requested-With') == 'XMLHttpRequest' or 'application/json' in request.headers.get(
-                        'Content-Type', ''):
+                    'Content-Type', ''):
                     return JsonResponse({'code': 0, 'msg': '无操作权限，请联系管理员'}, status=403)
                 # 非AJAX请求重定向无权限页
                 return redirect('/accounts/no-permission/')
@@ -114,17 +169,19 @@ def index(request):
         'is_super_admin': is_super_admin
     })
 
+
 @login_required
 @permission_required(PERM_PRODUCT_SEARCH)
 def search_product(request):
-    """商品搜索（索引优化版：模糊查询改前缀匹配，命中索引）"""
+    """商品搜索（手动缓存版）"""
     keyword = request.GET.get('keyword', '').strip()
     customer_id = request.GET.get('customer_id', '').strip()
 
     if not keyword:
         return JsonResponse({'code': 0, 'data': []})
 
-    cache_key = f"product_base_search_{keyword}"
+    # 🔥 手动缓存：基础商品信息缓存
+    cache_key = f"{CACHE_PREFIX_PRODUCT_SEARCH}{keyword}"
     cached_products = cache.get(cache_key)
 
     if cached_products is None:
@@ -153,7 +210,8 @@ def search_product(request):
                 'unit': p.unit,
                 'stock': p.stock
             })
-        cache.set(cache_key, cached_products, timeout=30)
+        cache.set(cache_key, cached_products, timeout=CACHE_PRODUCT_SEARCH)
+        logger.info(f"设置商品搜索缓存: {cache_key}")
 
     # 客户专属价查询（保留，无优化）
     customer_prices = {}
@@ -181,7 +239,7 @@ def search_product(request):
 @login_required
 @permission_required(PERM_ORDER_CREATE)
 def save_order(request):
-    """保存订单（高性能优化版：批量操作 + 事务 + 无N+1）"""
+    """保存订单（高性能优化版 + 手动缓存清理）"""
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
@@ -277,21 +335,43 @@ def save_order(request):
                 detail=f"创建订单{order.order_no}，客户：{customer_name}，总金额：{order.total_amount}元，商品数量：{len(items)}个"
             )
 
+            # ===================== 7. 缓存清理（核心新增） =====================
+            clear_stock_cache()  # 库存变化，清理库存列表
+            clear_order_cache()  # 订单变化，清理订单列表
+            if customer_id:
+                clear_customer_related_cache(int(customer_id))  # 清理客户最近购买
+
             return JsonResponse({'code': 1, 'msg': '开单成功', 'order_no': order.order_no})
 
     except Exception as e:
         # 事务自动回滚，无需手动delete，数据绝对安全
         return JsonResponse({'code': 0, 'msg': f'开单失败：{str(e)}'})
 
+
 @login_required
 @permission_required(PERM_PRODUCT_SEARCH)
-# ========== 缓存：库存列表页 60秒，自动区分搜索/分页参数 ==========
-@cache_page(CACHE_STOCK_LIST)
 def stock_list(request):
-    """库存查询页面（分页优化版 - 每页20条 + 后端搜索）"""
+    """库存查询页面（手动缓存版）"""
     # 获取搜索关键词 + 分页参数
     keyword = request.GET.get('keyword', '').strip()
     page = request.GET.get('page', 1)
+
+    # 🔥 手动缓存 Key
+    cache_key = f"{CACHE_PREFIX_STOCK_LIST}{request.user.id}_{keyword}_{page}"
+    cached_data = cache.get(cache_key)
+
+    # 由于这是渲染HTML的视图，我们缓存渲染后的内容或者数据
+    # 这里采用缓存上下文数据的方式，或者直接返回缓存的HttpResponse（较复杂）
+    # 为了保持逻辑简单，我们这里演示缓存查询集结果并重新渲染
+    # 注意：Django的cache_page实际上缓存的是HttpResponse对象
+
+    # 为了最大程度贴合你的需求，这里改为手动缓存渲染结果
+    # 但为了代码健壮性，我们先检查缓存
+    if cached_data:
+        # 注意：缓存HTML字符串在生产环境需谨慎，这里为了演示手动缓存逻辑
+        # 实际应用中建议缓存数据Context
+        from django.utils.safestring import mark_safe
+        return HttpResponse(cached_data)
 
     # 基础查询：按商品名称排序
     products = Product.objects.all().order_by('name')
@@ -314,21 +394,27 @@ def stock_list(request):
 
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
 
-    return render(request, 'bill/stock.html', {
-        'products': page_products,  # 分页后的商品
-        'paginator': paginator,  # 分页器
-        'page_products': page_products,  # 分页对象
-        'keyword': keyword,  # 搜索关键词（回显）
+    context = {
+        'products': page_products,
+        'paginator': paginator,
+        'page_products': page_products,
+        'keyword': keyword,
         'is_super_admin': is_super_admin
-    })
+    }
+
+    # 渲染页面
+    response = render(request, 'bill/stock.html', context)
+
+    # 设置缓存（缓存HTML响应）
+    cache.set(cache_key, response.content, CACHE_STOCK_LIST)
+
+    return response
 
 
 @login_required
 @permission_required(PERM_ORDER_VIEW)
-# ========== 缓存：订单列表页 60秒，自动区分所有筛选/分页参数 ==========
-@cache_page(CACHE_ORDER_LIST)
 def order_list(request):
-    """订单列表页（终极优化版：修复重复聚合查询+索引全命中）"""
+    """订单列表页（手动缓存版）"""
     order_no = request.GET.get('order_no', '').strip()
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
@@ -338,6 +424,13 @@ def order_list(request):
     amount_operator = request.GET.get('amount_operator', '')
     amount_value = request.GET.get('amount_value', '').strip()
     page = request.GET.get('page', 1)
+
+    # 🔥 手动缓存 Key：包含所有筛选参数 + 用户ID
+    cache_key = f"{CACHE_PREFIX_ORDER_LIST}{request.user.id}_{order_no}_{date_from}_{date_to}_{area_id}_{customer_name}_{settled_status}_{amount_operator}_{amount_value}_{page}"
+    cached_data = cache.get(cache_key)
+
+    if cached_data:
+        return HttpResponse(cached_data)
 
     # 关联预加载（无N+1）
     orders = Order.objects.select_related('area', 'customer', 'creator').order_by('-create_time')
@@ -367,7 +460,7 @@ def order_list(request):
 
     # 4. 🔥 索引后续字段：area（依赖前缀，索引生效）
     if area_id and area_id.isdigit():
-        orders = orders.filter(area_id=area_id)
+        orders = orders.filter(area_id=int(area_id))
 
     # 5. 🔥 索引后续字段：customer（依赖前缀，索引生效）
     if customer_name:
@@ -392,7 +485,8 @@ def order_list(request):
     if amount_operator in ['gt', 'lt'] and amount_value:
         try:
             amount = decimal.Decimal(amount_value)
-            orders = orders.filter(total_amount__gt=amount) if amount_operator == 'gt' else orders.filter(total_amount__lt=amount)
+            orders = orders.filter(total_amount__gt=amount) if amount_operator == 'gt' else orders.filter(
+                total_amount__lt=amount)
         except decimal.InvalidOperation:
             pass
 
@@ -461,15 +555,24 @@ def order_list(request):
         'settled_orders': settled_orders,
         'total_debt': total_debt
     }
-    return render(request, 'bill/order_list.html', context)
+
+    response = render(request, 'bill/order_list.html', context)
+    cache.set(cache_key, response.content, CACHE_ORDER_LIST)
+
+    return response
 
 
 @login_required
 @permission_required(PERM_ORDER_VIEW)
-# ========== 缓存：订单详情页 2分钟，自动根据order_no区分缓存 ==========
-@cache_page(CACHE_ORDER_DETAIL)
 def order_detail(request, order_no):
-    """订单详情页（性能优化版：无N+1、索引生效、缓存权限）"""
+    """订单详情页（手动缓存版）"""
+    # 🔥 手动缓存 Key
+    cache_key = f"{CACHE_PREFIX_ORDER_DETAIL}{order_no}"
+    cached_data = cache.get(cache_key)
+
+    if cached_data:
+        return HttpResponse(cached_data)
+
     # 🔥 优化1：一次性预加载所有关联（customer/area/creator），彻底解决N+1
     order = get_object_or_404(
         Order.objects.select_related('customer', 'area', 'creator'),
@@ -502,7 +605,8 @@ def order_detail(request, order_no):
         if is_super_admin:
             show_cancel_btn = True
         elif is_admin:
-            if (order.creator == request.user and can_cancel_own) or (order.creator != request.user and can_cancel_others):
+            if (order.creator == request.user and can_cancel_own) or (
+                    order.creator != request.user and can_cancel_others):
                 show_cancel_btn = True
         elif is_operator:
             if order.creator == request.user and can_cancel_own and time_diff <= 5:
@@ -522,18 +626,23 @@ def order_detail(request, order_no):
         'is_operator': is_operator,
         'show_cancel_btn': show_cancel_btn
     }
-    return render(request, 'bill/order_detail.html', context)
+
+    response = render(request, 'bill/order_detail.html', context)
+    cache.set(cache_key, response.content, CACHE_ORDER_DETAIL)
+
+    return response
+
 
 @login_required
 @permission_required(PERM_PRODUCT_SEARCH)
 def search_customer(request):
-    """客户搜索 + 缓存优化"""
+    """客户搜索 + 手动缓存优化"""
     keyword = request.GET.get('keyword', '').strip()
     if not keyword:
         return JsonResponse({'code': 0, 'data': []})
 
-    # 🔥 缓存键：根据关键词生成
-    cache_key = f"customer_search_{keyword}"
+    # 🔥 手动缓存键
+    cache_key = f"{CACHE_PREFIX_CUSTOMER_SEARCH}{keyword}"
     cached_data = cache.get(cache_key)
     if cached_data:
         return JsonResponse({'code': 1, 'data': cached_data})
@@ -553,8 +662,9 @@ def search_customer(request):
             'full_name': f"{area_name} | {customer.name}"
         })
 
-    # 🔥 缓存10秒，大幅减少数据库压力
-    cache.set(cache_key, data, timeout=10)
+    # 🔥 缓存10秒
+    cache.set(cache_key, data, timeout=CACHE_CUSTOMER_SEARCH)
+    logger.info(f"设置客户搜索缓存: {cache_key}")
     return JsonResponse({'code': 1, 'data': data})
 
 
@@ -562,8 +672,7 @@ def search_customer(request):
 @permission_required(PERM_ORDER_CANCEL_OWN)
 def cancel_order(request, order_no):
     """
-    作废订单（高性能优化版）
-    修复：N+1查询、循环单条更新库存、时区不统一、无事务保障
+    作废订单（高性能优化版 + 手动缓存清理）
     """
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, status=405)
@@ -604,7 +713,8 @@ def cancel_order(request, order_no):
                     if order.creator != request.user:
                         return JsonResponse({'code': 0, 'msg': '普通店员仅能作废自己创建的订单'}, status=403)
                     if time_diff > 5:
-                        return JsonResponse({'code': 0, 'msg': f'仅支持开单后5分钟内作废，当前已过{time_diff:.1f}分钟'}, status=400)
+                        return JsonResponse({'code': 0, 'msg': f'仅支持开单后5分钟内作废，当前已过{time_diff:.1f}分钟'},
+                                            status=400)
                 else:
                     return JsonResponse({'code': 0, 'msg': '无作废订单的权限'}, status=403)
 
@@ -649,6 +759,13 @@ def cancel_order(request, order_no):
                 detail=f"作废订单{order.order_no}，操作人角色：{role_name}，原因：{reason}，恢复{item_count}个商品库存，开单后{time_diff:.1f}分钟作废"
             )
 
+            # ===================== 6. 缓存清理（核心新增） =====================
+            customer_id = order.customer_id if order.customer else None
+            clear_order_cache(order_no)  # 清理当前订单详情/打印
+            clear_stock_cache()  # 库存恢复，清理库存列表
+            if customer_id:
+                clear_customer_related_cache(customer_id)  # 清理客户最近购买
+
             return JsonResponse({'code': 1, 'msg': '订单作废成功', 'order_no': order_no})
 
         except json.JSONDecodeError:
@@ -660,10 +777,15 @@ def cancel_order(request, order_no):
 
 @login_required
 @permission_required(PERM_ORDER_PRINT)
-# ========== 缓存：订单打印页 5分钟，自动根据order_no区分缓存 ==========
-@cache_page(CACHE_PRINT_ORDER)
 def print_order(request, order_no):
-    """订单打印页面（高性能优化版：消除N+1查询）"""
+    """订单打印页面（手动缓存版）"""
+    # 🔥 手动缓存 Key
+    cache_key = f"{CACHE_PREFIX_PRINT_ORDER}{order_no}"
+    cached_data = cache.get(cache_key)
+
+    if cached_data:
+        return HttpResponse(cached_data)
+
     # ===================== 核心优化1：预加载订单关联的所有外键 =====================
     # 一次性加载 客户、区域、开单人，无额外查询
     order = get_object_or_404(
@@ -678,11 +800,17 @@ def print_order(request, order_no):
     # RBAC权限判断（保持原有逻辑不变）
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
 
-    return render(request, 'bill/print.html', {
+    context = {
         'order': order,
         'items': items,
         'is_super_admin': is_super_admin
-    })
+    }
+
+    response = render(request, 'bill/print.html', context)
+    cache.set(cache_key, response.content, CACHE_PRINT_ORDER)
+
+    return response
+
 
 @login_required
 @permission_required(PERM_ORDER_REOPEN)
@@ -729,11 +857,11 @@ def reopen_order_edit(request, order_no):
     })
 
 
-# ========== 重构：结清相关视图（适配RBAC） ==========
+# ========== 重构：结清相关视图（适配RBAC + 缓存清理） ==========
 @ajax_login_required
 @ajax_permission_required(PERM_ORDER_SETTLE)
 def settle_order(request, order_no):
-    """标记订单结清（性能优化版）"""
+    """标记订单结清（性能优化版 + 缓存清理）"""
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, status=405)
 
@@ -771,6 +899,9 @@ def settle_order(request, order_no):
             detail=f"标记订单{order.order_no}结清，备注：{remark}"
         )
 
+        # 🔥 缓存清理
+        clear_order_cache(order_no)
+
         return JsonResponse({'code': 1, 'msg': '订单标记结清成功', 'order_no': order_no})
 
     except Exception as e:
@@ -780,7 +911,7 @@ def settle_order(request, order_no):
 @ajax_login_required
 @ajax_permission_required(PERM_ORDER_UNSETTLE)
 def unsettle_order(request, order_no):
-    """撤销订单结清（性能优化版）"""
+    """撤销订单结清（性能优化版 + 缓存清理）"""
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, status=405)
 
@@ -814,6 +945,9 @@ def unsettle_order(request, order_no):
             detail=f"撤销订单{order.order_no}结清状态，备注：{remark}"
         )
 
+        # 🔥 缓存清理
+        clear_order_cache(order_no)
+
         return JsonResponse({'code': 1, 'msg': '撤销订单结清成功', 'order_no': order_no})
 
     except Exception as e:
@@ -823,7 +957,7 @@ def unsettle_order(request, order_no):
 @ajax_login_required
 @ajax_permission_required(PERM_ORDER_SETTLE)
 def batch_settle_order(request):
-    """批量标记订单结清（高性能优化版：无N+1 + 批量更新 + 事务）"""
+    """批量标记订单结清（高性能优化版 + 缓存清理）"""
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, status=405)
 
@@ -893,14 +1027,18 @@ def batch_settle_order(request):
                     )
             success_count = len(update_orders)
 
+            # 🔥 缓存清理：清理所有受影响的订单缓存
+            for order in update_orders:
+                clear_order_cache(order.order_no)
+
         msg = f'批量处理完成！成功{success_count}个，失败{len(fail_list)}个'
         if fail_list:
             msg += f'；失败原因：{"; ".join(fail_list)}'
 
         return JsonResponse({'code': 1 if success_count > 0 else 0,
-                            'msg': msg,
-                            'success_count': success_count,
-                            'fail_list': fail_list})
+                             'msg': msg,
+                             'success_count': success_count,
+                             'fail_list': fail_list})
 
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'批量结清失败：{str(e)}'}, status=500)
@@ -909,12 +1047,13 @@ def batch_settle_order(request):
 @login_required
 @permission_required(PERM_PRODUCT_SEARCH)
 def get_customer_recent_products(request):
-    """获取客户最近购买的商品（按购买时间倒序）【性能优化版+索引全命中】"""
+    """获取客户最近购买的商品（手动缓存版）"""
     customer_id = request.GET.get('customer_id', '').strip()
     if not customer_id:
         return JsonResponse({'code': 0, 'msg': '请选择客户', 'data': []})
 
-    cache_key = f"customer_recent_products_{customer_id}"
+    # 🔥 手动缓存 Key
+    cache_key = f"{CACHE_PREFIX_CUSTOMER_RECENT_PRODUCT}{customer_id}"
     cached_data = cache.get(cache_key)
     if cached_data:
         return JsonResponse({'code': 1, 'data': cached_data})
@@ -959,6 +1098,7 @@ def get_customer_recent_products(request):
         )
 
         cache.set(cache_key, recent_products, timeout=CACHE_CUSTOMER_RECENT_PRODUCT)
+        logger.info(f"设置客户最近商品缓存: {cache_key}")
 
         return JsonResponse({'code': 1, 'data': recent_products})
     except Exception as e:
