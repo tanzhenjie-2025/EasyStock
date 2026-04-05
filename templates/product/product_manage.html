@@ -327,7 +327,7 @@
             margin-top: 10px;
             margin-bottom: 15px;
         }
-        
+
         /* 🔥 新增：Toast 提示样式 */
         .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
         .toast { padding: 12px 20px; border-radius: 4px; color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.15); animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s; opacity: 0; transform: translateX(100%); }
@@ -337,7 +337,7 @@
         .toast-info { background-color: #17a2b8; }
         @keyframes slideIn { from { opacity: 0; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }
         @keyframes fadeOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(100%); } }
-        
+
         /* 🔥 新增：通用模态框样式（用于导入） */
         .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000; opacity: 0; visibility: hidden; transition: opacity 0.3s ease, visibility 0.3s ease; }
         .modal-overlay.active { opacity: 1; visibility: visible; }
@@ -416,19 +416,19 @@
         <!-- 提示消息 -->
         <div id="msg-box" class="msg"></div>
 
-        
+
 
         <!-- 商品搜索栏 → 后端搜索表单 -->
         <form method="get" class="search-form">
-            <input type="text" name="keyword" id="search-keyword" class="search-input" 
+            <input type="text" name="keyword" id="search-keyword" class="search-input"
                    placeholder="搜索商品名称/别名..." value="{{ keyword }}">
             <input type="hidden" name="status" value="{{ status }}">
             <button type="submit" class="btn btn-primary" id="btn-search">搜索</button>
             <button type="button" class="btn btn-default" id="btn-reset-search">重置</button>
             <button type="button" class="btn btn-success" id="btn-quick-stock" style="margin-left: 20px;">快速出入库</button>
         </form>
-        
-        
+
+
         <!-- 新增商品表单 -->
         <div class="add-form">
             <div class="form-item">
@@ -448,25 +448,13 @@
                 <input type="number" id="add-stock" placeholder="77" min="0" value="77">
             </div>
             <button class="btn btn-primary" id="btn-add-product">新增商品</button>
-            
+
             <div style="margin-left: 20px; display: flex; align-items: center; gap: 10px;" class="btn-group-action">
                 <button class="btn btn-success" onclick="exportData()">📥 导出数据</button>
                 <button class="btn btn-warning" onclick="showImportModal()">📤 导入数据</button>
             </div>
         </div>
-        
-        <!-- ========== 🔥 新增：状态筛选 Tab ========== -->
-        <div class="status-tabs">
-            <a href="?status=all&keyword={{ keyword }}" class="status-tab {% if status == 'all' %}active{% endif %}">
-                全部 ({{ count_all }})
-            </a>
-            <a href="?status=active&keyword={{ keyword }}" class="status-tab {% if status == 'active' %}active{% endif %}">
-                正常 ({{ count_active }})
-            </a>
-            <a href="?status=inactive&keyword={{ keyword }}" class="status-tab {% if status == 'inactive' %}active{% endif %} status-tab-inactive">
-                已停用 ({{ count_inactive }})
-            </a>
-        </div>
+
 
         <!-- 商品列表 -->
         <table class="product-table">
@@ -510,13 +498,13 @@
                         {% endif %}
                     </td>
                     <td>
-                        <button class="btn btn-primary row-btn" onclick="editProduct({{ product.id }}); event.stopPropagation();" 
+                        <button class="btn btn-primary row-btn" onclick="editProduct({{ product.id }}); event.stopPropagation();"
                                 style="padding: 4px 10px; font-size: 12px; margin-right: 5px;">编辑</button>
                         {% if product.status == 1 %}
-                            <button class="btn btn-danger row-btn" onclick="deleteProduct({{ product.id }}); event.stopPropagation();" 
+                            <button class="btn btn-danger row-btn" onclick="deleteProduct({{ product.id }}); event.stopPropagation();"
                                     style="padding: 4px 10px; font-size: 12px;">停用</button>
                         {% else %}
-                            <button class="btn btn-success row-btn" onclick="restoreProduct({{ product.id }}); event.stopPropagation();" 
+                            <button class="btn btn-success row-btn" onclick="restoreProduct({{ product.id }}); event.stopPropagation();"
                                     style="padding: 4px 10px; font-size: 12px;">启用</button>
                         {% endif %}
                     </td>
@@ -532,7 +520,7 @@
         <nav style="margin-top: 20px;">
             <ul class="pagination" style="display: flex; gap: 5px; justify-content: center; list-style: none; padding: 0;">
                 {% if page_products.has_previous %}
-                <li><a href="?page={{ page_products.previous_page_number }}&keyword={{ keyword }}&status={{ status }}" 
+                <li><a href="?page={{ page_products.previous_page_number }}&keyword={{ keyword }}&status={{ status }}"
                        style="padding: 6px 12px; border:1px solid #ddd; border-radius:4px; text-decoration:none; color:#0066cc;">上一页</a></li>
                 {% else %}
                 <li><span style="padding: 6px 12px; border:1px solid #ddd; border-radius:4px; color:#999;">上一页</span></li>
@@ -542,13 +530,13 @@
                     {% if page_products.number == num %}
                     <li><span style="padding: 6px 12px; border:1px solid #0066cc; border-radius:4px; background:#0066cc; color:#fff;">{{ num }}</span></li>
                     {% else %}
-                    <li><a href="?page={{ num }}&keyword={{ keyword }}&status={{ status }}" 
+                    <li><a href="?page={{ num }}&keyword={{ keyword }}&status={{ status }}"
                            style="padding: 6px 12px; border:1px solid #ddd; border-radius:4px; text-decoration:none; color:#0066cc;">{{ num }}</a></li>
                     {% endif %}
                 {% endfor %}
 
                 {% if page_products.has_next %}
-                <li><a href="?page={{ page_products.next_page_number }}&keyword={{ keyword }}&status={{ status }}" 
+                <li><a href="?page={{ page_products.next_page_number }}&keyword={{ keyword }}&status={{ status }}"
                        style="padding: 6px 12px; border:1px solid #ddd; border-radius:4px; text-decoration:none; color:#0066cc;">下一页</a></li>
                 {% else %}
                 <li><span style="padding: 6px 12px; border:1px solid #ddd; border-radius:4px; color:#999;">下一页</span></li>
@@ -608,9 +596,9 @@
                     快速出入库
                     <button class="btn btn-default" id="btn-close-stock-modal" style="padding: 4px 10px; font-size: 12px;">关闭</button>
                 </div>
-                
+
                 <button class="btn-add-row" onclick="addStockRow()">新增空白行</button>
-                
+
                 <table class="stock-table" id="stock-table">
                     <thead>
                         <tr>
@@ -623,7 +611,7 @@
                     </thead>
                     <tbody id="stock-tbody"></tbody>
                 </table>
-                
+
                 <div class="modal-footer">
                     <button class="btn btn-default" id="btn-cancel-stock">取消</button>
                     <button class="btn btn-success" id="btn-save-stock">一键出入库</button>
@@ -645,7 +633,7 @@
                         <button type="button" class="btn btn-xs btn-outline-primary" onclick="selectAllFields(true)">全选</button>
                         <button type="button" class="btn btn-xs btn-outline-secondary ms-1" onclick="selectAllFields(false)">取消全选</button>
                     </div>
-                    
+
                     <div class="field-checkbox">
                         <input type="checkbox" id="field_serial" name="export_fields" value="serial" checked>
                         <label for="field_serial">序号</label>
@@ -674,7 +662,7 @@
                         <input type="checkbox" id="field_alias_names" name="export_fields" value="alias_names">
                         <label for="field_alias_names">商品别名</label>
                     </div>
-                    
+
                     <div class="custom-fields-section">
                         <h6>自定义字段（用于手动填写）</h6>
                         <div id="customFieldsContainer"></div>
@@ -746,12 +734,12 @@
 
             const cancelBtn = overlay.querySelector('.modal-btn-cancel');
             const confirmBtn = overlay.querySelector('#btn-confirm-action');
-            
+
             const closeModal = () => overlay.remove();
 
             cancelBtn.addEventListener('click', () => { closeModal(); if(callback) callback(null); });
             confirmBtn.addEventListener('click', () => { if(callback) callback(overlay, closeModal); });
-            
+
             document.addEventListener('keydown', function escHandler(e) {
                 if (e.key === 'Escape') { closeModal(); if(callback) callback(null); document.removeEventListener('keydown', escHandler); }
             });
@@ -770,7 +758,7 @@
 
             showSimpleModal('导入商品数据', content, function(overlay, closeModal) {
                 if(!overlay) return;
-                
+
                 const fileInput = overlay.querySelector('#import-file-input');
                 const confirmBtn = overlay.querySelector('#btn-confirm-action');
 
@@ -778,7 +766,7 @@
                     showToast('请先选择文件', 'warning');
                     return;
                 }
-                
+
                 let formData = new FormData();
                 formData.append('file', fileInput.files[0]);
 
@@ -861,7 +849,7 @@
                     headers: { 'X-CSRFToken': getCsrfToken() }
                 });
                 if (!res.ok) throw new Error('获取商品详情失败');
-                
+
                 const product = await res.json();
                 if (!product) {
                     showMsg('商品数据不存在', false);
@@ -887,7 +875,7 @@
         function renderEditAliases() {
             const aliasContainer = document.getElementById('edit-aliases');
             aliasContainer.innerHTML = '';
-            
+
             if (currentAliases && currentAliases.length > 0) {
                 currentAliases.forEach(alias => {
                     const aliasItem = document.createElement('div');
@@ -999,7 +987,7 @@
                 showMsg('请先选择要编辑的商品', false);
                 return;
             }
-            
+
             const aliasName = document.getElementById('new-alias').value.trim();
             if (!aliasName) {
                 showMsg('别名不能为空', false);
@@ -1198,7 +1186,7 @@
             const inputs = tr.querySelectorAll('input');
             const idx = Array.from(inputs).indexOf(input);
             if (idx < stockInputColsCount - 1) {
-                inputs[idx+1].focus(); 
+                inputs[idx+1].focus();
                 inputs[idx+1].select();
             } else {
                 const newTr = addStockRow(true);
@@ -1217,21 +1205,21 @@
             switch(key) {
                 case 'ArrowLeft':
                     const l = idx === 0 ? stockInputColsCount-1 : idx-1;
-                    inputs[l].focus(); 
-                    inputs[l].select(); 
+                    inputs[l].focus();
+                    inputs[l].select();
                     break;
                 case 'ArrowRight':
                     const r = idx === stockInputColsCount-1 ? 0 : idx+1;
-                    inputs[r].focus(); 
-                    inputs[r].select(); 
+                    inputs[r].focus();
+                    inputs[r].select();
                     break;
                 case 'ArrowUp':
                     const upTr = allTr[trIdx === 0 ? rowCount-1 : trIdx-1];
-                    upTr.querySelectorAll('input')[idx].focus(); 
+                    upTr.querySelectorAll('input')[idx].focus();
                     break;
                 case 'ArrowDown':
                     const dnTr = allTr[trIdx === rowCount-1 ? 0 : trIdx+1];
-                    dnTr.querySelectorAll('input')[idx].focus(); 
+                    dnTr.querySelectorAll('input')[idx].focus();
                     break;
             }
         }
@@ -1290,11 +1278,11 @@
         function deleteStockRow(btn) {
             const tr = btn.closest('tr');
             const tbody = document.getElementById('stock-tbody');
-            if (tbody.children.length <=1) { 
-                alert('至少保留1行'); 
-                return; 
+            if (tbody.children.length <=1) {
+                alert('至少保留1行');
+                return;
             }
-            tr.remove(); 
+            tr.remove();
             updateStockRowNumbers();
         }
 
@@ -1318,7 +1306,7 @@
         async function saveStockOperation() {
             const items = [];
             let hasValidData = false;
-            
+
             document.querySelectorAll('#stock-tbody tr').forEach(tr=>{
                 const nameInput = tr.querySelector('.stock-name-input');
                 const productId = nameInput.dataset.productId || '';
@@ -1328,12 +1316,12 @@
                 const currentStock = parseInt(nameInput.dataset.stock) || 0;
 
                 if (!productId || !name) return;
-                
+
                 if (outQty > 0 && outQty > currentStock) {
                     alert(`商品【${name}】出库数量${outQty}超过当前库存${currentStock}，操作失败！`);
                     return;
                 }
-                
+
                 if (inQty > 0 || outQty > 0) {
                     items.push({
                         product_id: productId,
@@ -1343,7 +1331,7 @@
                     hasValidData = true;
                 }
             });
-            
+
             if (!hasValidData) {
                 alert('请填写有效的出入库数据！');
                 return;
@@ -1408,14 +1396,14 @@
 
         function addCustomField() {
             customFieldCount++;
-            
+
             let targetFieldsHtml = '';
             $('input[name="export_fields"]').each(function() {
                 const fieldValue = $(this).val();
                 const fieldLabel = $(this).next('label').text();
                 targetFieldsHtml += `<option value="${fieldValue}">${fieldLabel}</option>`;
             });
-            
+
             const customFieldHtml = `
             <div class="custom-field-item" data-index="${customFieldCount}">
                 <input type="text" class="form-control form-control-sm custom-field-name" placeholder="字段名称（如：上次金额）" value="备注${customFieldCount}">
@@ -1429,7 +1417,7 @@
                 <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeCustomField(${customFieldCount})">×</button>
             </div>
             `;
-            
+
             $('#customFieldsContainer').append(customFieldHtml);
         }
 
@@ -1452,7 +1440,7 @@
                 const name = $(this).find('.custom-field-name').val().trim();
                 const position = $(this).find('.custom-field-position').val();
                 const target = $(this).find('.custom-field-target').val();
-                
+
                 if (name) {
                     customFields.push({
                         name: name,
@@ -1464,7 +1452,7 @@
 
             let formData = new FormData();
             formData.append('custom_fields', JSON.stringify(customFields));
-            
+
             selectedFields.forEach(field => {
                 formData.append('fields[]', field);
             });
