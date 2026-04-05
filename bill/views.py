@@ -414,7 +414,7 @@ def stock_list(request):
 @login_required
 @permission_required(PERM_ORDER_VIEW)
 def order_list(request):
-    """订单列表页（手动缓存版）"""
+    """订单列表页（新增Tab状态筛选版）"""
     order_no = request.GET.get('order_no', '').strip()
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
@@ -423,10 +423,11 @@ def order_list(request):
     settled_status = request.GET.get('settled_status', '')
     amount_operator = request.GET.get('amount_operator', '')
     amount_value = request.GET.get('amount_value', '').strip()
+    status = request.GET.get('status', 'all')  # 🔥 新增：状态筛选参数
     page = request.GET.get('page', 1)
 
-    # 🔥 手动缓存 Key：包含所有筛选参数 + 用户ID
-    cache_key = f"{CACHE_PREFIX_ORDER_LIST}{request.user.id}_{order_no}_{date_from}_{date_to}_{area_id}_{customer_name}_{settled_status}_{amount_operator}_{amount_value}_{page}"
+    # 🔥 手动缓存 Key：新增 status 参数
+    cache_key = f"{CACHE_PREFIX_ORDER_LIST}{request.user.id}_{order_no}_{date_from}_{date_to}_{area_id}_{customer_name}_{settled_status}_{amount_operator}_{amount_value}_{status}_{page}"
     cached_data = cache.get(cache_key)
 
     if cached_data:
@@ -444,29 +445,33 @@ def order_list(request):
     is_admin = request.user.role and request.user.role.code == ROLE_ADMIN
     is_operator = request.user.role and request.user.role.code == ROLE_OPERATOR
 
-    # ===================== 🔥 索引核心优化：严格遵循最左前缀顺序 =====================
-    # 1. 基础订单号筛选（无索引影响）
+    # 🔥 新增：状态筛选（核心Tab逻辑）
+    base_orders = orders  # 保存基础查询集用于统计
+    if status == 'normal':
+        orders = orders.filter(status__in=ORDER_STATUS_VALID)
+    elif status == 'cancelled':
+        orders = orders.filter(status='cancelled')
+
+    # 🔥 新增：Tab数量统计（基于权限控制后的基础数据）
+    count_all = base_orders.count()
+    count_normal = base_orders.filter(status__in=ORDER_STATUS_VALID).count()
+    count_cancelled = base_orders.filter(status='cancelled').count()
+
+    # 原有筛选逻辑（保留，注意移除了原来强制的 status__in=ORDER_STATUS_VALID）
     if order_no:
         orders = orders.filter(order_no__startswith=order_no)
 
-    # 2. 🔥 索引前缀第一字段：status（必须优先筛选，排除作废订单）
-    orders = orders.filter(status__in=ORDER_STATUS_VALID)
-
-    # 3. 🔥 索引前缀第二字段：is_settled（必须紧跟status，索引生效）
     if settled_status == 'settled':
         orders = orders.filter(is_settled=True)
     elif settled_status == 'unsettled':
         orders = orders.filter(is_settled=False)
 
-    # 4. 🔥 索引后续字段：area（依赖前缀，索引生效）
     if area_id and area_id.isdigit():
         orders = orders.filter(area_id=int(area_id))
 
-    # 5. 🔥 索引后续字段：customer（依赖前缀，索引生效）
     if customer_name:
         orders = orders.filter(customer__name__istartswith=customer_name)
 
-    # 6. 🔥 索引末尾字段：create_time（必须在所有前缀字段之后）
     if date_from:
         try:
             start_datetime = timezone.make_aware(datetime.strptime(date_from, '%Y-%m-%d'))
@@ -481,7 +486,6 @@ def order_list(request):
         except:
             pass
 
-    # 7. 金额筛选（无索引，最后执行）
     if amount_operator in ['gt', 'lt'] and amount_value:
         try:
             amount = decimal.Decimal(amount_value)
@@ -499,7 +503,7 @@ def order_list(request):
     except EmptyPage:
         page_orders = paginator.page(paginator.num_pages)
 
-    # ===================== 核心优化：1次聚合查询完成所有统计（依赖索引，性能拉满） =====================
+    # 统计数据（基于当前筛选结果）
     stats = orders.aggregate(
         total_orders=Count('id'),
         total_sales=Sum('total_amount', default=decimal.Decimal('0.00')),
@@ -512,7 +516,6 @@ def order_list(request):
     total_sales = stats['total_sales']
     settled_orders = stats['settled_orders']
     total_debt = stats['total_debt']
-    # ==========================================================================
 
     # 作废权限计算
     current_time = timezone.now()
@@ -553,7 +556,12 @@ def order_list(request):
         'total_orders': total_orders,
         'total_sales': total_sales,
         'settled_orders': settled_orders,
-        'total_debt': total_debt
+        'total_debt': total_debt,
+        # 🔥 新增：Tab相关参数
+        'status': status,
+        'count_all': count_all,
+        'count_normal': count_normal,
+        'count_cancelled': count_cancelled,
     }
 
     response = render(request, 'bill/order_list.html', context)

@@ -30,7 +30,6 @@
         text-overflow: ellipsis;
         border: 1px solid #dee2e6;
         padding: 8px 10px;
-        /* 新增：单元格默认背景继承，确保hover时整行统一 */
         background-color: inherit;
     }
 
@@ -44,7 +43,7 @@
     /* 操作按钮紧凑排列 */
     .op-btn-group .btn {
         margin-right: 4px;
-        margin-bottom: 0 !important; /* 移除mt-1带来的垂直间距 */
+        margin-bottom: 0 !important;
     }
     /* 取消状态列的换行，用行内块展示 */
     .status-badge-wrap {
@@ -54,45 +53,68 @@
         gap: 2px;
     }
 
+    /* ================ 核心修改：Tab切换样式 ================ */
+    .status-tab {
+        cursor: pointer;
+        padding: 8px 16px;
+        border-radius: 4px;
+        margin-right: 8px;
+        transition: all 0.2s;
+        text-decoration: none;
+        color: #333;
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+    }
+    .status-tab:hover {
+        background-color: #e9ecef;
+        text-decoration: none;
+        color: #333;
+    }
+    .status-tab.active {
+        background-color: #0d6efd;
+        color: white;
+        border-color: #0d6efd;
+    }
+    .status-tab.cancelled-tab {
+        color: #dc3545;
+    }
+    .status-tab.cancelled-tab.active {
+        background-color: #dc3545;
+        color: white;
+        border-color: #dc3545;
+    }
+
     /* ================ 核心修改：行交互样式（整行浅灰色高亮） ================ */
-    /* 基础行样式重置 */
     .order-row {
         position: relative;
-        cursor: pointer; /* 手型光标 */
-        transition: all 0.2s ease; /* 流畅过渡动画 */
-        background-color: #ffffff; /* 行默认背景色 */
+        cursor: pointer;
+        transition: all 0.2s ease;
+        background-color: #ffffff;
     }
-
-    /* 1. 核心：鼠标经过时整行（所有单元格）浅灰色高亮 */
     .order-row:hover td {
-        background-color: #f1f1f1 !important; /* 统一浅灰色高亮（#f1f1f1是标准浅灰） */
+        background-color: #f1f1f1 !important;
     }
-
-    /* 2. 点击选中行样式 */
     .order-row.selected td {
-        background-color: #e9e9e9 !important; /* 选中行略深的浅灰 */
+        background-color: #e9e9e9 !important;
         border-bottom: 1px solid #999 !important;
     }
-
-    /* 3. 特殊状态行底色（基础底色） */
-    /* 未结清行底色 */
     .order-row.unsettled {
         background-color: #fff8e1 !important;
     }
-    /* 作废/禁用行底色 */
+    /* 🔥 作废行样式强化 */
     .order-row.cancelled {
-        background-color: #fafafa !important;
-        opacity: 0.9;
+        background-color: #fdf2f2 !important;
+        opacity: 0.85;
     }
-    /* 4. 特殊状态行hover叠加高亮（基于浅灰色调整，保持统一基调） */
+    .order-row.cancelled td {
+        color: #666;
+    }
     .order-row.unsettled:hover td {
-        background-color: #f8f2d8 !important; /* 未结清行hover：浅橙+浅灰叠加，仍属浅灰系 */
+        background-color: #f8f2d8 !important;
     }
     .order-row.cancelled:hover td {
-        background-color: #f2f2f2 !important; /* 作废行hover：更浅的灰色，低对比度 */
+        background-color: #fae2e2 !important;
     }
-
-    /* 5. 操作按钮强化（hover行时按钮变色） */
     .order-row:hover .op-btn-group .btn-info {
         background-color: #059669;
         border-color: #047857;
@@ -106,8 +128,6 @@
         background-color: #16a34a;
         border-color: #15803d;
     }
-
-    /* 6. 交互提示样式 */
     .row-tip {
         position: absolute;
         right: 10px;
@@ -119,15 +139,12 @@
         transition: opacity 0.1s ease;
     }
     .order-row:hover .row-tip {
-        opacity: 1; /* hover时显示提示 */
+        opacity: 1;
     }
-
-    /* 7. 行内按钮区域屏蔽整行点击（优先级最高） */
     .op-btn-group {
-        pointer-events: auto; /* 按钮优先响应 */
+        pointer-events: auto;
         z-index: 10;
     }
-    /* 选择框列也屏蔽整行点击 */
     .col-select {
         pointer-events: auto;
     }
@@ -136,7 +153,6 @@
 
 {% block content %}
     <script>
-// 定义订单详情URL模板
 const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER' %}";
 </script>
     
@@ -146,7 +162,9 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
     {% endif %}
 </h3>
 
-<!-- 新增：订单号搜索框（放在筛选表单上方） -->
+
+
+<!-- 新增：订单号搜索框 -->
 <form method="get" class="mb-3">
     <div class="row g-2 align-items-center">
         <div class="col-auto">
@@ -155,15 +173,16 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
         <div class="col-auto">
             <input type="text" name="order_no" class="form-control form-control-sm" placeholder="请输入订单编号" value="{{ order_no }}">
         </div>
+        <!-- 🔥 新增：保持status筛选参数 -->
+        <input type="hidden" name="status" value="{{ status }}">
         <div class="col-auto">
             <button type="submit" class="btn btn-sm btn-outline-primary">搜索</button>
         </div>
     </div>
 </form>
 
-<!-- 筛选表单（新增结清状态筛选 + 金额筛选） -->
+<!-- 筛选表单 -->
 <form method="get" class="mb-4">
-    <!-- 新增：筛选栏提示词 -->
     <div class="mb-1"><small class="text-muted">订单筛选：</small></div>
     <div class="row g-2">
         <div class="col-auto">
@@ -183,7 +202,6 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
         <div class="col-auto">
             <input type="text" id="customerNameInput" name="customer_name" class="form-control form-control-sm" placeholder="客户名称" value="{{ customer_name }}">
         </div>
-        <!-- 新增：结清状态筛选 -->
         <div class="col-auto">
             <select name="settled_status" class="form-select form-select-sm">
                 <option value="" {% if settled_status == "" %}selected{% endif %}>所有状态</option>
@@ -191,7 +209,6 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
                 <option value="unsettled" {% if settled_status == "unsettled" %}selected{% endif %}>未结清</option>
             </select>
         </div>
-        <!-- ========== 新增：金额筛选模块 ========== -->
         <div class="col-auto">
             <select name="amount_operator" class="form-select form-select-sm">
                 <option value="" {% if amount_operator == "" %}selected{% endif %}>金额</option>
@@ -213,14 +230,15 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
                 </div>
             </div>
         </div>
-        <!-- ========== 金额筛选模块结束 ========== -->
+        <!-- 🔥 新增：保持status筛选参数 -->
+        <input type="hidden" name="status" value="{{ status }}">
         <div class="col-auto">
             <button type="submit" class="btn btn-sm btn-primary">筛选</button>
         </div>
     </div>
 </form>
 
-    <!-- ========== 新增：数据统计展示栏 ========== -->
+<!-- 数据统计展示栏 -->
 <div class="mb-4 p-3 bg-light rounded border">
     <h6 class="mb-2">筛选数据统计</h6>
     <div class="row g-3">
@@ -258,18 +276,36 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
         </div>
     </div>
 </div>
-<!-- ========== 统计展示栏结束 ========== -->
 
-<!-- 批量操作按钮 -->
+<!-- 批量操作按钮（仅在非作废Tab显示） -->
+{% if status != 'cancelled' %}
 <div class="mb-3">
     <button class="btn btn-sm btn-success" id="batchSettleBtn" disabled>批量结清选中订单</button>
 </div>
-
-<!-- 订单表格（新增批量选择框、结清标识、操作按钮） -->
+{% endif %}
+<!-- 🔥 新增：核心Tab切换栏 -->
+<div class="mb-4">
+    <div class="d-flex align-items-center">
+        <span class="me-3 text-muted">订单状态：</span>
+        <a href="?{% if request.GET.urlencode %}{{ request.GET.urlencode|cut:'&status='|cut:'status=all'|cut:'status=normal'|cut:'status=cancelled' }}{% endif %}&status=all" 
+           class="status-tab {% if status == 'all' %}active{% endif %}">
+            全部 ({{ count_all }})
+        </a>
+        <a href="?{% if request.GET.urlencode %}{{ request.GET.urlencode|cut:'&status='|cut:'status=all'|cut:'status=normal'|cut:'status=cancelled' }}{% endif %}&status=normal" 
+           class="status-tab {% if status == 'normal' %}active{% endif %}">
+            正常 ({{ count_normal }})
+        </a>
+        <a href="?{% if request.GET.urlencode %}{{ request.GET.urlencode|cut:'&status='|cut:'status=all'|cut:'status=normal'|cut:'status=cancelled' }}{% endif %}&status=cancelled" 
+           class="status-tab cancelled-tab {% if status == 'cancelled' %}active{% endif %}">
+            已作废 ({{ count_cancelled }})
+        </a>
+    </div>
+</div>
+<!-- 订单表格 -->
 <table class="table table-striped table-bordered table-fixed">
     <thead>
         <tr>
-            <th class="col-select"><input type="checkbox" id="selectAll"></th>  <!-- 批量选择全选框 -->
+            <th class="col-select"><input type="checkbox" id="selectAll" {% if status == 'cancelled' %}disabled{% endif %}></th>
             <th class="col-order-no">订单编号</th>
             <th class="col-create-time">开单时间</th>
             <th class="col-creator">开单人</th>
@@ -277,20 +313,18 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
             <th class="col-area">区域</th>
             <th class="col-amount">总金额</th>
             <th class="col-status">订单状态</th>
-            <th class="col-settled">结清状态</th>  <!-- 新增结清状态列 -->
+            <th class="col-settled">结清状态</th>
             <th class="col-operation">操作</th>
         </tr>
     </thead>
     <tbody>
         {% for order in orders %}
-        <!-- 关键修改1：添加行类名（基础行、特殊状态）+ 行ID -->
         <tr 
             id="order-row-{{ order.order_no }}"
-            class="order-row {% if not order.is_settled %}unsettled{% endif %} {% if order.status == 'cancelled' %}cancelled{% endif %} {% if order.status == 'reopened' %}table-warning{% endif %}"
+            class="order-row {% if not order.is_settled and order.status != 'cancelled' %}unsettled{% endif %} {% if order.status == 'cancelled' %}cancelled{% endif %} {% if order.status == 'reopened' %}table-warning{% endif %}"
             data-order-no="{{ order.order_no }}"
         >
             <td class="col-select">
-                <!-- 批量选择框（作废/已结清订单不可选）【关键修改1：添加order.is_settled判断】 -->
                 <input type="checkbox" class="orderCheckbox" value="{{ order.order_no }}" {% if order.status == 'cancelled' or order.is_settled %}disabled{% endif %}>
             </td>
             <td class="col-order-no">
@@ -320,7 +354,6 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
                     {% endif %}
                 </div>
             </td>
-            <!-- 新增：结清状态展示 -->
             <td class="col-settled">
                 <div class="status-badge-wrap">
                     {% if order.is_settled %}
@@ -332,30 +365,37 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
                             {% endif %}
                         </span>
                     {% else %}
-                        <span class="badge bg-danger">未结清</span>
+                        {% if order.status != 'cancelled' %}
+                            <span class="badge bg-danger">未结清</span>
+                        {% else %}
+                            <span class="badge bg-secondary">—</span>
+                        {% endif %}
                     {% endif %}
                 </div>
             </td>
-            <!-- 操作列部分代码替换 -->
-<td class="col-operation op-btn-group">
-    <a href="{% url 'bill:print_order' order.order_no %}" class="btn btn-sm btn-primary {% if order.status == 'cancelled' %}disabled{% endif %}">打印</a>
-    <a href="{% url 'bill:order_detail' order.order_no %}" class="btn btn-sm btn-info">详情</a>
-
-    <!-- 标记结清按钮（未结清+非作废订单可见） -->
-    {% if not order.is_settled and order.status != 'cancelled' %}
-        <button class="btn btn-sm btn-success settleBtn" data-order-no="{{ order.order_no }}">标记结清</button>
-    {% endif %}
-
-    <!-- 撤销结清按钮（仅超级管理员+已结清订单可见） -->
-    {% if is_super_admin and order.is_settled %}
-        <button class="btn btn-sm btn-warning unsettleBtn" data-order-no="{{ order.order_no }}">撤销结清</button>
-    {% endif %}
-
-
-    {% if order.can_cancel %}
-    <button class="btn btn-sm btn-danger cancelBtn" data-order-no="{{ order.order_no }}">作废订单</button>
-{% endif %}
-</td>
+            <!-- 🔥 核心修改：操作列动态变化 -->
+            <td class="col-operation op-btn-group">
+                {% if order.status != 'cancelled' %}
+                    {# 正常状态订单操作 #}
+                    <a href="{% url 'bill:print_order' order.order_no %}" class="btn btn-sm btn-primary">打印</a>
+                    <a href="{% url 'bill:order_detail' order.order_no %}" class="btn btn-sm btn-info">详情</a>
+                    {% if not order.is_settled %}
+                        <button class="btn btn-sm btn-success settleBtn" data-order-no="{{ order.order_no }}">标记结清</button>
+                    {% endif %}
+                    {% if is_super_admin and order.is_settled %}
+                        <button class="btn btn-sm btn-warning unsettleBtn" data-order-no="{{ order.order_no }}">撤销结清</button>
+                    {% endif %}
+                    {% if order.can_cancel %}
+                        <button class="btn btn-sm btn-danger cancelBtn" data-order-no="{{ order.order_no }}">作废订单</button>
+                    {% endif %}
+                {% else %}
+                    {# 作废状态订单操作 #}
+                    <a href="{% url 'bill:order_detail' order.order_no %}" class="btn btn-sm btn-info">详情</a>
+                    <a href="{% url 'bill:reopen_order_edit' order.order_no %}" class="btn btn-sm btn-warning">
+                        <i class="bi bi-arrow-repeat"></i> 重开订单
+                    </a>
+                {% endif %}
+            </td>
         </tr>
         {% empty %}
         <tr>
@@ -364,13 +404,14 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
         {% endfor %}
     </tbody>
 </table>
-<!-- ===================== 新增：分页导航（保留所有筛选参数） ===================== -->
+
+<!-- 分页导航（新增status参数保持） -->
 {% if page_orders.has_other_pages %}
 <nav aria-label="Page navigation" class="mt-4">
     <ul class="pagination justify-content-center">
         {% if page_orders.has_previous %}
         <li class="page-item">
-            <a class="page-link" href="?page={{ page_orders.previous_page_number }}&order_no={{ order_no }}&date_from={{ date_from }}&date_to={{ date_to }}&area_id={{ area_id }}&customer_name={{ customer_name }}&settled_status={{ settled_status }}&amount_operator={{ amount_operator }}&amount_value={{ amount_value }}">上一页</a>
+            <a class="page-link" href="?page={{ page_orders.previous_page_number }}&order_no={{ order_no }}&date_from={{ date_from }}&date_to={{ date_to }}&area_id={{ area_id }}&customer_name={{ customer_name }}&settled_status={{ settled_status }}&amount_operator={{ amount_operator }}&amount_value={{ amount_value }}&status={{ status }}">上一页</a>
         </li>
         {% else %}
         <li class="page-item disabled"><a class="page-link">上一页</a></li>
@@ -381,14 +422,14 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
             <li class="page-item active"><a class="page-link">{{ num }}</a></li>
             {% else %}
             <li class="page-item">
-                <a class="page-link" href="?page={{ num }}&order_no={{ order_no }}&date_from={{ date_from }}&date_to={{ date_to }}&area_id={{ area_id }}&customer_name={{ customer_name }}&settled_status={{ settled_status }}&amount_operator={{ amount_operator }}&amount_value={{ amount_value }}">{{ num }}</a>
+                <a class="page-link" href="?page={{ num }}&order_no={{ order_no }}&date_from={{ date_from }}&date_to={{ date_to }}&area_id={{ area_id }}&customer_name={{ customer_name }}&settled_status={{ settled_status }}&amount_operator={{ amount_operator }}&amount_value={{ amount_value }}&status={{ status }}">{{ num }}</a>
             </li>
             {% endif %}
         {% endfor %}
 
         {% if page_orders.has_next %}
         <li class="page-item">
-            <a class="page-link" href="?page={{ page_orders.next_page_number }}&order_no={{ order_no }}&date_from={{ date_from }}&date_to={{ date_to }}&area_id={{ area_id }}&customer_name={{ customer_name }}&settled_status={{ settled_status }}&amount_operator={{ amount_operator }}&amount_value={{ amount_value }}">下一页</a>
+            <a class="page-link" href="?page={{ page_orders.next_page_number }}&order_no={{ order_no }}&date_from={{ date_from }}&date_to={{ date_to }}&area_id={{ area_id }}&customer_name={{ customer_name }}&settled_status={{ settled_status }}&amount_operator={{ amount_operator }}&amount_value={{ amount_value }}&status={{ status }}">下一页</a>
         </li>
         {% else %}
         <li class="page-item disabled"><a class="page-link">下一页</a></li>
@@ -397,7 +438,7 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
 </nav>
 {% endif %}
 
-<!-- 1. 标记结清模态框（新增快捷选项） -->
+<!-- 模态框部分（保持不变，仅在非作废Tab时相关按钮可用） -->
 <div class="modal fade" id="settleModal" tabindex="-1" aria-labelledby="settleModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -409,10 +450,7 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
                 <input type="hidden" id="settleOrderNo">
                 <div class="mb-3">
                     <label for="settleRemark" class="form-label">结清备注（必填）</label>
-
-                    <!-- 快捷选项区 -->
                     <div class="mb-3">
-                        <!-- 收款方式 -->
                         <div class="mb-2">
                             <label class="form-label-sm text-muted">收款方式：</label>
                             <div class="d-flex flex-wrap gap-2">
@@ -421,8 +459,6 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
                                 <button type="button" class="btn btn-sm btn-outline-primary quick-option" data-type="pay_type" data-value="支付宝收款">支付宝收款</button>
                             </div>
                         </div>
-
-                        <!-- 转账账户 -->
                         <div class="mb-2">
                             <label class="form-label-sm text-muted">转账账户：</label>
                             <div class="d-flex flex-wrap gap-2">
@@ -431,8 +467,6 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
                                 {% endfor %}
                             </div>
                         </div>
-
-                        <!-- 转账时间 -->
                         <div class="mb-2">
                             <label class="form-label-sm text-muted">转账时间：</label>
                             <div class="d-flex flex-wrap gap-2 align-items-center">
@@ -441,7 +475,6 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
                             </div>
                         </div>
                     </div>
-
                     <textarea class="form-control" id="settleRemark" rows="3" placeholder="收款方式：XXX。转账账户：XXX。转账时间：XXX"></textarea>
                 </div>
             </div>
@@ -452,7 +485,7 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
         </div>
     </div>
 </div>
-<!-- 2. 撤销结清模态框（仅老板可见） -->
+
 {% if is_boss %}
 <div class="modal fade" id="unsettleModal" tabindex="-1" aria-labelledby="unsettleModalLabel" aria-hidden="true">
     <div class="modal-dialog">
@@ -477,7 +510,6 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
 </div>
 {% endif %}
 
-<!-- 3. 批量结清模态框（新增快捷选项） -->
 <div class="modal fade" id="batchSettleModal" tabindex="-1" aria-labelledby="batchSettleModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -486,10 +518,8 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <!-- 批量订单快捷选项（全局） -->
                 <div class="mb-3 p-3 border rounded bg-light">
                     <h6 class="mb-2">批量快捷填充</h6>
-                    <!-- 收款方式 -->
                     <div class="mb-2">
                         <label class="form-label-sm text-muted">收款方式：</label>
                         <div class="d-flex flex-wrap gap-2">
@@ -498,8 +528,6 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
                             <button type="button" class="btn btn-sm btn-outline-primary batch-quick-option" data-type="pay_type" data-value="支付宝收款">支付宝收款</button>
                         </div>
                     </div>
-
-                    <!-- 转账账户 -->
                     <div class="mb-2">
                         <label class="form-label-sm text-muted">转账账户：</label>
                         <div class="d-flex flex-wrap gap-2">
@@ -508,8 +536,6 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
                             {% endfor %}
                         </div>
                     </div>
-
-                    <!-- 转账时间 -->
                     <div class="mb-2">
                         <label class="form-label-sm text-muted">转账时间：</label>
                         <div class="d-flex flex-wrap gap-2 align-items-center">
@@ -522,10 +548,7 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
                     </div>
                     <button type="button" class="btn btn-sm btn-outline-warning" id="clearBatchQuick">清空所有备注</button>
                 </div>
-
-                <div id="batchOrderList" class="mb-3">
-                    <!-- 动态生成选中订单的备注输入框 -->
-                </div>
+                <div id="batchOrderList" class="mb-3"></div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
@@ -534,7 +557,7 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
         </div>
     </div>
 </div>
-<!-- 4. 作废订单模态框 -->
+
 <div class="modal fade" id="cancelModal" tabindex="-1" aria-labelledby="cancelModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -546,7 +569,6 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
                 <input type="hidden" id="cancelOrderNo">
                 <div class="mb-3">
                     <label for="cancelReason" class="form-label">作废原因（必填）</label>
-                    <!-- 快捷回复按钮组 -->
                     <div class="d-flex flex-wrap gap-2 mb-2">
                         <button type="button" class="btn btn-sm btn-outline-primary quick-reply" data-reason="价格填写错误">价格填写错误</button>
                         <button type="button" class="btn btn-sm btn-outline-primary quick-reply" data-reason="客户不想要了">客户不想要了</button>
@@ -568,37 +590,27 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
 
 {% block extra_js %}
 <script>
-// ========== 新增：金额筛选快捷按钮逻辑 ==========
 $(document).ready(function() {
-    // 金额快捷按钮点击 - 填充到输入框
     $('.amount-quick-btn').click(function() {
         const value = $(this).data('value');
         $('#amountValueInput').val(value);
     });
 
-    // ========== 新增：行交互核心逻辑 ==========
-    // 1. 整行点击跳转详情（排除按钮/选择框区域）
     $('.order-row').click(function(e) {
-        // 排除按钮和选择框区域的点击
         const target = $(e.target);
         if (
             target.closest('.op-btn-group').length || 
             target.closest('.col-select').length ||
             target.is('input[type="checkbox"]')
         ) {
-            return; // 按钮优先，不触发整行跳转
+            return;
         }
-        
-        // 标记选中行
         $('.order-row').removeClass('selected');
         $(this).addClass('selected');
-        
-        // 跳转详情页
         const orderNo = $(this).data('order-no');
         window.location.href = orderDetailUrlTemplate.replace('ORDER_NO_PLACEHOLDER', orderNo);
     });
 
-    // 2. 点击复选框时标记行选中状态
     $('.orderCheckbox').change(function() {
         const $row = $(this).closest('.order-row');
         if (this.checked) {
@@ -609,15 +621,12 @@ $(document).ready(function() {
         updateBatchBtnStatus();
     });
 
-    // 3. 全选时同步行选中状态
     $('#selectAll').change(function() {
         $('.orderCheckbox:not(:disabled)').prop('checked', this.checked).trigger('change');
     });
 });
 
-// ========== 快捷选项拼接逻辑 ==========
 $(document).ready(function() {
-    // 1. 单个订单快捷选项点击
     $('.quick-option').click(function() {
         const type = $(this).data('type');
         const value = $(this).data('value');
@@ -625,7 +634,6 @@ $(document).ready(function() {
         updateRemarkText($remark, type, value);
     });
 
-    // 2. 自定义时间应用
     $('#applyCustomTime').click(function() {
         const customTime = $('#customTime').val();
         if (customTime) {
@@ -636,7 +644,6 @@ $(document).ready(function() {
         }
     });
 
-    // 3. 批量订单全局快捷选项点击
     $('.batch-quick-option').click(function() {
         const type = $(this).data('type');
         const value = $(this).data('value');
@@ -645,7 +652,6 @@ $(document).ready(function() {
         });
     });
 
-    // 4. 批量自定义时间应用
     $('#applyBatchCustomTime').click(function() {
         const customTime = $('#batchCustomTime').val();
         if (customTime) {
@@ -657,13 +663,11 @@ $(document).ready(function() {
         }
     });
 
-    // 5. 清空批量备注
     $('#clearBatchQuick').click(function() {
         $('.batchRemark').val('');
     });
 });
 
-// 核心：更新备注文本（叠加逻辑）
 function updateRemarkText($remarkElem, type, value) {
     let currentText = $remarkElem.val().trim() || '';
     const typeLabels = {
@@ -672,38 +676,28 @@ function updateRemarkText($remarkElem, type, value) {
         'time': '转账时间'
     };
     const label = typeLabels[type];
-
-    // 正则匹配已有内容，替换或新增
     const regex = new RegExp(`${label}：[^。]*`, 'g');
     if (regex.test(currentText)) {
-        // 替换已有内容
         currentText = currentText.replace(regex, `${label}：${value}`);
     } else {
-        // 新增内容（有原有内容则加句号分隔）
         if (currentText) {
             currentText += `。${label}：${value}`;
         } else {
             currentText = `${label}：${value}`;
         }
     }
-
     $remarkElem.val(currentText);
 }
 
-// 批量结清弹窗打开时初始化备注框
 $('#batchSettleBtn').click(function() {
-    // 收集选中的订单号
     const selectedOrders = $('.orderCheckbox:checked').map(function() {
         return $(this).val();
     }).get();
-
-    // 生成批量备注输入框（带快捷选项）
     let html = '<div class="alert alert-info">请为每个订单填写结清备注：</div>';
     selectedOrders.forEach(orderNo => {
         html += `
             <div class="mb-3 p-2 border rounded">
                 <label class="form-label">订单 ${orderNo} 备注：</label>
-                <!-- 单个订单快捷选项 -->
                 <div class="d-flex flex-wrap gap-1 mb-2">
                     <button type="button" class="btn btn-xs btn-outline-primary order-quick-option" data-type="pay_type" data-value="微信收款">微信</button>
                     <button type="button" class="btn btn-xs btn-outline-primary order-quick-option" data-type="pay_type" data-value="现金收款">现金</button>
@@ -719,72 +713,39 @@ $('#batchSettleBtn').click(function() {
         `;
     });
     $('#batchOrderList').html(html);
-
-    // 绑定单个订单快捷选项事件
     $('.order-quick-option').click(function() {
         const type = $(this).data('type');
         const value = $(this).data('value');
         const $remark = $(this).closest('.mb-3').find('.batchRemark');
         updateRemarkText($remark, type, value);
     });
-
-    // 绑定清空按钮事件
     $('.clear-order-remark').click(function() {
         $(this).closest('.mb-3').find('.batchRemark').val('');
     });
+    $('#batchSettleModal').modal('show');
 });
 
-// 1. 全选/取消全选（已整合到行交互逻辑中）
 $(document).ready(function() {
-    // 单个选择框变化时更新批量按钮状态
     $('.orderCheckbox').change(updateBatchBtnStatus);
-
-    // 标记结清按钮点击事件
     $('.settleBtn').click(function() {
         const orderNo = $(this).data('order-no');
         $('#settleOrderNo').val(orderNo);
         $('#settleRemark').val('');
         $('#settleModal').modal('show');
     });
-
-    // 撤销结清按钮点击事件（仅老板可见）
     $('.unsettleBtn').click(function() {
         const orderNo = $(this).data('order-no');
         $('#unsettleOrderNo').val(orderNo);
         $('#unsettleRemark').val('');
         $('#unsettleModal').modal('show');
     });
-
-    // 批量结清按钮点击事件
-    $('#batchSettleBtn').click(function() {
-        // 收集选中的订单号（自动过滤禁用的复选框）
-        const selectedOrders = $('.orderCheckbox:checked').map(function() {
-            return $(this).val();
-        }).get();
-
-        // 生成批量备注输入框
-        let html = '<div class="alert alert-info">请为每个订单填写结清备注：</div>';
-        selectedOrders.forEach(orderNo => {
-            html += `
-                <div class="mb-2">
-                    <label class="form-label">订单 ${orderNo} 备注：</label>
-                    <textarea class="form-control batchRemark" data-order-no="${orderNo}" rows="2" placeholder="收款方式、账户等..."></textarea>
-                </div>
-            `;
-        });
-        $('#batchOrderList').html(html);
-        $('#batchSettleModal').modal('show');
-    });
 });
 
-// 2. 更新批量按钮状态
 function updateBatchBtnStatus() {
-    // 【关键修改3：只统计未禁用且被选中的复选框】
     const checkedCount = $('.orderCheckbox:not(:disabled):checked').length;
     $('#batchSettleBtn').prop('disabled', checkedCount === 0);
 }
 
-// 3. 获取CSRF Token
 function getCsrfToken() {
     let cookieValue = null;
     if (document.cookie && document.cookie !== '') {
@@ -800,27 +761,23 @@ function getCsrfToken() {
     return cookieValue;
 }
 
-// 4. 提交标记结清（修复版）
 function submitSettle() {
     const orderNo = $('#settleOrderNo').val();
     const remark = $('#settleRemark').val().trim();
-
     if (!remark) {
         alert('请填写结清备注');
         return;
     }
-
     fetch(`/bill/orders/settle/${orderNo}/`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'X-CSRFToken': getCsrfToken(),
-            'X-Requested-With': 'XMLHttpRequest' // 标记AJAX请求
+            'X-Requested-With': 'XMLHttpRequest'
         },
         body: JSON.stringify({ remark: remark })
     })
     .then(res => {
-        // 先检查响应状态是否正常
         if (!res.ok) {
             return res.text().then(text => {
                 throw new Error(`请求失败（状态码：${res.status}）：${text.substring(0, 100)}`);
@@ -842,22 +799,19 @@ function submitSettle() {
     });
 }
 
-// 5. 提交撤销结清（修复版）
 function submitUnsettle() {
     const orderNo = $('#unsettleOrderNo').val();
     const remark = $('#unsettleRemark').val().trim();
-
     if (!remark) {
         alert('请填写撤销结清备注');
         return;
     }
-
     fetch(`/bill/orders/unsettle/${orderNo}/`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'X-CSRFToken': getCsrfToken(),
-            'X-Requested-With': 'XMLHttpRequest' // 标记AJAX请求
+            'X-Requested-With': 'XMLHttpRequest'
         },
         body: JSON.stringify({ remark: remark })
     })
@@ -883,44 +837,36 @@ function submitUnsettle() {
     });
 }
 
-// 6. 提交批量结清（优化版）
 function submitBatchSettle() {
-    // 收集订单号和备注
     const orderList = [];
     let hasEmptyRemark = false;
-
     $('.batchRemark').each(function() {
         const orderNo = $(this).data('order-no');
         const remark = $(this).val().trim();
-
         if (!remark) {
             hasEmptyRemark = true;
             alert(`订单 ${orderNo} 的备注不能为空`);
             return false;
         }
-
         orderList.push({
             order_no: orderNo,
             remark: remark
         });
     });
-
     if (hasEmptyRemark || orderList.length === 0) {
         alert('请选择至少一个订单并填写备注');
         return;
     }
-
     fetch('/bill/orders/batch-settle/', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'X-CSRFToken': getCsrfToken(),
-            'X-Requested-With': 'XMLHttpRequest' // 标记AJAX请求
+            'X-Requested-With': 'XMLHttpRequest'
         },
         body: JSON.stringify({ orders: orderList })
     })
     .then(res => {
-        // 先检查响应状态
         if (!res.ok) {
             return res.text().then(text => {
                 throw new Error(`请求失败（状态码：${res.status}）：${text.substring(0, 100)}`);
@@ -940,30 +886,25 @@ function submitBatchSettle() {
     });
 }
 
-// 作废订单按钮点击事件
 $('.cancelBtn').click(function() {
     const orderNo = $(this).data('order-no');
     $('#cancelOrderNo').val(orderNo);
-    $('#cancelReason').val(''); // 清空原有内容
+    $('#cancelReason').val('');
     $('#cancelModal').modal('show');
 });
 
-// 快捷回复按钮点击事件
 $('.quick-reply').click(function() {
     const reason = $(this).data('reason');
-    $('#cancelReason').val(reason); // 将快捷回复填入输入框
+    $('#cancelReason').val(reason);
 });
 
-// 7. 提交作废订单
 function submitCancel() {
     const orderNo = $('#cancelOrderNo').val();
     const reason = $('#cancelReason').val().trim();
-
     if (!reason) {
         alert('请填写作废原因');
         return;
     }
-
     fetch(`/bill/orders/cancel/${orderNo}/`, {
         method: 'POST',
         headers: {
@@ -995,7 +936,6 @@ function submitCancel() {
     });
 }
 
-// 原有自动聚焦逻辑保持不变
 $(document).ready(function() {
     const customerInput = $('#customerNameInput');
     if (customerInput.length > 0) {
