@@ -1,1530 +1,332 @@
 {% extends "base.html" %}
-
 {% block title %}商品管理系统 - EasyStock{% endblock %}
 
 {% block extra_css %}
-    <style>
-        /* 原有样式保留 */
-        .product-manage-container {
-            max-width: 1200px;
-            margin: 20px auto;
-            padding: 0 20px;
-            font-family: "Microsoft YaHei", sans-serif;
-        }
-        
-        .product-manage-container * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+<style>
+.product-manage-container {max-width:1200px;margin:20px auto;padding:0 20px;font-family:Microsoft YaHei;}
+.product-manage-container *{box-sizing:border-box;margin:0;padding:0;}
+.search-form{display:flex;gap:10px;margin-bottom:20px;align-items:center;}
+.search-input{padding:8px 10px;border:1px solid #ddd;border-radius:4px;width:300px;}
+.btn{padding:8px 20px;border:none;border-radius:4px;cursor:pointer;}
+.btn-primary{background:#0066cc;color:white;}
+.btn-success{background:#090;color:white;}
+.btn-warning{background:#ff9900;color:white;}
+.btn-danger{background:#f40;color:white;}
 
-        .product-manage-container h1 {
-            text-align: center;
-            margin-bottom: 30px;
-            color: #333;
-        }
-        .product-manage-container .search-form {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            align-items: center;
-        }
-        .product-manage-container .search-input {
-            padding: 8px 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 14px;
-            width: 300px;
-        }
-        .product-manage-container .add-form {
-            background: #f5f5f5;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 30px;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 15px;
-            align-items: center;
-        }
-        .product-manage-container .form-item {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-        }
-        .product-manage-container .form-item label {
-            font-size: 14px;
-            color: #666;
-        }
-        .product-manage-container .form-item input {
-            padding: 8px 10px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            font-size: 14px;
-            width: 200px;
-        }
-        .product-manage-container .btn {
-            padding: 8px 20px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: background 0.2s;
-        }
-        .product-manage-container .btn-primary {
-            background: #0066cc;
-            color: #fff;
-        }
-        .product-manage-container .btn-primary:hover {
-            background: #0055bb;
-        }
-        .product-manage-container .btn-danger {
-            background: #ff4400;
-            color: #fff;
-        }
-        .product-manage-container .btn-danger:hover {
-            background: #dd3300;
-        }
-        .product-manage-container .btn-success {
-            background: #009900;
-            color: #fff;
-        }
-        .product-manage-container .btn-success:hover {
-            background: #008800;
-        }
-        .product-manage-container .btn-default {
-            background: #e9e9e9;
-            color: #333;
-        }
-        .product-manage-container .btn-default:hover {
-            background: #ddd;
-        }
-        .product-manage-container .product-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 20px;
-        }
-        .product-manage-container .product-table th, .product-manage-container .product-table td {
-            border: 1px solid #ddd;
-            padding: 12px 15px;
-            text-align: left;
-        }
-        .product-manage-container .product-table th {
-            background: #e9e9e9;
-            font-weight: bold;
-            color: #333;
-        }
+/* 表格样式 */
+.product-table{width:100%;border-collapse:collapse;margin:20px 0;}
+.product-table th,.product-table td{border:1px solid #ddd;padding:12px;text-align:left;}
+.product-table th{background:#e9e9e9;}
+.editable{cursor:pointer;color:#0066cc;}
+tr.disabled-row{background:#f5f5f5;color:#999;}
 
-        /* ========== 新增/修改 行样式 ========== */
-        .product-manage-container .product-table tbody tr {
-            transition: background-color 0.2s ease;
-            cursor: pointer;
-        }
-        .product-manage-container .product-table tbody tr:not(.disabled-row):hover {
-            background: #f0f8ff;
-        }
-        .product-manage-container .product-table tbody tr.disabled-row {
-            background: #f5f5f5;
-            color: #999;
-        }
-        .product-manage-container .product-table tbody tr.disabled-row:hover {
-            background: #eeeeee;
-        }
-        .product-manage-container .product-table .row-btn {
-            transition: background-color 0.2s ease;
-        }
-        .product-manage-container .product-table .row-btn:hover {
-            background: inherit !important;
-        }
+/* 状态开关 */
+.switch{position:relative;display:inline-block;width:50px;height:24px;}
+.switch input{opacity:0;width:0;height:0;}
+.slider{position:absolute;cursor:pointer;top:0;left:0;right:0;bottom:0;background-color:#ccc;border-radius:24px;transition:.4s;}
+.slider:before{position:absolute;content:"";height:18px;width:18px;left:3px;bottom:3px;background-color:white;border-radius:50%;transition:.4s;}
+input:checked + .slider{background-color:#28a745;}
+input:checked + .slider:before{transform:translateX(26px);}
 
-        .product-manage-container .alias-item {
-            display: inline-flex;
-            align-items: center;
-            background: #e0efff;
-            padding: 4px 8px;
-            border-radius: 4px;
-            margin-right: 5px;
-            margin-bottom: 5px;
-        }
-        .product-manage-container .alias-del {
-            margin-left: 5px;
-            cursor: pointer;
-            color: #ff4400;
-            font-size: 12px;
-        }
-        .product-manage-container .modal {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.5);
-            display: none;
-            justify-content: center;
-            align-items: center;
-            z-index: 999;
-        }
-        .product-manage-container .modal-content {
-            background: #fff;
-            padding: 30px;
-            border-radius: 8px;
-            width: 800px;
-            max-width: 90%;
-        }
-        .product-manage-container .modal-title {
-            font-size: 18px;
-            margin-bottom: 20px;
-            color: #333;
-            border-bottom: 1px solid #eee;
-            padding-bottom: 10px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .product-manage-container .modal-form {
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-        }
-        .product-manage-container .modal-footer {
-            margin-top: 20px;
-            display: flex;
-            justify-content: flex-end;
-            gap: 10px;
-        }
-        .product-manage-container .msg {
-            padding: 10px;
-            border-radius: 4px;
-            margin-bottom: 20px;
-            display: none;
-        }
-        .product-manage-container .msg-success {
-            background: #dff0d8;
-            color: #3c763d;
-            display: block;
-        }
-        .product-manage-container .msg-error {
-            background: #f2dede;
-            color: #a94442;
-            display: block;
-        }
+/* 右侧抽屉 */
+.drawer{position:fixed;top:0;right:0;width:60%;height:100vh;background:white;box-shadow:-2px 0 10px rgba(0,0,0,0.1);transform:translateX(100%);transition:transform 0.3s ease;z-index:9999;padding:30px;overflow-y:auto;}
+.drawer.active{transform:translateX(0);}
+.drawer-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9998;display:none;}
+.drawer-overlay.active{display:block;}
+.drawer-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;}
+.drawer-form{display:flex;flex-direction:column;gap:15px;}
+.form-item{display:flex;flex-direction:column;gap:5px;}
+.form-item input{padding:8px;border:1px solid #ddd;border-radius:4px;}
 
-        /* 快速出入库表格样式 */
-        .stock-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 20px;
-        }
-        .stock-table th, .stock-table td {
-            border: 1px solid #000;
-            padding: 8px;
-            text-align: center;
-            position: relative;
-        }
-        .stock-table th {
-            background: #e9e9e9;
-            font-weight: bold;
-        }
-        .stock-table input {
-            width: 95%;
-            padding: 6px;
-            text-align: center;
-            border: 1px solid #ddd;
-            border-radius: 3px;
-            font-size: 14px;
-            outline: none;
-        }
-        .stock-table input:focus {
-            border-color: #0066cc;
-        }
-        .serial-cell {
-            font-weight: bold;
-            color: #666;
-        }
-        .btn-del {
-            padding: 4px 8px;
-            background: #ff4400;
-            color: #fff;
-            border: none;
-            border-radius: 3px;
-            cursor: pointer;
-            font-size: 12px;
-        }
-        .btn-del:hover {
-            background: #dd3300;
-        }
-        .btn-add-row {
-            padding: 8px 20px;
-            font-size: 16px;
-            cursor: pointer;
-            background: #0066cc;
-            color: #fff;
-            border: none;
-            border-radius: 4px;
-            margin-bottom: 10px;
-        }
-        .btn-add-row:hover {
-            background: #0055bb;
-        }
+/* 批量弹窗 */
+.modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;display:none;}
+.modal-content{background:white;padding:30px;border-radius:8px;width:400px;}
 
-        /* 输入法式候选框 */
-        .suggest-dropdown {
-            position: absolute;
-            top: 100%;
-            left: 0;
-            min-width: 350px;
-            max-width: 500px;
-            width: auto !important;
-            background: #fff;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            z-index: 9999;
-            font-size: 14px;
-            text-align: left;
-            white-space: nowrap;
-            overflow: hidden;
-        }
-        .suggest-dropdown div {
-            padding: 6px 12px;
-            cursor: pointer;
-            white-space: nowrap;
-            text-overflow: ellipsis;
-            overflow: hidden;
-        }
-        .suggest-dropdown div:hover,
-        .suggest-dropdown div.active {
-            background: #0066cc;
-            color: #fff;
-        }
+/* Toast */
+.toast{position:fixed;top:20px;right:20px;padding:12px 20px;color:white;border-radius:4px;z-index:99999;animation:slide 0.3s;}
+.toast-success{background:#28a745;}
+.toast-error{background:#dc3545;}
+@keyframes slide{from{transform:translateX(100%);}to{transform:translateX(0);}}
 
-        /* 🔥 新增：按钮组间距 */
-        .btn-group-action { gap: 8px; display: flex; align-items: center; }
-
-        /* 🔥 新增：导出模态框相关样式 */
-        .field-checkbox { margin: 5px 0; }
-        .select-all-btn { margin-bottom: 10px; }
-        .custom-fields-section {
-            border-top: 1px solid #eee;
-            margin-top: 15px;
-            padding-top: 15px;
-        }
-        .custom-field-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 10px;
-            padding: 8px;
-            background: #f8f9fa;
-            border-radius: 4px;
-        }
-        .custom-field-item input {
-            flex: 1;
-        }
-        .custom-field-item select {
-            width: 120px;
-        }
-        .btn-add-custom {
-            margin-top: 10px;
-            margin-bottom: 15px;
-        }
-        
-        /* 🔥 新增：Toast 提示样式 */
-        .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
-        .toast { padding: 12px 20px; border-radius: 4px; color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.15); animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s; opacity: 0; transform: translateX(100%); }
-        .toast-success { background-color: #28a745; }
-        .toast-error { background-color: #dc3545; }
-        .toast-warning { background-color: #ffc107; color: #333; }
-        .toast-info { background-color: #17a2b8; }
-        @keyframes slideIn { from { opacity: 0; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }
-        @keyframes fadeOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(100%); } }
-        
-        /* 🔥 新增：通用模态框样式（用于导入） */
-        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000; opacity: 0; visibility: hidden; transition: opacity 0.3s ease, visibility 0.3s ease; }
-        .modal-overlay.active { opacity: 1; visibility: visible; }
-        .modal-box { background-color: white; padding: 20px; border-radius: 8px; width: 90%; max-width: 400px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
-        .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 15px; color: #333; }
-        .modal-input { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 15px; font-size: 14px; box-sizing: border-box; }
-        .modal-buttons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
-        .modal-btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
-        .modal-btn-confirm { background-color: #007bff; color: white; }
-        .modal-btn-cancel { background-color: #6c757d; color: white; }
-        .selected-count-tip { font-size: 12px; color: #666; margin-top: 5px; }
-
-        /* ========== 🔥 新增：状态 Tab 样式 ========== */
-        .status-tabs {
-            margin-bottom: 20px;
-            display: flex;
-            gap: 10px;
-        }
-        .status-tab {
-            padding: 8px 20px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            text-decoration: none;
-            color: #333;
-            background: #fff;
-            transition: all 0.2s;
-        }
-        .status-tab:hover {
-            background: #f0f0f0;
-        }
-        .status-tab.active {
-            background: #0066cc;
-            color: #fff;
-            border-color: #0066cc;
-        }
-        .status-tab-inactive {
-            color: #ff4400;
-        }
-        .status-tab-inactive.active {
-            background: #ff4400;
-            border-color: #ff4400;
-            color: #fff;
-        }
-
-        /* ========== 🔥 新增：状态徽章样式 ========== */
-        .status-badge {
-            padding: 4px 10px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: bold;
-        }
-        .status-active {
-            background: #dff0d8;
-            color: #3c763d;
-        }
-        .status-inactive {
-            background: #f2dede;
-            color: #a94442;
-        }
-    </style>
+/* 状态标签 */
+.status-badge{padding:4px 10px;border-radius:4px;font-size:12px;}
+.status-active{background:#dff0d8;color:#3c763d;}
+.status-inactive{background:#f2dede;color:#a94442;}
+</style>
 {% endblock %}
 
 {% block content %}
-    <div class="product-manage-container">
-        <h1>商品管理系统</h1>
-        <!-- 销售TOP30入口框 -->
-        <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #0066cc;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h3 style="margin: 0; color: #333;">销售TOP30</h3>
-                <button class="btn btn-primary" id="btn-sales-rank" style="padding: 8px 20px;" onclick="window.location.href='/product/sales-rank/'">
-                    查看商品销售排行
-                </button>
-            </div>
-            <p style="margin: 5px 0 0 0; color: #666;">展示系统内销量/销售额TOP30的商品，支持多维度筛选</p>
-        </div>
-        <!-- 提示消息 -->
-        <div id="msg-box" class="msg"></div>
-
-        
-
-        <!-- 商品搜索栏 → 后端搜索表单 -->
-        <form method="get" class="search-form">
-            <input type="text" name="keyword" id="search-keyword" class="search-input" 
-                   placeholder="搜索商品名称/别名..." value="{{ keyword }}">
+<div class="product-manage-container">
+    <h1>商品管理</h1>
+    
+    <!-- 搜索栏 + 功能按钮 -->
+    <div class="search-form">
+        <form method="get" style="display:flex;gap:10px;flex:1;">
+            <input type="text" name="keyword" class="search-input" placeholder="搜索商品/别名" value="{{ keyword }}">
             <input type="hidden" name="status" value="{{ status }}">
-            <button type="submit" class="btn btn-primary" id="btn-search">搜索</button>
-            <button type="button" class="btn btn-default" id="btn-reset-search">重置</button>
-            <button type="button" class="btn btn-success" id="btn-quick-stock" style="margin-left: 20px;">快速出入库</button>
+            <button class="btn btn-primary" type="submit">搜索</button>
+            <button class="btn btn-default" type="button" onclick="location.href='{% url 'product_manage' %}'">重置</button>
         </form>
-        
-        <!-- 新增商品表单 -->
-        <div class="add-form">
-            <div class="form-item">
-                <label>商品名称</label>
-                <input type="text" id="add-name" placeholder="请输入商品名称">
-            </div>
-            <div class="form-item">
-                <label>单价（¥）</label>
-                <input type="number" id="add-price" placeholder="0.00" min="0" step="0.01" value="0.00">
-            </div>
-            <div class="form-item">
-                <label>单位</label>
-                <input type="text" id="add-unit" placeholder="件/斤/瓶等" value="件">
-            </div>
-            <div class="form-item">
-                <label>库存数量</label>
-                <input type="number" id="add-stock" placeholder="77" min="0" value="77">
-            </div>
-            <button class="btn btn-primary" id="btn-add-product">新增商品</button>
-            
-            <div style="margin-left: 20px; display: flex; align-items: center; gap: 10px;" class="btn-group-action">
-                <button class="btn btn-success" onclick="exportData()">📥 导出数据</button>
-                <button class="btn btn-warning" onclick="showImportModal()">📤 导入数据</button>
-            </div>
-        </div>
-        
-        <!-- ========== 🔥 新增：状态筛选 Tab ========== -->
-        <div class="status-tabs">
-            <a href="?status=all&keyword={{ keyword }}" class="status-tab {% if status == 'all' %}active{% endif %}">
-                全部 ({{ count_all }})
-            </a>
-            <a href="?status=active&keyword={{ keyword }}" class="status-tab {% if status == 'active' %}active{% endif %}">
-                正常 ({{ count_active }})
-            </a>
-            <a href="?status=inactive&keyword={{ keyword }}" class="status-tab {% if status == 'inactive' %}active{% endif %} status-tab-inactive">
-                已停用 ({{ count_inactive }})
-            </a>
-        </div>
+        <button class="btn btn-success" onclick="openDrawer()">➕ 新增商品</button>
+        <button class="btn btn-warning" onclick="openBatchModal()">⚙️ 批量操作</button>
+        <button class="btn btn-primary" onclick="openStockModal()">📦 快速出入库</button>
+        <button class="btn btn-success" onclick="exportData()">📥 导出</button>
+        <button class="btn btn-warning" onclick="showImportModal()">📤 导入</button>
+    </div>
 
-        <!-- 商品列表 -->
-        <table class="product-table">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>商品名称</th>
-                    <th>单价（¥）</th>
-                    <th>单位</th>
-                    <th>库存数量</th>
-                    <th>商品别名</th>
-                    <th>状态</th>
-                    <th>操作</th>
-                </tr>
-            </thead>
-            <tbody id="product-list">
-                {% for product in products %}
-                <tr data-product-id="{{ product.id }}" {% if product.status == 0 %}class="disabled-row"{% endif %}
-                    onclick="if(!this.classList.contains('disabled-row')){ goToProductDetail({{ product.id }}); }">
-                    <td>{{ product.id|default:'' }}</td>
-                    <td>{{ product.name|default:'' }}</td>
-                    <td>{{ product.price|floatformat:2 }}</td>
-                    <td>{{ product.unit|default:'件' }}</td>
-                    <td>{{ product.stock|default:0 }}</td>
-                    <td>
-                        {% if product.aliases %}
-                            {% for alias in product.aliases %}
-                            <span class="alias-item">{{ alias.alias_name }}
-                                <span class="alias-del" onclick="deleteAlias({{ alias.id }})">×</span>
-                            </span>
-                            {% endfor %}
-                        {% else %}
-                            <span style="color: #999;">暂无别名</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if product.status == 1 %}
-                            <span class="status-badge status-active">正常</span>
-                        {% else %}
-                            <span class="status-badge status-inactive">已停用</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        <button class="btn btn-primary row-btn" onclick="editProduct({{ product.id }}); event.stopPropagation();" 
-                                style="padding: 4px 10px; font-size: 12px; margin-right: 5px;">编辑</button>
-                        {% if product.status == 1 %}
-                            <button class="btn btn-danger row-btn" onclick="deleteProduct({{ product.id }}); event.stopPropagation();" 
-                                    style="padding: 4px 10px; font-size: 12px;">停用</button>
-                        {% else %}
-                            <button class="btn btn-success row-btn" onclick="restoreProduct({{ product.id }}); event.stopPropagation();" 
-                                    style="padding: 4px 10px; font-size: 12px;">启用</button>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% empty %}
-                <tr><td colspan="8" style="text-align:center; color:#999;">暂无商品数据</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <!-- 状态筛选 -->
+    <div style="display:flex;gap:10px;margin-bottom:20px;">
+        <a href="?status=all&keyword={{ keyword }}" class="btn {% if status == 'all' %}btn-primary{% else %}btn-default{% endif %}">全部({{ count_all }})</a>
+        <a href="?status=active&keyword={{ keyword }}" class="btn {% if status == 'active' %}btn-primary{% else %}btn-default{% endif %}">启用({{ count_active }})</a>
+        <a href="?status=inactive&keyword={{ keyword }}" class="btn {% if status == 'inactive' %}btn-primary{% else %}btn-default{% endif %}">停用({{ count_inactive }})</a>
+    </div>
 
-        <!-- 分页导航 -->
-        {% if page_products.has_other_pages %}
-        <nav style="margin-top: 20px;">
-            <ul class="pagination" style="display: flex; gap: 5px; justify-content: center; list-style: none; padding: 0;">
-                {% if page_products.has_previous %}
-                <li><a href="?page={{ page_products.previous_page_number }}&keyword={{ keyword }}&status={{ status }}" 
-                       style="padding: 6px 12px; border:1px solid #ddd; border-radius:4px; text-decoration:none; color:#0066cc;">上一页</a></li>
-                {% else %}
-                <li><span style="padding: 6px 12px; border:1px solid #ddd; border-radius:4px; color:#999;">上一页</span></li>
-                {% endif %}
+    <!-- 商品列表 -->
+    <table class="product-table">
+        <thead>
+            <tr>
+                <th><input type="checkbox" id="checkAll"></th>
+                <th>ID</th>
+                <th>商品名称</th>
+                <th>单价（元）</th>
+                <th>单位</th>
+                <th>库存</th>
+                <th>状态</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in products %}
+            <tr data-id="{{ p.id }}" class="{% if p.status == 0 %}disabled-row{% endif %}">
+                <td><input type="checkbox" class="checkItem" value="{{ p.id }}"></td>
+                <td>{{ p.id }}</td>
+                <td>{{ p.name }}</td>
+                <td class="editable" data-field="price" data-value="{{ p.price }}">{{ p.price|floatformat:2 }}</td>
+                <td>{{ p.unit }}</td>
+                <td class="editable" data-field="stock" data-value="{{ p.stock }}">{{ p.stock }}</td>
+                <td>
+                    <label class="switch">
+                        <input type="checkbox" class="status-switch" data-id="{{ p.id }}" {% if p.status == 1 %}checked{% endif %}>
+                        <span class="slider"></span>
+                    </label>
+                </td>
+                <td>
+                    <button class="btn btn-primary" onclick="editProduct({{ p.id }})">编辑</button>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="8" align="center">暂无数据</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
 
-                {% for num in paginator.page_range %}
-                    {% if page_products.number == num %}
-                    <li><span style="padding: 6px 12px; border:1px solid #0066cc; border-radius:4px; background:#0066cc; color:#fff;">{{ num }}</span></li>
-                    {% else %}
-                    <li><a href="?page={{ num }}&keyword={{ keyword }}&status={{ status }}" 
-                           style="padding: 6px 12px; border:1px solid #ddd; border-radius:4px; text-decoration:none; color:#0066cc;">{{ num }}</a></li>
-                    {% endif %}
-                {% endfor %}
-
-                {% if page_products.has_next %}
-                <li><a href="?page={{ page_products.next_page_number }}&keyword={{ keyword }}&status={{ status }}" 
-                       style="padding: 6px 12px; border:1px solid #ddd; border-radius:4px; text-decoration:none; color:#0066cc;">下一页</a></li>
-                {% else %}
-                <li><span style="padding: 6px 12px; border:1px solid #ddd; border-radius:4px; color:#999;">下一页</span></li>
-                {% endif %}
-            </ul>
-        </nav>
+    <!-- 分页 -->
+    {% if page_products.has_other_pages %}
+    <div style="text-align:center;">
+        {% if page_products.has_previous %}
+        <a href="?page={{ page_products.previous_page_number }}&keyword={{ keyword }}&status={{ status }}">上一页</a>
+        {% endif %}
+        <span>{{ page_products.number }} / {{ page_products.paginator.num_pages }}</span>
+        {% if page_products.has_next %}
+        <a href="?page={{ page_products.next_page_number }}&keyword={{ keyword }}&status={{ status }}">下一页</a>
         {% endif %}
     </div>
+    {% endif %}
+</div>
 
-    <!-- 编辑商品弹窗 -->
-    <div class="product-manage-container">
-        <div class="modal" id="edit-modal">
-            <div class="modal-content">
-                <div class="modal-title">编辑商品</div>
-                <div class="modal-form">
-                    <input type="hidden" id="edit-id">
-                    <div class="form-item">
-                        <label>商品名称</label>
-                        <input type="text" id="edit-name" placeholder="请输入商品名称">
-                    </div>
-                    <div class="form-item">
-                        <label>单价（¥）</label>
-                        <input type="number" id="edit-price" placeholder="0.00" min="0" step="0.01">
-                    </div>
-                    <div class="form-item">
-                        <label>单位</label>
-                        <input type="text" id="edit-unit" placeholder="件/斤/瓶等">
-                    </div>
-                    <div class="form-item">
-                        <label>库存数量</label>
-                        <input type="number" id="edit-stock" placeholder="77" min="0">
-                    </div>
-                    <div class="form-item">
-                        <label>商品别名</label>
-                        <div id="edit-aliases">
-                            <span style="color: #999;">暂无别名</span>
-                        </div>
-                        <div style="display: flex; gap: 10px; margin-top: 10px;">
-                            <input type="text" id="new-alias" placeholder="输入新别名">
-                            <button class="btn btn-success" id="btn-add-alias" style="padding: 4px 10px; font-size: 12px;">添加别名</button>
-                        </div>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button class="btn btn-default" id="btn-close-modal">取消</button>
-                    <button class="btn btn-primary" id="btn-save-edit">保存修改</button>
-                </div>
-            </div>
-        </div>
+<!-- 🔥 右侧抽屉（新增+编辑共用） -->
+<div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="productDrawer">
+    <div class="drawer-header">
+        <h2 id="drawerTitle">新增商品</h2>
+        <button class="btn btn-default" onclick="closeDrawer()">关闭</button>
     </div>
+    <form id="productForm" class="drawer-form">
+        {% csrf_token %}
+        <input type="hidden" id="editId">
+        <div class="form-item">
+            <label>商品名称 *</label>
+            <input type="text" id="name" required>
+        </div>
+        <div class="form-item">
+            <label>单价 *</label>
+            <input type="number" id="price" step="0.01" min="0" required>
+        </div>
+        <div class="form-item">
+            <label>单位</label>
+            <input type="text" id="unit" value="件">
+        </div>
+        <div class="form-item">
+            <label>库存</label>
+            <input type="number" id="stock" min="0" value="77">
+        </div>
+        <button type="submit" class="btn btn-primary">保存</button>
+    </form>
+</div>
 
-    <!-- 新增：快速出入库弹窗 -->
-    <div class="product-manage-container">
-        <div class="modal" id="stock-modal">
-            <div class="modal-content">
-                <div class="modal-title">
-                    快速出入库
-                    <button class="btn btn-default" id="btn-close-stock-modal" style="padding: 4px 10px; font-size: 12px;">关闭</button>
-                </div>
-                
-                <button class="btn-add-row" onclick="addStockRow()">新增空白行</button>
-                
-                <table class="stock-table" id="stock-table">
-                    <thead>
-                        <tr>
-                            <th>序号</th>
-                            <th>商品名称</th>
-                            <th>入库数量</th>
-                            <th>出库数量</th>
-                            <th>操作</th>
-                        </tr>
-                    </thead>
-                    <tbody id="stock-tbody"></tbody>
-                </table>
-                
-                <div class="modal-footer">
-                    <button class="btn btn-default" id="btn-cancel-stock">取消</button>
-                    <button class="btn btn-success" id="btn-save-stock">一键出入库</button>
-                </div>
-            </div>
+<!-- 🔥 批量操作弹窗 -->
+<div class="modal" id="batchModal">
+    <div class="modal-content">
+        <h3>批量操作</h3>
+        <div style="margin:20px 0;display:flex;gap:10px;">
+            <button class="btn btn-success" onclick="batchOperation('enable')">批量启用</button>
+            <button class="btn btn-danger" onclick="batchOperation('disable')">批量停用</button>
         </div>
+        <button class="btn btn-default" onclick="closeBatchModal()">取消</button>
     </div>
+</div>
 
-    <!-- 🔥 新增：导出字段选择模态框 -->
-    <div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-lg">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="exportModalLabel">选择导出字段</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <div class="select-all-btn">
-                        <button type="button" class="btn btn-xs btn-outline-primary" onclick="selectAllFields(true)">全选</button>
-                        <button type="button" class="btn btn-xs btn-outline-secondary ms-1" onclick="selectAllFields(false)">取消全选</button>
-                    </div>
-                    
-                    <div class="field-checkbox">
-                        <input type="checkbox" id="field_serial" name="export_fields" value="serial" checked>
-                        <label for="field_serial">序号</label>
-                    </div>
-                    <div class="field-checkbox">
-                        <input type="checkbox" id="field_id" name="export_fields" value="id" checked>
-                        <label for="field_id">ID</label>
-                    </div>
-                    <div class="field-checkbox">
-                        <input type="checkbox" id="field_name" name="export_fields" value="name" checked>
-                        <label for="field_name">商品名称</label>
-                    </div>
-                    <div class="field-checkbox">
-                        <input type="checkbox" id="field_price" name="export_fields" value="price" checked>
-                        <label for="field_price">零售价</label>
-                    </div>
-                    <div class="field-checkbox">
-                        <input type="checkbox" id="field_unit" name="export_fields" value="unit" checked>
-                        <label for="field_unit">辅助单位</label>
-                    </div>
-                    <div class="field-checkbox">
-                        <input type="checkbox" id="field_stock" name="export_fields" value="stock" checked>
-                        <label for="field_stock">库存数量</label>
-                    </div>
-                    <div class="field-checkbox">
-                        <input type="checkbox" id="field_alias_names" name="export_fields" value="alias_names">
-                        <label for="field_alias_names">商品别名</label>
-                    </div>
-                    
-                    <div class="custom-fields-section">
-                        <h6>自定义字段（用于手动填写）</h6>
-                        <div id="customFieldsContainer"></div>
-                        <button type="button" class="btn btn-sm btn-outline-success btn-add-custom" onclick="addCustomField()">
-                            + 添加自定义字段
-                        </button>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="button" class="btn btn-primary" onclick="exportExcel()">确认导出</button>
-                </div>
-            </div>
-        </div>
+<!-- 快速出入库弹窗（原有功能保留） -->
+<div class="modal" id="stockModal">
+    <div class="modal-content">
+        <h3>快速出入库</h3>
+        <button class="btn" onclick="addStockRow()">新增行</button>
+        <table class="product-table" id="stockTable">
+            <thead><tr><th>商品</th><th>入库</th><th>出库</th><th>操作</th></tr></thead>
+            <tbody></tbody>
+        </table>
+        <button class="btn btn-success" onclick="saveStock()">保存</button>
+        <button class="btn btn-default" onclick="closeStockModal()">取消</button>
     </div>
+</div>
 {% endblock %}
 
-
 {% block extra_js %}
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script>
-        let currentEditProductId = null;
-        let currentAliases = [];
-        let stockRowIdCounter = 0;
-        const stockInputColsCount = 3;
-        let currentStockSearchInput = null;
-        let currentStockSuggestList = [];
-        let suggestBox = null;
-        let customFieldCount = 0;
-
-        function showMsg(text, isSuccess = true) {
-            const msgBox = document.getElementById('msg-box');
-            msgBox.textContent = text;
-            msgBox.className = isSuccess ? 'msg msg-success' : 'msg msg-error';
-            setTimeout(() => { msgBox.className = 'msg'; }, 3000);
-        }
-
-        function showToast(message, type = 'info', duration = 3000) {
-            let toastContainer = document.getElementById('toastContainer');
-            if (!toastContainer) {
-                toastContainer = document.createElement('div');
-                toastContainer.id = 'toastContainer';
-                toastContainer.className = 'toast-container';
-                document.body.appendChild(toastContainer);
-            }
-            const toast = document.createElement('div');
-            toast.className = `toast toast-${type}`;
-            toast.textContent = message;
-            toastContainer.appendChild(toast);
-            setTimeout(() => toast.remove(), duration);
-        }
-
-        function showSimpleModal(title, contentHtml, callback) {
-            document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
-            let overlay = document.createElement('div');
-            overlay.className = 'modal-overlay form-modal';
-            overlay.innerHTML = `
-                <div class="modal-box">
-                    <div class="modal-title">${title}</div>
-                    <div class="modal-content-wrapper">${contentHtml}</div>
-                    <div class="modal-buttons">
-                        <button class="modal-btn modal-btn-cancel">取消</button>
-                        <button class="modal-btn modal-btn-confirm" id="btn-confirm-action">确认</button>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(overlay);
-            setTimeout(() => overlay.classList.add('active'), 10);
-
-            const cancelBtn = overlay.querySelector('.modal-btn-cancel');
-            const confirmBtn = overlay.querySelector('#btn-confirm-action');
-            
-            const closeModal = () => overlay.remove();
-
-            cancelBtn.addEventListener('click', () => { closeModal(); if(callback) callback(null); });
-            confirmBtn.addEventListener('click', () => { if(callback) callback(overlay, closeModal); });
-            
-            document.addEventListener('keydown', function escHandler(e) {
-                if (e.key === 'Escape') { closeModal(); if(callback) callback(null); document.removeEventListener('keydown', escHandler); }
-            });
-        }
-
-        function showImportModal() {
-            const content = `
-                <div class="form-group">
-                    <label class="form-label" style="display:block; margin-bottom:5px; font-weight:500;">选择 Excel 文件</label>
-                    <input type="file" class="modal-input" id="import-file-input" accept=".xlsx, .xls">
-                    <div class="selected-count-tip">
-                        提示：请确保格式包含"商品名称"列，系统会自动跳过重复的商品名。
-                    </div>
-                </div>
-            `;
-
-            showSimpleModal('导入商品数据', content, function(overlay, closeModal) {
-                if(!overlay) return;
-                
-                const fileInput = overlay.querySelector('#import-file-input');
-                const confirmBtn = overlay.querySelector('#btn-confirm-action');
-
-                if (!fileInput.files || fileInput.files.length === 0) {
-                    showToast('请先选择文件', 'warning');
-                    return;
-                }
-                
-                let formData = new FormData();
-                formData.append('file', fileInput.files[0]);
-
-                confirmBtn.disabled = true;
-                confirmBtn.textContent = '导入中...';
-
-                fetch('/product/import/', {
-                    method: 'POST',
-                    headers: {'X-CSRFToken': getCsrfToken()},
-                    body: formData
-                })
-                .then(response => response.json())
-                .then(res => {
-                    showToast(res.msg, res.code === 1 ? 'success' : 'error');
-                    if(res.code === 1) {
-                        closeModal();
-                        window.location.reload();
-                    }
-                })
-                .catch(() => {
-                    showToast('网络错误，导入失败！', 'error');
-                })
-                .finally(() => {
-                    confirmBtn.disabled = false;
-                    confirmBtn.textContent = '确认';
-                });
-            });
-        }
-
-        function goToProductDetail(productId) {
-            window.location.href = `/product/detail/${productId}/`;
-        }
-
-        async function addProduct() {
-            const name = document.getElementById('add-name').value.trim();
-            const price = document.getElementById('add-price').value.trim();
-            const unit = document.getElementById('add-unit').value.trim();
-            const stock = document.getElementById('add-stock').value.trim();
-
-            if (!name) {
-                showMsg('商品名称不能为空', false);
-                return;
-            }
-            if (!price || parseFloat(price) < 0) {
-                showMsg('请输入有效的单价', false);
-                return;
-            }
-
-            try {
-                const res = await fetch('/product/add/', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'X-CSRFToken': getCsrfToken()
-                    },
-                    body: `name=${encodeURIComponent(name)}&price=${price}&unit=${encodeURIComponent(unit)}&stock=${stock}`
-                });
-                const data = await res.json();
-                if (data.code === 1) {
-                    showMsg(data.msg);
-                    document.getElementById('add-name').value = '';
-                    document.getElementById('add-price').value = '0.00';
-                    document.getElementById('add-unit').value = '件';
-                    document.getElementById('add-stock').value = '77';
-                    window.location.reload();
-                } else {
-                    showMsg(data.msg, false);
-                }
-            } catch (error) {
-                showMsg('新增商品失败：' + error.message, false);
-                console.error(error);
-            }
-        }
-
-        async function editProduct(productId) {
-            currentEditProductId = productId;
-            try {
-                const res = await fetch(`/product/edit/data/${productId}/`, {
-                    method: 'GET',
-                    headers: { 'X-CSRFToken': getCsrfToken() }
-                });
-                if (!res.ok) throw new Error('获取商品详情失败');
-                
-                const product = await res.json();
-                if (!product) {
-                    showMsg('商品数据不存在', false);
-                    return;
-                }
-
-                document.getElementById('edit-id').value = product.id || '';
-                document.getElementById('edit-name').value = product.name || '';
-                document.getElementById('edit-price').value = product.price || '0.00';
-                document.getElementById('edit-unit').value = product.unit || '件';
-                document.getElementById('edit-stock').value = product.stock || '77';
-
-                currentAliases = product.aliases || [];
-                renderEditAliases();
-
-                document.getElementById('edit-modal').style.display = 'flex';
-            } catch (error) {
-                showMsg('加载商品详情失败：' + error.message, false);
-                console.error(error);
-            }
-        }
-
-        function renderEditAliases() {
-            const aliasContainer = document.getElementById('edit-aliases');
-            aliasContainer.innerHTML = '';
-            
-            if (currentAliases && currentAliases.length > 0) {
-                currentAliases.forEach(alias => {
-                    const aliasItem = document.createElement('div');
-                    aliasItem.className = 'alias-item';
-                    aliasItem.innerHTML = `${alias.alias_name || ''}<span class="alias-del" onclick="deleteEditAlias(${alias.id})">×</span>`;
-                    aliasContainer.appendChild(aliasItem);
-                });
-            } else {
-                aliasContainer.innerHTML = '<span style="color: #999;">暂无别名</span>';
-            }
-        }
-
-        async function saveEdit() {
-            const id = document.getElementById('edit-id').value;
-            const name = document.getElementById('edit-name').value.trim();
-            const price = document.getElementById('edit-price').value.trim();
-            const unit = document.getElementById('edit-unit').value.trim();
-            const stock = document.getElementById('edit-stock').value.trim();
-
-            if (!name) {
-                showMsg('商品名称不能为空', false);
-                return;
-            }
-            if (!price || parseFloat(price) < 0) {
-                showMsg('请输入有效的单价', false);
-                return;
-            }
-
-            try {
-                const res = await fetch(`/product/edit/${id}/`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'X-CSRFToken': getCsrfToken()
-                    },
-                    body: `name=${encodeURIComponent(name)}&price=${price}&unit=${encodeURIComponent(unit)}&stock=${stock}`
-                });
-                const data = await res.json();
-                if (data.code === 1) {
-                    showMsg(data.msg);
-                    closeModal();
-                    window.location.reload();
-                } else {
-                    showMsg(data.msg, false);
-                }
-            } catch (error) {
-                showMsg('保存修改失败：' + error.message, false);
-                console.error(error);
-            }
-        }
-
-        function closeModal() {
-            document.getElementById('edit-modal').style.display = 'none';
-            currentEditProductId = null;
-            currentAliases = [];
-            document.getElementById('edit-id').value = '';
-            document.getElementById('edit-name').value = '';
-            document.getElementById('edit-price').value = '0.00';
-            document.getElementById('edit-unit').value = '件';
-            document.getElementById('edit-stock').value = '77';
-            document.getElementById('new-alias').value = '';
-        }
-
-        async function deleteProduct(productId) {
-            if (!confirm('确定要禁用这个商品吗？禁用后别名也会被移除！')) return;
-
-            try {
-                const res = await fetch(`/product/delete/${productId}/`, {
-                    method: 'POST',
-                    headers: { 'X-CSRFToken': getCsrfToken() }
-                });
-                const data = await res.json();
-                if (data.code === 1) {
-                    showMsg(data.msg);
-                    window.location.reload();
-                } else {
-                    showMsg(data.msg, false);
-                }
-            } catch (error) {
-                showMsg('禁用商品失败：' + error.message, false);
-                console.error(error);
-            }
-        }
-
-        // ========== 🔥 新增：启用商品函数 ==========
-        async function restoreProduct(productId) {
-            if (!confirm('确定要启用这个商品吗？')) return;
-
-            try {
-                const res = await fetch(`/product/restore/${productId}/`, {
-                    method: 'POST',
-                    headers: { 'X-CSRFToken': getCsrfToken() }
-                });
-                const data = await res.json();
-                if (data.code === 1) {
-                    showMsg(data.msg);
-                    window.location.reload();
-                } else {
-                    showMsg(data.msg, false);
-                }
-            } catch (error) {
-                showMsg('启用商品失败：' + error.message, false);
-                console.error(error);
-            }
-        }
-
-        async function addAlias() {
-            if (!currentEditProductId) {
-                showMsg('请先选择要编辑的商品', false);
-                return;
-            }
-            
-            const aliasName = document.getElementById('new-alias').value.trim();
-            if (!aliasName) {
-                showMsg('别名不能为空', false);
-                return;
-            }
-
-            try {
-                const res = await fetch('/product/alias/add/', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'X-CSRFToken': getCsrfToken()
-                    },
-                    body: `product_id=${currentEditProductId}&alias_name=${encodeURIComponent(aliasName)}`
-                });
-                const data = await res.json();
-                if (data.code === 1) {
-                    showMsg(data.msg);
-                    currentAliases.push({
-                        id: data.data.id,
-                        alias_name: data.data.alias_name
-                    });
-                    renderEditAliases();
-                    document.getElementById('new-alias').value = '';
-                } else {
-                    showMsg(data.msg, false);
-                }
-            } catch (error) {
-                showMsg('新增别名失败：' + error.message, false);
-                console.error(error);
-            }
-        }
-
-        async function deleteEditAlias(aliasId) {
-            if (!confirm('确定禁用这个别名吗？')) return;
-
-            try {
-                const res = await fetch(`/product/alias/delete/${aliasId}/`, {
-                    method: 'POST',
-                    headers: { 'X-CSRFToken': getCsrfToken() }
-                });
-                const data = await res.json();
-                if (data.code === 1) {
-                    showMsg(data.msg);
-                    currentAliases = currentAliases.filter(alias => alias.id !== aliasId);
-                    renderEditAliases();
-                } else {
-                    showMsg(data.msg, false);
-                }
-            } catch (error) {
-                showMsg('禁用别名失败：' + error.message, false);
-                console.error(error);
-            }
-        }
-
-        async function deleteAlias(aliasId) {
-            if (!confirm('确定要禁用这个别名吗？')) return;
-
-            try {
-                const res = await fetch(`/product/alias/delete/${aliasId}/`, {
-                    method: 'POST',
-                    headers: { 'X-CSRFToken': getCsrfToken() }
-                });
-                const data = await res.json();
-                if (data.code === 1) {
-                    showMsg(data.msg);
-                    window.location.reload();
-                } else {
-                    showMsg(data.msg, false);
-                }
-            } catch (error) {
-                showMsg('禁用别名失败：' + error.message, false);
-                console.error(error);
-            }
-        }
-
-        function initSuggestBox() {
-            suggestBox = document.createElement('div');
-            suggestBox.className = 'suggest-dropdown';
-            document.body.appendChild(suggestBox);
-        }
-
-        function hideSuggest() {
-            if (suggestBox) suggestBox.style.display = 'none';
-            currentStockSearchInput = null;
-            currentStockSuggestList = [];
-        }
-
-        function hideAllSuggest(e) {
-            if (e && e.target.closest('.suggest-dropdown')) return;
-            if (e && e.target.classList.contains('stock-name-input')) return;
-            hideSuggest();
-        }
-
-        async function onStockProductInput(input) {
-            const keyword = input.value.trim();
-            if (!keyword) {
-                hideSuggest();
-                return;
-            }
-            currentStockSearchInput = input;
-            try {
-                const res = await fetch(`/bill/search-product/?keyword=${encodeURIComponent(keyword)}`);
-                const data = await res.json();
-                if (data.code === 1 && data.data.length > 0) {
-                    currentStockSuggestList = data.data;
-                    showStockSuggest(input, data.data);
-                } else {
-                    hideSuggest();
-                }
-            } catch (e) { hideSuggest(); }
-        }
-
-        function showStockSuggest(input, list) {
-            const rect = input.getBoundingClientRect();
-            suggestBox.style.left = rect.left + 'px';
-            suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
-            suggestBox.innerHTML = '';
-
-            list.slice(0, 8).forEach((item, idx) => {
-                const div = document.createElement('div');
-                div.textContent = `${idx+1} ${item.name}  当前库存：${item.stock}${item.unit}`;
-                div.dataset.index = idx;
-                div.onclick = () => selectStockItem(idx);
-                suggestBox.appendChild(div);
-            });
-            suggestBox.style.display = 'block';
-        }
-
-        function selectStockItem(index) {
-            const item = currentStockSuggestList[index];
-            if (!item || !currentStockSearchInput) return;
-            const tr = currentStockSearchInput.closest('tr');
-            const nameInput = tr.querySelector('.stock-name-input');
-            nameInput.value = item.name;
-            nameInput.dataset.productId = item.id;
-            nameInput.dataset.stock = item.stock;
-            hideSuggest();
-        }
-
-        function handleStockInputKey(e) {
-            if (!currentStockSuggestList.length) return;
-            if (e.key === ' ') {
-                e.preventDefault();
-                selectStockItem(0);
-            }
-            const num = parseInt(e.key);
-            if (!isNaN(num) && num >= 1 && num <= currentStockSuggestList.length) {
-                e.preventDefault();
-                selectStockItem(num - 1);
-            }
-            if (e.key === 'Escape') hideSuggest();
-        }
-
-        function createStockInputElement(type, className, placeholder, value = '') {
-            const input = document.createElement('input');
-            input.type = type;
-            input.className = className;
-            input.placeholder = placeholder;
-            input.value = value;
-
-            if (type === 'number') {
-                input.min = 0;
-                input.step = 1;
-            }
-
-            if (className === 'stock-name-input') {
-                input.addEventListener('input', () => onStockProductInput(input));
-                input.addEventListener('keydown', handleStockInputKey);
-            }
-
-            bindStockInputKeyboardEvents(input);
-            return input;
-        }
-
-        function bindStockInputKeyboardEvents(input) {
-            input.addEventListener('keydown', e => {
-                if (e.shiftKey && e.key === 'Enter') {
-                    e.preventDefault();
-                    saveStockOperation();
-                    return;
-                }
-
-                if (e.key === 'Enter') { e.preventDefault(); handleStockEnterKey(input); }
-                const dir = ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'];
-                if (dir.includes(e.key)) { e.preventDefault(); handleStockDirectionKeys(input,e.key); }
-                if (e.shiftKey && (e.key === 'Backspace' || e.key === 'Delete')) {
-                    e.preventDefault();
-                    handleStockDeleteRowByKey(input);
-                }
-            });
-        }
-
-        function handleStockEnterKey(input) {
-            const tr = input.closest('tr');
-            const inputs = tr.querySelectorAll('input');
-            const idx = Array.from(inputs).indexOf(input);
-            if (idx < stockInputColsCount - 1) {
-                inputs[idx+1].focus(); 
-                inputs[idx+1].select();
-            } else {
-                const newTr = addStockRow(true);
-                newTr.querySelector('.stock-name-input').focus();
-            }
-        }
-
-        function handleStockDirectionKeys(input, key) {
-            const tr = input.closest('tr');
-            const allTr = Array.from(document.querySelectorAll('#stock-tbody tr'));
-            const trIdx = allTr.indexOf(tr);
-            const inputs = tr.querySelectorAll('input');
-            const idx = Array.from(inputs).indexOf(input);
-            const rowCount = allTr.length;
-
-            switch(key) {
-                case 'ArrowLeft':
-                    const l = idx === 0 ? stockInputColsCount-1 : idx-1;
-                    inputs[l].focus(); 
-                    inputs[l].select(); 
-                    break;
-                case 'ArrowRight':
-                    const r = idx === stockInputColsCount-1 ? 0 : idx+1;
-                    inputs[r].focus(); 
-                    inputs[r].select(); 
-                    break;
-                case 'ArrowUp':
-                    const upTr = allTr[trIdx === 0 ? rowCount-1 : trIdx-1];
-                    upTr.querySelectorAll('input')[idx].focus(); 
-                    break;
-                case 'ArrowDown':
-                    const dnTr = allTr[trIdx === rowCount-1 ? 0 : trIdx+1];
-                    dnTr.querySelectorAll('input')[idx].focus(); 
-                    break;
-            }
-        }
-
-        function handleStockDeleteRowByKey(input) {
-            const tr = input.closest('tr');
-            const tbody = document.getElementById('stock-tbody');
-            if (tbody.children.length <= 1) {
-                alert('至少保留1行');
-                return;
-            }
-
-            const allTr = Array.from(tbody.querySelectorAll('tr'));
-            const trIdx = allTr.indexOf(tr);
-            const inputs = tr.querySelectorAll('input');
-            const inputIdx = Array.from(inputs).indexOf(input);
-
-            tr.remove();
-            updateStockRowNumbers();
-
-            const newAllTr = Array.from(tbody.querySelectorAll('tr'));
-            if (newAllTr.length > 0) {
-                const targetTrIdx = trIdx > 0 ? trIdx - 1 : 0;
-                const targetTr = newAllTr[targetTrIdx];
-                const targetInputs = targetTr.querySelectorAll('input');
-                const targetInputIdx = inputIdx < targetInputs.length ? inputIdx : targetInputs.length - 1;
-                const targetInput = targetInputs[targetInputIdx];
-                targetInput.focus();
-                targetInput.select();
-            }
-        }
-
-        function updateStockRowNumbers() {
-            document.querySelectorAll('#stock-tbody tr').forEach((r,i)=>{
-                r.querySelector('.serial-cell').textContent = i+1;
-            });
-        }
-
-        function addStockRow(returnRow=false) {
-            stockRowIdCounter++;
-            const tbody = document.getElementById('stock-tbody');
-            const tr = document.createElement('tr');
-            tr.dataset.rowId = stockRowIdCounter;
-            tr.innerHTML = `
-                <td class="serial-cell">${tbody.children.length+1}</td>
-                <td></td><td></td><td></td>
-                <td><button class="btn-del" onclick="deleteStockRow(this)">禁用</button></td>`;
-            tr.cells[1].appendChild(createStockInputElement('text','stock-name-input','商品名称/拼音'));
-            tr.cells[2].appendChild(createStockInputElement('number','stock-in-input','入库数量',0));
-            tr.cells[3].appendChild(createStockInputElement('number','stock-out-input','出库数量',0));
-            tbody.appendChild(tr);
-            updateStockRowNumbers();
-            if (returnRow) return tr;
-        }
-
-        function deleteStockRow(btn) {
-            const tr = btn.closest('tr');
-            const tbody = document.getElementById('stock-tbody');
-            if (tbody.children.length <=1) { 
-                alert('至少保留1行'); 
-                return; 
-            }
-            tr.remove(); 
-            updateStockRowNumbers();
-        }
-
-        function openStockModal() {
-            document.getElementById('stock-tbody').innerHTML = '';
-            stockRowIdCounter = 0;
-            const firstRow = addStockRow(true);
-            document.getElementById('stock-modal').style.display = 'flex';
-            const firstInput = firstRow.querySelector('.stock-name-input');
-            setTimeout(() => {
-                firstInput.focus();
-                firstInput.select();
-            }, 100);
-        }
-
-        function closeStockModal() {
-            document.getElementById('stock-modal').style.display = 'none';
-            hideSuggest();
-        }
-
-        async function saveStockOperation() {
-            const items = [];
-            let hasValidData = false;
-            
-            document.querySelectorAll('#stock-tbody tr').forEach(tr=>{
-                const nameInput = tr.querySelector('.stock-name-input');
-                const productId = nameInput.dataset.productId || '';
-                const name = nameInput.value.trim();
-                const inQty = parseInt(tr.querySelector('.stock-in-input').value) || 0;
-                const outQty = parseInt(tr.querySelector('.stock-out-input').value) || 0;
-                const currentStock = parseInt(nameInput.dataset.stock) || 0;
-
-                if (!productId || !name) return;
-                
-                if (outQty > 0 && outQty > currentStock) {
-                    alert(`商品【${name}】出库数量${outQty}超过当前库存${currentStock}，操作失败！`);
-                    return;
-                }
-                
-                if (inQty > 0 || outQty > 0) {
-                    items.push({
-                        product_id: productId,
-                        in_quantity: inQty,
-                        out_quantity: outQty
-                    });
-                    hasValidData = true;
-                }
-            });
-            
-            if (!hasValidData) {
-                alert('请填写有效的出入库数据！');
-                return;
-            }
-
-            try {
-                const res = await fetch('/product/quick-stock/', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': getCsrfToken()
-                    },
-                    body: JSON.stringify({ items: items })
-                });
-                const data = await res.json();
-                if (data.code === 1) {
-                    showMsg(data.msg, true);
-                    closeStockModal();
-                    window.location.reload();
-                } else {
-                    showMsg(data.msg, false);
-                }
-            } catch (error) {
-                showMsg('出入库操作失败：' + error.message, false);
-                console.error(error);
-            }
-        }
-
-        function getCsrfToken() {
-            let cookieValue = null;
-            if (document.cookie && document.cookie !== '') {
-                const cookies = document.cookie.split(';');
-                for (let i = 0; i < cookies.length; i++) {
-                    const cookie = cookies[i].trim();
-                    if (cookie.substring(0, 10) === 'csrftoken=') {
-                        cookieValue = decodeURIComponent(cookie.substring(10));
-                        break;
-                    }
-                }
-            }
-            return cookieValue;
-        }
-
-        function exportData() {
-            if (typeof bootstrap !== 'undefined') {
-                showExportModalBootstrap();
-            } else {
-                alert('请确保页面引入了 Bootstrap 5 JS 以使用导出功能');
-            }
-        }
-
-        function showExportModalBootstrap() {
-            customFieldCount = 0;
-            $('#customFieldsContainer').empty();
-            const modal = new bootstrap.Modal(document.getElementById('exportModal'));
-            modal.show();
-        }
-
-        function selectAllFields(isSelect) {
-            $('input[name="export_fields"]').prop('checked', isSelect);
-        }
-
-        function addCustomField() {
-            customFieldCount++;
-            
-            let targetFieldsHtml = '';
-            $('input[name="export_fields"]').each(function() {
-                const fieldValue = $(this).val();
-                const fieldLabel = $(this).next('label').text();
-                targetFieldsHtml += `<option value="${fieldValue}">${fieldLabel}</option>`;
-            });
-            
-            const customFieldHtml = `
-            <div class="custom-field-item" data-index="${customFieldCount}">
-                <input type="text" class="form-control form-control-sm custom-field-name" placeholder="字段名称（如：上次金额）" value="备注${customFieldCount}">
-                <select class="form-select form-select-sm custom-field-position">
-                    <option value="after">在...之后</option>
-                    <option value="before">在...之前</option>
-                </select>
-                <select class="form-select form-select-sm custom-field-target">
-                    ${targetFieldsHtml}
-                </select>
-                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeCustomField(${customFieldCount})">×</button>
-            </div>
-            `;
-            
-            $('#customFieldsContainer').append(customFieldHtml);
-        }
-
-        function removeCustomField(index) {
-            $(`.custom-field-item[data-index="${index}"]`).remove();
-        }
-
-        function exportExcel() {
-            let selectedFields = [];
-            $('input[name="export_fields"]:checked').each(function() {
-                selectedFields.push($(this).val());
-            });
-
-            if (selectedFields.length === 0) {
-                return alert('请至少选择一个导出字段');
-            }
-
-            let customFields = [];
-            $('.custom-field-item').each(function() {
-                const name = $(this).find('.custom-field-name').val().trim();
-                const position = $(this).find('.custom-field-position').val();
-                const target = $(this).find('.custom-field-target').val();
-                
-                if (name) {
-                    customFields.push({
-                        name: name,
-                        position: position,
-                        target: target
-                    });
-                }
-            });
-
-            let formData = new FormData();
-            formData.append('custom_fields', JSON.stringify(customFields));
-            
-            selectedFields.forEach(field => {
-                formData.append('fields[]', field);
-            });
-
-            $.ajax({
-                url: '/product/api/product/export/',
-                type: 'POST',
-                data: formData,
-                headers: {'X-CSRFToken': getCsrfToken()},
-                processData: false,
-                contentType: false,
-                xhrFields: {
-                    responseType: 'blob'
-                },
-                success: function(res, status, xhr) {
-                    const contentType = xhr.getResponseHeader('Content-Type');
-                    if (contentType && contentType.includes('application/json')) {
-                        const reader = new FileReader();
-                        reader.onload = function() {
-                            const error = JSON.parse(this.result);
-                            alert('导出失败：' + error.msg);
-                        };
-                        reader.readAsText(res);
-                        return;
-                    }
-
-                    const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
-                    modal.hide();
-
-                    const url = window.URL.createObjectURL(res);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    let today = new Date().toISOString().split('T')[0].replace(/-/g, '');
-                    a.download = `${today}商品管理导出.xlsx`;
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                },
-                error: function(xhr) {
-                    let errorMsg = '导出失败，请重试';
-                    alert(errorMsg);
-                }
-            });
-        }
-
-        document.addEventListener('DOMContentLoaded', function() {
-            initSuggestBox();
-            window.addEventListener('click', hideAllSuggest);
-
-            document.getElementById('btn-reset-search').addEventListener('click', function() {
-                window.location.href = "{% url 'product_manage' %}";
-            });
-
-            document.getElementById('btn-add-product').addEventListener('click', addProduct);
-            document.getElementById('btn-close-modal').addEventListener('click', closeModal);
-            document.getElementById('btn-save-edit').addEventListener('click', saveEdit);
-            document.getElementById('btn-add-alias').addEventListener('click', addAlias);
-
-            document.getElementById('btn-quick-stock').addEventListener('click', openStockModal);
-            document.getElementById('btn-close-stock-modal').addEventListener('click', closeStockModal);
-            document.getElementById('btn-cancel-stock').addEventListener('click', closeStockModal);
-            document.getElementById('btn-save-stock').addEventListener('click', saveStockOperation);
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+let csrf = $('input[name="csrfmiddlewaretoken"]').val();
+
+// ========== 抽屉操作 ==========
+function openDrawer(id=null){
+    $('#drawerTitle').text(id ? '编辑商品' : '新增商品');
+    $('#productForm')[0].reset();
+    $('#editId').val('');
+    $('.drawer, .drawer-overlay').addClass('active');
+    
+    if(id){
+        $.get('/product/edit/data/'+id+'/', function(res){
+            $('#editId').val(res.id);
+            $('#name').val(res.name);
+            $('#price').val(res.price);
+            $('#unit').val(res.unit);
+            $('#stock').val(res.stock);
         });
-    </script>
+    }
+}
+
+function closeDrawer(){
+    $('.drawer, .drawer-overlay').removeClass('active');
+}
+
+// 表单提交
+$('#productForm').submit(function(e){
+    e.preventDefault();
+    let id = $('#editId').val();
+    let url = id ? '/product/edit/'+id+'/' : '/product/add/';
+    $.post(url, {
+        csrfmiddlewaretoken: csrf,
+        name: $('#name').val(),
+        price: $('#price').val(),
+        unit: $('#unit').val(),
+        stock: $('#stock').val()
+    }, function(res){
+        if(res.code===1){
+            showToast(res.msg, 'success');
+            closeDrawer();
+            setTimeout(()=>location.reload(), 1000);
+        }else{
+            showToast(res.msg, 'error');
+        }
+    });
+});
+
+// ========== 行内编辑 ==========
+$(document).on('click', '.editable', function(){
+    let val = $(this).data('value');
+    let field = $(this).data('field');
+    let id = $(this).closest('tr').data('id');
+    $(this).html(`<input type="number" step="${field=='price'?'0.01':'1'}" value="${val}" class="inline-input">`);
+    $(this).find('input').focus().select();
+    
+    $(this).find('input').blur(function(){
+        saveInline(id, field, $(this).val());
+    });
+    $(this).find('input').keydown(function(e){
+        if(e.which===13) saveInline(id, field, $(this).val());
+    });
+});
+
+function saveInline(id, field, value){
+    $.post('/product/inline-update/', {
+        csrfmiddlewaretoken: csrf, id:id, field:field, value:value
+    }, function(res){
+        res.code===1 ? showToast('更新成功', 'success') : showToast(res.msg, 'error');
+        location.reload();
+    });
+}
+
+// ========== 状态开关 ==========
+$(document).on('change', '.status-switch', function(){
+    let id = $(this).data('id');
+    let btn = $(this);
+    $.post('/product/toggle-status/', {
+        csrfmiddlewaretoken: csrf, id:id
+    }, function(res){
+        if(res.code!==1){
+            btn.prop('checked', !btn.prop('checked'));
+            showToast(res.msg, 'error');
+        }else{
+            showToast('状态已更新', 'success');
+            location.reload();
+        }
+    });
+});
+
+// ========== 批量操作 ==========
+function openBatchModal(){$('#batchModal').show();}
+function closeBatchModal(){$('#batchModal').hide();}
+$('#checkAll').click(function(){
+    $('.checkItem').prop('checked', $(this).prop('checked'));
+});
+
+function batchOperation(action){
+    let ids = [];
+    $('.checkItem:checked').each(function(){ids.push($(this).val());});
+    if(ids.length===0) return showToast('请选择商品', 'error');
+    
+    $.post('/product/batch-operation/', {
+        csrfmiddlewaretoken: csrf, ids:JSON.stringify(ids), action:action
+    }, function(res){
+        showToast(res.msg, res.code===1?'success':'error');
+        closeBatchModal();
+        if(res.code===1) location.reload();
+    });
+}
+
+// ========== 快速出入库（原有逻辑简化保留） ==========
+function openStockModal(){$('#stockModal').show();}
+function closeStockModal(){$('#stockModal').hide();}
+function addStockRow(){$('#stockTable tbody').append(`<tr><td><input type="text"></td><td><input type="number" value="0"></td><td><input type="number" value="0"></td><td><button onclick="$(this).closest('tr').remove()">删</button></td></tr>`);}
+function saveStock(){
+    let items = [];
+    $('#stockTable tbody tr').each(function(){
+        let name = $(this).find('td:eq(0) input').val();
+        let inQty = $(this).find('td:eq(1) input').val();
+        let outQty = $(this).find('td:eq(2) input').val();
+        if(name) items.push({name:name, in_quantity:inQty, out_quantity:outQty});
+    });
+    $.post('/product/quick-stock/', JSON.stringify({items:items}), function(res){
+        showToast(res.msg, res.code===1?'success':'error');
+        if(res.code===1) location.reload();
+    });
+}
+
+// ========== 工具函数 ==========
+function showToast(msg, type){
+    $('body').append(`<div class="toast toast-${type}">${msg}</div>`);
+    setTimeout(()=>{$('.toast').remove();}, 2000);
+}
+
+function editProduct(id){openDrawer(id);}
+</script>
 {% endblock %}

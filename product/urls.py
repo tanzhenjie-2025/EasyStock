@@ -32,5 +32,8 @@ path('restore/<int:pk>/', views.product_restore, name='product_restore'),  # 新
     path('sales-rank/data/', views.sales_rank_data, name='sales_rank_data'),
 
 path('stock/', views.stock_list, name='stock_list'),
+path('inline-update/', views.product_inline_update, name='product_inline_update'),
+path('toggle-status/', views.product_toggle_status, name='product_toggle_status'),
+path('batch-operation/', views.product_batch_operation, name='product_batch_operation'),
 ]
 

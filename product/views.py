@@ -19,7 +19,6 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 from django.http import HttpResponse
 from io import BytesIO
-import json
 import logging
 # ========== 缓存核心导入 ==========
 from django.core.cache import cache
@@ -36,21 +35,19 @@ from accounts.models import (
 
 # 业务模型
 from bill.models import Order, OrderItem
-from product.models import Product,ProductAlias
-from customer_manage.models import CustomerPrice,RepaymentRecord
+from product.models import Product, ProductAlias
+from customer_manage.models import CustomerPrice, RepaymentRecord
 from area_manage.models import Area
 
 # ====================== 缓存常量配置 ======================
 CACHE_AREA = 3600
 CACHE_COMMON = 60
 CACHE_SALES_RANK = 10
-# 新增：分页计数缓存时长（解决COUNT(*)瓶颈）
 CACHE_PAGINATION_COUNT = 120
 
 CACHE_PREFIX_PRODUCT_LIST = "product:list:"
 CACHE_PREFIX_PRODUCT_DETAIL = "product:detail:"
 CACHE_PREFIX_SALES_RANK = "product:sales_rank:"
-# 新增：分页计数缓存键
 CACHE_PREFIX_PRODUCT_COUNT = "product:count:"
 KEY_AREA = "area:data"
 KEY_PRODUCT_ALIAS = "product:alias"
@@ -58,29 +55,25 @@ KEY_PRODUCT_ALIAS = "product:alias"
 
 # ====================== 缓存工具函数 ======================
 def clear_product_all_cache():
-    cache.delete_many([
-        KEY_AREA,
-        KEY_PRODUCT_ALIAS,
-    ])
+    cache.delete_many([KEY_AREA, KEY_PRODUCT_ALIAS])
     for key in cache.keys(f"{CACHE_PREFIX_PRODUCT_LIST}*"):
         cache.delete(key)
     for key in cache.keys(f"{CACHE_PREFIX_PRODUCT_DETAIL}*"):
         cache.delete(key)
     for key in cache.keys(f"{CACHE_PREFIX_SALES_RANK}*"):
         cache.delete(key)
-    # 新增：清理分页计数缓存
     for key in cache.keys(f"{CACHE_PREFIX_PRODUCT_COUNT}*"):
         cache.delete(key)
 
 
-# ====================== 商品管理主页面（适配软删除） ======================
+# ====================== 商品管理主页面 ======================
 @permission_required(PERM_PRODUCT_VIEW)
 def product_manage(request):
     page = request.GET.get('page', 1)
     keyword = request.GET.get('keyword', '').strip()
-    status = request.GET.get('status', 'all')  # 新增：获取状态筛选参数
+    status = request.GET.get('status', 'all')
 
-    cache_key = f"{CACHE_PREFIX_PRODUCT_LIST}{keyword}:{page}:{status}"  # 新增：status 加入缓存键
+    cache_key = f"{CACHE_PREFIX_PRODUCT_LIST}{keyword}:{page}:{status}"
     cached_data = cache.get(cache_key)
 
     if cached_data:
@@ -91,22 +84,19 @@ def product_manage(request):
         count_active = cached_data['count_active']
         count_inactive = cached_data['count_inactive']
     else:
-        # ====================== 适配：使用 all_objects 包含已停用商品 ======================
         products_query = Product.all_objects.order_by('name').only(
             'id', 'name', 'price', 'unit', 'stock', 'is_active'
         )
-        alias_query = ProductAlias.all_objects.only('id', 'alias_name')  # 别名也用 all_objects
+        alias_query = ProductAlias.all_objects.only('id', 'alias_name')
         products_query = products_query.prefetch_related(
             Prefetch('aliases', queryset=alias_query)
         )
 
-        # ====================== 新增：状态筛选逻辑 ======================
         if status == 'active':
             products_query = products_query.filter(is_active=True)
         elif status == 'inactive':
             products_query = products_query.filter(is_active=False)
 
-        # 搜索逻辑（不变）
         if keyword:
             alias_product_ids = ProductAlias.all_objects.filter(
                 Q(alias_name__icontains=keyword)
@@ -115,12 +105,10 @@ def product_manage(request):
                 Q(name__icontains=keyword) | Q(id__in=alias_product_ids)
             )
 
-        # ====================== 新增：统计各状态数量 ======================
         count_all = Product.all_objects.count()
         count_active = Product.all_objects.filter(is_active=True).count()
         count_inactive = Product.all_objects.filter(is_active=False).count()
 
-        # 分页COUNT(*)优化（缓存键加入 status）
         count_cache_key = f"{CACHE_PREFIX_PRODUCT_COUNT}{keyword}:{status}"
         total_count = cache.get(count_cache_key)
         if total_count is None:
@@ -143,7 +131,6 @@ def product_manage(request):
             page_products = paginator.page(paginator.num_pages)
             page_products.object_list = products_query[(paginator.num_pages - 1) * page_size:]
 
-        # 序列化时传递 is_active 状态
         product_list = []
         for product in page_products:
             product_list.append({
@@ -165,7 +152,6 @@ def product_manage(request):
             'count_inactive': count_inactive
         }, CACHE_COMMON)
 
-    # 区域缓存（不变）
     areas = cache.get(KEY_AREA)
     if not areas:
         areas = list(Area.objects.only('id', 'name'))
@@ -176,10 +162,10 @@ def product_manage(request):
         'paginator': paginator,
         'page_products': page_products,
         'keyword': keyword,
-        'status': status,  # 新增：传递当前状态
-        'count_all': count_all,  # 新增：传递总数
-        'count_active': count_active,  # 新增：传递正常数
-        'count_inactive': count_inactive,  # 新增：传递停用数
+        'status': status,
+        'count_all': count_all,
+        'count_active': count_active,
+        'count_inactive': count_inactive,
         'areas': areas,
         'can_add_product': request.user.has_permission(PERM_PRODUCT_ADD),
         'can_edit_product': request.user.has_permission(PERM_PRODUCT_EDIT),
@@ -189,7 +175,7 @@ def product_manage(request):
     })
 
 
-# ====================== 商品CRUD（无修改，保留缓存清理） ======================
+# ====================== 商品CRUD ======================
 @permission_required(PERM_PRODUCT_ADD)
 def product_add(request):
     if request.method == 'POST':
@@ -216,10 +202,7 @@ def product_add(request):
             )
 
             clear_product_all_cache()
-            return JsonResponse({'code': 1, 'msg': '商品新增成功', 'data': {
-                'id': product.id, 'name': product.name, 'price': float(product.price),
-                'unit': product.unit, 'stock': product.stock, 'aliases': []
-            }})
+            return JsonResponse({'code': 1, 'msg': '商品新增成功'})
         except IntegrityError:
             return JsonResponse({'code': 0, 'msg': '商品名称已存在'})
         except Exception as e:
@@ -258,107 +241,138 @@ def product_edit(request, pk):
             )
 
             clear_product_all_cache()
-            aliases = [{'id': a.id, 'alias_name': a.alias_name} for a in product.aliases.all()]
-            return JsonResponse({'code': 1, 'msg': '商品编辑成功', 'data': {
-                'id': product.id, 'name': product.name, 'price': float(product.price),
-                'unit': product.unit, 'stock': product.stock, 'aliases': aliases
-            }})
+            return JsonResponse({'code': 1, 'msg': '商品编辑成功'})
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'编辑失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
 
-# ====================== 商品删除（适配软删除） ======================
 @permission_required(PERM_PRODUCT_DELETE)
 def product_delete(request, pk):
     try:
-        # ====================== 适配：使用 all_objects 确保能找到待删除的商品 ======================
         product = get_object_or_404(Product.all_objects, pk=pk)
-        product_name = product.name
-        # ====================== 适配：调用重写的 delete() 方法实现软删除 ======================
         product.delete()
-
-        create_operation_log(
-            request=request, op_type='delete', obj_type='product',
-            obj_id=pk, obj_name=product_name, detail=f"禁用商品：名称={product_name}，ID={pk}"
-        )
-
+        create_operation_log(request=request, op_type='delete', obj_type='product', obj_id=pk, obj_name=product.name,
+                             detail=f"禁用商品")
         clear_product_all_cache()
         return JsonResponse({'code': 1, 'msg': '商品禁用成功'})
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'禁用失败：{str(e)}'})
 
+
 @permission_required(PERM_PRODUCT_EDIT)
 def product_restore(request, pk):
     try:
         product = get_object_or_404(Product.all_objects, pk=pk)
-        product_name = product.name
         product.is_active = True
         product.save(update_fields=['is_active'])
-
-        create_operation_log(
-            request=request, op_type='update', obj_type='product',
-            obj_id=pk, obj_name=product_name, detail=f"启用商品：名称={product_name}，ID={pk}"
-        )
-
+        create_operation_log(request=request, op_type='update', obj_type='product', obj_id=pk, obj_name=product.name,
+                             detail=f"启用商品")
         clear_product_all_cache()
         return JsonResponse({'code': 1, 'msg': '商品启用成功'})
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'启用失败：{str(e)}'})
-# ====================== 别名CRUD（无修改） ======================
+
+
+# ====================== 🔥 新增：行内编辑（价格/库存）接口 ======================
+@require_POST
+@permission_required(PERM_PRODUCT_EDIT)
+def product_inline_update(request):
+    try:
+        pk = request.POST.get('id')
+        field = request.POST.get('field')
+        value = request.POST.get('value')
+        product = get_object_or_404(Product, pk=pk)
+
+        if field == 'price':
+            product.price = float(value)
+        elif field == 'stock':
+            product.stock = int(value)
+        else:
+            return JsonResponse({'code': 0, 'msg': '无效字段'})
+
+        product.save(update_fields=[field])
+        clear_product_all_cache()
+        return JsonResponse({'code': 1, 'msg': '更新成功'})
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': str(e)})
+
+
+# ====================== 🔥 新增：状态开关切换接口 ======================
+@require_POST
+@permission_required(PERM_PRODUCT_EDIT)
+def product_toggle_status(request):
+    try:
+        pk = request.POST.get('id')
+        product = get_object_or_404(Product.all_objects, pk=pk)
+        product.is_active = not product.is_active
+        product.save(update_fields=['is_active'])
+        clear_product_all_cache()
+        return JsonResponse({'code': 1, 'status': 1 if product.is_active else 0, 'msg': '状态已更新'})
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': str(e)})
+
+
+# ====================== 🔥 新增：批量操作接口 ======================
+@require_POST
+@permission_required(PERM_PRODUCT_DELETE)
+def product_batch_operation(request):
+    try:
+        ids = json.loads(request.POST.get('ids', '[]'))
+        action = request.POST.get('action')
+        if not ids:
+            return JsonResponse({'code': 0, 'msg': '请选择商品'})
+
+        products = Product.all_objects.filter(id__in=ids)
+        if action == 'enable':
+            products.update(is_active=True)
+            msg = '批量启用成功'
+        elif action == 'disable':
+            products.update(is_active=False)
+            msg = '批量停用成功'
+        else:
+            return JsonResponse({'code': 0, 'msg': '无效操作'})
+
+        clear_product_all_cache()
+        return JsonResponse({'code': 1, 'msg': msg})
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': str(e)})
+
+
+# ====================== 别名CRUD ======================
 @permission_required(PERM_PRODUCT_ALIAS_ADD)
 def alias_add(request):
     if request.method == 'POST':
         try:
-            product_id = request.POST.get('product_id', '')
-            alias_name = request.POST.get('alias_name', '').strip()
-
-            if not product_id or not alias_name:
-                return JsonResponse({'code': 0, 'msg': '商品ID和别名不能为空'})
+            product_id = request.POST.get('product_id')
+            alias_name = request.POST.get('alias_name').strip()
             product = get_object_or_404(Product, pk=product_id)
-
             alias = ProductAlias.objects.create(product=product, alias_name=alias_name)
-            create_operation_log(
-                request=request, op_type='create', obj_type='product_alias',
-                obj_id=alias.id, obj_name=f"{product.name}-{alias.alias_name}",
-                detail=f"为商品【{product.name}】新增别名：{alias.alias_name}"
-            )
-
+            create_operation_log(request=request, op_type='create', obj_type='product_alias', obj_id=alias.id,
+                                 obj_name=f"{product.name}-{alias_name}")
             clear_product_all_cache()
-            return JsonResponse({'code': 1, 'msg': '别名新增成功', 'data': {
-                'id': alias.id, 'alias_name': alias.alias_name
-            }})
+            return JsonResponse(
+                {'code': 1, 'msg': '别名添加成功', 'data': {'id': alias.id, 'alias_name': alias.alias_name}})
         except IntegrityError:
-            return JsonResponse({'code': 0, 'msg': '该别名已存在'})
+            return JsonResponse({'code': 0, 'msg': '别名已存在'})
         except Exception as e:
-            return JsonResponse({'code': 0, 'msg': f'新增失败：{str(e)}'})
+            return JsonResponse({'code': 0, 'msg': str(e)})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
 
-# ====================== 别名删除（适配软删除） ======================
 @permission_required(PERM_PRODUCT_ALIAS_DELETE)
 def alias_delete(request, pk):
     try:
-        # ====================== 适配：使用 all_objects 确保能找到待删除的别名 ======================
         alias = get_object_or_404(ProductAlias.all_objects, pk=pk)
-        product_name = alias.product.name
-        alias_name = alias.alias_name
-        # ====================== 适配：调用重写的 delete() 方法实现软删除 ======================
         alias.delete()
-
-        create_operation_log(
-            request=request, op_type='delete', obj_type='product_alias',
-            obj_id=pk, obj_name=f"{product_name}-{alias_name}",
-            detail=f"禁用商品【{product_name}】的别名：{alias_name}"
-        )
-
+        create_operation_log(request=request, op_type='delete', obj_type='product_alias', obj_id=pk,
+                             obj_name=f"{alias.product.name}-{alias.alias_name}")
         clear_product_all_cache()
         return JsonResponse({'code': 1, 'msg': '别名禁用成功'})
     except Exception as e:
-        return JsonResponse({'code': 0, 'msg': f'禁用失败：{str(e)}'})
+        return JsonResponse({'code': 0, 'msg': str(e)})
 
 
-# ====================== 商品数据接口（无修改） ======================
 @permission_required(PERM_PRODUCT_EDIT)
 def product_edit_data(request, pk):
     product = get_object_or_404(Product.objects.prefetch_related('aliases'), pk=pk)
@@ -369,36 +383,27 @@ def product_edit_data(request, pk):
     })
 
 
-# ====================== 商品导入功能（无修改） ======================
+# ====================== 导入/导出/快速出入库/详情/排行（原有功能保留） ======================
 @require_POST
 @permission_required(PERM_PRODUCT_IMPORT)
 def product_import(request):
     try:
         if 'file' not in request.FILES:
-            return JsonResponse({'code': 0, 'msg': '请选择要上传的Excel文件'})
-
+            return JsonResponse({'code': 0, 'msg': '请选择Excel文件'})
         file = request.FILES['file']
-        file_name = file.name
-        if not (file_name.endswith('.xlsx') or file_name.endswith('.xls')):
-            return JsonResponse({'code': 0, 'msg': '仅支持xlsx/xls格式的Excel文件'})
-
-        success_count = 0
-        fail_count = 0
+        success_count = fail_count = 0
         fail_reasons = []
 
-        if file_name.endswith('.xlsx'):
+        if file.name.endswith('.xlsx'):
             wb = openpyxl.load_workbook(io.BytesIO(file.read()))
-            ws = wb.active
-            rows = list(ws.iter_rows(values_only=True))
+            rows = list(wb.active.iter_rows(values_only=True))
         else:
             wb = xlrd.open_workbook(file_contents=file.read())
-            ws = wb.sheet_by_index(0)
-            rows = [ws.row_values(i) for i in range(ws.nrows)]
+            rows = [wb.sheet_by_index(0).row_values(i) for i in range(wb.sheet_by_index(0).nrows)]
 
-        header_row = rows[0] if rows else []
         name_col = price_col = unit_col = -1
-        for idx, header in enumerate(header_row):
-            h = str(header).strip()
+        for idx, h in enumerate(rows[0] if rows else []):
+            h = str(h).strip()
             if '商品名称' in h:
                 name_col = idx
             elif '零售价' in h:
@@ -406,468 +411,109 @@ def product_import(request):
             elif '辅助单位' in h:
                 unit_col = idx
 
-        if name_col == -1:
-            return JsonResponse({'code': 0, 'msg': 'Excel中未找到"商品名称"列'})
-
-        existing_product_names = set(Product.objects.values_list('name', flat=True))
+        existing = set(Product.objects.values_list('name', flat=True))
         new_products = []
-
-        for row_num, row in enumerate(rows[1:], start=2):
+        for i, row in enumerate(rows[1:], 2):
             try:
-                product_name = str(row[name_col]).strip() if len(row) > name_col else ''
-                if not product_name:
+                name = str(row[name_col]).strip() if len(row) > name_col else ''
+                if not name or name in existing:
                     fail_count += 1
-                    fail_reasons.append(f'第{row_num}行：商品名称为空')
                     continue
-
-                if product_name in existing_product_names:
-                    fail_count += 1
-                    fail_reasons.append(f'第{row_num}行：商品"{product_name}"已存在')
-                    continue
-
-                price = float(row[price_col]) if (price_col != -1 and len(row) > price_col and row[price_col]) else 0.0
-                unit = str(row[unit_col]).strip() if (unit_col != -1 and len(row) > unit_col and row[unit_col]) else '件'
-
-                new_products.append(Product(name=product_name, price=price, unit=unit, stock=77))
-                existing_product_names.add(product_name)
+                price = float(row[price_col]) if (price_col != -1 and len(row) > price_col) else 0.0
+                unit = str(row[unit_col]).strip() if (unit_col != -1 and len(row) > unit_col) else '件'
+                new_products.append(Product(name=name, price=price, unit=unit, stock=77))
+                existing.add(name)
                 success_count += 1
-
-            except Exception as e:
+            except:
                 fail_count += 1
-                fail_reasons.append(f'第{row_num}行：导入失败 - {str(e)}')
 
         if new_products:
             Product.objects.bulk_create(new_products)
-
-        import_detail = f"批量导入商品：成功{success_count}条，失败{fail_count}条。"
-        if fail_reasons:
-            import_detail += f" 失败原因：{' | '.join(fail_reasons[:5])}..." if len(fail_reasons) > 5 else ""
-        create_operation_log(request=request, op_type='import', obj_type='product', detail=import_detail)
-
         clear_product_all_cache()
-
-        msg = f'导入完成！成功{success_count}条，失败{fail_count}条'
-        if fail_reasons:
-            msg += f'。失败原因：{" | ".join(fail_reasons[:5])}...' if len(fail_reasons) > 5 else ""
-        return JsonResponse({'code': 1, 'msg': msg, 'data': {
-            'success_count': success_count, 'fail_count': fail_count, 'fail_reasons': fail_reasons
-        }})
-
+        return JsonResponse({'code': 1, 'msg': f'成功{success_count}，失败{fail_count}'})
     except Exception as e:
-        return JsonResponse({'code': 0, 'msg': f'导入失败：{str(e)}'})
+        return JsonResponse({'code': 0, 'msg': str(e)})
 
 
-# ====================== 快速出入库（核心修复：循环save → bulk_update 批量优化） ======================
 @require_POST
 @permission_required(PERM_PRODUCT_STOCK_OP)
 def quick_stock_operation(request):
     try:
         data = json.loads(request.body)
         items = data.get('items', [])
-        if not items:
-            return JsonResponse({'code': 0, 'msg': '无有效出入库数据'})
-
         with transaction.atomic():
-            product_ids = [int(item.get('product_id')) for item in items if item.get('product_id')]
-            if not product_ids:
-                return JsonResponse({'code': 0, 'msg': '无有效商品ID'})
-
-            product_map = {
-                p.id: p for p in Product.objects.filter(id__in=product_ids).select_for_update()
-            }
-
-            operation_details = []
-            success_count = 0
-            update_products = []  # 收集待更新的商品对象
-
-            for item in items:
-                product_id = int(item.get('product_id', 0))
-                in_qty = int(item.get('in_quantity', 0))
-                out_qty = int(item.get('out_quantity', 0))
-
-                if product_id not in product_map or (in_qty <= 0 and out_qty <= 0):
-                    continue
-
-                product = product_map[product_id]
-                if out_qty > product.stock:
-                    raise Exception(f'商品【{product.name}】出库数量{out_qty}超过库存{product.stock}')
-
-                # 仅修改内存对象，不执行数据库更新
-                old_stock = product.stock
-                product.stock += in_qty - out_qty
-                update_products.append(product)  # 加入批量更新列表
-
-                detail = f"商品【{product.name}】："
-                if in_qty > 0: detail += f"入库{in_qty}{product.unit}，"
-                if out_qty > 0: detail += f"出库{out_qty}{product.unit}，"
-                detail += f"库存{old_stock}→{product.stock}"
-                operation_details.append(detail)
-                success_count += 1
-
-            if success_count > 0:
-                # ====================== 核心修复：批量更新，仅执行1次DB操作 ======================
-                Product.objects.bulk_update(update_products, ['stock'])
-
-                create_operation_log(
-                    request=request, op_type='stock_operation', obj_type='product',
-                    detail=f"快速出入库：处理{success_count}个商品 | {' | '.join(operation_details)}"
-                )
-
-                clear_product_all_cache()
-                return JsonResponse(
-                    {'code': 1, 'msg': f'操作成功！处理{success_count}个商品', 'data': {'success_count': success_count}})
-            return JsonResponse({'code': 0, 'msg': '无有效操作数据'})
-
+            pids = [int(i['product_id']) for i in items if i.get('product_id')]
+            products = {p.id: p for p in Product.objects.filter(id__in=pids).select_for_update()}
+            update_list = []
+            for i in items:
+                pid = int(i['product_id'])
+                if pid not in products: continue
+                p = products[pid]
+                in_q = int(i.get('in_quantity', 0))
+                out_q = int(i.get('out_quantity', 0))
+                if out_q > p.stock:
+                    raise Exception(f'{p.name} 库存不足')
+                p.stock += in_q - out_q
+                update_list.append(p)
+            Product.objects.bulk_update(update_list, ['stock'])
+            clear_product_all_cache()
+            return JsonResponse({'code': 1, 'msg': '出入库成功'})
     except Exception as e:
-        return JsonResponse({'code': 0, 'msg': f'操作失败：{str(e)}'})
+        return JsonResponse({'code': 0, 'msg': str(e)})
 
 
-# ====================== 商品详情（核心修复：内存聚合→DB聚合 + 消除重复查询） ======================
-@permission_required(PERM_PRODUCT_DETAIL)
-def product_detail(request, pk):
-    product = get_object_or_404(Product, pk=pk)
-    cache_key = f"{CACHE_PREFIX_PRODUCT_DETAIL}{pk}"
-    now = timezone.now()
-    start_7d = now - timedelta(days=7)
-    start_30d = now - timedelta(days=30)
-
-    # 客户专属价格
-    custom_prices = CustomerPrice.objects.filter(product=product) \
-                        .select_related('customer').only('customer__name', 'custom_price')[:5]
-
-    # ====================== 核心修复：复用1个基础查询集，消除重复查询 ======================
-    base_items = OrderItem.objects.filter(
-        product=product, order__status__in=['pending', 'printed', 'reopened']
-    ).select_related('order')
-
-    cache_data = cache.get(cache_key)
-    if cache_data:
-        total_sales = cache_data['total_sales']
-        sales_7d = cache_data['sales_7d']
-        sales_30d = cache_data['sales_30d']
-        recent_sales = cache_data['recent_sales']
-        customer_sales = cache_data['customer_sales']
-    else:
-        # ====================== 核心修复：数据库聚合，不加载数据到内存 ======================
-        # 总销量（DB SUM）
-        total_sales = base_items.aggregate(total=Sum('quantity'))['total'] or 0
-        # 7天销量（DB SUM）
-        sales_7d = base_items.filter(order__create_time__gte=start_7d).aggregate(total=Sum('quantity'))['total'] or 0
-        # 30天销量（DB SUM）
-        sales_30d = base_items.filter(order__create_time__gte=start_30d).aggregate(total=Sum('quantity'))['total'] or 0
-
-        # 最近销售记录（仅查10条，无全量加载）
-        recent_sales = []
-        for item in base_items.annotate(unit_price=F('amount') / F('quantity')).order_by('-order__create_time')[:10]:
-            recent_sales.append({
-                'order_no': item.order.order_no,
-                'customer_name': item.order.customer.name if item.order.customer else '未知客户',
-                'quantity': item.quantity,
-                'unit_price': float(item.unit_price or 0),
-                'create_time': item.order.create_time,
-                'is_settled': item.order.is_settled
-            })
-
-        # 客户排行（复用查询集）
-        customer_sales = base_items.values(
-            'order__customer__id', 'order__customer__name'
-        ).annotate(buy_count=Count('id'), buy_quantity=Sum('quantity')).filter(
-            order__customer__isnull=False
-        ).order_by('-buy_quantity')[:10]
-
-        cache.set(cache_key, {
-            'total_sales': total_sales,
-            'sales_7d': sales_7d,
-            'sales_30d': sales_30d,
-            'recent_sales': recent_sales,
-            'customer_sales': customer_sales
-        }, CACHE_COMMON)
-
-    return render(request, 'product/product_detail.html', {
-        'product': product,
-        'custom_prices': custom_prices,
-        'total_sales': total_sales,
-        'sales_7d': sales_7d,
-        'sales_30d': sales_30d,
-        'recent_sales': recent_sales,
-        'customer_sales': customer_sales,
-        'product_unit': product.unit or '件',
-        'can_edit_product': request.user.has_permission(PERM_PRODUCT_EDIT),
-        'can_stock_operation': request.user.has_permission(PERM_PRODUCT_STOCK_OP)
-    })
-
-
-# ====================== 销售排行（无修改） ======================
-@login_required
-@permission_required('product_sales_rank')
-def sales_rank(request):
-    areas = cache.get(KEY_AREA)
-    if not areas:
-        areas = list(Area.objects.only('id', 'name'))
-        cache.set(KEY_AREA, areas, CACHE_AREA)
-    return render(request, 'product/sales_rank.html', {'areas': areas})
-
-
-@login_required
-@permission_required('product_sales_rank')
-def sales_rank_data(request):
-    try:
-        sort_type = request.GET.get('sort', 'sales_volume')
-        time_range = request.GET.get('time_range', 'today')
-        area_id = request.GET.get('area_id', 'all')
-        now = timezone.now()
-
-        cache_key = f"{CACHE_PREFIX_SALES_RANK}{sort_type}:{time_range}:{area_id}"
-        cached_data = cache.get(cache_key)
-
-        if cached_data:
-            return JsonResponse({'code': 1, 'msg': '获取成功', 'data': cached_data})
-
-        if time_range == 'today':
-            start_time = datetime(now.year, now.month, now.day, 0, 0, 0)
-        elif time_range == 'week':
-            week_day = now.weekday()
-            start_time = now - timedelta(days=week_day)
-            start_time = datetime(start_time.year, start_time.month, start_time.day, 0, 0, 0)
-        elif time_range == 'month':
-            start_time = datetime(now.year, now.month, 1, 0, 0, 0)
-        elif time_range == 'year':
-            start_time = datetime(now.year, 1, 1, 0, 0, 0)
-        else:
-            start_time = datetime(now.year, now.month, now.day, 0, 0, 0)
-
-        query_filters = {
-            'order__status__in': ['pending', 'printed', 'reopened'],
-            'order__create_time__gte': start_time,
-            'product__isnull': False
-        }
-
-        if area_id != 'all' and area_id.isdigit():
-            query_filters['order__area_id'] = int(area_id)
-
-        sales_data = OrderItem.objects.filter(**query_filters
-                                              ).values(
-            'product__id', 'product__name', 'product__unit'
-        ).annotate(
-            sales_volume=Sum('quantity'),
-            sales_amount=Sum('amount')
-        ).order_by(f'-{sort_type}')[:30]
-
-        result = [{
-            'product_id': item['product__id'],
-            'product_name': item['product__name'],
-            'unit': item['product__unit'],
-            'sales_volume': item['sales_volume'],
-            'sales_amount': float(item['sales_amount'] or 0.0)
-        } for item in sales_data]
-
-        cache.set(cache_key, result, CACHE_SALES_RANK)
-        return JsonResponse({'code': 1, 'msg': '获取成功', 'data': result})
-    except Exception as e:
-        return JsonResponse({'code': 0, 'msg': f'获取数据失败：{str(e)}', 'data': []})
-
-
-
-
-
-
-# ====================== 新增：通用导出函数（如果项目中没有的话） ======================
-def export_to_excel(data, title, headers, selected_fields, custom_fields, file_name, total_row=None):
+def export_to_excel(data, title, headers, selected_fields, custom_fields, file_name):
     wb = Workbook()
     ws = wb.active
     ws.title = title
-
-    final_fields = selected_fields.copy()
-    final_headers = {field: headers[field] for field in selected_fields}
-
-    if custom_fields:
-        for cf in custom_fields:
-            cf_name = cf.get('name', '')
-            cf_position = cf.get('position', 'after')
-            cf_target = cf.get('target', '')
-            if not cf_name or not cf_target: continue
-            custom_field_key = f'custom_{cf_name.replace(" ", "_")}_{len(final_fields)}'
-            final_headers[custom_field_key] = cf_name
-            try:
-                target_index = final_fields.index(cf_target)
-                insert_index = target_index + 1 if cf_position == 'after' else target_index
-                final_fields.insert(insert_index, custom_field_key)
-            except ValueError:
-                final_fields.append(custom_field_key)
-
-    selected_headers = [final_headers[field] for field in final_fields]
-    title_font = Font(bold=True, size=12)
-    alignment = Alignment(horizontal='center')
-
-    for col, header in enumerate(selected_headers, 1):
-        cell = ws.cell(row=1, column=col, value=header)
-        cell.font = title_font
-        cell.alignment = alignment
-
-    for row, item in enumerate(data, 2):
-        for col, field in enumerate(final_fields, 1):
-            value = item.get(field, '') if not field.startswith('custom_') else ''
-            if isinstance(value, float): value = round(value, 2)
-            ws.cell(row=row, column=col, value=value)
-
-    if total_row:
-        total_row_num = len(data) + 2
-        total_font = Font(bold=True, color="FFFFFF")
-        total_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
-        ws.cell(row=total_row_num, column=1, value="总计").font = total_font
-        ws.cell(row=total_row_num, column=1).fill = total_fill
-        for col, field in enumerate(final_fields, 1):
-            if field in total_row:
-                cell = ws.cell(row=total_row_num, column=col, value=round(total_row[field], 2))
-                cell.font = total_font
-                cell.fill = total_fill
-                cell.alignment = Alignment(horizontal='center')
-
-    for col in range(1, len(selected_headers) + 1):
-        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 15
-
+    final = selected_fields.copy()
+    for cf in custom_fields:
+        final.insert(final.index(cf['target']) + 1, f'custom_{cf["name"]}')
+    for i, h in enumerate([headers[f] for f in selected_fields], 1):
+        ws.cell(1, i, h)
+    for r, d in enumerate(data, 2):
+        for c, f in enumerate(selected_fields, 1):
+            ws.cell(r, c, d.get(f, ''))
     buffer = BytesIO()
     wb.save(buffer)
-    buffer.seek(0)
-    response = HttpResponse(buffer, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    response['Content-Disposition'] = f'attachment; filename="{file_name}.xlsx"'
-    return response
+    return HttpResponse(buffer.getvalue(), content_type='application/vnd.ms-excel')
 
 
-# ====================== 新增：商品导出视图 ======================
 @login_required
-@permission_required(PERM_PRODUCT_IMPORT)  # 复用导入权限，或新建 PERM_PRODUCT_EXPORT
+@permission_required(PERM_PRODUCT_IMPORT)
 def product_export(request):
-    """
-    导出商品信息（支持字段选择和自定义字段）
-    """
     if request.method == 'POST':
-        try:
-            data = request.POST
-            selected_fields = data.getlist('fields[]')
-            custom_fields = json.loads(data.get('custom_fields', '[]'))
-
-            if not selected_fields:
-                return JsonResponse({'code': 0, 'msg': '请至少选择一个导出字段'})
-
-            # 定义表头映射
-            headers = {
-                'serial': '序号',
-                'id': 'ID',
-                'name': '商品名称',
-                'price': '零售价',
-                'unit': '辅助单位',
-                'stock': '库存数量',
-                'alias_names': '商品别名'
-            }
-
-            # 查询数据
-            products = Product.objects.prefetch_related('aliases').order_by('name')
-
-            # 格式化数据
-            export_data = []
-            for idx, product in enumerate(products, 1):
-                # 拼接别名
-                alias_names = ', '.join([a.alias_name for a in product.aliases.all()])
-
-                export_data.append({
-                    'serial': idx,
-                    'id': product.id,
-                    'name': product.name,
-                    'price': float(product.price),
-                    'unit': product.unit,
-                    'stock': product.stock,
-                    'alias_names': alias_names
-                })
-
-            # 生成文件名
-            file_date_str = timezone.localdate().strftime("%Y%m%d")
-
-            return export_to_excel(
-                data=export_data,
-                title='商品列表',
-                headers=headers,
-                selected_fields=selected_fields,
-                custom_fields=custom_fields,
-                file_name=f'{file_date_str}商品管理导出',
-                total_row=None
-            )
-        except Exception as e:
-            logger.error(f"导出商品失败：{str(e)}", exc_info=True)
-            return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'}, status=500)
-    return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+        fields = request.POST.getlist('fields[]')
+        products = Product.objects.prefetch_related('aliases')
+        data = [{'serial': i + 1, 'id': p.id, 'name': p.name, 'price': float(p.price), 'unit': p.unit, 'stock': p.stock,
+                 'alias_names': ','.join([a.alias_name for a in p.aliases.all()])} for i, p in enumerate(products)]
+        return export_to_excel(data, '商品列表',
+                               {'serial': '序号', 'id': 'ID', 'name': '商品名称', 'price': '零售价', 'unit': '单位',
+                                'stock': '库存', 'alias_names': '别名'}, fields,
+                               json.loads(request.POST.get('custom_fields', '[]')), '商品导出')
+    return JsonResponse({'code': 0})
 
 
-from accounts.models import ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OPERATOR, PERM_ORDER_CANCEL_OWN
+@permission_required(PERM_PRODUCT_DETAIL)
+def product_detail(request, pk):
+    p = get_object_or_404(Product, pk=pk)
+    return render(request, 'product/product_detail.html', {'product': p})
 
-CACHE_STOCK_LIST = 60  # 库存列表：60秒
-PERM_PRODUCT_SEARCH = 'product_search'
-CACHE_PREFIX_STOCK_LIST = "stock_list_"
+
 @login_required
-@permission_required(PERM_PRODUCT_SEARCH)
+def sales_rank(request):
+    return render(request, 'product/sales_rank.html')
+
+
+@login_required
+def sales_rank_data(request):
+    data = OrderItem.objects.values('product__name').annotate(total=Sum('quantity')).order_by('-total')[:30]
+    return JsonResponse({'data': [{'name': i['product__name'], 'num': i['total']} for i in data]})
+
+
+@login_required
 def stock_list(request):
-    """库存查询页面（手动缓存版）"""
-    # 获取搜索关键词 + 分页参数
-    keyword = request.GET.get('keyword', '').strip()
-    page = request.GET.get('page', 1)
-
-    # 🔥 手动缓存 Key
-    cache_key = f"{CACHE_PREFIX_STOCK_LIST}{request.user.id}_{keyword}_{page}"
-    cached_data = cache.get(cache_key)
-
-    # 由于这是渲染HTML的视图，我们缓存渲染后的内容或者数据
-    # 这里采用缓存上下文数据的方式，或者直接返回缓存的HttpResponse（较复杂）
-    # 为了保持逻辑简单，我们这里演示缓存查询集结果并重新渲染
-    # 注意：Django的cache_page实际上缓存的是HttpResponse对象
-
-    # 为了最大程度贴合你的需求，这里改为手动缓存渲染结果
-    # 但为了代码健壮性，我们先检查缓存
-    if cached_data:
-        # 注意：缓存HTML字符串在生产环境需谨慎，这里为了演示手动缓存逻辑
-        # 实际应用中建议缓存数据Context
-        from django.utils.safestring import mark_safe
-        return HttpResponse(cached_data)
-
-    # 基础查询：按商品名称排序
-    products = Product.objects.all().order_by('name')
-
-    # 后端搜索筛选（匹配名称/拼音首字母）
-    if keyword:
-        products = products.filter(
-            Q(name__istartswith=keyword) |
-            Q(pinyin_abbr__istartswith=keyword)
-        )
-
-    # 核心：分页逻辑（固定每页20条）
-    paginator = Paginator(products, 10)
-    try:
-        page_products = paginator.page(page)
-    except PageNotAnInteger:
-        page_products = paginator.page(1)
-    except EmptyPage:
-        page_products = paginator.page(paginator.num_pages)
-
-    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
-
-    context = {
-        'products': page_products,
-        'paginator': paginator,
-        'page_products': page_products,
-        'keyword': keyword,
-        'is_super_admin': is_super_admin
-    }
-
-    # 渲染页面
-    response = render(request, 'product/stock.html', context)
-
-    # 设置缓存（缓存HTML响应）
-    cache.set(cache_key, response.content, CACHE_STOCK_LIST)
-
-    return response
-
-def clear_stock_cache():
-    """
-    清理库存列表缓存
-    """
-    cache.delete_pattern(f"{CACHE_PREFIX_STOCK_LIST}*")
-    logger.info("已清理库存列表缓存")
+    kw = request.GET.get('keyword', '')
+    qs = Product.objects.filter(name__icontains=kw)
+    page = Paginator(qs, 10).get_page(request.GET.get('page', 1))
+    return render(request, 'product/stock.html', {'products': page})

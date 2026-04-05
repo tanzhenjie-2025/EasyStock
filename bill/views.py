@@ -29,7 +29,7 @@ from accounts.views import (
     create_operation_log,  # 统一日志记录
     get_client_ip  # 获取客户端IP
 )
-from product.views import clear_stock_cache
+
 # ========== 开单模块权限常量（和用户模块保持一致） ==========
 PERM_ORDER_CREATE = 'order_create'
 PERM_ORDER_VIEW = 'order_view'
@@ -83,7 +83,12 @@ def clear_order_cache(order_no: str = None):
     logger.info(f"已清理订单缓存: {order_no if order_no else '全列表'}")
 
 
-
+def clear_stock_cache():
+    """
+    清理库存列表缓存
+    """
+    cache.delete_pattern(f"{CACHE_PREFIX_STOCK_LIST}*")
+    logger.info("已清理库存列表缓存")
 
 
 def clear_product_search_cache():
