@@ -42,5 +42,6 @@ path('api/customer/export/', views.customer_export, name='customer_export'),
 # 新增：客户专属价格导入导出
     path('api/price/export/', views.customer_price_export, name='customer_price_export'),
     path('api/price/import/', views.customer_price_import, name='customer_price_import'),
+path('price/enable/<int:pk>/', views.customer_price_enable, name='customer_price_enable'),
 ]
 

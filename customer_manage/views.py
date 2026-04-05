@@ -545,30 +545,40 @@ def customer_page(request):
     return render(request, 'customer_manage/customer.html')
 
 # ========== 客户专属价格列表（手动缓存） ==========
+# ========== 客户专属价格列表（手动缓存，支持状态筛选） ==========
 @login_required
 @permission_required('customer_price_view')
 def customer_price_list(request):
-    """获取客户专属价格列表 - 手动缓存版"""
+    """获取客户专属价格列表 - 手动缓存版 + 状态筛选"""
     try:
         keyword = request.GET.get('keyword', '').strip()
         min_price = request.GET.get('min_price', '').strip()
         max_price = request.GET.get('max_price', '').strip()
         area_id = request.GET.get('area_id', '').strip()
+        status = request.GET.get('status', 'all')  # 新增：状态参数 all/active/disabled
         page = request.GET.get('page', 1)
 
-        cache_key = f"{CACHE_PREFIX_CUSTOMER_PRICE}{request.user.id}_{keyword}_{min_price}_{max_price}_{area_id}_{page}"
+        # 缓存Key包含status
+        cache_key = f"{CACHE_PREFIX_CUSTOMER_PRICE}{request.user.id}_{keyword}_{min_price}_{max_price}_{area_id}_{status}_{page}"
         cached_data = cache.get(cache_key)
         if cached_data:
             logger.info(f"命中专属价格缓存: {cache_key}")
             return JsonResponse(cached_data, safe=False, content_type='application/json')
 
         page_size = 15
-        prices = CustomerPrice.objects.all() \
+        # 使用 all_objects 获取包含禁用的所有专属价
+        prices = CustomerPrice.all_objects.all() \
             .select_related('customer__area', 'product') \
             .prefetch_related('product__aliases')
 
         if not request.user.has_permission(PERM_LOG_VIEW_ALL):
             pass
+
+        # 状态筛选
+        if status == 'active':
+            prices = prices.filter(is_active=True)
+        elif status == 'disabled':
+            prices = prices.filter(is_active=False)
 
         if keyword:
             keyword = full_to_half(keyword).strip()
@@ -608,6 +618,11 @@ def customer_price_list(request):
         if area_id and area_id.isdigit():
             prices = prices.filter(customer__area_id=int(area_id))
 
+        # 计算各状态数量（用于Tab显示）
+        all_count = CustomerPrice.all_objects.count()
+        active_count = CustomerPrice.objects.count()  # 默认管理器只返回active
+        disabled_count = all_count - active_count
+
         paginator = Paginator(prices, page_size)
         try:
             price_page = paginator.page(page)
@@ -629,13 +644,19 @@ def customer_price_list(request):
                 'product_aliases': [alias.alias_name for alias in cp.product.aliases.all()],
                 'custom_price': float(cp.custom_price),
                 'standard_price': float(cp.product.price),
-                'remark': cp.remark or ''
+                'remark': cp.remark or '',
+                'is_active': cp.is_active,  # 新增：返回状态
             })
 
         response_data = {
             'code': 1, 'msg': '查询成功', 'data': result, 'keyword': keyword,
             'page': int(page), 'total': paginator.count, 'total_pages': paginator.num_pages,
             'has_next': price_page.has_next(), 'has_previous': price_page.has_previous(),
+            'counts': {  # 新增：返回各状态数量
+                'all': all_count,
+                'active': active_count,
+                'disabled': disabled_count
+            }
         }
 
         cache.set(cache_key, response_data, CACHE_HIGH_PRIORITY)
@@ -648,6 +669,37 @@ def customer_price_list(request):
             {'code': 0, 'msg': f'查询失败：{str(e)}', 'data': []},
             safe=False, content_type='application/json'
         )
+
+# ========== 新增：启用客户专属价 ==========
+@login_required
+@permission_required('customer_price_delete')  # 复用删除权限
+def customer_price_enable(request, pk):
+    """启用客户专属价格接口"""
+    try:
+        cp = get_object_or_404(CustomerPrice.all_objects, pk=pk)
+        customer_name = cp.customer.name
+        product_name = cp.product.name
+        custom_price = float(cp.custom_price)
+        product_standard_price = float(cp.product.price)
+        remark = cp.remark if cp.remark else '无'
+
+        # 启用操作
+        cp.is_active = True
+        cp.disabled_time = None
+        cp.save()
+
+        create_operation_log(
+            request=request,
+            op_type='enable',
+            obj_type='customer_price',
+            obj_id=pk,
+            obj_name=f"{customer_name}-{product_name}",
+            detail=f"启用客户专属价：ID={pk}，客户={customer_name}，商品={product_name}，标准价={product_standard_price}元，专属价={custom_price}元，备注={remark}"
+        )
+        clear_customer_price_cache()
+        return JsonResponse({'code': 1, 'msg': '启用专属价成功'}, content_type='application/json')
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': f'启用失败：{str(e)}'}, content_type='application/json')
 
 # ========== 新增客户价格（写操作，清理缓存） ==========
 @login_required

@@ -275,12 +275,86 @@
     .btn-add-custom { margin-top: 10px; margin-bottom: 15px; }
     .btn-group-action { gap: 8px; display: flex; align-items: center; }
 
+    /* ========== 🔥 新增：状态Tab切换样式 ========== */
+    .status-tabs {
+        display: flex;
+        gap: 15px;
+        margin-bottom: 15px;
+        border-bottom: 2px solid #eee;
+        padding-bottom: 10px;
+    }
+    .status-tab {
+        padding: 6px 16px;
+        border: none;
+        background: none;
+        cursor: pointer;
+        font-size: 15px;
+        color: #666;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -12px;
+        transition: all 0.2s;
+    }
+    .status-tab:hover {
+        color: #007bff;
+    }
+    .status-tab.active {
+        color: #007bff;
+        border-bottom-color: #007bff;
+        font-weight: bold;
+    }
+    .status-tab.disabled-tab {
+        color: #dc3545;
+    }
+    .status-tab.disabled-tab.active {
+        border-bottom-color: #dc3545;
+    }
+    .tab-count {
+        margin-left: 4px;
+        background: #e9ecef;
+        padding: 2px 8px;
+        border-radius: 10px;
+        font-size: 12px;
+        color: #666;
+    }
+    .status-tab.active .tab-count {
+        background: #007bff;
+        color: white;
+    }
+    .status-tab.disabled-tab.active .tab-count {
+        background: #dc3545;
+        color: white;
+    }
+
+    /* ========== 🔥 新增：已停用行样式 ========== */
+    .row-disabled {
+        background-color: #fff5f5 !important;
+        color: #999 !important;
+    }
+    .row-disabled td {
+        color: #999 !important;
+    }
+    .status-badge {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: bold;
+    }
+    .status-badge-active {
+        background: #d4edda;
+        color: #155724;
+    }
+    .status-badge-disabled {
+        background: #f8d7da;
+        color: #721c24;
+    }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="content-container">
     <h3>客户专属价格管理</h3>
+
+    
 
     <!-- ========== 新增：搜索区域 ========== -->
     <div class="search-container">
@@ -332,6 +406,13 @@
         <button class="btn btn-sm btn-info ms-2" onclick="showExportModal()">📥 导出数据</button>
         <button class="btn btn-sm btn-warning ms-2" onclick="showImportModal()">📤 导入数据</button>
     </div>
+    
+    <!-- ========== 新增：状态Tab切换 ========== -->
+    <div class="status-tabs" id="statusTabs">
+        <button class="status-tab active" data-status="all">全部 <span class="tab-count" id="tabCountAll">0</span></button>
+        <button class="status-tab" data-status="active">正常 <span class="tab-count" id="tabCountActive">0</span></button>
+        <button class="status-tab disabled-tab" data-status="disabled">已停用 <span class="tab-count" id="tabCountDisabled">0</span></button>
+    </div>
 
     <table class="table table-sm table-bordered">
         <thead class="table-light">
@@ -342,6 +423,7 @@
                 <th>商品名称</th>
                 <th>商品标准价</th>
                 <th>客户专属价</th>
+                <th>状态</th> <!-- 新增：状态列 -->
                 <th>备注</th>
                 <th>操作</th>
             </tr>
@@ -511,6 +593,7 @@
     let customerList = [];
     let productList = [];
     let currentSearchKeyword = '';  // 新增：当前搜索关键词（用于标红）
+    let currentStatus = 'all';       // 新增：当前状态筛选
     const SEARCH_HISTORY_KEY = 'customer_price_search_history';  // 最近搜索记录key
     let customFieldCount = 0;    // 导出用：自定义字段计数器
 
@@ -522,6 +605,7 @@
     // ========== 页面初始化 ==========
     $(document).ready(function() {
         initSuggestBox(); // 初始化候选框
+        initStatusTabs(); // 🔥 新增：初始化状态Tab
         loadPriceList();  // 加载专属价列表
         initCustomerInput(); // 初始化客户输入框
         initProductInput();  // 初始化商品输入框
@@ -539,6 +623,27 @@
         $('#searchInput').focus();
     });
     
+    // ========== 🔥 新增：初始化状态Tab切换 ==========
+    function initStatusTabs() {
+        $('#statusTabs .status-tab').on('click', function() {
+            // 切换active样式
+            $('#statusTabs .status-tab').removeClass('active');
+            $(this).addClass('active');
+            // 更新当前状态
+            currentStatus = $(this).data('status');
+            // 重新加载列表（回到第1页）
+            doSearch($('#searchInput').val().trim());
+        });
+    }
+
+    // ========== 🔥 新增：更新Tab数量显示 ==========
+    function updateTabCounts(counts) {
+        if (!counts) return;
+        $('#tabCountAll').text(counts.all || 0);
+        $('#tabCountActive').text(counts.active || 0);
+        $('#tabCountDisabled').text(counts.disabled || 0);
+    }
+
     // ========== 新增：价格输入框回车提交逻辑 ==========
     function initPriceInput() {
         const priceInput = document.getElementById('customPrice');
@@ -773,12 +878,13 @@
         suggestBox.style.display = 'block';
     }
 
-    // ========== 5. 原有逻辑改造（适配新输入框） ==========
-    // 🔥 加载专属价列表（支持分页+搜索+筛选）
-    function loadPriceList(keyword = '', minPrice = '', maxPrice = '', areaId = '', page = 1) {
-        // 构建查询参数（包含页码）
+    // ========== 5. 原有逻辑改造（适配新输入框+状态筛选） ==========
+    // 🔥 加载专属价列表（支持分页+搜索+筛选+状态）
+    function loadPriceList(keyword = '', minPrice = '', maxPrice = '', areaId = '', status = 'all', page = 1) {
+        // 构建查询参数（包含页码和状态）
         let url = '/customer-manage/price/list/?';
         url += `page=${page}&`;
+        url += `status=${status}&`; // 新增：状态参数
         if (keyword) url += `keyword=${encodeURIComponent(keyword)}&`;
         if (minPrice) url += `min_price=${encodeURIComponent(minPrice)}&`;
         if (maxPrice) url += `max_price=${encodeURIComponent(maxPrice)}&`;
@@ -788,27 +894,45 @@
             let html = '';
             currentSearchKeyword = res.keyword || '';
             
+            // 🔥 更新Tab数量
+            updateTabCounts(res.counts);
+            
             if (res.code === 1 && Array.isArray(res.data) && res.data.length > 0) {
                 res.data.forEach(item => {
                     let customerName = highlightKeyword(item.customer_name, currentSearchKeyword);
                     let productName = highlightKeyword(item.product_name, currentSearchKeyword);
                     
-                    html += `<tr onclick="openEditModal(${item.id})">
+                    // 🔥 根据状态设置行样式和操作按钮
+                    let rowClass = item.is_active ? '' : 'row-disabled';
+                    let statusBadge = item.is_active 
+                        ? '<span class="status-badge status-badge-active">正常</span>' 
+                        : '<span class="status-badge status-badge-disabled">已停用</span>';
+                    let actionBtns = '';
+                    if (item.is_active) {
+                        actionBtns = `
+                            <button class="btn btn-sm btn-warning me-1" onclick="openEditModal(${item.id}); event.stopPropagation();">编辑</button>
+                            <button class="btn btn-sm btn-danger" onclick="deletePrice(${item.id}); event.stopPropagation();">停用</button>
+                        `;
+                    } else {
+                        actionBtns = `
+                            <button class="btn btn-sm btn-success" onclick="enablePrice(${item.id}); event.stopPropagation();">启用</button>
+                        `;
+                    }
+                    
+                    html += `<tr class="${rowClass}" onclick="openEditModal(${item.id})">
                         <td>${item.id}</td>
                         <td>${customerName}</td>
                         <td>${item.customer_area_name || '无'}</td>
                         <td>${productName}</td>
                         <td>¥${item.standard_price.toFixed(2)}</td>
                         <td>¥${item.custom_price.toFixed(2)}</td>
+                        <td>${statusBadge}</td>
                         <td>${item.remark || '无'}</td>
-                        <td>
-                            <button class="btn btn-sm btn-warning me-1" onclick="openEditModal(${item.id}); event.stopPropagation();">编辑</button>
-                            <button class="btn btn-sm btn-danger" onclick="deletePrice(${item.id}); event.stopPropagation();">禁用</button>
-                        </td>
+                        <td>${actionBtns}</td>
                     </tr>`;
                 });
-                // 🔥 渲染分页按钮
-                renderPagination(res, keyword, minPrice, maxPrice, areaId);
+                // 🔥 渲染分页按钮（保留status）
+                renderPagination(res, keyword, minPrice, maxPrice, areaId, status);
             } else {
                 html = renderNoResultHtml(keyword);
                 $('#pagination').html('');
@@ -816,13 +940,13 @@
             $('#priceList').html(html);
         }, 'json').fail(function(err) {
             alert('加载专属价列表失败！');
-            $('#priceList').html('<tr><td colspan="8" class="text-center">加载失败，请刷新重试</td></tr>');
+            $('#priceList').html('<tr><td colspan="9" class="text-center">加载失败，请刷新重试</td></tr>');
             $('#pagination').html('');
         });
     }
 
-    // 🔥 渲染分页按钮（保留所有筛选条件）
-    function renderPagination(res, keyword, minPrice, maxPrice, areaId) {
+    // 🔥 渲染分页按钮（保留所有筛选条件+status）
+    function renderPagination(res, keyword, minPrice, maxPrice, areaId, status) {
         const page = res.page;
         const totalPages = res.total_pages;
         const hasPrev = res.has_previous;
@@ -832,7 +956,7 @@
 
         // 上一页
         if (hasPrev) {
-            paginationHtml += `<button class="btn btn-sm btn-outline-primary" onclick="loadPriceList('${keyword}', '${minPrice}', '${maxPrice}', '${areaId}', ${page-1})">上一页</button>`;
+            paginationHtml += `<button class="btn btn-sm btn-outline-primary" onclick="loadPriceList('${keyword}', '${minPrice}', '${maxPrice}', '${areaId}', '${status}', ${page-1})">上一页</button>`;
         } else {
             paginationHtml += `<button class="btn btn-sm btn-outline-secondary" disabled>上一页</button>`;
         }
@@ -842,7 +966,7 @@
 
         // 下一页
         if (hasNext) {
-            paginationHtml += `<button class="btn btn-sm btn-outline-primary" onclick="loadPriceList('${keyword}', '${minPrice}', '${maxPrice}', '${areaId}', ${page+1})">下一页</button>`;
+            paginationHtml += `<button class="btn btn-sm btn-outline-primary" onclick="loadPriceList('${keyword}', '${minPrice}', '${maxPrice}', '${areaId}', '${status}', ${page+1})">下一页</button>`;
         } else {
             paginationHtml += `<button class="btn btn-sm btn-outline-secondary" disabled>下一页</button>`;
         }
@@ -916,13 +1040,13 @@
         });
     }
 
-    // ========== 新增：执行搜索（含高级筛选，默认第1页） ==========
+    // ========== 新增：执行搜索（含高级筛选+状态，默认第1页） ==========
     function doSearch(keyword = '') {
         const minPrice = $('#minPrice').val().trim();
         const maxPrice = $('#maxPrice').val().trim();
         const areaId = $('#areaSelect').val().trim();
-        // 搜索时强制回到第1页
-        loadPriceList(keyword, minPrice, maxPrice, areaId, 1);
+        // 搜索时强制回到第1页，保留当前status
+        loadPriceList(keyword, minPrice, maxPrice, areaId, currentStatus, 1);
     }
 
     // ========== 新增：关键词标红处理 ==========
@@ -944,7 +1068,7 @@
     // ========== 新增：无结果提示渲染 ==========
     function renderNoResultHtml(keyword) {
         if (!keyword) {
-            return '<tr><td colspan="8" class="text-center">暂无客户专属价数据</td></tr>';
+            return '<tr><td colspan="9" class="text-center">暂无客户专属价数据</td></tr>';
         }
 
         // 拆分关键词，尝试精准提示
@@ -960,7 +1084,7 @@
             // 无法区分，显示通用提示
             return `
                 <tr>
-                    <td colspan="8" class="no-result">
+                    <td colspan="9" class="no-result">
                         <div>暂无匹配的客户专属价，请更换关键词重试</div>
                         <div class="action-btn">
                             <button class="btn btn-sm btn-primary" onclick="openAddModal()">新增专属价</button>
@@ -973,7 +1097,7 @@
         // 精准提示
         return `
             <tr>
-                <td colspan="8" class="no-result">
+                <td colspan="9" class="no-result">
                     <div>未找到<span class="highlight">${customerKeyword}</span>的<span class="highlight">${productKeyword}</span>专属价</div>
                     <div class="tips">
                         <span class="link-btn" onclick="searchCustomerAllPrice('${customerKeyword}')">查看${customerKeyword}的所有专属价 ▶</span> | 
@@ -1022,7 +1146,7 @@
             $('#minPrice').val('');
             $('#maxPrice').val('');
             $('#areaSelect').val('');
-            // 重新搜索（保留关键词）
+            // 重新搜索（保留关键词和状态）
             doSearch($('#searchInput').val().trim());
         });
 
@@ -1103,7 +1227,7 @@
     // 打开编辑弹窗（适配新输入框）
     function openEditModal(id) {
         currentPriceId = id;
-        $.get('/customer-manage/price/list/', function(res) {
+        $.get('/customer-manage/price/list/', { status: currentStatus }, function(res) {
             const item = res.data.find(p => p.id === id);  // 修改：res.data
             if (!item) {
                 alert('专属价记录不存在！');
@@ -1164,8 +1288,8 @@
         const remark = $('#priceRemark').val().trim();
 
         // 校验
-        if (!customerId) { alert('请选择客户！'); return; }
-        if (!productId && !currentPriceId) { alert('请选择商品！'); return; } // 编辑时不校验商品/客户
+        if (!customerId && !currentPriceId) { alert('请选择客户！'); return; } // 编辑时不校验
+        if (!productId && !currentPriceId) { alert('请选择商品！'); return; } // 编辑时不校验
         if (!customPrice || isNaN(customPrice) || parseFloat(customPrice) < 0) {
             alert('请输入有效的专属价格！');
             return;
@@ -1208,7 +1332,7 @@
         });
     }
 
-    // 删除专属价（原有逻辑不变）
+    // 删除专属价（原有逻辑不变，文案调整）
     function deletePrice(id) {
         // 修改确认文案
         if (!confirm('确定要禁用该专属价吗？禁用后开单将不再享受此优惠，但历史数据保留。')) return;
@@ -1225,6 +1349,26 @@
             error: function(xhr, status, error) {
                 console.error('禁用专属价失败：', xhr.responseText);
                 alert('禁用专属价失败！\n' + xhr.responseText);
+            }
+        });
+    }
+
+    // ========== 🔥 新增：启用专属价 ==========
+    function enablePrice(id) {
+        if (!confirm('确定要启用该专属价吗？启用后开单将恢复此优惠。')) return;
+        
+        $.ajax({
+            url: `/customer-manage/price/enable/${id}/`,
+            type: 'POST',
+            headers: {'X-CSRFToken': getCsrfToken()},
+            dataType: 'json',
+            success: function(res) {
+                alert(res.msg);
+                if (res.code === 1) loadPriceList();
+            },
+            error: function(xhr, status, error) {
+                console.error('启用专属价失败：', xhr.responseText);
+                alert('启用专属价失败！\n' + xhr.responseText);
             }
         });
     }
