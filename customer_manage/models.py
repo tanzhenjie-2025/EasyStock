@@ -48,6 +48,12 @@ class Customer(models.Model):
             models.Index(fields=['area', 'name']),  # 按区域搜客户，性能翻倍
         ]
 
+# ========== 专属价格软删除管理器 ==========
+class CustomerPriceManager(models.Manager):
+    def get_queryset(self):
+        # 默认只返回未禁用的专属价格
+        return super().get_queryset().filter(is_active=True)
+
 class CustomerPrice(models.Model):
     """客户商品专属价格表"""
     customer = models.ForeignKey(
@@ -60,10 +66,18 @@ class CustomerPrice(models.Model):
         on_delete=models.CASCADE,
         verbose_name='关联商品'
     )
-    custom_price = models.DecimalField('客户专属价', max_digits=10, decimal_places=2, db_index=True)  # 单字段索引
+    custom_price = models.DecimalField('客户专属价', max_digits=10, decimal_places=2, db_index=True)
     remark = models.CharField('定价备注', max_length=200, blank=True, default='')
     create_time = models.DateTimeField('创建时间', auto_now_add=True)
     update_time = models.DateTimeField('更新时间', auto_now=True)
+
+    # ========== 新增：软删除字段 ==========
+    is_active = models.BooleanField('是否启用', default=True, db_index=True)
+    disabled_time = models.DateTimeField('禁用时间', null=True, blank=True)
+
+    # ========== 新增：管理器 ==========
+    objects = CustomerPriceManager()  # 默认管理器：过滤禁用的
+    all_objects = models.Manager()  # 全量管理器
 
     def __str__(self):
         return f'{self.customer.name} - {self.product.name} - ¥{self.custom_price}'
@@ -71,15 +85,11 @@ class CustomerPrice(models.Model):
     class Meta:
         verbose_name = '客户专属价格'
         verbose_name_plural = '客户专属价格管理'
-        unique_together = ('customer', 'product')  # 自带唯一索引
+        unique_together = ('customer', 'product')
         ordering = ['-create_time']
-        # 🔥 修复：删除跨表双下划线，使用合法的模型直接字段创建索引
         indexes = [
-            # 优化：客户+价格 联合索引（替代原customer__area，完全满足查询需求）
             models.Index(fields=['customer', 'custom_price']),
-            # 修复：去掉负号，索引只写字段名
             models.Index(fields=['create_time']),
-            # 补充：商品+价格索引（优化商品价格筛选）
             models.Index(fields=['product', 'custom_price']),
         ]
 

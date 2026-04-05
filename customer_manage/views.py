@@ -706,11 +706,11 @@ def customer_price_edit(request, pk):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'编辑失败：{str(e)}'}, content_type='application/json')
 
-# ========== 删除客户价格（写操作，清理缓存） ==========
+# ========== 修改：禁用专属价（原删除接口） ==========
 @login_required
 @permission_required('customer_price_delete')
 def customer_price_delete(request, pk):
-    """删除客户专属价格"""
+    """禁用客户专属价格（软删除）"""
     try:
         cp = get_object_or_404(CustomerPrice, pk=pk)
         customer_name = cp.customer.name
@@ -719,20 +719,23 @@ def customer_price_delete(request, pk):
         product_standard_price = float(cp.product.price)
         remark = cp.remark if cp.remark else '无'
 
-        cp.delete()
+        # 软删除操作
+        cp.is_active = False
+        cp.disabled_time = timezone.now()
+        cp.save()
 
         create_operation_log(
             request=request,
-            op_type='delete',
+            op_type='disable',  # 操作类型改为 disable
             obj_type='customer_price',
             obj_id=pk,
             obj_name=f"{customer_name}-{product_name}",
-            detail=f"删除客户专属价：ID={pk}，客户={customer_name}，商品={product_name}，标准价={product_standard_price}元，专属价={custom_price}元，备注={remark}"
+            detail=f"禁用客户专属价：ID={pk}，客户={customer_name}，商品={product_name}，标准价={product_standard_price}元，专属价={custom_price}元，备注={remark}"
         )
         clear_customer_price_cache()
-        return JsonResponse({'code': 1, 'msg': '删除专属价成功'}, content_type='application/json')
+        return JsonResponse({'code': 1, 'msg': '禁用专属价成功'}, content_type='application/json')
     except Exception as e:
-        return JsonResponse({'code': 0, 'msg': f'删除失败：{str(e)}'}, content_type='application/json')
+        return JsonResponse({'code': 0, 'msg': f'禁用失败：{str(e)}'}, content_type='application/json')
 
 # ========== 客户专属价格管理页面入口（不缓存） ==========
 @login_required

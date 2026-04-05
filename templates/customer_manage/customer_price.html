@@ -803,7 +803,7 @@
                         <td>${item.remark || '无'}</td>
                         <td>
                             <button class="btn btn-sm btn-warning me-1" onclick="openEditModal(${item.id}); event.stopPropagation();">编辑</button>
-                            <button class="btn btn-sm btn-danger" onclick="deletePrice(${item.id}); event.stopPropagation();">删除</button>
+                            <button class="btn btn-sm btn-danger" onclick="deletePrice(${item.id}); event.stopPropagation();">禁用</button>
                         </td>
                     </tr>`;
                 });
@@ -1210,19 +1210,21 @@
 
     // 删除专属价（原有逻辑不变）
     function deletePrice(id) {
-        if (!confirm('确定删除该专属价吗？')) return;
+        // 修改确认文案
+        if (!confirm('确定要禁用该专属价吗？禁用后开单将不再享受此优惠，但历史数据保留。')) return;
+        
         $.ajax({
             url: `/customer-manage/price/delete/${id}/`,
             type: 'POST',
             headers: {'X-CSRFToken': getCsrfToken()},
             dataType: 'json',
             success: function(res) {
-                alert(res.msg);
+                alert(res.msg); // 后端返回“禁用成功”
                 if (res.code === 1) loadPriceList();
             },
-            error: function(err) {
-                alert('删除失败！');
-                console.error(err);
+            error: function(xhr, status, error) {
+                console.error('禁用专属价失败：', xhr.responseText);
+                alert('禁用专属价失败！\n' + xhr.responseText);
             }
         });
     }
