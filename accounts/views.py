@@ -236,7 +236,6 @@ def logout_view(request):
     logout(request)
     return redirect('/accounts/login/')
 
-# ========== 用户管理（核心优化） ==========
 @login_required
 @permission_required('user_view')
 def user_list(request):
@@ -247,11 +246,11 @@ def user_list(request):
     page_size = 10
 
     # 预加载角色，消除N+1
-    queryset = User.objects.select_related('role').all().order_by('-date_joined')
+    base_queryset = User.objects.select_related('role').all().order_by('-date_joined')
 
     # 关键词筛选
     if keyword:
-        queryset = queryset.filter(
+        base_queryset = base_queryset.filter(
             Q(user_code__icontains=keyword) |
             Q(username__icontains=keyword) |
             Q(phone__icontains=keyword) |
@@ -259,7 +258,13 @@ def user_list(request):
             Q(last_name__icontains=keyword)
         )
 
+    # 统计各状态数量（基于关键词筛选后）
+    all_count = base_queryset.count()
+    active_count = base_queryset.filter(is_active=True).count()
+    inactive_count = base_queryset.filter(is_active=False).count()
+
     # 状态筛选
+    queryset = base_queryset
     if status == 'active':
         queryset = queryset.filter(is_active=True)
     elif status == 'inactive':
@@ -310,6 +315,7 @@ def user_list(request):
         'users': users_page, 'roles': get_cached_roles(), 'keyword': keyword, 'status': status,
         'current_user': request.user, 'is_super_admin': is_super_admin, 'shop_stats': shop_stats,
         'paginator': paginator, 'page_obj': users_page,
+        'all_count': all_count, 'active_count': active_count, 'inactive_count': inactive_count,
     })
 
 @login_required

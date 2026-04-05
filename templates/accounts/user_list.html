@@ -18,9 +18,9 @@
     /* 其他列保持可换行，设置最小宽度避免过度挤压 */
     .col-username { min-width: 80px; }
     .col-name { min-width: 70px; }
-    .col-role { min-width: 50px; }
-    .col-create-time { min-width: 140px; }
-    .col-operation { min-width: 280px; }
+    .col-role { min-width: 30px; }
+    .col-create-time { min-width: 120px; }
+    .col-operation { min-width: 300px; }
 
     /* 优化状态徽章样式，减少内边距确保单行 */
     .status-badge { 
@@ -76,6 +76,19 @@
         margin-top: 10px;
         margin-bottom: 15px;
     }
+    /* 🔥 新增：Tab样式 */
+    .nav-tabs .nav-link.text-danger {
+        color: #dc3545;
+    }
+    .nav-tabs .nav-link.text-danger.active {
+        color: #dc3545;
+        border-color: #dee2e6 #dee2e6 #fff;
+    }
+    /* 🔥 新增：已停用用户行样式 */
+    .user-inactive-row {
+        background-color: #fff5f5;
+        color: #6c757d;
+    }
     .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
     .toast { padding: 12px 20px; border-radius: 4px; color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.15); animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s; opacity: 0; transform: translateX(100%); }
     .toast-success { background-color: #28a745; }
@@ -120,23 +133,40 @@
         {% endif %}
 
         <!-- 筛选表单 -->
-        <form method="get" class="mb-4 row g-3">
+        <form method="get" class="mb-4 row g-3" id="filterForm">
             <div class="col-md-4">
                 <input type="text" name="keyword" class="form-control form-control-sm" 
                        placeholder="搜索编号/用户名/电话/姓名" value="{{ keyword }}">
-            </div>
-            <div class="col-md-3">
-                <select name="status" class="form-select form-select-sm">
-                    <option value="all" {% if status == 'all' %}selected{% endif %}>所有状态</option>
-                    <option value="active" {% if status == 'active' %}selected{% endif %}>正常使用</option>
-                    <option value="inactive" {% if status == 'inactive' %}selected{% endif %}>已禁用</option>
-                </select>
             </div>
             <div class="col-md-2">
                 <button type="submit" class="btn btn-sm btn-outline-primary">搜索</button>
                 <a href="{% url 'accounts:user_list' %}" class="btn btn-sm btn-outline-secondary">重置</a>
             </div>
+            <!-- 隐藏的status输入框 -->
+            <input type="hidden" name="status" id="statusInput" value="{{ status }}">
         </form>
+
+        <!-- Tab切换 -->
+        <ul class="nav nav-tabs mb-3" id="statusTabs">
+            <li class="nav-item">
+                <a class="nav-link {% if status == 'all' %}active{% endif %}" 
+                   href="#" data-status="all">
+                    全部 ({{ all_count }})
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if status == 'active' %}active{% endif %}" 
+                   href="#" data-status="active">
+                    正常 ({{ active_count }})
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link {% if status == 'inactive' %}active{% endif %} text-danger" 
+                   href="#" data-status="inactive">
+                    已停用 ({{ inactive_count }})
+                </a>
+            </li>
+        </ul>
 
         <!-- 用户列表 -->
         <div class="table-responsive">
@@ -161,8 +191,8 @@
                 </thead>
                 <tbody>
                     {% for user in users %}
-                    <!-- 新增：class="clickable-row" 和 data-detail-url -->
-                    <tr class="clickable-row" data-detail-url="{% url 'accounts:user_detail' user.id %}">
+                    <!-- 🔥 整合：停用用户行视觉区分 -->
+                    <tr class="clickable-row {% if not user.is_active %}user-inactive-row{% endif %}" data-detail-url="{% url 'accounts:user_detail' user.id %}">
                         <td class="col-serial">{{ forloop.counter }}</td>
                         <td class="col-user-code">{{ user.user_code }}</td>
                         <td class="col-username">{{ user.username }}</td>
@@ -183,25 +213,32 @@
                             {% endif %}
                         </td>
                         {% if is_super_admin %}
-                        <!-- 恢复你原本能运行的取值方式，移除自定义过滤器 -->
-                        <!-- ✅ 正确代码 -->
-<td class="col-order-count">{{ user.orders|default:0 }}单</td>
-<td class="col-sales">{{ user.sales|default:0 }}元</td>
-<td class="col-ratio">{{ user.ratio|default:0 }}%</td>
+                        <td class="col-order-count">{{ user.orders|default:0 }}单</td>
+                        <td class="col-sales">{{ user.sales|default:0 }}元</td>
+                        <td class="col-ratio">{{ user.ratio|default:0 }}%</td>
                         {% endif %}
                         <td class="col-create-time">{{ user.date_joined|date:"Y-m-d H:i" }}</td>
                         <td class="col-operation">
-                            <div class="btn-group btn-group-sm">
-                                <!-- 新增：详情按钮 -->
-                                <a href="{% url 'accounts:user_detail' user.id %}" class="btn btn-outline-info">详情</a>
-                                <a href="{% url 'accounts:user_edit' user.id %}" class="btn btn-outline-primary">编辑</a>
-                                <button class="btn {% if user.is_active %}btn-outline-danger{% else %}btn-outline-success{% endif %} status-toggle-btn" 
-                                        data-user-id="{{ user.id }}" 
-                                        data-user-code="{{ user.user_code }}"
-                                        data-is-active="{% if user.is_active %}1{% else %}0{% endif %}">
-                                    {% if user.is_active %}禁用{% else %}启用{% endif %}
-                                </button>
-                                <button class="btn btn-outline-warning reset-password-btn"
+                            <!-- 🔥 整合：动态操作列 -->
+                            <div class="btn-group-action">
+                                <a href="{% url 'accounts:user_detail' user.id %}" class="btn btn-outline-info btn-sm">详情</a>
+                                {% if user.is_active %}
+                                    <a href="{% url 'accounts:user_edit' user.id %}" class="btn btn-outline-primary btn-sm">编辑</a>
+                                    <button class="btn btn-outline-danger btn-sm status-toggle-btn" 
+                                            data-user-id="{{ user.id }}" 
+                                            data-user-code="{{ user.user_code }}"
+                                            data-is-active="1">
+                                        停用
+                                    </button>
+                                {% else %}
+                                    <button class="btn btn-outline-success btn-sm status-toggle-btn" 
+                                            data-user-id="{{ user.id }}" 
+                                            data-user-code="{{ user.user_code }}"
+                                            data-is-active="0">
+                                        启用
+                                    </button>
+                                {% endif %}
+                                <button class="btn btn-outline-warning btn-sm reset-password-btn"
                                         data-user-id="{{ user.id }}"
                                         data-user-code="{{ user.user_code }}">
                                     重置密码
@@ -218,7 +255,7 @@
             </table>
         </div>
     
-    <!-- ✅ 新增：Bootstrap 分页控件 -->
+        <!-- Bootstrap 分页控件 -->
         {% if page_obj.has_other_pages %}
         <nav aria-label="Page navigation" class="mt-4">
             <ul class="pagination justify-content-center">
@@ -256,7 +293,7 @@
     </div>
 </div>
 
-<!-- 🔥 新增：导出字段选择模态框 -->
+<!-- 导出字段选择模态框 -->
 <div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -317,7 +354,6 @@
                 <div class="custom-fields-section">
                     <h6>自定义字段（用于手动填写）</h6>
                     <div id="customFieldsContainer">
-                        <!-- 自定义字段项将动态添加到这里 -->
                     </div>
                     <button type="button" class="btn btn-sm btn-outline-success btn-add-custom" onclick="addCustomField()">
                         + 添加自定义字段
@@ -359,7 +395,7 @@ function showToast(message, type = 'info', duration = 3000) {
     setTimeout(() => toast.remove(), duration);
 }
 
-// 🔥 新增：导入弹窗
+// 导入弹窗
 function showImportModal() {
     document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
     let overlay = document.createElement('div');
@@ -414,7 +450,7 @@ function showImportModal() {
                 showToast(res.msg, res.code === 1 ? 'success' : 'error');
                 if(res.code === 1) {
                     closeModal();
-                    window.location.reload(); // 刷新列表
+                    window.location.reload();
                 }
             },
             error: function(){
@@ -428,39 +464,27 @@ function showImportModal() {
     });
 }
 
-// ==================== 导出相关函数开始 ====================
-
-// 🔥 修改：导出按钮点击事件（打开模态框）
+// ==================== 导出相关函数 ====================
 function exportData() {
     showExportModal();
 }
-
-// 显示导出模态框
 function showExportModal() {
-    // 重置自定义字段
     customFieldCount = 0;
     $('#customFieldsContainer').empty();
     const modal = new bootstrap.Modal(document.getElementById('exportModal'));
     modal.show();
 }
-
-// 全选/取消全选字段
 function selectAllFields(isSelect) {
     $('input[name="export_fields"]').prop('checked', isSelect);
 }
-
-// 添加自定义字段
 function addCustomField() {
     customFieldCount++;
-    
-    // 获取所有可选的目标字段
     let targetFieldsHtml = '';
     $('input[name="export_fields"]').each(function() {
         const fieldValue = $(this).val();
         const fieldLabel = $(this).next('label').text();
         targetFieldsHtml += `<option value="${fieldValue}">${fieldLabel}</option>`;
     });
-    
     const customFieldHtml = `
     <div class="custom-field-item" data-index="${customFieldCount}">
         <input type="text" class="form-control form-control-sm custom-field-name" placeholder="字段名称（如：备注）" value="备注${customFieldCount}">
@@ -474,52 +498,33 @@ function addCustomField() {
         <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeCustomField(${customFieldCount})">×</button>
     </div>
     `;
-    
     $('#customFieldsContainer').append(customFieldHtml);
 }
-
-// 移除自定义字段
 function removeCustomField(index) {
     $(`.custom-field-item[data-index="${index}"]`).remove();
 }
-
-// 执行导出Excel
 function exportExcel() {
-    // 1. 获取选中的字段
     let selectedFields = [];
     $('input[name="export_fields"]:checked').each(function() {
         selectedFields.push($(this).val());
     });
-
     if (selectedFields.length === 0) {
         return alert('请至少选择一个导出字段');
     }
-
-    // 2. 获取自定义字段配置
     let customFields = [];
     $('.custom-field-item').each(function() {
         const name = $(this).find('.custom-field-name').val().trim();
         const position = $(this).find('.custom-field-position').val();
         const target = $(this).find('.custom-field-target').val();
-        
         if (name) {
-            customFields.push({
-                name: name,
-                position: position,
-                target: target
-            });
+            customFields.push({name: name,position: position,target: target});
         }
     });
-
-    // 3. 构建表单数据
     let formData = new FormData();
     formData.append('custom_fields', JSON.stringify(customFields));
-    
     selectedFields.forEach(field => {
         formData.append('fields[]', field);
     });
-
-    // 4. 发起导出请求
     $.ajax({
         url: '/accounts/api/user/export/',
         type: 'POST',
@@ -527,11 +532,8 @@ function exportExcel() {
         headers: {'X-CSRFToken': getCsrfToken()},
         processData: false,
         contentType: false,
-        xhrFields: {
-            responseType: 'blob'
-        },
+        xhrFields: {responseType: 'blob'},
         success: function(res, status, xhr) {
-            // 检查是否是错误响应
             const contentType = xhr.getResponseHeader('Content-Type');
             if (contentType && contentType.includes('application/json')) {
                 const reader = new FileReader();
@@ -542,12 +544,8 @@ function exportExcel() {
                 reader.readAsText(res);
                 return;
             }
-
-            // 关闭模态框
             const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
             modal.hide();
-
-            // 生成下载链接
             const url = window.URL.createObjectURL(res);
             const a = document.createElement('a');
             a.href = url;
@@ -565,16 +563,20 @@ function exportExcel() {
         }
     });
 }
-// ==================== 导出相关函数结束 ====================
 
-// 新增：整行点击跳转详情逻辑
+// 🔥 整合：Tab切换状态
+$(document).on('click', '#statusTabs .nav-link', function(e) {
+    e.preventDefault();
+    const status = $(this).data('status');
+    $('#statusInput').val(status);
+    $('#filterForm').submit();
+});
+
+// 🔥 整合：整行点击跳转详情（适配新按钮组）
 $(document).on('click', '.clickable-row', function(e) {
-    // 如果点击的是操作按钮组内的元素（按钮、图标等），则不触发行跳转
-    if ($(e.target).closest('.btn-group').length) {
+    if ($(e.target).closest('.btn-group-action').length) {
         return;
     }
-    
-    // 获取详情页URL并跳转
     const detailUrl = $(this).data('detail-url');
     if (detailUrl) {
         window.location.href = detailUrl;
