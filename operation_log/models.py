@@ -6,7 +6,7 @@ from django.utils import timezone
 class OperationLog(models.Model):
     """操作日志模型"""
     OPERATION_TYPE_CHOICES = (
-        ('create', '新增'), ('update', '修改'), ('delete', '删除'),
+        ('create', '新增'), ('update', '修改'), ('delete', '禁用'),
         ('query', '查询'), ('import', '导入'), ('export', '导出'),
         ('create_order', '开单'), ('cancel_order', '作废订单'), ('reopen_order', '重开订单'),
         ('enable_user', '启用用户'), ('disable_user', '禁用用户'),

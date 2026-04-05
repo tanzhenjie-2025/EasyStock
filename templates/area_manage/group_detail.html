@@ -247,7 +247,7 @@
     {% if group.id %}
     <div>
         <button class="btn btn-sm btn-warning me-2" onclick="editGroup({{ group.id }})">编辑</button>
-        <button class="btn btn-sm btn-danger" onclick="deleteGroup({{ group.id }})">删除</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteGroup({{ group.id }})">禁用</button>
     </div>
     {% endif %}
 {% endblock %}
@@ -342,14 +342,14 @@
             window.location.href = `/area-manage/group/`; // 返回列表页并触发编辑
         }
 
-        // 删除区域组
+        // 禁用区域组
         function deleteGroup(groupId) {
             if (!groupId) {
                 showToast('无效的区域组ID', 'error');
                 return;
             }
             
-            showConfirmModal('确定要删除该区域组吗？删除后不可恢复！', (confirm) => {
+            showConfirmModal('确定要禁用该区域组吗？', (confirm) => {
                 if(!confirm) return;
                 
                 $.ajax({
@@ -361,17 +361,17 @@
                     },
                     success: function(res) {
                         if(res && res.code === 1){
-                            showToast('区域组删除成功', 'success');
+                            showToast('区域组禁用成功', 'success');
                             setTimeout(() => {
                                 window.location.href = '/area-manage/group/';
                             }, 1500);
                         } else {
-                            showToast(res?.msg || '删除失败', 'error');
+                            showToast(res?.msg || '禁用失败', 'error');
                         }
                     },
                     error: function(xhr, status, error) {
-                        console.error('删除区域组失败：', xhr.responseText);
-                        showToast('删除区域组失败：' + error, 'error');
+                        console.error('禁用区域组失败：', xhr.responseText);
+                        showToast('禁用区域组失败：' + error, 'error');
                     }
                 });
             });

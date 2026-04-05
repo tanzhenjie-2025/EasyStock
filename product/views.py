@@ -73,7 +73,7 @@ def clear_product_all_cache():
         cache.delete(key)
 
 
-# ====================== 商品管理主页面（修复：分页COUNT(*)性能瓶颈） ======================
+# ====================== 商品管理主页面（适配软删除） ======================
 @permission_required(PERM_PRODUCT_VIEW)
 def product_manage(request):
     page = request.GET.get('page', 1)
@@ -87,15 +87,17 @@ def product_manage(request):
         paginator = cached_data['paginator']
         page_products = cached_data['page_products']
     else:
+        # ====================== 适配：Product.objects 已自动过滤 is_active=True ======================
         products_query = Product.objects.order_by('name').only(
-            'id', 'name', 'price', 'unit', 'stock'
+            'id', 'name', 'price', 'unit', 'stock', 'is_active'  # 新增：查询 is_active 字段
         )
+        # ====================== 适配：ProductAlias.objects 已自动过滤 is_active=True ======================
         alias_query = ProductAlias.objects.only('id', 'alias_name')
         products_query = products_query.prefetch_related(
             Prefetch('aliases', queryset=alias_query)
         )
 
-        # 搜索逻辑
+        # 搜索逻辑（不变）
         if keyword:
             alias_product_ids = ProductAlias.objects.filter(
                 Q(alias_name__icontains=keyword)
@@ -104,25 +106,22 @@ def product_manage(request):
                 Q(name__icontains=keyword) | Q(id__in=alias_product_ids)
             )
 
-        # ====================== 核心修复：分页COUNT(*)优化 ======================
-        # 缓存总条数，避免每次执行全表COUNT(*)
+        # 分页COUNT(*)优化（不变）
         count_cache_key = f"{CACHE_PREFIX_PRODUCT_COUNT}{keyword}"
         total_count = cache.get(count_cache_key)
         if total_count is None:
             total_count = products_query.count()
             cache.set(count_cache_key, total_count, CACHE_PAGINATION_COUNT)
 
-        # 手动分页：只查询当前页数据，不执行COUNT(*)
         page_size = 15
         offset = (int(page) - 1) * page_size
         page_products_qs = products_query[offset:offset + page_size]
 
-        # 构建轻量分页对象（复用Paginator接口，无COUNT(*)）
         paginator = Paginator(products_query, page_size)
-        paginator._count = total_count  # 直接赋值缓存的总数
+        paginator._count = total_count
         try:
             page_products = paginator.page(page)
-            page_products.object_list = page_products_qs  # 覆盖查询集
+            page_products.object_list = page_products_qs
         except PageNotAnInteger:
             page_products = paginator.page(1)
             page_products.object_list = products_query[:page_size]
@@ -130,7 +129,7 @@ def product_manage(request):
             page_products = paginator.page(paginator.num_pages)
             page_products.object_list = products_query[(paginator.num_pages - 1) * page_size:]
 
-        # 数据序列化
+        # ====================== 适配：序列化时传递 is_active 状态 ======================
         product_list = []
         for product in page_products:
             product_list.append({
@@ -140,7 +139,7 @@ def product_manage(request):
                 'unit': product.unit,
                 'stock': product.stock,
                 'aliases': [{'id': a.id, 'alias_name': a.alias_name} for a in product.aliases.all()],
-                'status': 1
+                'status': 1 if product.is_active else 0  # 新增：传递状态给前端
             })
 
         cache.set(cache_key, {
@@ -149,7 +148,7 @@ def product_manage(request):
             'page_products': page_products
         }, CACHE_COMMON)
 
-    # 区域缓存
+    # 区域缓存（不变）
     areas = cache.get(KEY_AREA)
     if not areas:
         areas = list(Area.objects.only('id', 'name'))
@@ -248,22 +247,25 @@ def product_edit(request, pk):
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
 
+# ====================== 商品删除（适配软删除） ======================
 @permission_required(PERM_PRODUCT_DELETE)
 def product_delete(request, pk):
     try:
-        product = get_object_or_404(Product, pk=pk)
+        # ====================== 适配：使用 all_objects 确保能找到待删除的商品 ======================
+        product = get_object_or_404(Product.all_objects, pk=pk)
         product_name = product.name
+        # ====================== 适配：调用重写的 delete() 方法实现软删除 ======================
         product.delete()
 
         create_operation_log(
             request=request, op_type='delete', obj_type='product',
-            obj_id=pk, obj_name=product_name, detail=f"删除商品：名称={product_name}，ID={pk}"
+            obj_id=pk, obj_name=product_name, detail=f"禁用商品：名称={product_name}，ID={pk}"
         )
 
         clear_product_all_cache()
-        return JsonResponse({'code': 1, 'msg': '商品删除成功'})
+        return JsonResponse({'code': 1, 'msg': '商品禁用成功'})
     except Exception as e:
-        return JsonResponse({'code': 0, 'msg': f'删除失败：{str(e)}'})
+        return JsonResponse({'code': 0, 'msg': f'禁用失败：{str(e)}'})
 
 
 # ====================== 别名CRUD（无修改） ======================
@@ -296,24 +298,27 @@ def alias_add(request):
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
 
+# ====================== 别名删除（适配软删除） ======================
 @permission_required(PERM_PRODUCT_ALIAS_DELETE)
 def alias_delete(request, pk):
     try:
-        alias = get_object_or_404(ProductAlias, pk=pk)
+        # ====================== 适配：使用 all_objects 确保能找到待删除的别名 ======================
+        alias = get_object_or_404(ProductAlias.all_objects, pk=pk)
         product_name = alias.product.name
         alias_name = alias.alias_name
+        # ====================== 适配：调用重写的 delete() 方法实现软删除 ======================
         alias.delete()
 
         create_operation_log(
             request=request, op_type='delete', obj_type='product_alias',
             obj_id=pk, obj_name=f"{product_name}-{alias_name}",
-            detail=f"删除商品【{product_name}】的别名：{alias_name}"
+            detail=f"禁用商品【{product_name}】的别名：{alias_name}"
         )
 
         clear_product_all_cache()
-        return JsonResponse({'code': 1, 'msg': '别名删除成功'})
+        return JsonResponse({'code': 1, 'msg': '别名禁用成功'})
     except Exception as e:
-        return JsonResponse({'code': 0, 'msg': f'删除失败：{str(e)}'})
+        return JsonResponse({'code': 0, 'msg': f'禁用失败：{str(e)}'})
 
 
 # ====================== 商品数据接口（无修改） ======================

@@ -451,7 +451,7 @@
                         <button class="btn btn-primary row-btn" onclick="editProduct({{ product.id }}); event.stopPropagation();" 
                                 style="padding: 4px 10px; font-size: 12px; margin-right: 5px;">编辑</button>
                         <button class="btn btn-danger row-btn" onclick="deleteProduct({{ product.id }}); event.stopPropagation();" 
-                                style="padding: 4px 10px; font-size: 12px;">删除</button>
+                                style="padding: 4px 10px; font-size: 12px;">禁用</button>
                     </td>
                 </tr>
                 {% empty %}
@@ -899,7 +899,7 @@
         }
 
         async function deleteProduct(productId) {
-            if (!confirm('确定要删除这个商品吗？删除后别名也会被移除！')) return;
+            if (!confirm('确定要禁用这个商品吗？禁用后别名也会被移除！')) return;
 
             try {
                 const res = await fetch(`/product/delete/${productId}/`, {
@@ -914,7 +914,7 @@
                     showMsg(data.msg, false);
                 }
             } catch (error) {
-                showMsg('删除商品失败：' + error.message, false);
+                showMsg('禁用商品失败：' + error.message, false);
                 console.error(error);
             }
         }
@@ -960,7 +960,7 @@
         }
 
         async function deleteEditAlias(aliasId) {
-            if (!confirm('确定要删除这个别名吗？')) return;
+            if (!confirm('确定禁用这个别名吗？')) return;
 
             try {
                 const res = await fetch(`/product/alias/delete/${aliasId}/`, {
@@ -976,13 +976,13 @@
                     showMsg(data.msg, false);
                 }
             } catch (error) {
-                showMsg('删除别名失败：' + error.message, false);
+                showMsg('禁用别名失败：' + error.message, false);
                 console.error(error);
             }
         }
 
         async function deleteAlias(aliasId) {
-            if (!confirm('确定要删除这个别名吗？')) return;
+            if (!confirm('确定要禁用这个别名吗？')) return;
 
             try {
                 const res = await fetch(`/product/alias/delete/${aliasId}/`, {
@@ -997,7 +997,7 @@
                     showMsg(data.msg, false);
                 }
             } catch (error) {
-                showMsg('删除别名失败：' + error.message, false);
+                showMsg('禁用别名失败：' + error.message, false);
                 console.error(error);
             }
         }
@@ -1205,7 +1205,7 @@
             tr.innerHTML = `
                 <td class="serial-cell">${tbody.children.length+1}</td>
                 <td></td><td></td><td></td>
-                <td><button class="btn-del" onclick="deleteStockRow(this)">删除</button></td>`;
+                <td><button class="btn-del" onclick="deleteStockRow(this)">禁用</button></td>`;
             tr.cells[1].appendChild(createStockInputElement('text','stock-name-input','商品名称/拼音'));
             tr.cells[2].appendChild(createStockInputElement('number','stock-in-input','入库数量',0));
             tr.cells[3].appendChild(createStockInputElement('number','stock-out-input','出库数量',0));
