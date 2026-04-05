@@ -1,4 +1,3 @@
-{#customer.html 此注释用于标识代码段别删#}
 {% extends "base.html" %}
 
 <!-- 页面标题 -->
@@ -172,35 +171,80 @@
         padding: 20px;
     }
 
-    /* ========== 新增：整行hover高亮样式 ========== */
-    #customerList tr {
-        transition: background-color 0.2s ease;
-        cursor: pointer; /* 提示行可点击 */
+    /* ========== 新增：状态Tab切换样式 ========== */
+    .status-tabs {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 15px;
+        border-bottom: 2px solid #e9ecef;
+        padding-bottom: 10px;
     }
-    #customerList tr:hover {
-        background-color: #f0f8ff; /* 浅蓝色高亮，可自定义 */
+    .status-tab {
+        padding: 8px 16px;
+        border: none;
+        background: none;
+        cursor: pointer;
+        font-size: 14px;
+        color: #666;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -12px;
+        transition: all 0.2s;
     }
-    /* 操作列重置光标，避免误导 */
-    #customerList tr td:last-child {
-        cursor: default;
+    .status-tab:hover {
+        color: #007bff;
     }
-    
+    .status-tab.active {
+        color: #007bff;
+        border-bottom-color: #007bff;
+        font-weight: bold;
+    }
+    .status-tab.disabled-tab {
+        color: #dc3545;
+    }
+    .status-tab.disabled-tab.active {
+        border-bottom-color: #dc3545;
+    }
+    .tab-count {
+        margin-left: 4px;
+        color: #999;
+        font-weight: normal;
+    }
+
+    /* ========== 新增：已停用行样式 ========== */
+    .disabled-row {
+        background-color: #fff5f5 !important;
+        color: #999;
+    }
+    .disabled-row:hover td {
+        background-color: #ffe6e6 !important;
+    }
+    .status-badge {
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+    }
+    .status-badge.active {
+        background-color: #d4edda;
+        color: #155724;
+    }
+    .status-badge.disabled {
+        background-color: #f8d7da;
+        color: #721c24;
+    }
+
     /* ========== 优化：整行hover浅灰色高亮样式 ========== */
     #customerList tr {
         transition: all 0.2s ease;
-        cursor: pointer; /* 提示行可点击 */
+        cursor: pointer;
         position: relative;
     }
-    /* 关键：针对td设置背景色，确保整行内容高亮（覆盖Bootstrap默认样式） */
     .table-bordered #customerList tr:hover td {
-        background-color: #f1f1f1 !important; /* 浅灰色，通用且不刺眼 */
+        background-color: #f1f1f1 !important;
     }
-    /* 表头排除hover效果，保持原有样式 */
     #customerList thead tr:hover th {
         background-color: inherit !important;
         cursor: default;
     }
-    /* 操作列重置光标，避免误导 */
     #customerList tr td:last-child {
         cursor: default;
     }
@@ -236,6 +280,8 @@
      <h3>客户管理</h3>
 </div>
 
+    
+
     <!-- ========== 新增：搜索组件 ========== -->
     <div class="search-container">
         <div class="search-input-wrapper">
@@ -267,6 +313,19 @@
         <button class="btn btn-sm btn-info ms-2" onclick="showExportModal()">📥 导出数据</button>
         <button class="btn btn-sm btn-warning ms-2" onclick="showImportModal()">📤 导入数据</button>
     </div>
+    
+    <!-- ========== 新增：状态Tab切换 ========== -->
+    <div class="status-tabs">
+        <button class="status-tab active" data-status="all" onclick="switchStatus('all')">
+            全部 <span class="tab-count" id="tabAllCount">(0)</span>
+        </button>
+        <button class="status-tab" data-status="active" onclick="switchStatus('active')">
+            正常 <span class="tab-count" id="tabActiveCount">(0)</span>
+        </button>
+        <button class="status-tab disabled-tab" data-status="disabled" onclick="switchStatus('disabled')">
+            已停用 <span class="tab-count" id="tabDisabledCount">(0)</span>
+        </button>
+    </div>
 
     <table class="table table-sm table-bordered">
         <thead class="table-light">
@@ -277,6 +336,7 @@
                 <th>联系电话</th>
                 <th>总消费金额</th>
                 <th>总欠款</th>
+                <th>状态</th> <!-- 新增：状态列 -->
                 <th>备注</th>
                 <th>操作</th>
             </tr>
@@ -452,6 +512,7 @@
     let customerSuggestList = []; // 还款登记的客户搜索列表
     let searchTimer = null;      // 实时搜索防抖定时器
     let currentKeyword = '';     // 当前搜索关键词
+    let currentStatus = 'all';   // 新增：当前状态筛选
     let customFieldCount = 0;    // 导出用：自定义字段计数器
 
     // 页面加载初始化
@@ -460,6 +521,24 @@
         loadCustomerList();  // 加载客户列表
         loadRecentSearches(); // 加载最近搜索记录
     });
+
+    // ========== 新增：状态切换函数 ==========
+    function switchStatus(status) {
+        currentStatus = status;
+        // 更新Tab样式
+        $('.status-tab').removeClass('active');
+        $(`.status-tab[data-status="${status}"]`).addClass('active');
+        // 重新加载列表
+        loadCustomerList();
+    }
+
+    // ========== 新增：更新Tab数量 ==========
+    function updateTabCounts(counts) {
+        if (!counts) return;
+        $('#tabAllCount').text(`(${counts.all || 0})`);
+        $('#tabActiveCount').text(`(${counts.active || 0})`);
+        $('#tabDisabledCount').text(`(${counts.disabled || 0})`);
+    }
 
     // ========== 新增：搜索相关核心函数 ==========
     function loadRecentSearches() {
@@ -512,11 +591,17 @@
         if (keyword) saveRecentSearch(keyword);
         
         let url = '/customer-manage/customer/list/';
-        if (keyword) url += `?keyword=${encodeURIComponent(keyword)}`;
+        let params = [];
+        if (keyword) params.push(`keyword=${encodeURIComponent(keyword)}`);
+        if (currentStatus) params.push(`status=${currentStatus}`);
+        if (params.length > 0) url += '?' + params.join('&');
         
         $.get(url, function(res) {
             let html = '';
             if (Array.isArray(res) && res.length > 0) {
+                // 更新Tab数量
+                if (res[0].counts) updateTabCounts(res[0].counts);
+                
                 res.forEach(customer => {
                     const totalDebt = customer.total_debt ? customer.total_debt.toFixed(2) : '0.00';
                     const totalConsumption = customer.total_consumption ? customer.total_consumption.toFixed(2) : '0.00';
@@ -525,23 +610,41 @@
                     let areaName = highlightKeyword(customer.area_name || '无', keyword);
                     let id = highlightKeyword(customer.id.toString(), keyword);
                     
-                    html += `<tr onclick="openCustomerDetail(${customer.id})">
+                    // 状态相关
+                    const isActive = customer.is_active;
+                    const rowClass = isActive ? '' : 'disabled-row';
+                    const statusBadge = isActive 
+                        ? '<span class="status-badge active">正常</span>' 
+                        : '<span class="status-badge disabled">已停用</span>';
+                    
+                    // 操作列按钮
+                    let actionBtns = '';
+                    if (isActive) {
+                        actionBtns = `
+                            <button class="btn btn-sm btn-info me-1" onclick="openCustomerDetail(${customer.id}); event.stopPropagation();">详情</button>
+                            <button class="btn btn-sm btn-warning me-1" onclick="openEditModal(${customer.id}); event.stopPropagation();">编辑</button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteCustomer(${customer.id}); event.stopPropagation();">停用</button>
+                        `;
+                    } else {
+                        actionBtns = `
+                            <button class="btn btn-sm btn-success" onclick="enableCustomer(${customer.id}); event.stopPropagation();">启用</button>
+                        `;
+                    }
+                    
+                    html += `<tr class="${rowClass}" onclick="openCustomerDetail(${customer.id})">
                         <td>${id}</td>
                         <td>${name}</td>
                         <td>${areaName}</td>
                         <td>${phone}</td>
                         <td>¥${totalConsumption}</td>
                         <td class="debt-red">¥${totalDebt}</td>
+                        <td>${statusBadge}</td>
                         <td>${customer.remark || '无'}</td>
-                        <td>
-                            <button class="btn btn-sm btn-info me-1" onclick="openCustomerDetail(${customer.id}); event.stopPropagation();">详情</button>
-                            <button class="btn btn-sm btn-warning me-1" onclick="openEditModal(${customer.id}); event.stopPropagation();">编辑</button>
-                            <button class="btn btn-sm btn-danger" onclick="deleteCustomer(${customer.id}); event.stopPropagation();">禁用</button>
-                        </td>
+                        <td>${actionBtns}</td>
                     </tr>`;
                 });
             } else {
-                html = '<tr><td colspan="8" class="no-result">暂无匹配的客户，请更换关键词重试</td></tr>';
+                html = '<tr><td colspan="9" class="no-result">暂无匹配的客户，请更换关键词重试</td></tr>';
             }
             $('#customerList').html(html);
             $('#searchInput').focus();
@@ -649,7 +752,6 @@
     }
 
     function deleteCustomer(id) {
-        // 修改确认文案
         if (!confirm('确定要禁用该客户吗？禁用后该客户将无法开单，但历史数据保留。')) return;
         
         $.ajax({
@@ -658,12 +760,32 @@
             headers: {'X-CSRFToken': getCsrfToken()},
             dataType: 'json',
             success: function(res) {
-                alert(res.msg); // 后端返回“禁用成功”
+                alert(res.msg);
                 if (res.code === 1) loadCustomerList();
             },
             error: function(xhr, status, error) {
                 console.error('禁用客户失败：', xhr.responseText);
                 alert('禁用客户失败！\n' + xhr.responseText);
+            }
+        });
+    }
+
+    // ========== 新增：启用客户函数 ==========
+    function enableCustomer(id) {
+        if (!confirm('确定要启用该客户吗？')) return;
+        
+        $.ajax({
+            url: `/customer-manage/customer/enable/${id}/`,
+            type: 'POST',
+            headers: {'X-CSRFToken': getCsrfToken()},
+            dataType: 'json',
+            success: function(res) {
+                alert(res.msg);
+                if (res.code === 1) loadCustomerList();
+            },
+            error: function(xhr, status, error) {
+                console.error('启用客户失败：', xhr.responseText);
+                alert('启用客户失败！\n' + xhr.responseText);
             }
         });
     }

@@ -89,47 +89,45 @@ def full_to_half(s):
     return ''.join(result)
 
 # ========== 客户列表（手动缓存） ==========
+# ========== 客户列表（手动缓存，支持状态筛选） ==========
 @login_required
 @permission_required('customer_view')
 def customer_list(request):
-    """优化版：无N+1、批量聚合、带分页 + 手动缓存"""
+    """优化版：无N+1、批量聚合、带分页 + 手动缓存 + 状态筛选"""
     try:
         keyword = request.GET.get('keyword', '').strip()
+        status = request.GET.get('status', 'all')  # all/active/disabled
         page = request.GET.get('page', 1)
         page_size = 10
 
-        cache_key = f"{CACHE_PREFIX_CUSTOMER_LIST}{request.user.id}_{keyword}_{page}"
+        cache_key = f"{CACHE_PREFIX_CUSTOMER_LIST}{request.user.id}_{keyword}_{status}_{page}"
         cached_data = cache.get(cache_key)
         if cached_data:
             return JsonResponse(cached_data, safe=False)
 
-        unpaid_subquery = Order.objects.filter(
-            customer=OuterRef('pk'),
-            status__in=['pending', 'printed', 'reopened'],
-            is_settled=False
-        ).values('customer').annotate(
-            total=Sum('total_amount')
-        ).values('total')
-
-        consumption_subquery = Order.objects.filter(
-            customer=OuterRef('pk'),
-            status__in=['pending', 'printed', 'reopened']
-        ).values('customer').annotate(
-            total=Sum('total_amount')
-        ).values('total')
-
-        paid_subquery = RepaymentRecord.objects.filter(
-            customer=OuterRef('pk')
-        ).values('customer').annotate(
-            total=Sum('repayment_amount')
-        ).values('total')
-
-        customers = Customer.objects.all().select_related('area').annotate(
-            unpaid_amount=Coalesce(Subquery(unpaid_subquery), 0, output_field=DecimalField()),
-            total_consumption=Coalesce(Subquery(consumption_subquery), 0, output_field=DecimalField()),
-            paid_amount=Coalesce(Subquery(paid_subquery), 0, output_field=DecimalField()),
+        # 使用 all_objects 获取包含禁用的所有客户
+        customers = Customer.all_objects.all().select_related('area').annotate(
+            unpaid_amount=Coalesce(Subquery(Order.objects.filter(
+                customer=OuterRef('pk'),
+                status__in=['pending', 'printed', 'reopened'],
+                is_settled=False
+            ).values('customer').annotate(total=Sum('total_amount')).values('total')), 0, output_field=DecimalField()),
+            total_consumption=Coalesce(Subquery(Order.objects.filter(
+                customer=OuterRef('pk'),
+                status__in=['pending', 'printed', 'reopened']
+            ).values('customer').annotate(total=Sum('total_amount')).values('total')), 0, output_field=DecimalField()),
+            paid_amount=Coalesce(Subquery(RepaymentRecord.objects.filter(
+                customer=OuterRef('pk')
+            ).values('customer').annotate(total=Sum('repayment_amount')).values('total')), 0, output_field=DecimalField()),
         )
 
+        # 状态筛选
+        if status == 'active':
+            customers = customers.filter(is_active=True)
+        elif status == 'disabled':
+            customers = customers.filter(is_active=False)
+
+        # 关键词筛选
         if keyword:
             id_q = Q()
             if keyword.isdigit():
@@ -140,6 +138,11 @@ def customer_list(request):
                 id_q |
                 Q(area__name__icontains=keyword)
             )
+
+        # 计算各状态数量（用于Tab显示）
+        all_count = Customer.all_objects.count()
+        active_count = Customer.objects.count()  # 默认管理器只返回active
+        disabled_count = all_count - active_count
 
         paginator = Paginator(customers, page_size)
         try:
@@ -162,14 +165,48 @@ def customer_list(request):
                 'remark': c.remark or '',
                 'total_debt': total_debt,
                 'total_consumption': float(c.total_consumption),
+                'is_active': c.is_active,  # 新增：返回状态
                 'page': int(page),
-                'total': paginator.count
+                'total': paginator.count,
+                'counts': {  # 新增：返回各状态数量
+                    'all': all_count,
+                    'active': active_count,
+                    'disabled': disabled_count
+                }
             })
 
         cache.set(cache_key, result, CACHE_HIGH_PRIORITY)
         return JsonResponse(result, safe=False)
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'})
+
+# ========== 新增：启用客户 ==========
+@login_required
+@permission_required('customer_delete')  # 复用删除权限
+def customer_enable(request, pk):
+    """启用客户接口"""
+    try:
+        customer = get_object_or_404(Customer.all_objects, pk=pk)
+        customer_name = customer.name
+
+        # 启用操作
+        customer.is_active = True
+        customer.disabled_time = None
+        customer.save()
+
+        create_operation_log(
+            request=request,
+            op_type='enable',
+            obj_type='customer',
+            obj_id=pk,
+            obj_name=customer_name,
+            detail=f"启用客户：{customer_name}"
+        )
+
+        clear_customer_cache(customer_id=pk)
+        return JsonResponse({'code': 1, 'msg': '启用客户成功'}, content_type='application/json')
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': f'启用失败：{str(e)}'}, content_type='application/json')
 
 # ========== 客户详情（手动缓存） ==========
 @login_required
