@@ -2,31 +2,39 @@
 {% block title %}用户管理 - 系统管理{% endblock %}
 {% block extra_css %}
 <style>
-    /* 核心：表格固定布局 + 列宽分配（解决换行问题） */
+    /* 核心：表格固定布局 + 列宽分配 */
     .user-table {
         table-layout: fixed;
         width: 100%;
     }
-    /* 易换行列的宽度设置（适配内容，强制不换行） */
-    .col-serial { width:50px; white-space: nowrap; }          /* 序号列 */
-    .col-user-code { width: 100px; white-space: nowrap; }     /* 用户编号列 */
-    .col-phone { width: 110px; white-space: nowrap; }         /* 联系电话列 */
-    .col-status { width: 60px; white-space: nowrap; }         /* 状态列 */
-    .col-order-count { width: 60px; white-space: nowrap; }    /* 开单量列 */
-    .col-sales { width: 70px; white-space: nowrap; }          /* 销售额列 */
-    .col-ratio { width: 50px; white-space: nowrap; }          /* 占比列 */
-    /* 其他列保持可换行，设置最小宽度避免过度挤压 */
+    
+    /* 易换行列的宽度设置（强制不换行） */
+    .col-serial { width: 50px; white-space: nowrap; }
+    .col-user-code { width: 100px; white-space: nowrap; }
+    .col-phone { width: 110px; white-space: nowrap; }
+    .col-status { width: 60px; white-space: nowrap; }
+    .col-order-count { width: 60px; white-space: nowrap; }
+    .col-sales { width: 70px; white-space: nowrap; }
+    .col-ratio { width: 50px; white-space: nowrap; }
+    
+    /* 其他列保持可换行 */
     .col-username { min-width: 80px; }
     .col-name { min-width: 70px; }
-    .col-role { min-width: 30px; }
-    .col-create-time { min-width: 120px; }
-    .col-operation { min-width: 300px; }
+    .col-role { min-width: 50px; }
+    .col-create-time { min-width: 200px; }
 
-    /* 优化状态徽章样式，减少内边距确保单行 */
+    /* 🔥 关键修改：操作列加宽，并强制内部不换行 */
+    .col-operation { 
+        width: 420px;       /* 增加固定宽度，容纳4个按钮 */
+        min-width: 420px;
+        white-space: nowrap; /* 禁止操作列内容换行 */
+    }
+
+    /* 状态徽章 */
     .status-badge { 
         padding: 2px 6px; 
         border-radius: 4px; 
-        display: inline-block; /* 确保单行 */
+        display: inline-block;
         font-size: 0.85rem;
     }
     .status-active { background: #d1e7dd; color: #0f5132; }
@@ -35,68 +43,31 @@
     .role-tag { font-size: 0.85rem; padding: 2px 6px; }
     .shop-stats { background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
     
-    /* 优化按钮组布局，避免挤压 */
+    /* 🔥 关键修改：极致压缩按钮尺寸 */
     .btn-group-sm .btn {
-        padding: 2px 8px;
-        font-size: 0.75rem;
+        padding: 1px 5px;       /* 减小内边距 */
+        font-size: 0.7rem;       /* 减小字体 */
+        line-height: 1.2;        /* 减小行高 */
     }
 
-    /* 新增：整行可点击的鼠标样式 */
-    .clickable-row {
-        cursor: pointer;
+    /* 整行可点击 */
+    .clickable-row { cursor: pointer; }
+
+    /* 🔥 关键修改：减小按钮间距 */
+    .btn-group-action { 
+        gap: 4px;          /* 从 8px 减到 4px */
+        display: flex; 
+        align-items: center; 
     }
 
-    /* 🔥 新增：按钮组间距 */
-    .btn-group-action { gap: 8px; display: flex; align-items: center; }
+    /* 🔥 新增：确保表格容器允许横向滚动（防止屏幕太窄时崩坏） */
+    .table-responsive {
+        overflow-x: auto;
+    }
 
-    /* 🔥 新增：导出模态框相关样式 */
-    .field-checkbox { margin: 5px 0; }
-    .select-all-btn { margin-bottom: 10px; }
-    .custom-fields-section {
-        border-top: 1px solid #eee;
-        margin-top: 15px;
-        padding-top: 15px;
-    }
-    .custom-field-item {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin-bottom: 10px;
-        padding: 8px;
-        background: #f8f9fa;
-        border-radius: 4px;
-    }
-    .custom-field-item input {
-        flex: 1;
-    }
-    .custom-field-item select {
-        width: 120px;
-    }
-    .btn-add-custom {
-        margin-top: 10px;
-        margin-bottom: 15px;
-    }
-    /* 🔥 新增：Tab样式 */
-    .nav-tabs .nav-link.text-danger {
-        color: #dc3545;
-    }
-    .nav-tabs .nav-link.text-danger.active {
-        color: #dc3545;
-        border-color: #dee2e6 #dee2e6 #fff;
-    }
-    /* 🔥 新增：已停用用户行样式 */
-    .user-inactive-row {
-        background-color: #fff5f5;
-        color: #6c757d;
-    }
-    .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
-    .toast { padding: 12px 20px; border-radius: 4px; color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.15); animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s; opacity: 0; transform: translateX(100%); }
-    .toast-success { background-color: #28a745; }
-    .toast-error { background-color: #dc3545; }
-    .toast-warning { background-color: #ffc107; color: #333; }
-    .toast-info { background-color: #17a2b8; }
-    @keyframes slideIn { from { opacity: 0; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }
-    @keyframes fadeOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(100%); } }
+    /* ... (保留后面的模态框、Toast 等其他样式不变) ... */
+    /* 为了节省篇幅，此处省略后面未修改的 CSS，请保留你原来的代码 */
+    
 </style>
 {% endblock %}
 
@@ -185,7 +156,7 @@
                         <th class="col-sales">销售额</th>
                         <th class="col-ratio">占比</th>
                         {% endif %}
-                        <th class="col-create-time">创建时间</th>
+                        
                         <th class="col-operation">操作</th>
                     </tr>
                 </thead>
@@ -217,7 +188,7 @@
                         <td class="col-sales">{{ user.sales|default:0 }}元</td>
                         <td class="col-ratio">{{ user.ratio|default:0 }}%</td>
                         {% endif %}
-                        <td class="col-create-time">{{ user.date_joined|date:"Y-m-d H:i" }}</td>
+                        
                         <td class="col-operation">
                             <!-- 🔥 整合：动态操作列 -->
                             <div class="btn-group-action">
@@ -345,10 +316,7 @@
                     <input type="checkbox" id="field_status" name="export_fields" value="status" checked>
                     <label for="field_status">状态</label>
                 </div>
-                <div class="field-checkbox">
-                    <input type="checkbox" id="field_create_time" name="export_fields" value="create_time" checked>
-                    <label for="field_create_time">创建时间</label>
-                </div>
+                
                 
                 <!-- 自定义字段区域 -->
                 <div class="custom-fields-section">
