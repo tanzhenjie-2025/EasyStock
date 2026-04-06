@@ -8,15 +8,13 @@ from .models import Order, OrderItem
 from product.models import Product, ProductAlias
 from customer_manage.models import Customer, CustomerPrice
 from area_manage.models import Area
-from summary.models import DailySalesSummary
 
 from django.db.models import Q, Sum, Count, Case, When, DecimalField
 import json
 from datetime import datetime, timedelta
-from .utils import generate_daily_summary, auto_summary_yesterday
 from django.contrib.auth.decorators import login_required
 from functools import wraps
-import decimal  # 新增：导入decimal模块处理金额
+import decimal
 
 from django.core.cache import cache
 
@@ -41,7 +39,7 @@ PERM_ORDER_UNSETTLE = 'order_unsettle'
 PERM_ORDER_SUMMARY = 'order_summary'
 PERM_PRODUCT_SEARCH = 'product_search'
 
-# ========== 新增：订单模块缓存时长常量（统一管理） ==========
+# ========== 订单模块缓存时长常量（统一管理） ==========
 CACHE_STOCK_LIST = 60  # 库存列表：60秒
 CACHE_ORDER_LIST = 60  # 订单列表：60秒
 CACHE_ORDER_DETAIL = 120  # 订单详情：2分钟
@@ -50,7 +48,7 @@ CACHE_CUSTOMER_RECENT_PRODUCT = 60  # 客户最近商品：60秒
 CACHE_PRODUCT_SEARCH = 30  # 商品搜索：30秒
 CACHE_CUSTOMER_SEARCH = 10  # 客户搜索：10秒
 
-# ========== 新增：订单模块缓存 Key 定义 ==========
+# ========== 订单模块缓存 Key 定义 ==========
 CACHE_PREFIX_STOCK_LIST = "stock_list_"
 CACHE_PREFIX_ORDER_LIST = "order_list_"
 CACHE_PREFIX_ORDER_DETAIL = "order_detail_"
@@ -59,7 +57,7 @@ CACHE_PREFIX_PRODUCT_SEARCH = "product_search_"
 CACHE_PREFIX_CUSTOMER_SEARCH = "customer_search_"
 CACHE_PREFIX_CUSTOMER_RECENT_PRODUCT = "customer_recent_products_"
 
-# ========== 🔥 新增：订单有效状态常量（索引前缀核心字段） ==========
+# ==========  订单有效状态常量（索引前缀核心字段） ==========
 ORDER_STATUS_VALID = ['pending', 'printed', 'reopened']
 
 import logging
@@ -991,7 +989,7 @@ def batch_settle_order(request):
 @login_required
 @permission_required(PERM_PRODUCT_SEARCH)
 def get_customer_recent_products(request):
-    """获取客户最近购买的商品（手动缓存版）"""
+    """获取客户最近购买的商品（最近5单汇总版）"""
     customer_id = request.GET.get('customer_id', '').strip()
     if not customer_id:
         return JsonResponse({'code': 0, 'msg': '请选择客户', 'data': []})
@@ -1003,47 +1001,62 @@ def get_customer_recent_products(request):
         return JsonResponse({'code': 1, 'data': cached_data})
 
     try:
-        # ============== 🔥 索引核心优化：补充is_settled，完整匹配索引2 ==============
-        # 索引2：status + is_settled + customer + create_time → 100%命中
-        customer_orders = Order.objects.filter(
+        # ============== 🔥 第一步：获取最近 5 单的 ID ==============
+        # 利用索引 (status, is_settled, customer, create_time) 高效查询
+        recent_order_ids = Order.objects.filter(
             customer_id=customer_id,
-            status__in=ORDER_STATUS_VALID,
-            is_settled=False  # 🔥 新增：索引前缀必填字段
-        ).order_by('-create_time')[:50].prefetch_related('items__product')
+            status__in=ORDER_STATUS_VALID,  # 只看有效订单
+            is_settled=False
+        ).order_by('-create_time').values_list('id', flat=True)[:5]  # 核心修改：只取最近 5 单
 
-        # 查询客户专属价格
+        if not recent_order_ids:
+            # 没有历史订单，直接缓存空结果
+            cache.set(cache_key, [], timeout=CACHE_CUSTOMER_RECENT_PRODUCT)
+            return JsonResponse({'code': 1, 'data': []})
+
+        # ============== 🔥 第二步：获取这 5 单的所有商品明细 ==============
+        # select_related 优化查询，一次性把 Product 和 Order 信息查出来
+        order_items = OrderItem.objects.filter(
+            order_id__in=recent_order_ids
+        ).select_related('product', 'order').order_by('-order__create_time')  # 倒序排列：保证最后买的在最前面
+
+        # ============== 🔥 第三步：查询客户专属价格 ==============
         customer_prices = {}
         price_qs = CustomerPrice.objects.filter(customer_id=customer_id).values('product_id', 'custom_price')
         for item in price_qs:
             customer_prices[item['product_id']] = float(item['custom_price'])
 
+        # ============== 🔥 第四步：汇总去重商品 ==============
         product_dict = {}
-        for order in customer_orders:
-            for item in order.items.all():
-                product = item.product
-                if not product:
-                    continue
-                if product.id not in product_dict:
-                    final_price = customer_prices.get(product.id, float(product.price))
-                    product_dict[product.id] = {
-                        'id': product.id,
-                        'name': product.name,
-                        'price': final_price,
-                        'standard_price': float(product.price),
-                        'unit': product.unit,
-                        'last_purchase_time': order.create_time.strftime('%Y-%m-%d %H:%M'),
-                        'last_quantity': item.quantity
-                    }
+        for item in order_items:
+            product = item.product
+            if not product:
+                continue
 
-        recent_products = sorted(
-            product_dict.values(),
-            key=lambda x: x['last_purchase_time'],
-            reverse=True
-        )
+            # 核心去重逻辑：如果商品已在字典中，说明已经记录过更近的一次购买了，直接跳过
+            if product.id in product_dict:
+                continue
 
+            final_price = customer_prices.get(product.id, float(product.price))
+            product_dict[product.id] = {
+                'id': product.id,
+                'name': product.name,
+                'price': final_price,
+                'standard_price': float(product.price),
+                'unit': product.unit,
+                'last_purchase_time': item.order.create_time.strftime('%Y-%m-%d %H:%M'),
+                'last_quantity': item.quantity
+            }
+
+        # 转换为列表（Python 3.7+ 字典保持插入顺序，即最后购买时间倒序）
+        recent_products = list(product_dict.values())
+
+        # 设置缓存
         cache.set(cache_key, recent_products, timeout=CACHE_CUSTOMER_RECENT_PRODUCT)
-        logger.info(f"设置客户最近商品缓存: {cache_key}")
+        logger.info(
+            f"设置客户最近商品缓存: {cache_key} (基于最近{len(recent_order_ids)}单, 共{len(recent_products)}个商品)")
 
         return JsonResponse({'code': 1, 'data': recent_products})
     except Exception as e:
+        logger.error(f"获取客户最近商品失败: {str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'获取失败：{str(e)}', 'data': []})
