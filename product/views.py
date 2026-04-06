@@ -482,16 +482,142 @@ def export_to_excel(data, title, headers, selected_fields, custom_fields, file_n
 @login_required
 @permission_required(PERM_PRODUCT_IMPORT)
 def product_export(request):
-    if request.method == 'POST':
-        fields = request.POST.getlist('fields[]')
-        products = Product.objects.prefetch_related('aliases')
-        data = [{'serial': i + 1, 'id': p.id, 'name': p.name, 'price': float(p.price), 'unit': p.unit, 'stock': p.stock,
-                 'alias_names': ','.join([a.alias_name for a in p.aliases.all()])} for i, p in enumerate(products)]
-        return export_to_excel(data, '商品列表',
-                               {'serial': '序号', 'id': 'ID', 'name': '商品名称', 'price': '零售价', 'unit': '单位',
-                                'stock': '库存', 'alias_names': '别名'}, fields,
-                               json.loads(request.POST.get('custom_fields', '[]')), '商品导出')
-    return JsonResponse({'code': 0})
+    try:
+        # 获取筛选参数 (支持 POST)
+        keyword = request.POST.get('keyword', request.GET.get('keyword', '')).strip()
+        status = request.POST.get('status', request.GET.get('status', 'all'))
+
+        # 获取导出字段和自定义字段配置
+        selected_fields = request.POST.getlist('fields[]')
+        custom_fields_json = request.POST.get('custom_fields', '[]')
+
+        # 默认字段（如果前端没传，保持向后兼容）
+        if not selected_fields:
+            selected_fields = ['serial', 'id', 'name', 'price', 'unit', 'stock', 'aliases', 'status']
+
+        try:
+            custom_fields = json.loads(custom_fields_json)
+        except Exception:
+            custom_fields = []
+
+        # 筛选商品数据
+        products_query = Product.objects.all()
+
+        if status == 'active':
+            products_query = products_query.filter(is_active=True)
+        elif status == 'inactive':
+            products_query = products_query.filter(is_active=False)
+
+        if keyword:
+            alias_product_ids = ProductAlias.objects.filter(
+                Q(alias_name__icontains=keyword)
+            ).values_list('product_id', flat=True)
+            products_query = products_query.filter(
+                Q(name__icontains=keyword) | Q(id__in=alias_product_ids)
+            )
+
+        products = products_query.prefetch_related('aliases').order_by('name')
+
+        # 定义字段映射与表头
+        field_config = {
+            'serial': {'header': '序号', 'width': 8},
+            'id': {'header': 'ID', 'width': 8},
+            'name': {'header': '商品名称', 'width': 20},
+            'price': {'header': '单价（元）', 'width': 12},
+            'unit': {'header': '单位', 'width': 8},
+            'stock': {'header': '库存', 'width': 10},
+            'aliases': {'header': '别名', 'width': 20},
+            'status': {'header': '状态', 'width': 8}
+        }
+
+        # 1. 构建最终的字段列表（插入自定义字段）
+        final_fields = selected_fields.copy()
+        # 用于记录插入位置，防止重复插入导致索引错乱
+        offset_map = {}
+
+        for cf in custom_fields:
+            target = cf['target']
+            if target in final_fields:
+                # 计算实际插入位置
+                base_idx = final_fields.index(target)
+                # 如果有在它之前插入的，索引要加上偏移量
+                actual_idx = base_idx + offset_map.get(target, 0)
+
+                custom_key = f'custom_{cf["name"]}'
+
+                if cf['position'] == 'after':
+                    final_fields.insert(actual_idx + 1, custom_key)
+                    # 更新偏移量：在 target 之后插入，所有在 target 之后的基准索引都要+1
+                    # 简单处理：只记录当前 target 的偏移
+                    offset_map[target] = offset_map.get(target, 0) + 1
+                else:
+                    final_fields.insert(actual_idx, custom_key)
+                    offset_map[target] = offset_map.get(target, 0) + 1
+
+                # 添加到字段配置
+                field_config[custom_key] = {'header': cf['name'], 'width': 15}
+
+        # 生成 Excel
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "商品列表"
+
+        # 2. 写入表头
+        for col_num, field in enumerate(final_fields, 1):
+            cfg = field_config.get(field, {'header': field})
+            cell = ws.cell(row=1, column=col_num, value=cfg['header'])
+            cell.font = Font(bold=True)
+            cell.fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
+            # 设置列宽
+            ws.column_dimensions[cell.column_letter].width = cfg.get('width', 12)
+
+        # 3. 写入数据
+        for row_num, product in enumerate(products, 2):
+            col_num = 1
+            for field in final_fields:
+                value = ''
+                if field == 'serial':
+                    value = row_num - 1
+                elif field == 'id':
+                    value = product.id
+                elif field == 'name':
+                    value = product.name
+                elif field == 'price':
+                    value = float(product.price)
+                    # 设置数字格式
+                    ws.cell(row=row_num, column=col_num).number_format = '0.00'
+                elif field == 'unit':
+                    value = product.unit
+                elif field == 'stock':
+                    value = product.stock
+                elif field == 'aliases':
+                    value = ','.join([a.alias_name for a in product.aliases.all()])
+                elif field == 'status':
+                    value = '启用' if product.is_active else '停用'
+                elif field.startswith('custom_'):
+                    # 自定义字段留空
+                    value = ''
+
+                ws.cell(row=row_num, column=col_num, value=value)
+                col_num += 1
+
+        # 保存到内存
+        buffer = BytesIO()
+        wb.save(buffer)
+        buffer.seek(0)
+
+        # 返回响应
+        response = HttpResponse(
+            buffer.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response[
+            'Content-Disposition'] = f'attachment; filename=商品列表_{timezone.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+        return response
+
+    except Exception as e:
+        logger.error(f"导出失败: {str(e)}")
+        return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'})
 
 
 @permission_required(PERM_PRODUCT_DETAIL)

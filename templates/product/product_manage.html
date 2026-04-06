@@ -3,15 +3,49 @@
 
 {% block extra_css %}
 <style>
-.product-manage-container {max-width:1200px;margin:20px auto;padding:0 20px;font-family:Microsoft YaHei;}
+.product-manage-container {
+    max-width: 1200px;
+    margin: 20px auto;
+    padding: 0 20px;
+    font-family: Microsoft YaHei;
+}
 .product-manage-container *{box-sizing:border-box;margin:0;padding:0;}
-.search-form{display:flex;gap:10px;margin-bottom:20px;align-items:center;}
-.search-input{padding:8px 10px;border:1px solid #ddd;border-radius:4px;width:300px;}
-.btn{padding:8px 20px;border:none;border-radius:4px;cursor:pointer;}
+
+/* 搜索栏样式优化 */
+.search-form{
+    display:flex;
+    gap:10px;
+    margin-bottom:20px;
+    align-items:center;
+    flex-wrap:wrap;
+    justify-content:flex-start; /* 确保内容左对齐，不拉伸 */
+}
+.search-form > form {
+    display:flex;
+    gap:10px;
+    align-items:center;
+    flex-shrink:0; /* 防止表单被压缩 */
+}
+.search-input{
+    padding:8px 10px;
+    border:1px solid #ddd;
+    border-radius:4px;
+    width:300px;
+    flex-shrink:0;
+}
+.btn{
+    padding:8px 20px;
+    border:none;
+    border-radius:4px;
+    cursor:pointer;
+    white-space:nowrap;
+    flex-shrink:0; /* 防止按钮被压缩 */
+}
 .btn-primary{background:#0066cc;color:white;}
 .btn-success{background:#090;color:white;}
 .btn-warning{background:#ff9900;color:white;}
 .btn-danger{background:#f40;color:white;}
+.btn-default{background:#e9e9e9;color:#333;}
 
 /* 表格样式 */
 .product-table{width:100%;border-collapse:collapse;margin:20px 0;}
@@ -28,19 +62,32 @@ tr.disabled-row{background:#f5f5f5;color:#999;}
 input:checked + .slider{background-color:#28a745;}
 input:checked + .slider:before{transform:translateX(26px);}
 
-/* 右侧抽屉 */
-.drawer{position:fixed;top:0;right:0;width:60%;height:100vh;background:white;box-shadow:-2px 0 10px rgba(0,0,0,0.1);transform:translateX(100%);transition:transform 0.3s ease;z-index:9999;padding:30px;overflow-y:auto;}
-.drawer.active{transform:translateX(0);}
-.drawer-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9998;display:none;}
-.drawer-overlay.active{display:block;}
-.drawer-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;}
-.drawer-form{display:flex;flex-direction:column;gap:15px;}
+/* 弹窗通用样式 */
+.modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;opacity:0;visibility:hidden;transition:opacity 0.3s ease;}
+.modal.active{opacity:1;visibility:visible;}
+.modal-content{background:white;padding:30px;border-radius:8px;transform:scale(0.9);transition:transform 0.3s ease;max-width:90vw;} /* 防止弹窗过宽 */
+.modal.active .modal-content{transform:scale(1);}
+.modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;}
+.modal-form{display:flex;flex-direction:column;gap:15px;}
 .form-item{display:flex;flex-direction:column;gap:5px;}
 .form-item input{padding:8px;border:1px solid #ddd;border-radius:4px;}
 
-/* 批量弹窗 */
-.modal{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:9999;display:none;}
-.modal-content{background:white;padding:30px;border-radius:8px;width:400px;}
+/* 商品弹窗专属宽度 */
+#productModal .modal-content {
+    width: 500px;
+}
+
+/* 快速出入库表格宽度限制 */
+#stockModal .modal-content {
+    width: 800px;
+    max-width: 95vw;
+}
+#stockTable {
+    table-layout: fixed;
+}
+#stockTable td input {
+    width: 100%;
+}
 
 /* Toast */
 .toast{position:fixed;top:20px;right:20px;padding:12px 20px;color:white;border-radius:4px;z-index:99999;animation:slide 0.3s;}
@@ -52,6 +99,46 @@ input:checked + .slider:before{transform:translateX(26px);}
 .status-badge{padding:4px 10px;border-radius:4px;font-size:12px;}
 .status-active{background:#dff0d8;color:#3c763d;}
 .status-inactive{background:#f2dede;color:#a94442;}
+/* 🔥 修复：统一批量操作、导入、快速出入库弹窗宽度与新增商品一致 */
+#batchModal .modal-content,
+#importModal .modal-content,
+#stockModal .modal-content {
+    width: 500px !important; /* 强制覆盖原有宽度，与新增商品弹窗保持一致 */
+}
+
+/* 🔥 新增：导出模态框相关样式 */
+.field-checkbox { margin: 5px 0; }
+.select-all-btn { margin-bottom: 10px; }
+.custom-fields-section {
+    border-top: 1px solid #eee;
+    margin-top: 15px;
+    padding-top: 15px;
+}
+.custom-field-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    padding: 8px;
+    background: #f8f9fa;
+    border-radius: 4px;
+}
+.custom-field-item input {
+    flex: 1;
+    padding: 6px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+.custom-field-item select {
+    width: 120px;
+    padding: 6px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+.btn-add-custom {
+    margin-top: 10px;
+    margin-bottom: 15px;
+}
 </style>
 {% endblock %}
 
@@ -61,13 +148,13 @@ input:checked + .slider:before{transform:translateX(26px);}
     
     <!-- 搜索栏 + 功能按钮 -->
     <div class="search-form">
-        <form method="get" style="display:flex;gap:10px;flex:1;">
+        <form method="get">
             <input type="text" name="keyword" class="search-input" placeholder="搜索商品/别名" value="{{ keyword }}">
             <input type="hidden" name="status" value="{{ status }}">
             <button class="btn btn-primary" type="submit">搜索</button>
             <button class="btn btn-default" type="button" onclick="location.href='{% url 'product_manage' %}'">重置</button>
         </form>
-        <button class="btn btn-success" onclick="openDrawer()">➕ 新增商品</button>
+        <button class="btn btn-success" onclick="openModal()">➕ 新增商品</button>
         <button class="btn btn-warning" onclick="openBatchModal()">⚙️ 批量操作</button>
         <button class="btn btn-primary" onclick="openStockModal()">📦 快速出入库</button>
         <button class="btn btn-success" onclick="exportData()">📥 导出</button>
@@ -75,7 +162,7 @@ input:checked + .slider:before{transform:translateX(26px);}
     </div>
 
     <!-- 状态筛选 -->
-    <div style="display:flex;gap:10px;margin-bottom:20px;">
+    <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;">
         <a href="?status=all&keyword={{ keyword }}" class="btn {% if status == 'all' %}btn-primary{% else %}btn-default{% endif %}">全部({{ count_all }})</a>
         <a href="?status=active&keyword={{ keyword }}" class="btn {% if status == 'active' %}btn-primary{% else %}btn-default{% endif %}">启用({{ count_active }})</a>
         <a href="?status=inactive&keyword={{ keyword }}" class="btn {% if status == 'inactive' %}btn-primary{% else %}btn-default{% endif %}">停用({{ count_inactive }})</a>
@@ -115,7 +202,7 @@ input:checked + .slider:before{transform:translateX(26px);}
                 </td>
             </tr>
             {% empty %}
-            <tr><td colspan="8" align="center">暂无数据</td></tr>
+            <tr><td colspan="8" align="center">暂无数据</tr>
             {% endfor %}
         </tbody>
     </table>
@@ -134,34 +221,35 @@ input:checked + .slider:before{transform:translateX(26px);}
     {% endif %}
 </div>
 
-<!-- 🔥 右侧抽屉（新增+编辑共用） -->
-<div class="drawer-overlay" id="drawerOverlay" onclick="closeDrawer()"></div>
-<div class="drawer" id="productDrawer">
-    <div class="drawer-header">
-        <h2 id="drawerTitle">新增商品</h2>
-        <button class="btn btn-default" onclick="closeDrawer()">关闭</button>
+<!-- 🔥 商品弹窗（新增+编辑共用） -->
+<div class="modal" id="productModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="modalTitle">新增商品</h2>
+            <button class="btn btn-default" onclick="closeModal()">关闭</button>
+        </div>
+        <form id="productForm" class="modal-form">
+            {% csrf_token %}
+            <input type="hidden" id="editId">
+            <div class="form-item">
+                <label>商品名称 *</label>
+                <input type="text" id="name" required>
+            </div>
+            <div class="form-item">
+                <label>单价 *</label>
+                <input type="number" id="price" step="0.01" min="0" required>
+            </div>
+            <div class="form-item">
+                <label>单位</label>
+                <input type="text" id="unit" value="件">
+            </div>
+            <div class="form-item">
+                <label>库存</label>
+                <input type="number" id="stock" min="0" value="77">
+            </div>
+            <button type="submit" class="btn btn-primary">保存</button>
+        </form>
     </div>
-    <form id="productForm" class="drawer-form">
-        {% csrf_token %}
-        <input type="hidden" id="editId">
-        <div class="form-item">
-            <label>商品名称 *</label>
-            <input type="text" id="name" required>
-        </div>
-        <div class="form-item">
-            <label>单价 *</label>
-            <input type="number" id="price" step="0.01" min="0" required>
-        </div>
-        <div class="form-item">
-            <label>单位</label>
-            <input type="text" id="unit" value="件">
-        </div>
-        <div class="form-item">
-            <label>库存</label>
-            <input type="number" id="stock" min="0" value="77">
-        </div>
-        <button type="submit" class="btn btn-primary">保存</button>
-    </form>
 </div>
 
 <!-- 🔥 批量操作弹窗 -->
@@ -176,7 +264,7 @@ input:checked + .slider:before{transform:translateX(26px);}
     </div>
 </div>
 
-<!-- 快速出入库弹窗（原有功能保留） -->
+<!-- 快速出入库弹窗 -->
 <div class="modal" id="stockModal">
     <div class="modal-content">
         <h3>快速出入库</h3>
@@ -189,19 +277,104 @@ input:checked + .slider:before{transform:translateX(26px);}
         <button class="btn btn-default" onclick="closeStockModal()">取消</button>
     </div>
 </div>
+
+<!-- 🔥 导入弹窗（新增） -->
+<div class="modal" id="importModal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>导入商品</h3>
+            <button class="btn btn-default" onclick="closeImportModal()">关闭</button>
+        </div>
+        <form id="importForm" class="modal-form" enctype="multipart/form-data">
+            {% csrf_token %}
+            <div class="form-item">
+                <label>选择Excel文件</label>
+                <input type="file" id="importFile" accept=".xlsx,.xls" required>
+            </div>
+            <button type="submit" class="btn btn-success">开始导入</button>
+        </form>
+    </div>
+</div>
+<!-- 🔥 新增：导出字段选择模态框 -->
+<div class="modal" id="exportModal">
+    <div class="modal-content" style="width: 600px; max-width: 90vw;">
+        <div class="modal-header">
+            <h3>选择导出字段</h3>
+            <button class="btn btn-default" onclick="closeExportModal()">关闭</button>
+        </div>
+        <div class="modal-body">
+            <!-- 全选/取消全选按钮 -->
+            <div class="select-all-btn">
+                <button class="btn btn-xs btn-primary" onclick="selectAllFields(true)">全选</button>
+                <button class="btn btn-xs btn-default" onclick="selectAllFields(false)">取消全选</button>
+            </div>
+            
+            <!-- 商品字段选项 -->
+            <div class="field-checkbox">
+                <input type="checkbox" id="field_serial" name="export_fields" value="serial" checked>
+                <label for="field_serial">序号</label>
+            </div>
+            <div class="field-checkbox">
+                <input type="checkbox" id="field_id" name="export_fields" value="id" checked>
+                <label for="field_id">ID</label>
+            </div>
+            <div class="field-checkbox">
+                <input type="checkbox" id="field_name" name="export_fields" value="name" checked>
+                <label for="field_name">商品名称</label>
+            </div>
+            <div class="field-checkbox">
+                <input type="checkbox" id="field_price" name="export_fields" value="price" checked>
+                <label for="field_price">单价（元）</label>
+            </div>
+            <div class="field-checkbox">
+                <input type="checkbox" id="field_unit" name="export_fields" value="unit" checked>
+                <label for="field_unit">单位</label>
+            </div>
+            <div class="field-checkbox">
+                <input type="checkbox" id="field_stock" name="export_fields" value="stock" checked>
+                <label for="field_stock">库存</label>
+            </div>
+            <div class="field-checkbox">
+                <input type="checkbox" id="field_aliases" name="export_fields" value="aliases" checked>
+                <label for="field_aliases">别名</label>
+            </div>
+            <div class="field-checkbox">
+                <input type="checkbox" id="field_status" name="export_fields" value="status" checked>
+                <label for="field_status">状态</label>
+            </div>
+            
+            <!-- 自定义字段区域 -->
+            <div class="custom-fields-section">
+                <h6>自定义字段（用于手动填写）</h6>
+                <div id="customFieldsContainer">
+                    <!-- 自定义字段项将动态添加到这里 -->
+                </div>
+                <button type="button" class="btn btn-success btn-add-custom" onclick="addCustomField()">
+                    + 添加自定义字段
+                </button>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-default" onclick="closeExportModal()">取消</button>
+            <button class="btn btn-primary" onclick="exportExcel()">确认导出</button>
+        </div>
+    </div>
+</div>    
 {% endblock %}
 
 {% block extra_js %}
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script>
+// 全局变量（导出用）
+let customFieldCount = 0;
 let csrf = $('input[name="csrfmiddlewaretoken"]').val();
 
-// ========== 抽屉操作 ==========
-function openDrawer(id=null){
-    $('#drawerTitle').text(id ? '编辑商品' : '新增商品');
+// ========== 弹窗操作 ==========
+function openModal(id=null){
+    $('#modalTitle').text(id ? '编辑商品' : '新增商品');
     $('#productForm')[0].reset();
     $('#editId').val('');
-    $('.drawer, .drawer-overlay').addClass('active');
+    $('#productModal').addClass('active');
     
     if(id){
         $.get('/product/edit/data/'+id+'/', function(res){
@@ -214,8 +387,8 @@ function openDrawer(id=null){
     }
 }
 
-function closeDrawer(){
-    $('.drawer, .drawer-overlay').removeClass('active');
+function closeModal(){
+    $('#productModal').removeClass('active');
 }
 
 // 表单提交
@@ -232,7 +405,7 @@ $('#productForm').submit(function(e){
     }, function(res){
         if(res.code===1){
             showToast(res.msg, 'success');
-            closeDrawer();
+            closeModal();
             setTimeout(()=>location.reload(), 1000);
         }else{
             showToast(res.msg, 'error');
@@ -283,8 +456,8 @@ $(document).on('change', '.status-switch', function(){
 });
 
 // ========== 批量操作 ==========
-function openBatchModal(){$('#batchModal').show();}
-function closeBatchModal(){$('#batchModal').hide();}
+function openBatchModal(){$('#batchModal').addClass('active');}
+function closeBatchModal(){$('#batchModal').removeClass('active');}
 $('#checkAll').click(function(){
     $('.checkItem').prop('checked', $(this).prop('checked'));
 });
@@ -303,9 +476,9 @@ function batchOperation(action){
     });
 }
 
-// ========== 快速出入库（原有逻辑简化保留） ==========
-function openStockModal(){$('#stockModal').show();}
-function closeStockModal(){$('#stockModal').hide();}
+// ========== 快速出入库 ==========
+function openStockModal(){$('#stockModal').addClass('active');}
+function closeStockModal(){$('#stockModal').removeClass('active');}
 function addStockRow(){$('#stockTable tbody').append(`<tr><td><input type="text"></td><td><input type="number" value="0"></td><td><input type="number" value="0"></td><td><button onclick="$(this).closest('tr').remove()">删</button></td></tr>`);}
 function saveStock(){
     let items = [];
@@ -321,12 +494,191 @@ function saveStock(){
     });
 }
 
+// ========== 🔥 修复：数据导出功能（使用正确的URL） ==========
+// ========== 🔥 修复：数据导出功能（参考区域管理模板，支持直接下载） ==========
+// ========== 🔥 重构：数据导出功能（支持字段选择与自定义字段） ==========
+function exportData(){
+    showExportModal();
+}
+
+// 显示导出模态框
+function showExportModal() {
+    // 重置自定义字段
+    customFieldCount = 0;
+    $('#customFieldsContainer').empty();
+    $('#exportModal').addClass('active');
+}
+
+// 关闭导出模态框
+function closeExportModal() {
+    $('#exportModal').removeClass('active');
+}
+
+// 全选/取消全选字段
+function selectAllFields(isSelect) {
+    $('input[name="export_fields"]').prop('checked', isSelect);
+}
+
+// 添加自定义字段
+function addCustomField() {
+    customFieldCount++;
+    
+    // 获取所有可选的目标字段
+    let targetFieldsHtml = '';
+    $('input[name="export_fields"]').each(function() {
+        const fieldValue = $(this).val();
+        const fieldLabel = $(this).next('label').text();
+        targetFieldsHtml += `<option value="${fieldValue}">${fieldLabel}</option>`;
+    });
+    
+    const customFieldHtml = `
+    <div class="custom-field-item" data-index="${customFieldCount}">
+        <input type="text" class="custom-field-name" placeholder="字段名称（如：上次盘点）" value="备注${customFieldCount}">
+        <select class="custom-field-position">
+            <option value="after">在...之后</option>
+            <option value="before">在...之前</option>
+        </select>
+        <select class="custom-field-target">
+            ${targetFieldsHtml}
+        </select>
+        <button type="button" class="btn btn-danger" onclick="removeCustomField(${customFieldCount})">×</button>
+    </div>
+    `;
+    
+    $('#customFieldsContainer').append(customFieldHtml);
+}
+
+// 移除自定义字段
+function removeCustomField(index) {
+    $(`.custom-field-item[data-index="${index}"]`).remove();
+}
+
+// 执行导出Excel
+function exportExcel() {
+    // 1. 获取选中的字段
+    let selectedFields = [];
+    $('input[name="export_fields"]:checked').each(function() {
+        selectedFields.push($(this).val());
+    });
+
+    if (selectedFields.length === 0) {
+        return showToast('请至少选择一个导出字段', 'error');
+    }
+
+    // 2. 获取自定义字段配置
+    let customFields = [];
+    $('.custom-field-item').each(function() {
+        const name = $(this).find('.custom-field-name').val().trim();
+        const position = $(this).find('.custom-field-position').val();
+        const target = $(this).find('.custom-field-target').val();
+        
+        if (name) {
+            customFields.push({
+                name: name,
+                position: position,
+                target: target
+            });
+        }
+    });
+
+    // 3. 获取当前筛选参数
+    let keyword = '{{ keyword|escapejs }}';
+    let status = '{{ status|escapejs }}';
+
+    // 4. 构建表单数据
+    let formData = new FormData();
+    formData.append('keyword', keyword);
+    formData.append('status', status);
+    formData.append('custom_fields', JSON.stringify(customFields));
+    
+    selectedFields.forEach(field => {
+        formData.append('fields[]', field);
+    });
+
+    // 5. 发起AJAX请求
+    $.ajax({
+        url: "{% url 'product_export' %}",
+        type: 'POST',
+        data: formData,
+        headers: {'X-CSRFToken': csrf},
+        processData: false,
+        contentType: false,
+        xhrFields: {
+            responseType: 'blob'
+        },
+        success: function(res, status, xhr) {
+            // 检查是否是错误响应
+            const contentType = xhr.getResponseHeader('Content-Type');
+            if (contentType && contentType.includes('application/json')) {
+                const reader = new FileReader();
+                reader.onload = function() {
+                    const error = JSON.parse(this.result);
+                    showToast('导出失败：' + error.msg, 'error');
+                };
+                reader.readAsText(res);
+                return;
+            }
+
+            // 关闭模态框
+            closeExportModal();
+
+            // 生成下载链接
+            const url = window.URL.createObjectURL(res);
+            const a = document.createElement('a');
+            a.href = url;
+            let today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+            a.download = `${today}商品管理导出.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            showToast('导出成功', 'success');
+        },
+        error: function(xhr) {
+            let errorMsg = '导出失败，请重试';
+            if (xhr.responseJSON) {
+                errorMsg = xhr.responseJSON.msg || errorMsg;
+            }
+            showToast(errorMsg, 'error');
+        }
+    });
+}
+
+// ========== 🔥 新增：数据导入功能 ==========
+function showImportModal(){$('#importModal').addClass('active');}
+function closeImportModal(){$('#importModal').removeClass('active');}
+
+$('#importForm').submit(function(e){
+    e.preventDefault();
+    let formData = new FormData(this);
+    
+    $.ajax({
+        url: "{% url 'product_import' %}",
+        type: 'POST',
+        data: formData,
+        processData: false,
+        contentType: false,
+        success: function(res){
+            if(res.code===1){
+                showToast(res.msg, 'success');
+                closeImportModal();
+                setTimeout(()=>location.reload(), 1500);
+            }else{
+                showToast(res.msg, 'error');
+            }
+        },
+        error: function(){
+            showToast('导入失败，请检查文件格式', 'error');
+        }
+    });
+});
+
 // ========== 工具函数 ==========
 function showToast(msg, type){
     $('body').append(`<div class="toast toast-${type}">${msg}</div>`);
     setTimeout(()=>{$('.toast').remove();}, 2000);
 }
 
-function editProduct(id){openDrawer(id);}
+function editProduct(id){openModal(id);}
 </script>
 {% endblock %}

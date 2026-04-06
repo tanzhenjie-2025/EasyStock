@@ -27,31 +27,115 @@
     .toast-info { background-color: #17a2b8; }
     @keyframes slideIn { from { opacity: 0; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }
     @keyframes fadeOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(100%); } }
+
+    /* 🔥 核心修改：弹窗式表单样式（替换抽屉式） */
+    .form-modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background-color: rgba(0,0,0,0.5);
+        z-index: 10000;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.3s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .form-modal-overlay.active {
+        opacity: 1;
+        visibility: visible;
+    }
+    /* 弹窗主体 */
+    .form-modal-box {
+        position: relative;
+        width: 500px;
+        max-width: 90vw;
+        max-height: 90vh;
+        background: #fff;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        opacity: 0;
+        transform: scale(0.9);
+        transition: opacity 0.3s ease, transform 0.3s ease;
+        display: flex;
+        flex-direction: column;
+    }
+    .form-modal-overlay.active .form-modal-box {
+        opacity: 1;
+        transform: scale(1);
+    }
+    /* 弹窗头部 */
+    .modal-header {
+        padding: 16px 20px;
+        border-bottom: 1px solid #eee;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .modal-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: #333;
+        margin: 0;
+    }
+    .modal-close {
+        background: none;
+        border: none;
+        font-size: 20px;
+        cursor: pointer;
+        color: #666;
+        line-height: 1;
+    }
+    /* 弹窗内容 */
+    .modal-body {
+        flex: 1;
+        padding: 20px;
+        overflow-y: auto;
+    }
+    /* 弹窗底部按钮 */
+    .modal-footer {
+        padding: 16px 20px;
+        border-top: 1px solid #eee;
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+    }
+    .modal-btn {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+    }
+    .modal-btn-confirm {
+        background-color: #007bff;
+        color: white;
+    }
+    .modal-btn-cancel {
+        background-color: #6c757d;
+        color: white;
+    }
+
+    /* 原有表单样式复用 */
+    .form-group { margin-bottom: 15px; }
+    .form-label { display: block; margin-bottom: 5px; font-weight: 500; color: #333; font-size: 14px; }
+    .form-input { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box; }
+    .form-textarea { min-height: 80px; resize: vertical; }
+
+    /* 确认弹窗/导出/导入原有样式 */
     .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000; opacity: 0; visibility: hidden; transition: opacity 0.3s ease, visibility 0.3s ease; }
     .modal-overlay.active { opacity: 1; visibility: visible; }
     .modal-box { background-color: white; padding: 20px; border-radius: 8px; width: 90%; max-width: 400px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
     .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 15px; color: #333; }
-    .modal-input { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 15px; font-size: 14px; }
     .modal-buttons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
     .modal-btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
     .modal-btn-confirm { background-color: #007bff; color: white; }
     .modal-btn-cancel { background-color: #6c757d; color: white; }
     .confirm-modal .modal-box { max-width: 350px; }
     .confirm-modal .modal-content { margin-bottom: 20px; color: #555; }
-    .form-modal .modal-box { max-width: 600px; }
-    .form-group { margin-bottom: 15px; }
-    .form-label { display: block; margin-bottom: 5px; font-weight: 500; color: #333; font-size: 14px; }
-    .form-input { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; box-sizing: border-box; }
-    .form-textarea { min-height: 80px; resize: vertical; }
-    .area-select-table-container { max-height: 300px; overflow-y: auto; border: 1px solid #eee; border-radius: 4px; margin-top: 5px; }
-    .area-select-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    .area-select-table th, .area-select-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #eee; }
-    .area-select-table th { background-color: #f8f9fa; position: sticky; top: 0; z-index: 1; }
-    .area-select-table tr { cursor: pointer; transition: background-color 0.15s; }
-    .area-select-table tr:hover { background-color: #e9ecef; }
-    .area-select-table tr.selected { background-color: #cce5ff; color: #004085; }
-    .area-select-table tr.selected:hover { background-color: #b8daff; }
-    .selected-count-tip { font-size: 12px; color: #666; margin-top: 5px; }
 
     /* 🔥 新增：按钮组间距 */
     .btn-group-action { gap: 8px; display: flex; align-items: center; }
@@ -232,46 +316,68 @@
             });
         }
 
-        // 复合表单弹窗
+        // 🔥 核心修改：弹窗式区域表单（替换抽屉式）
         function showAreaFormModal(title, initialData = {}, callback) {
-            document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
-            let overlay = document.createElement('div');
-            overlay.className = 'modal-overlay form-modal';
+            // 清空已有弹窗
+            document.querySelectorAll('.form-modal-overlay').forEach(el => el.remove());
             
             const name = initialData.name || '';
             const remark = initialData.remark || '';
 
-            overlay.innerHTML = `
-                <div class="modal-box">
-                    <div class="modal-title">${title}</div>
-                    <div class="form-group">
-                        <label class="form-label">区域名称 <span style="color:red">*</span></label>
-                        <input type="text" class="form-input" id="form-area-name" value="${name}" placeholder="请输入区域名称">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">备注</label>
-                        <textarea class="form-input form-textarea" id="form-area-remark" placeholder="选填">${remark}</textarea>
-                    </div>
-                    <div class="modal-buttons">
-                        <button class="modal-btn modal-btn-cancel">取消</button>
-                        <button class="modal-btn modal-btn-confirm">保存</button>
+            // 创建弹窗DOM
+            const modalHtml = `
+                <div class="form-modal-overlay">
+                    <div class="form-modal-box">
+                        <div class="modal-header">
+                            <h3 class="modal-title">${title}</h3>
+                            <button class="modal-close" id="modalClose">×</button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="form-group">
+                                <label class="form-label">区域名称 <span style="color:red">*</span></label>
+                                <input type="text" class="form-input" id="form-area-name" value="${name}" placeholder="请输入区域名称">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">备注</label>
+                                <textarea class="form-input form-textarea" id="form-area-remark" placeholder="选填">${remark}</textarea>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="modal-btn modal-btn-cancel" id="modalCancel">取消</button>
+                            <button class="modal-btn modal-btn-confirm" id="modalConfirm">保存</button>
+                        </div>
                     </div>
                 </div>
             `;
-            document.body.appendChild(overlay);
+
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            const overlay = document.querySelector('.form-modal-overlay');
+            const inputName = document.querySelector('#form-area-name');
+            const closeBtn = document.querySelector('#modalClose');
+            const cancelBtn = document.querySelector('#modalCancel');
+            const confirmBtn = document.querySelector('#modalConfirm');
+
+            // 显示动画
             setTimeout(() => overlay.classList.add('active'), 10);
-
-            const inputName = overlay.querySelector('#form-area-name');
-            const cancelBtn = overlay.querySelector('.modal-btn-cancel');
-            const confirmBtn = overlay.querySelector('.modal-btn-confirm');
-
             inputName.focus();
-            const closeModal = () => overlay.remove();
 
-            cancelBtn.addEventListener('click', () => { closeModal(); callback(null); });
+            // 关闭弹窗函数
+            const closeModal = () => {
+                overlay.classList.remove('active');
+                setTimeout(() => overlay.remove(), 300);
+            };
+
+            // 关闭事件
+            closeBtn.addEventListener('click', closeModal);
+            cancelBtn.addEventListener('click', closeModal);
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) closeModal();
+            });
+
+            // 确认提交
             confirmBtn.addEventListener('click', () => {
                 const valName = inputName.value.trim();
-                const valRemark = overlay.querySelector('#form-area-remark').value.trim();
+                const valRemark = document.querySelector('#form-area-remark').value.trim();
                 if (!valName) {
                     showToast('区域名称不能为空', 'warning');
                     inputName.focus();
@@ -280,6 +386,8 @@
                 closeModal();
                 callback({ name: valName, remark: valRemark });
             });
+
+            // ESC关闭
             document.addEventListener('keydown', function escHandler(e) {
                 if (e.key === 'Escape') { closeModal(); callback(null); document.removeEventListener('keydown', escHandler); }
             });
