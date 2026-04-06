@@ -6,7 +6,167 @@
 <!-- 页面专属样式 -->
 {% block extra_css %}
 <style>
-    /* 原有样式保持不变 */
+    /* ================= 全局重置与工具类 ================= */
+    :root {
+        --primary-color: #007bff;
+        --success-color: #28a745;
+        --info-color: #17a2b8;
+        --warning-color: #ffc107;
+        --danger-color: #dc3545;
+        --border-color: #e9ecef;
+        --bg-light: #f8f9fa;
+    }
+
+    body {
+        background-color: #f5f7fa;
+        color: #333;
+    }
+
+    /* ================= 页面头部布局 ================= */
+    .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 20px;
+        padding-bottom: 15px;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .page-title {
+        margin: 0;
+        font-size: 1.5rem;
+        font-weight: 600;
+        color: #2d3436;
+    }
+
+    /* ================= 操作与筛选区域 ================= */
+    .control-panel {
+        background: white;
+        padding: 16px 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        margin-bottom: 20px;
+    }
+
+    .action-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+    }
+
+    .filter-row {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+    }
+
+    /* 按钮组样式优化 */
+    .btn-group-action {
+        display: flex;
+        gap: 8px;
+    }
+    
+    .btn-group-action .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-weight: 500;
+        padding: 6px 12px;
+        transition: all 0.2s;
+    }
+
+    /* 搜索框样式优化 */
+    .search-container {
+        margin: 0; /* 移除原有margin */
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 1;
+        max-width: 500px;
+    }
+    
+    .search-input-wrapper {
+        position: relative;
+        flex-grow: 1;
+    }
+    
+    .search-input {
+        width: 100%;
+        padding: 8px 32px 8px 12px;
+        border: 1px solid #ced4da;
+        border-radius: 6px;
+        font-size: 14px;
+        transition: border-color 0.2s;
+    }
+    
+    .search-input:focus {
+        border-color: var(--primary-color);
+        box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.1);
+        outline: none;
+    }
+
+    /* 状态Tab样式优化 */
+    .status-tabs {
+        display: flex;
+        gap: 4px;
+        margin: 0;
+        border-bottom: none;
+        padding-bottom: 0;
+        background: #e9ecef;
+        padding: 4px;
+        border-radius: 6px;
+    }
+    
+    .status-tab {
+        padding: 6px 14px;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        font-size: 13px;
+        color: #666;
+        border-radius: 4px;
+        transition: all 0.2s;
+        margin-bottom: 0;
+        border-bottom: none;
+    }
+    
+    .status-tab:hover {
+        color: #333;
+        background: rgba(255,255,255,0.5);
+    }
+    
+    .status-tab.active {
+        color: #fff;
+        background-color: var(--primary-color);
+        font-weight: 500;
+        box-shadow: 0 2px 4px rgba(0, 123, 255, 0.3);
+    }
+    
+    .status-tab.disabled-tab.active {
+        background-color: var(--danger-color);
+        box-shadow: 0 2px 4px rgba(220, 53, 69, 0.3);
+    }
+
+    /* 最近搜索样式微调 */
+    .recent-searches {
+        width: 100%;
+        margin-top: 8px;
+        margin-bottom: 0;
+        font-size: 12px;
+        color: #6c757d;
+    }
+
+    /* 表格容器增加白底阴影 */
+    .table-container {
+        background: white;
+        border-radius: 8px;
+        padding: 16px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    }
+
+    /* 保持原有其他样式不变 */
     .modal-overlay {
         position: fixed;
         top: 0;
@@ -63,7 +223,7 @@
         cursor: pointer;
     }
 
-    /* 新增：还款弹窗样式 */
+    /* 原有：还款弹窗样式 */
     .repayment-modal {
         width: 600px;
     }
@@ -98,25 +258,7 @@
         background: #f8f9fa;
     }
 
-    /* ========== 新增：搜索组件样式 ========== */
-    .search-container {
-        margin: 15px 0;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-    .search-input-wrapper {
-        position: relative;
-        width: 400px;
-        max-width: 100%;
-    }
-    .search-input {
-        width: 100%;
-        padding: 8px 12px 8px 12px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-        font-size: 14px;
-    }
+    /* 清除按钮样式 */
     .clear-btn {
         position: absolute;
         right: 10px;
@@ -137,17 +279,15 @@
         background: #007bff;
         color: white;
         border: none;
-        border-radius: 4px;
+        border-radius: 6px;
         cursor: pointer;
         font-size: 14px;
+        height: 38px; /* 保持与输入框高度一致 */
     }
     .search-btn:hover {
         background: #0056b3;
     }
-    .recent-searches {
-        margin: 10px 0;
-        font-size: 13px;
-    }
+    
     .recent-tag {
         display: inline-block;
         padding: 4px 8px;
@@ -170,47 +310,13 @@
         color: #999;
         padding: 20px;
     }
-
-    /* ========== 新增：状态Tab切换样式 ========== */
-    .status-tabs {
-        display: flex;
-        gap: 10px;
-        margin-bottom: 15px;
-        border-bottom: 2px solid #e9ecef;
-        padding-bottom: 10px;
-    }
-    .status-tab {
-        padding: 8px 16px;
-        border: none;
-        background: none;
-        cursor: pointer;
-        font-size: 14px;
-        color: #666;
-        border-bottom: 2px solid transparent;
-        margin-bottom: -12px;
-        transition: all 0.2s;
-    }
-    .status-tab:hover {
-        color: #007bff;
-    }
-    .status-tab.active {
-        color: #007bff;
-        border-bottom-color: #007bff;
-        font-weight: bold;
-    }
-    .status-tab.disabled-tab {
-        color: #dc3545;
-    }
-    .status-tab.disabled-tab.active {
-        border-bottom-color: #dc3545;
-    }
     .tab-count {
         margin-left: 4px;
         color: #999;
         font-weight: normal;
     }
 
-    /* ========== 新增：已停用行样式 ========== */
+    /* 表格样式优化 */
     .disabled-row {
         background-color: #fff5f5 !important;
         color: #999;
@@ -232,7 +338,6 @@
         color: #721c24;
     }
 
-    /* ========== 优化：整行hover浅灰色高亮样式 ========== */
     #customerList tr {
         transition: all 0.2s ease;
         cursor: pointer;
@@ -249,7 +354,7 @@
         cursor: default;
     }
 
-    /* ========== 🔥 新增：导入导出模态框专用样式 ========== */
+    /* 导入导出模态框专用样式 */
     .field-checkbox { margin: 5px 0; }
     .select-all-btn { margin-bottom: 10px; }
     .custom-fields-section {
@@ -269,82 +374,98 @@
     .custom-field-item input { flex: 1; }
     .custom-field-item select { width: 120px; }
     .btn-add-custom { margin-top: 10px; margin-bottom: 15px; }
-    .btn-group-action { gap: 8px; display: flex; align-items: center; }
 </style>
 {% endblock %}
 
 <!-- 页面主体内容 -->
 {% block content %}
 <div class="content-container">
-    <div class="content-container">
-     <h3>客户管理</h3>
-</div>
-
     
+    <!-- 1. 页面标题与特殊入口 -->
+    <div class="page-header">
+        <h3 class="page-title">客户管理</h3>
+        {% if request.user.role and request.user.role.code == 'super_admin' %}
+            <a href="/customer-manage/customer/sales-rank/page/" class="btn btn-warning">
+                🔝 客户消费TOP30排行
+            </a>
+        {% endif %}
+    </div>
 
-    <!-- ========== 新增：搜索组件 ========== -->
-    <div class="search-container">
-        <div class="search-input-wrapper">
-            <input type="text" class="search-input" id="searchInput" 
-                   placeholder="搜索客户名称 / 手机号 / 区域 / 编号" 
-                   oninput="handleSearchInput()" 
-                   onkeydown="if(event.keyCode===13) searchCustomers()">
-            <button class="clear-btn" id="clearBtn" onclick="clearSearch()">×</button>
+    <!-- 2. 控制面板 (操作按钮 + 筛选) -->
+    <div class="control-panel">
+        <!-- 上排：操作按钮 -->
+        <div class="action-row">
+            <div class="btn-group-action">
+                <button class="btn btn-primary" onclick="openAddModal()">
+                    新增客户
+                </button>
+                <button class="btn btn-success" onclick="openRepaymentModal()">
+                    还款登记
+                </button>
+                <button class="btn btn-info" onclick="showExportModal()">
+                    📥 导出数据
+                </button>
+                <button class="btn btn-warning" onclick="showImportModal()">
+                    📤 导入数据
+                </button>
+            </div>
         </div>
-        <button class="search-btn" onclick="searchCustomers()">搜索</button>
-    </div>
-    <!-- 最近搜索记录 -->
-    <div class="recent-searches" id="recentSearches">
-        最近搜索：<span id="recentTags">暂无</span>
-    </div>
-    
-     {% if request.user.role and request.user.role.code == 'super_admin' %}
-    <div class="alert alert-info mb-3">
-        <a href="/customer-manage/customer/sales-rank/page/" class="btn btn-sm btn-warning">
-            🔝 客户消费TOP30排行（仅超级管理员可见）
-        </a>
-    </div>
-    {% endif %}
 
-    <!-- 🔥 修改：按钮组，新增导入导出 -->
-    <div class="my-3 btn-group-action">
-        <button class="btn btn-sm btn-primary" onclick="openAddModal()">新增客户</button>
-        <button class="btn btn-sm btn-success ms-2" onclick="openRepaymentModal()">还款登记</button>
-        <button class="btn btn-sm btn-info ms-2" onclick="showExportModal()">📥 导出数据</button>
-        <button class="btn btn-sm btn-warning ms-2" onclick="showImportModal()">📤 导入数据</button>
-    </div>
-    
-    <!-- ========== 新增：状态Tab切换 ========== -->
-    <div class="status-tabs">
-        <button class="status-tab active" data-status="all" onclick="switchStatus('all')">
-            全部 <span class="tab-count" id="tabAllCount">(0)</span>
-        </button>
-        <button class="status-tab" data-status="active" onclick="switchStatus('active')">
-            正常 <span class="tab-count" id="tabActiveCount">(0)</span>
-        </button>
-        <button class="status-tab disabled-tab" data-status="disabled" onclick="switchStatus('disabled')">
-            已停用 <span class="tab-count" id="tabDisabledCount">(0)</span>
-        </button>
+        <!-- 下排：搜索与状态 -->
+        <div class="filter-row">
+            <!-- 搜索组件 -->
+            <div class="search-container">
+                <div class="search-input-wrapper">
+                    <input type="text" class="search-input" id="searchInput" 
+                           placeholder="搜索客户名称 / 手机号 / 区域 / 编号" 
+                           oninput="handleSearchInput()" 
+                           onkeydown="if(event.keyCode===13) searchCustomers()">
+                    <button class="clear-btn" id="clearBtn" onclick="clearSearch()">×</button>
+                </div>
+                <button class="search-btn" onclick="searchCustomers()">搜索</button>
+            </div>
+
+            <!-- 状态Tab切换 -->
+            <div class="status-tabs">
+                <button class="status-tab active" data-status="all" onclick="switchStatus('all')">
+                    全部 <span class="tab-count" id="tabAllCount">(0)</span>
+                </button>
+                <button class="status-tab" data-status="active" onclick="switchStatus('active')">
+                    正常 <span class="tab-count" id="tabActiveCount">(0)</span>
+                </button>
+                <button class="status-tab disabled-tab" data-status="disabled" onclick="switchStatus('disabled')">
+                    已停用 <span class="tab-count" id="tabDisabledCount">(0)</span>
+                </button>
+            </div>
+        </div>
+        
+        <!-- 最近搜索记录 (放在搜索框下方) -->
+        <div class="recent-searches" id="recentSearches">
+            最近搜索：<span id="recentTags">暂无</span>
+        </div>
     </div>
 
-    <table class="table table-sm table-bordered">
-        <thead class="table-light">
-            <tr>
-                <th>ID</th>
-                <th>客户名称</th>
-                <th>所属区域</th>
-                <th>联系电话</th>
-                <th>总消费金额</th>
-                <th>总欠款</th>
-                <th>状态</th> <!-- 新增：状态列 -->
-                <th>备注</th>
-                <th>操作</th>
-            </tr>
-        </thead>
-        <tbody id="customerList">
-            <!-- 客户列表由JS动态填充 -->
-        </tbody>
-    </table>
+    <!-- 3. 数据表格 -->
+    <div class="table-container">
+        <table class="table table-sm table-bordered table-hover">
+            <thead class="table-light">
+                <tr>
+                    <th style="width: 60px;">ID</th>
+                    <th>客户名称</th>
+                    <th>所属区域</th>
+                    <th>联系电话</th>
+                    <th style="width: 120px;">总消费金额</th>
+                    <th style="width: 100px;">总欠款</th>
+                    <th style="width: 80px;">状态</th>
+                    <th>备注</th>
+                    <th style="width: 180px;">操作</th>
+                </tr>
+            </thead>
+            <tbody id="customerList">
+                <!-- 客户列表由JS动态填充 -->
+            </tbody>
+        </table>
+    </div>
 </div>
 
 <!-- 原有新增/编辑客户弹窗 -->
