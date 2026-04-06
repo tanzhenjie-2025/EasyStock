@@ -185,17 +185,16 @@ def search_product(request):
     cached_products = cache.get(cache_key)
 
     if cached_products is None:
-        # ✅ 核心修复：所有icontains → istartswith，命中拼音/名称索引
         product_matches = Product.objects.filter(
-            Q(name__istartswith=keyword) |
-            Q(pinyin_full__istartswith=keyword) |
-            Q(pinyin_abbr__istartswith=keyword)
+            Q(name__icontains=keyword) |
+            Q(pinyin_full__icontains=keyword) |
+            Q(pinyin_abbr__icontains=keyword)
         )
 
         alias_matches = ProductAlias.objects.filter(
-            Q(alias_name__istartswith=keyword) |
-            Q(alias_pinyin_full__istartswith=keyword) |
-            Q(alias_pinyin_abbr__istartswith=keyword)
+            Q(alias_name__icontains=keyword) |
+            Q(alias_pinyin_full__icontains=keyword) |
+            Q(alias_pinyin_abbr__icontains=keyword)
         ).values_list('product_id', flat=True)
         alias_products = Product.objects.filter(id__in=alias_matches)
 
@@ -346,9 +345,6 @@ def save_order(request):
     except Exception as e:
         # 事务自动回滚，无需手动delete，数据绝对安全
         return JsonResponse({'code': 0, 'msg': f'开单失败：{str(e)}'})
-
-
-
 
 
 @login_required
