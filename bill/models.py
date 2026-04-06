@@ -135,6 +135,7 @@ class Order(models.Model):
             models.Index(fields=['create_time']),
         ]
 
+
 class OrderItem(models.Model):
     """订单明细表（三联单明细）"""
     order = models.ForeignKey(Order, on_delete=models.CASCADE, verbose_name='关联订单', related_name='items')
@@ -148,13 +149,18 @@ class OrderItem(models.Model):
     quantity = models.IntegerField('数量', default=1)
     amount = models.DecimalField('小计金额', max_digits=10, decimal_places=2, null=True, blank=True)
 
+    # 【新增】价格快照字段
+    # 当时的商品标准价
+    snapshot_standard_price = models.DecimalField('标准价快照', max_digits=10, decimal_places=2, null=True, blank=True)
+    # 当时的客户专属价 (如果有)
+    snapshot_customer_price = models.DecimalField('客户价快照', max_digits=10, decimal_places=2, null=True, blank=True)
+    # 【新增】开单时实际录入的单价 (方便后续核对)
+    actual_unit_price = models.DecimalField('实际单价', max_digits=10, decimal_places=2, null=True, blank=True)
+
     def save(self, *args, **kwargs):
-        # 🔥 修复：删除这里的库存扣减逻辑！！！视图层统一批量处理
-        if self.product:
-            self.amount = self.product.price * self.quantity
+        # 注意：这里的逻辑后续会移到视图层，以保证快照准确
         super().save(*args, **kwargs)
 
-    # bill/models.py → OrderItem 类 Meta
     class Meta:
         verbose_name = '订单明细'
         verbose_name_plural = '订单明细管理'

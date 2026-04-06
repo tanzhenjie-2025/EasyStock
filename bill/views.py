@@ -38,6 +38,7 @@ PERM_ORDER_SETTLE = 'order_settle'
 PERM_ORDER_UNSETTLE = 'order_unsettle'
 PERM_ORDER_SUMMARY = 'order_summary'
 PERM_PRODUCT_SEARCH = 'product_search'
+PERM_ORDER_PRICE_CHECK = 'order_price_check'
 
 # ========== 订单模块缓存时长常量（统一管理） ==========
 CACHE_STOCK_LIST = 60  # 库存列表：60秒
@@ -236,12 +237,11 @@ def search_product(request):
 @login_required
 @permission_required(PERM_ORDER_CREATE)
 def save_order(request):
-    """保存订单（高性能优化版 + 手动缓存清理）"""
+    """保存订单（含价格快照保存）"""
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
     try:
-        # 事务包裹：所有操作原子性，失败自动回滚
         with transaction.atomic():
             data = json.loads(request.body)
             items = data.get('items', [])
@@ -251,11 +251,10 @@ def save_order(request):
             if not items:
                 return JsonResponse({'code': 0, 'msg': '无订单明细'})
 
-            # ===================== 1. 基础数据校验（一次性完成） =====================
+            # 1. 基础数据校验
             product_ids = []
-            qty_map = {}
+            item_map = {}  # 存储前端传来的详细数据
             for item in items:
-                # 🔥 核心修复：强制将前端传递的商品ID转换为整数（解决类型不匹配）
                 pid = item.get('id')
                 try:
                     pid = int(pid)
@@ -263,30 +262,36 @@ def save_order(request):
                     return JsonResponse({'code': 0, 'msg': f'商品{item.get("name", "未知")}ID格式错误'})
 
                 qty = item.get('qty', 0)
+                price = item.get('price', 0)  # 前端传来的单价
+
                 if not pid or not isinstance(qty, int) or qty <= 0:
                     return JsonResponse({'code': 0, 'msg': f'商品{item.get("name", "未知")}数量无效'})
-                product_ids.append(pid)
-                qty_map[pid] = qty
 
-            # ===================== 2. 批量查询商品：1次查询替代N次（解决N+1） =====================
+                product_ids.append(pid)
+                item_map[pid] = {'qty': qty, 'price': decimal.Decimal(str(price))}
+
+            # 2. 批量查询商品
             products = Product.objects.filter(id__in=product_ids).in_bulk()
             for pid in product_ids:
                 if pid not in products:
                     return JsonResponse({'code': 0, 'msg': f'商品ID {pid} 不存在'})
-                if products[pid].stock < qty_map[pid]:
-                    return JsonResponse({'code': 0, 'msg': f'{products[pid].name}库存不足（当前：{products[pid].stock}）'})
+                if products[pid].stock < item_map[pid]['qty']:
+                    return JsonResponse({'code': 0, 'msg': f'{products[pid].name}库存不足'})
 
-            # ===================== 3. 创建订单主表 =====================
+            # 3. 查询客户专属价 (用于快照)
+            customer_prices_dict = {}
+            if customer_id:
+                cp_list = CustomerPrice.objects.filter(customer_id=customer_id, product_id__in=product_ids)
+                customer_prices_dict = {cp.product_id: cp.custom_price for cp in cp_list}
+
+            # 4. 创建订单主表
             order = Order()
             order.creator = request.user
-
-            # 客户校验
             if customer_id:
                 customer = get_object_or_404(Customer, id=customer_id)
                 order.customer = customer
                 order.area = customer.area
 
-            # 重开订单校验
             if original_order_no:
                 original_order = get_object_or_404(Order, order_no=original_order_no)
                 if original_order.status != 'cancelled':
@@ -294,54 +299,51 @@ def save_order(request):
                 order.original_order = original_order
                 order.status = 'reopened'
 
-            # 计算总金额
             total_amount = 0
             order_items = []
+
             for pid in product_ids:
                 product = products[pid]
-                qty = qty_map[pid]
-                amount = product.price * qty
+                qty = item_map[pid]['qty']
+                input_price = item_map[pid]['price']  # 开单员录入的单价
+                amount = input_price * qty
                 total_amount += amount
-                # 构建明细对象（不保存）
+
+                # 获取快照价格
+                snap_standard = product.price
+                snap_customer = customer_prices_dict.get(pid, None)
+
                 order_items.append(OrderItem(
                     order=order,
                     product=product,
                     quantity=qty,
-                    amount=amount
+                    amount=amount,
+                    actual_unit_price=input_price,  # 【新增】保存实际单价
+                    snapshot_standard_price=snap_standard,  # 【新增】保存标准价快照
+                    snapshot_customer_price=snap_customer  # 【新增】保存客户价快照
                 ))
 
             order.total_amount = total_amount
-            order.save()  # 仅1次保存
+            order.save()
 
-            # ===================== 4. 批量创建订单明细：1次写入替代N次 =====================
+            # 5. 批量创建明细
             OrderItem.objects.bulk_create(order_items)
 
-            # ===================== 5. 批量更新库存：1次更新替代N次 =====================
+            # 6. 批量更新库存
             for pid in product_ids:
-                products[pid].stock -= qty_map[pid]
+                products[pid].stock -= item_map[pid]['qty']
             Product.objects.bulk_update(products.values(), ['stock'])
 
-            # ===================== 6. 操作日志 =====================
-            customer_name = order.customer.name if order.customer else '无'
-            create_operation_log(
-                request=request,
-                op_type='create_order',
-                obj_type='order',
-                obj_id=str(order.id),
-                obj_name=f"订单-{order.order_no}",
-                detail=f"创建订单{order.order_no}，客户：{customer_name}，总金额：{order.total_amount}元，商品数量：{len(items)}个"
-            )
-
-            # ===================== 7. 缓存清理（核心新增） =====================
-            clear_stock_cache()  # 库存变化，清理库存列表
-            clear_order_cache()  # 订单变化，清理订单列表
+            # 7. 日志与缓存清理
+            create_operation_log(request, 'create_order', 'order', str(order.id), f"订单-{order.order_no}", f"创建订单")
+            clear_stock_cache()
+            clear_order_cache()
             if customer_id:
-                clear_customer_related_cache(int(customer_id))  # 清理客户最近购买
+                clear_customer_related_cache(int(customer_id))
 
             return JsonResponse({'code': 1, 'msg': '开单成功', 'order_no': order.order_no})
 
     except Exception as e:
-        # 事务自动回滚，无需手动delete，数据绝对安全
         return JsonResponse({'code': 0, 'msg': f'开单失败：{str(e)}'})
 
 
@@ -1060,3 +1062,138 @@ def get_customer_recent_products(request):
     except Exception as e:
         logger.error(f"获取客户最近商品失败: {str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'获取失败：{str(e)}', 'data': []})
+
+
+# ===================== 2. 新增：价格核算视图 =====================
+
+@login_required
+@permission_required(PERM_ORDER_VIEW)  # 复用查看权限，或者你可以新建一个 PERM_ORDER_PRICE_CHECK
+def price_check_view(request):
+    """价格核算页面入口"""
+    date_from = request.GET.get('date_from', (timezone.now() - timedelta(days=7)).strftime('%Y-%m-%d'))
+    date_to = request.GET.get('date_to', timezone.now().strftime('%Y-%m-%d'))
+
+    # 传递空的结果集，只显示筛选框
+    return render(request, 'bill/price_check.html', {
+        'date_from': date_from,
+        'date_to': date_to,
+        'results': None,
+        'stats': None
+    })
+
+
+@login_required
+@permission_required(PERM_ORDER_VIEW)
+def price_check_ajax(request):
+    """执行价格核算的AJAX接口"""
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '请求错误'})
+
+    date_from = request.POST.get('date_from')
+    date_to = request.POST.get('date_to')
+
+    if not date_from or not date_to:
+        return JsonResponse({'code': 0, 'msg': '请选择日期范围'})
+
+    # 构建时间范围
+    start_datetime = timezone.make_aware(datetime.strptime(date_from, '%Y-%m-%d'))
+    end_date = datetime.strptime(date_to, '%Y-%m-%d').date()
+    end_datetime = timezone.make_aware(datetime.combine(end_date + timedelta(days=1), datetime.min.time()))
+
+    # 查询订单及明细 (select_related 优化性能)
+    orders = Order.objects.filter(
+        create_time__gte=start_datetime,
+        create_time__lt=end_datetime,
+        status__in=['pending', 'printed', 'reopened']  # 只核查有效订单
+    ).select_related('customer', 'creator').prefetch_related('items__product').order_by('-create_time')
+
+    # 权限控制 (如果非管理员，只能看自己的)
+    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+    can_view_others = request.user.has_permission('order_view_others')
+    if not is_super_admin and not can_view_others:
+        orders = orders.filter(creator=request.user)
+
+    results = []
+    total_checked = 0
+    total_abnormal = 0
+    total_loss_risk = decimal.Decimal('0.00')
+
+    for order in orders:
+        total_checked += 1
+        order_has_issue = False
+        issue_items = []
+
+        for item in order.items.all():
+            # 确定基准价
+            base_price = item.snapshot_standard_price
+            price_type = "标准价"
+
+            # 如果有客户价快照，基准价应为客户价
+            if item.snapshot_customer_price is not None:
+                base_price = item.snapshot_customer_price
+                price_type = "客户价"
+
+            # 如果没有快照数据（历史旧数据），跳过或标记
+            if base_price is None or item.actual_unit_price is None:
+                continue
+
+            diff = item.actual_unit_price - base_price
+            issue_type = None
+            issue_label = ""
+
+            # 逻辑判断
+            if item.snapshot_customer_price is not None:
+                # 情况A：有熟客价
+                if item.actual_unit_price != item.snapshot_customer_price:
+                    # 虽然有熟客价，但没用对
+                    if item.actual_unit_price == item.snapshot_standard_price:
+                        issue_type = 'mismatch'
+                        issue_label = "错配：未用熟客价"
+                    elif item.actual_unit_price < item.snapshot_customer_price:
+                        issue_type = 'short'
+                        issue_label = "低报：低于熟客价"
+                        total_loss_risk += (abs(diff) * item.quantity)
+                    else:
+                        issue_type = 'over'
+                        issue_label = "高报：高于熟客价"
+
+            else:
+                # 情况B：无熟客价
+                if item.actual_unit_price < item.snapshot_standard_price:
+                    issue_type = 'short'
+                    issue_label = "低报"
+                    total_loss_risk += (abs(diff) * item.quantity)
+                elif item.actual_unit_price > item.snapshot_standard_price:
+                    issue_type = 'over'
+                    issue_label = "高报"
+
+            if issue_type:
+                order_has_issue = True
+                issue_items.append({
+                    'product_name': item.product.name if item.product else '未知',
+                    'qty': item.quantity,
+                    'snapshot_std': item.snapshot_standard_price,
+                    'snapshot_cust': item.snapshot_customer_price,
+                    'actual': item.actual_unit_price,
+                    'diff': diff,
+                    'type': issue_type,
+                    'label': issue_label
+                })
+
+        if order_has_issue:
+            total_abnormal += 1
+            results.append({
+                'order_no': order.order_no,
+                'customer_name': order.customer.name if order.customer else '散客',
+                'creator_name': order.creator.name if order.creator else '未知',
+                'create_time': order.create_time,
+                'items': issue_items
+            })
+
+    stats = {
+        'checked': total_checked,
+        'abnormal': total_abnormal,
+        'loss': total_loss_risk
+    }
+
+    return JsonResponse({'code': 1, 'data': results, 'stats': stats})

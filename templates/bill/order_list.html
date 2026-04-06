@@ -160,6 +160,9 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
     {% if not is_boss %}
         <span class="badge bg-secondary">仅显示您创建的订单</span>
     {% endif %}
+<a href="{% url 'bill:price_check' %}" class="btn btn-sm btn-outline-danger ms-2">
+        <i class="bi bi-calculator"></i> 价格核算
+    </a>
 </h3>
 
 

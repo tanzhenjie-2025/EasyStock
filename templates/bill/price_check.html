@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+
+{% block title %}价格核算 - EasyStock{% endblock %}
+
+{% block extra_css %}
+<style>
+    .issue-short { background-color: #ffe6e6 !important; color: #cc0000; }
+    .issue-over { background-color: #fff3cd !important; color: #856404; }
+    .issue-mismatch { background-color: #e2e3e5 !important; color: #383d41; }
+    .stats-card { border-left: 4px solid #007bff; }
+    .stats-card.danger { border-left-color: #dc3545; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h3>价格核算中心</h3>
+    
+    <!-- 筛选区域 -->
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row align-items-end g-3">
+                <div class="col-auto">
+                    <label class="form-label">核算开始日期</label>
+                    <input type="date" id="dateFrom" class="form-control" value="{{ date_from }}">
+                </div>
+                <div class="col-auto">
+                    <label class="form-label">核算结束日期</label>
+                    <input type="date" id="dateTo" class="form-control" value="{{ date_to }}">
+                </div>
+                <div class="col-auto">
+                    <button class="btn btn-primary" id="checkBtn">开始核算</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 统计汇总区域 -->
+    <div id="statsArea" class="row g-3 mb-4" style="display: none;">
+        <div class="col-md-4">
+            <div class="card stats-card">
+                <div class="card-body">
+                    <h6 class="text-muted">核算订单数</h6>
+                    <h2 id="statChecked" class="mb-0">0</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card stats-card danger">
+                <div class="card-body">
+                    <h6 class="text-muted">异常订单数</h6>
+                    <h2 id="statAbnormal" class="mb-0 text-danger">0</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card stats-card">
+                <div class="card-body">
+                    <h6 class="text-muted">潜在损失 (低报总额)</h6>
+                    <h2 id="statLoss" class="mb-0 text-warning">¥0.00</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 结果列表区域 -->
+    <div id="resultArea" style="display: none;">
+        <div class="accordion" id="orderAccordion">
+            <!-- JS 会在这里插入内容 -->
+        </div>
+    </div>
+    
+    <div id="noResultArea" class="alert alert-success mt-4" style="display: none;">
+        <i class="bi bi-check-circle-fill"></i> 太棒了！所选时间段内的订单价格全部正常。
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    $('#checkBtn').click(function() {
+        const btn = $(this);
+        const originalText = btn.text();
+        btn.prop('disabled', true).text('正在核算中...');
+
+        $.ajax({
+            url: "{% url 'bill:price_check_ajax' %}",
+            method: 'POST',
+            data: {
+                date_from: $('#dateFrom').val(),
+                date_to: $('#dateTo').val(),
+                csrfmiddlewaretoken: getCsrfToken()
+            },
+            success: function(res) {
+                if(res.code === 1) {
+                    renderStats(res.stats);
+                    renderResults(res.data);
+                } else {
+                    alert(res.msg);
+                }
+            },
+            error: function() {
+                alert('网络错误，请重试');
+            },
+            complete: function() {
+                btn.prop('disabled', false).text(originalText);
+            }
+        });
+    });
+});
+
+function renderStats(stats) {
+    $('#statsArea').show();
+    $('#statChecked').text(stats.checked);
+    $('#statAbnormal').text(stats.abnormal);
+    $('#statLoss').text('¥' + parseFloat(stats.loss).toFixed(2));
+}
+
+function renderResults(orders) {
+    const container = $('#orderAccordion');
+    container.empty();
+
+    if(orders.length === 0) {
+        $('#resultArea').hide();
+        $('#noResultArea').show();
+        return;
+    }
+
+    $('#noResultArea').hide();
+    $('#resultArea').show();
+
+    orders.forEach((order, index) => {
+        const flushId = 'flush-' + index;
+        const hasShort = order.items.some(i => i.type === 'short');
+        
+        let itemsHtml = '';
+        order.items.forEach(item => {
+            let rowClass = '';
+            if(item.type === 'short') rowClass = 'issue-short';
+            else if(item.type === 'over') rowClass = 'issue-over';
+            else rowClass = 'issue-mismatch';
+
+            itemsHtml += `
+                <tr class="${rowClass}">
+                    <td>${item.product_name}</td>
+                    <td>${item.qty}</td>
+                    <td>¥${parseFloat(item.snapshot_std).toFixed(2)}</td>
+                    <td>${item.snapshot_cust ? '¥'+parseFloat(item.snapshot_cust).toFixed(2) : '<span class="text-muted">无</span>'}</td>
+                    <td><strong>¥${parseFloat(item.actual).toFixed(2)}</strong></td>
+                    <td class="fw-bold">${item.diff > 0 ? '+' : ''}¥${parseFloat(item.diff).toFixed(2)}</td>
+                    <td><span class="badge bg-secondary">${item.label}</span></td>
+                </tr>
+            `;
+        });
+
+        const headerBg = hasShort ? 'bg-danger text-white' : 'bg-warning';
+        
+        const html = `
+        <div class="accordion-item mb-2">
+            <h2 class="accordion-header" id="h-${index}">
+                <button class="accordion-button collapsed ${headerBg}" type="button" data-bs-toggle="collapse" data-bs-target="#${flushId}">
+                    <div class="w-100 d-flex justify-content-between align-items-center pe-3">
+                        <div>
+                            <strong>订单号：${order.order_no}</strong>
+                            <span class="ms-3">客户：${order.customer_name}</span>
+                            <span class="ms-3">开单：${order.creator_name}</span>
+                        </div>
+                        <div>${order.create_time.replace('T', ' ').substring(0, 16)}</div>
+                    </div>
+                </button>
+            </h2>
+            <div id="${flushId}" class="accordion-collapse collapse" data-bs-parent="#orderAccordion">
+                <div class="accordion-body p-0">
+                    <div class="p-2 text-end">
+                        <a href="/bill/orders/detail/${order.order_no}/" class="btn btn-sm btn-outline-primary">查看订单详情</a>
+                    </div>
+                    <table class="table table-sm mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>商品</th>
+                                <th>数量</th>
+                                <th>标准快照</th>
+                                <th>熟客快照</th>
+                                <th>实际单价</th>
+                                <th>差价</th>
+                                <th>问题类型</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${itemsHtml}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        `;
+        container.append(html);
+    });
+}
+
+function getCsrfToken() {
+    const c = document.cookie.split('; ').find(row=>row.startsWith('csrftoken='));
+    return c ? c.split('=')[1] : '';
+}
+</script>
+{% endblock %}
