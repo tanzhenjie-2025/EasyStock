@@ -356,27 +356,7 @@
 
     
 
-    <!-- ========== 新增：搜索区域 ========== -->
-    <div class="search-container">
-        <div class="search-input-wrapper">
-            <input 
-                type="text" 
-                class="search-input" 
-                id="searchInput" 
-                placeholder="搜索客户名称 / 商品名称 / 商品别名 / 客户编号"
-                autocomplete="off"
-            >
-            <button class="clear-btn" id="clearSearchBtn" title="清空搜索框">×</button>
-        </div>
-        <button class="search-btn" id="searchBtn">查询专属价</button>
-        <button class="advanced-filter-btn" id="advancedFilterBtn">高级筛选</button>
-    </div>
-
-    <!-- 最近搜索记录 -->
-    <div class="search-history" id="searchHistory">
-        <span class="history-label">最近搜索：</span>
-        <!-- 动态填充 -->
-    </div>
+    
 
     <!-- 高级筛选面板 -->
     <div class="advanced-filter-panel" id="advancedFilterPanel">
@@ -405,6 +385,28 @@
         <button class="btn btn-sm btn-primary" onclick="openAddModal()">新增专属价</button>
         <button class="btn btn-sm btn-info ms-2" onclick="showExportModal()">📥 导出数据</button>
         <button class="btn btn-sm btn-warning ms-2" onclick="showImportModal()">📤 导入数据</button>
+    </div>
+    
+    <!-- ========== 新增：搜索区域 ========== -->
+    <div class="search-container">
+        <div class="search-input-wrapper">
+            <input 
+                type="text" 
+                class="search-input" 
+                id="searchInput" 
+                placeholder="搜索客户名称 / 商品名称 / 商品别名 / 客户编号"
+                autocomplete="off"
+            >
+            <button class="clear-btn" id="clearSearchBtn" title="清空搜索框">×</button>
+        </div>
+        <button class="search-btn" id="searchBtn">查询专属价</button>
+        <button class="advanced-filter-btn" id="advancedFilterBtn">高级筛选</button>
+    </div>
+
+    <!-- 最近搜索记录 -->
+    <div class="search-history" id="searchHistory">
+        <span class="history-label">最近搜索：</span>
+        <!-- 动态填充 -->
     </div>
     
     <!-- ========== 新增：状态Tab切换 ========== -->
