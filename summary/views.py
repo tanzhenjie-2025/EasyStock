@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -103,18 +105,28 @@ def summary_by_group(request):
         total_amt=Sum('amount')
     ).order_by('-total_qty')  # 索引包含quantity，直接索引排序
 
-    # 数据库聚合总金额
-    total_amount = items.aggregate(
-        total=Coalesce(Sum('total_amt'), 0, output_field=DecimalField())
-    )['total']
+    # 在 Python 中组装数据并同时计算总和
+    data = []
+    total_amount = Decimal('0.00')  # 初始化累加器
 
-    # 数据组装
-    data = [{
-        'serial': idx, 'pid': item['product__id'], 'name': item['product__name'],
-        'unit': item['product__unit'], 'price': float(item['product__price']),
-        'total_qty': item['total_qty'] or 0, 'total_amt': float(item['total_amt'] or 0),
-        'remark': ''
-    } for idx, item in enumerate(items, 1)]
+    for idx, item in enumerate(items, 1):
+        # 确保金额不为 None
+        item_total_amt = item['total_amt'] or Decimal('0.00')
+
+        # 累加
+        total_amount += item_total_amt
+
+        # 组装字典
+        data.append({
+            'serial': idx,
+            'pid': item['product__id'],
+            'name': item['product__name'],
+            'unit': item['product__unit'],
+            'price': float(item['product__price']),
+            'total_qty': item['total_qty'] or 0,
+            'total_amt': float(item_total_amt),
+            'remark': ''
+        })
 
     create_summary_operation_log(
         request=request, operation_type='query', object_type='product_summary',

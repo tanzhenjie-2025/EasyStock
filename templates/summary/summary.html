@@ -303,9 +303,10 @@ function restoreSummaryData() {
                 </td>
             </tr>`;
         });
-        // 添加总计行（调整colspan为6，操作列空）
+        // 修改：添加总计行，显示后端返回的 total_amount
         html += `<tr class="total-row">
-            <td colspan="6">总计</td>
+            <td colspan="5">总计</td>
+            <td>${result.total_amount.toFixed(2)}</td>
             <td class="operate-col"></td>
         </tr>`;
         $('#data').html(html);
@@ -317,7 +318,7 @@ function restoreSummaryData() {
     }
 }
 
-// 2. 查询汇总（修改：适配新增的操作列）
+// 2. 查询汇总（修改：适配新增的操作列和总计金额）
 function query(){
     let group_id = $('#group').val();
     let start_time = $('#s').val();
@@ -378,9 +379,10 @@ function query(){
                 </td>
             </tr>`;
         });
-        // 添加总计行（调整colspan为6）
+        // 修改：添加总计行，显示后端返回的 total_amount
         html += `<tr class="total-row">
-            <td colspan="6">总计</td>
+            <td colspan="5">总计</td>
+            <td>${res.total_amount.toFixed(2)}</td>
             <td class="operate-col"></td>
         </tr>`;
         $('#data').html(html);
