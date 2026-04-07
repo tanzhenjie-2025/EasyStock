@@ -50,11 +50,16 @@
             }
         }
         .content-container { padding: 0 15px; }
+
+        /* 【新增】权限弹窗样式优化 */
+        #permissionModal .modal-content {
+            opacity: 0.95;
+            box-shadow: 0 0 20px rgba(0,0,0,0.2);
+        }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
 <body>
-<!-- 这里的 主要是为了确保 Django 发送 cookie，非必须但推荐保留 -->
     {% csrf_token %}
     <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
         <div class="container">
@@ -141,42 +146,114 @@
         {% block content %}{% endblock %}
     </div>
 
+    <!-- ============================================ -->
+    <!-- 【新增】通用权限不足提示弹窗 (Bootstrap Modal) -->
+    <!-- ============================================ -->
+    <div class="modal fade" id="permissionModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-warning">
+                <div class="modal-header bg-warning text-white">
+                    <h5 class="modal-title">
+                        <i class="bi bi-exclamation-triangle-fill me-2"></i> 权限不足
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-center py-4">
+                    <p class="fs-5" id="permissionModalMsg">抱歉，您没有权限执行此操作。</p>
+                    <p class="text-muted small">如有需要，请联系系统管理员开通权限。</p>
+                </div>
+                <div class="modal-footer justify-content-center">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">我知道了</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        $(function () {
-            // 1. 从 Cookie 中获取 CSRF Token
-            function getCookie(name) {
-                let cookieValue = null;
-                if (document.cookie && document.cookie !== '') {
-                    const cookies = document.cookie.split(';');
-                    for (let i = 0; i < cookies.length; i++) {
-                        const cookie = jQuery.trim(cookies[i]);
-                        if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                            break;
-                        }
+<script>
+    $(function () {
+        // 1. 从 Cookie 中获取 CSRF Token (原有逻辑保留)
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = jQuery.trim(cookies[i]);
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
                     }
                 }
-                return cookieValue;
             }
-            const csrftoken = getCookie('csrftoken');
+            return cookieValue;
+        }
+        const csrftoken = getCookie('csrftoken');
 
-            // 2. 定义安全的 HTTP 方法（这些方法不需要 CSRF）
-            function csrfSafeMethod(method) {
-                return (/^(GET|HEAD|OPTIONS|TRACE)$/.test(method));
-            }
+        // 2. 定义安全的 HTTP 方法
+        function csrfSafeMethod(method) {
+            return (/^(GET|HEAD|OPTIONS|TRACE)$/.test(method));
+        }
 
-            // 3. 全局 AJAX 设置
-            $.ajaxSetup({
-                beforeSend: function (xhr, settings) {
-                    // 如果不是安全方法且不是跨域请求，则添加 CSRF Token 到 Header
-                    if (!csrfSafeMethod(settings.type) && !this.crossDomain) {
-                        xhr.setRequestHeader("X-CSRFToken", csrftoken);
-                    }
+        // 3. 全局 AJAX 设置 (CSRF)
+        $.ajaxSetup({
+            beforeSend: function (xhr, settings) {
+                if (!csrfSafeMethod(settings.type) && !this.crossDomain) {
+                    xhr.setRequestHeader("X-CSRFToken", csrftoken);
                 }
-            });
+            }
         });
-    </script>
-    {% block extra_js %}{% endblock %}
+
+        // 4. 全局 AJAX 错误拦截：捕获权限不足
+        $(document).ajaxError(function(event, jqXHR, ajaxSettings, thrownError) {
+            // 尝试解析 JSON 响应
+            let respMsg = "操作失败，请稍后重试。";
+            try {
+                const resp = JSON.parse(jqXHR.responseText);
+                if (resp && resp.msg) {
+                    respMsg = resp.msg;
+                }
+            } catch (e) {
+                // 不是 JSON 格式则使用默认文案
+            }
+
+            // 判断状态码：403 代表权限不足
+            if (jqXHR.status === 403) {
+                $('#permissionModalMsg').text(respMsg);
+                const modal = new bootstrap.Modal(document.getElementById('permissionModal'));
+                modal.show();
+            } 
+            // 401：未登录或登录过期
+            else if (jqXHR.status === 401) {
+                 alert('登录已过期，请重新登录');
+                 window.location.href = '/accounts/login/';
+            }
+        });
+
+        // ============================================
+        // 【新增】页面加载完成后，检查 Django Messages
+        // 如果包含权限错误，自动弹出弹窗
+        // ============================================
+        const $alerts = $('.alert-danger');
+        let hasPermissionError = false;
+        let errorMsg = "抱歉，您没有权限执行此操作。";
+
+        $alerts.each(function() {
+            const text = $(this).text();
+            if (text.includes("没有权限") || text.includes("权限不足")) {
+                hasPermissionError = true;
+                errorMsg = text.trim();
+                // 隐藏原本的 alert，改用 Modal 展示
+                $(this).remove(); 
+            }
+        });
+
+        if (hasPermissionError) {
+            $('#permissionModalMsg').text(errorMsg);
+            const modal = new bootstrap.Modal(document.getElementById('permissionModal'));
+            modal.show();
+        }
+    });
+</script>
+{% block extra_js %}{% endblock %}
 </body>
-</html> 
+</html>

@@ -1,7 +1,7 @@
 from django.db.models import Q, Sum, Count, Value
 from django.db.models.functions import Coalesce
 from django.db.models.signals import post_migrate
-from django.shortcuts import render, redirect, get_object_or_404
+from django.shortcuts import render, redirect, get_object_or_404, resolve_url
 from django.contrib.auth import authenticate, login, logout
 
 from django.contrib import messages
@@ -145,17 +145,68 @@ def get_cached_roles():
     return roles
 
 # ========== 权限装饰器 ==========
+# accounts/views.py (或 decorators.py)
+from functools import wraps
+from django.http import JsonResponse
+from django.shortcuts import redirect
+
+# 假设你有这个常量定义
+ROLE_SUPER_ADMIN = 'super_admin'
+
+
 def permission_required(permission_code):
+    """
+    自定义权限装饰器（修复版）：
+    - AJAX请求：返回标准 JSON 错误码 (401/403)
+    - 普通请求：发送消息 + 重定向回来源页（不跳转单独的无权限页）
+    """
+
     def decorator(view_func):
+        @wraps(view_func)
         def wrapper(request, *args, **kwargs):
+            # 1. 检查是否登录
             if not request.user.is_authenticated:
+                if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+                    return JsonResponse({'code': 0, 'msg': '请先登录后再操作'}, status=401)
                 return redirect(f'/accounts/login/?next={request.path}')
+
+            # 2. 超级管理员直接放行
             if request.user.role and request.user.role.code == ROLE_SUPER_ADMIN:
                 return view_func(request, *args, **kwargs)
+
+            # 3. 检查具体权限
             if not request.user.has_permission(permission_code):
-                return redirect('/accounts/no-permission/')
+                # 判断是否为 AJAX 请求
+                if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+                    return JsonResponse(
+                        {'code': 0, 'msg': '抱歉，您没有权限执行此操作，请联系管理员'},
+                        status=403
+                    )
+
+                # 【修复】普通请求：不跳转页面，改为消息提示 + 重定向
+                messages.error(request, '抱歉，您没有权限执行此操作，请联系管理员')
+
+                # 尝试获取来源页，如果没有则回到首页
+                referer_url = request.META.get('HTTP_REFERER')
+                if referer_url:
+                    # 防止重定向循环（如果来源页就是当前页，则不要回去）
+                    try:
+                        resolved_path = resolve_url(request.path)
+                        resolved_referer = resolve_url(referer_url)
+                        if resolved_path == resolved_referer:
+                            return redirect('/bill/')
+                    except:
+                        pass
+                    return redirect(referer_url)
+
+                # 默认回首页
+                return redirect('/bill/')
+
+            # 4. 权限校验通过
             return view_func(request, *args, **kwargs)
+
         return wrapper
+
     return decorator
 
 # ========== 认证视图（无性能问题，保留原样） ==========
@@ -577,9 +628,15 @@ def profile(request):
             login(request, user)
     return render(request, 'accounts/profile.html', {'user': user})
 
+
+
 @login_required
 def no_permission(request):
-    return render(request, 'accounts/no_permission.html')
+    """
+    备用视图：即使用户手动访问此URL，也只发消息并跳转，不渲染单独的无权限页面
+    """
+    messages.error(request, '抱歉，您没有权限访问该页面，请联系管理员')
+    return redirect('/bill/') # 或者 redirect(request.META.get('HTTP_REFERER', '/bill/'))
 
 # ===================== 用户管理：导入导出新增代码 =====================
 @login_required
