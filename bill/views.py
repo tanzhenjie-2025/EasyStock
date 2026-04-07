@@ -1067,7 +1067,7 @@ def get_customer_recent_products(request):
 # ===================== 2. 新增：价格核算视图 =====================
 
 @login_required
-@permission_required(PERM_ORDER_VIEW)  # 复用查看权限，或者你可以新建一个 PERM_ORDER_PRICE_CHECK
+@permission_required(PERM_ORDER_PRICE_CHECK)  # 复用查看权限，或者你可以新建一个 PERM_ORDER_PRICE_CHECK
 def price_check_view(request):
     """价格核算页面入口"""
     date_from = request.GET.get('date_from', (timezone.now() - timedelta(days=7)).strftime('%Y-%m-%d'))
@@ -1083,7 +1083,7 @@ def price_check_view(request):
 
 
 @login_required
-@permission_required(PERM_ORDER_VIEW)
+@permission_required(PERM_ORDER_PRICE_CHECK)
 def price_check_ajax(request):
     """执行价格核算的AJAX接口"""
     if request.method != 'POST':

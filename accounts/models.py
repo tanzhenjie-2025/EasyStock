@@ -33,11 +33,12 @@ PERM_ORDER_SETTLE = 'order_settle'  # 标记订单结清
 PERM_ORDER_UNSETTLE = 'order_unsettle'  # 撤销订单结清
 PERM_ORDER_SUMMARY = 'order_summary'  # 销售汇总查看/生成
 PERM_PRODUCT_SEARCH = 'product_search'  # 商品/客户搜索
-# 1. 开单模块权限编码（新增）
+# 1. 开单模块权限编码
 PERM_ORDER_VIEW_OTHERS = 'order_view_others'  # 查看他人订单
 PERM_ORDER_CANCEL_OWN = 'order_cancel_own'    # 作废自己的订单
 PERM_ORDER_CANCEL_OTHERS = 'order_cancel_others'  # 作废他人订单
 PERM_ORDER_CANCEL_ANY = 'order_cancel_any'    # 作废任意订单（超级管理员）
+PERM_ORDER_PRICE_CHECK = 'order_price_check'
 
 # 2. 区域管理权限编码
 PERM_AREA_VIEW = 'area_view'  # 查看区域/区域组
@@ -111,6 +112,7 @@ def init_accounts_data(sender, **kwargs):
             ('order_cancel_own', '作废自己订单', 'order', '作废自己创建的未结清订单'),
             ('order_cancel_others', '作废他人订单', 'order', '作废其他员工创建的订单'),
             ('order_cancel_any', '作废任意订单', 'order', '作废系统中任意订单（仅超级管理员）'),
+            ('order_price_check', '价格核算', 'order', '查看并核算订单价格异常与风险'),
 
             # 区域管理
             ('area_view', '查看区域', 'system', '查看区域列表'),
@@ -182,6 +184,7 @@ def init_accounts_data(sender, **kwargs):
                 'log_view', 'log_view_all',
                 'order_view_others', 'order_cancel_own', 'order_cancel_others',
                 'product_sales_rank',
+                'order_price_check',
             ])
         )
         admin_role.permissions.set(admin_perms)
