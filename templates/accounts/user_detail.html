@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}{{ user.name }} - 用户详情{% endblock %}
+{% block title %}{{ target_user.name }} - 用户详情{% endblock %}
 {% block extra_css %}
 <style>
     /* 新增：统一面包屑导航样式 */
@@ -46,7 +46,7 @@
 
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
-        <h5 class="mb-0">用户详情：{{ user.user_code }} - {{ user.name }}</h5>
+        <h5 class="mb-0">用户详情：{{ target_user.user_code }} - {{ target_user.name }}</h5>
         <a href="{% url 'accounts:user_list' %}" class="btn btn-outline-secondary btn-sm">返回列表</a>
     </div>
     <div class="card-body">
@@ -56,25 +56,25 @@
                 <table class="table table-borderless">
                     <tr>
                         <th width="120px">用户编号</th>
-                        <td>{{ user.user_code }}</td>
+                        <td>{{ target_user.user_code }}</td>
                     </tr>
                     <tr>
                         <th>用户名</th>
-                        <td>{{ user.username }}</td>
+                        <td>{{ target_user.username }}</td>
                     </tr>
                     <tr>
                         <th>姓名</th>
-                        <td>{{ user.name }}</td>
+                        <td>{{ target_user.name }}</td>
                     </tr>
                     <tr>
                         <th>联系电话</th>
-                        <td>{{ user.phone|default:"-" }}</td>
+                        <td>{{ target_user.phone|default:"-" }}</td>
                     </tr>
                     <tr>
                         <th>所属角色</th>
                         <td>
                             {% if user.role %}
-                                <span class="badge bg-secondary role-tag">{{ user.role.name }}</span>
+                                <span class="badge bg-secondary role-tag">{{ target_user.role.name }}</span>
                             {% else %}
                                 <span class="text-muted">未分配</span>
                             {% endif %}
@@ -92,7 +92,7 @@
                     </tr>
                     <tr>
                         <th>创建时间</th>
-                        <td>{{ user.date_joined|date:"Y-m-d H:i" }}</td>
+                        <td>{{ target_user.date_joined|date:"Y-m-d H:i" }}</td>
                     </tr>
                 </table>
             </div>
@@ -105,8 +105,8 @@
                     <div class="card-body">
                         <a href="{% url 'accounts:user_edit' user.id %}" class="btn btn-primary btn-sm">修改角色/权限</a>
                         <button class="btn btn-outline-warning btn-sm ms-2 reset-password-btn"
-                                data-user-id="{{ user.id }}"
-                                data-user-code="{{ user.user_code }}">
+                                data-user-id="{{ target_user.id }}"
+                                data-user-code="{{ target_user.user_code }}">
                             重置密码
                         </button>
                     </div>

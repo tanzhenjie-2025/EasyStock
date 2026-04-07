@@ -444,8 +444,11 @@ def user_detail(request, user_id):
         ).select_related('customer', 'area', 'creator').order_by('-create_time')[:15]
 
     return render(request, 'accounts/user_detail.html', {
-        'user': user, 'is_super_admin': is_super_admin, 'user_stats': user_stats,
-        'recent_orders': recent_orders, 'roles': get_cached_roles()
+        'target_user': user,
+        'is_super_admin': is_super_admin,
+        'user_stats': user_stats,
+        'recent_orders': recent_orders,
+        'roles': get_cached_roles()
     })
 
 @login_required
