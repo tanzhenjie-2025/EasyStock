@@ -8,7 +8,7 @@
     <script src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js"></script>
     <style>
         /* 原有样式保留 */
-        .navbar { 
+        .navbar {
             margin-bottom: 20px;
             overflow-x: auto;
         }
@@ -30,8 +30,8 @@
             padding: 0.5rem 0.75rem !important;
             font-size: 14px !important;
         }
-        .user-info { 
-            color: white; 
+        .user-info {
+            color: white;
             margin-right: 8px;
             white-space: nowrap;
             font-size: 14px;
@@ -221,7 +221,7 @@
                 $('#permissionModalMsg').text(respMsg);
                 const modal = new bootstrap.Modal(document.getElementById('permissionModal'));
                 modal.show();
-            } 
+            }
             // 401：未登录或登录过期
             else if (jqXHR.status === 401) {
                  alert('登录已过期，请重新登录');
@@ -243,7 +243,7 @@
                 hasPermissionError = true;
                 errorMsg = text.trim();
                 // 隐藏原本的 alert，改用 Modal 展示
-                $(this).remove(); 
+                $(this).remove();
             }
         });
 

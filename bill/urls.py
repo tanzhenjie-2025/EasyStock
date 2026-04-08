@@ -27,4 +27,6 @@ urlpatterns = [
     path('get-customer-recent-products/', views.get_customer_recent_products, name='get_customer_recent_products'),
 path('price-check/', views.price_check_view, name='price_check'), # 新增
     path('price-check/ajax/', views.price_check_ajax, name='price_check_ajax'), # 新增
+
+
 ]

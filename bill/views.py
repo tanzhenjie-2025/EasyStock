@@ -206,7 +206,7 @@ def search_product(request):
                 'name': p.name,
                 'standard_price': float(p.price),
                 'unit': p.unit,
-                'stock': p.stock
+                'stock_system': p.stock_system  # 修复：旧字段stock → stock_system
             })
         cache.set(cache_key, cached_products, timeout=CACHE_PRODUCT_SEARCH)
         logger.info(f"设置商品搜索缓存: {cache_key}")
@@ -228,7 +228,7 @@ def search_product(request):
             'price': final_price,
             'standard_price': item['standard_price'],
             'unit': item['unit'],
-            'stock': item['stock']
+            'stock_system': item['stock_system']
         })
 
     return JsonResponse({'code': 1, 'data': data})
@@ -275,8 +275,6 @@ def save_order(request):
             for pid in product_ids:
                 if pid not in products:
                     return JsonResponse({'code': 0, 'msg': f'商品ID {pid} 不存在'})
-                if products[pid].stock < item_map[pid]['qty']:
-                    return JsonResponse({'code': 0, 'msg': f'{products[pid].name}库存不足'})
 
             # 3. 查询客户专属价 (用于快照)
             customer_prices_dict = {}
@@ -331,8 +329,8 @@ def save_order(request):
 
             # 6. 批量更新库存
             for pid in product_ids:
-                products[pid].stock -= item_map[pid]['qty']
-            Product.objects.bulk_update(products.values(), ['stock'])
+                products[pid].stock_system -= item_map[pid]['qty']
+            Product.objects.bulk_update(products.values(), ['stock_system'])
 
             # 7. 日志与缓存清理
             create_operation_log(request, 'create_order', 'order', str(order.id), f"订单-{order.order_no}", f"创建订单")
@@ -683,14 +681,14 @@ def cancel_order(request, order_no):
 
             for item in order_items:
                 if item.product:
-                    # 仅修改内存对象，不执行数据库save
-                    item.product.stock += item.quantity
+                    # 🔥 修复：旧字段stock → stock_system（恢复系统库存）
+                    item.product.stock_system += item.quantity
                     product_list.append(item.product)
                     item_count += 1
 
             # 🔥 核心：批量更新库存，1次数据库操作（性能提升10~100倍）
             if product_list:
-                Product.objects.bulk_update(product_list, fields=['stock'])
+                Product.objects.bulk_update(product_list, fields=['stock_system'])
 
             # ===================== 5. 日志记录 =====================
             role_name = request.user.role.name if request.user.role else '未知'

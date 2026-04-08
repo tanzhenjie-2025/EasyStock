@@ -4,13 +4,12 @@
 
 {% block extra_css %}
     <style>
-        /* 限定库存页样式作用域，避免污染全局 */
         .stock-container {
             max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
             font-family: "Microsoft YaHei", sans-serif;
-            text-align: center; /* 关键：让内部行内元素居中 */
+            text-align: center;
         }
         .stock-container h1 {
             text-align: center;
@@ -18,13 +17,12 @@
             color: #333;
         }
         .stock-container .search-wrapper {
-            /* 核心修改：实现搜索栏整体居中 */
-            margin: 0 auto 20px; /* 上下边距0/20px，左右auto水平居中 */
-            position: relative; /* 为候选框定位准备 */
-            display: flex; /* 改为flex，替代inline-flex */
-            align-items: center; /* 垂直居中内部元素 */
-            gap: 8px; /* 输入框和按钮间距 */
-            width: fit-content; /* 宽度适配内容，保证margin auto生效 */
+            margin: 0 auto 20px;
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            width: fit-content;
         }
         .stock-container .product-search-input {
             width: 400px;
@@ -38,7 +36,6 @@
             border-color: #0066cc;
             box-shadow: 0 0 5px rgba(0, 102, 204, 0.2);
         }
-        /* 新增：查询按钮样式 */
         .stock-container .search-btn {
             padding: 10px 18px;
             background-color: #0066cc;
@@ -66,7 +63,7 @@
             background: #0055bb;
         }
         .stock-container table {
-            width: 80%;
+            width: 90%;
             margin: 0 auto;
             border-collapse: collapse;
         }
@@ -80,20 +77,16 @@
             font-weight: bold;
         }
         .stock-container .highlight-row {
-            background: #fff3cd; /* 选中商品高亮 */
+            background: #fff3cd;
         }
-        /* ========== 新增：鼠标经过行高亮样式 ========== */
         .stock-container table tbody tr:hover {
-            background-color: #f5f5f5; /* 浅灰色高亮，和全局样式统一 */
-            cursor: pointer; /* 手型光标，提示可交互 */
-            transition: background-color 0.1s; /* 轻微过渡，更丝滑 */
+            background-color: #f5f5f5;
+            cursor: pointer;
+            transition: background-color 0.1s;
         }
-        /* 保证选中行的高亮优先级高于hover */
         .stock-container table tbody tr.highlight-row:hover {
-            background-color: #fff3cd; /* 选中行hover时保持原有背景 */
+            background-color: #fff3cd;
         }
-
-        /* 最近搜索下拉框样式 */
         .history-dropdown {
             position: absolute;
             top: 100%;
@@ -106,7 +99,7 @@
             z-index: 9999;
             font-size: 14px;
             text-align: left;
-            display: none; /* 默认隐藏 */
+            display: none;
         }
         .history-dropdown .history-item {
             padding: 8px 15px;
@@ -129,8 +122,6 @@
             background: #f8f9fa;
             border-bottom: 1px solid #eee;
         }
-
-        /* 分页样式 */
         .pagination {
             margin-top: 30px;
             display: flex;
@@ -160,23 +151,19 @@
     <div class="stock-container">
         <h1>商品库存查询</h1>
         
-        <!-- 后端搜索表单 -->
         <form method="get" class="search-wrapper">
             <input
                 type="text"
                 name="keyword"
                 id="productSearchInput"
                 class="product-search-input"
-                placeholder="输入商品名称/别名/拼音（回车或点击查询）"
+                placeholder="输入商品名称/别名/拼音"
                 value="{{ keyword }}"
             >
-            <!-- 最近搜索下拉框 -->
             <div id="searchHistoryDropdown" class="history-dropdown"></div>
-            
             <button type="submit" id="searchBtn" class="search-btn">查询</button>
         </form>
 
-        <!-- 库存表格 -->
         <table id="stockTable">
             <thead>
                 <tr>
@@ -184,31 +171,26 @@
                     <th>拼音首字母</th>
                     <th>单位</th>
                     <th>单价</th>
-                    <th>库存数量</th>
+                    <th>系统库存</th>
+                    <th>实际库存</th>
                 </tr>
             </thead>
             <tbody id="stockTableBody">
                 {% for product in products %}
                 <tr data-product-id="{{ product.id }}">
-                    <td>
-                        {% if keyword %}
-                            {{ product.name|safe }}
-                        {% else %}
-                            {{ product.name }}
-                        {% endif %}
-                    </td>
+                    <td>{{ product.name }}</td>
                     <td>{{ product.pinyin_abbr }}</td>
                     <td>{{ product.unit }}</td>
                     <td>¥{{ product.price }}</td>
-                    <td>{{ product.stock }}</td>
+                    <td>{{ product.stock_system }}</td>
+                    <td>{{ product.stock_actual }}</td>
                 </tr>
                 {% empty %}
-                <tr><td colspan="5">暂无商品数据</td></tr>
+                <tr><td colspan="6">暂无商品数据</td></tr>
                 {% endfor %}
             </tbody>
         </table>
 
-        <!-- 分页导航 -->
         {% if page_products.has_other_pages %}
         <nav>
             <ul class="pagination">
@@ -245,58 +227,37 @@
 
 {% block extra_js %}
     <script>
-        // ========== 全局变量 ==========
         const CURRENT_USER = "{{ request.user.username }}";
         const HISTORY_KEY = `stock_search_history_${CURRENT_USER}`;
         const MAX_HISTORY_COUNT = 10;
 
-        // ========== 页面加载完成后执行 ==========
         window.onload = function() {
             const searchInput = document.getElementById('productSearchInput');
             const historyDropdown = document.getElementById('searchHistoryDropdown');
             const searchWrapper = document.querySelector('.search-wrapper');
 
-            // 自动聚焦
-            setTimeout(() => {
-                searchInput.focus();
-            }, 100);
+            setTimeout(() => {searchInput.focus();}, 100);
 
-            // 聚焦显示历史
-            searchInput.addEventListener('focus', function() {
-                renderSearchHistory();
-            });
-
-            // 点击外部隐藏历史
+            searchInput.addEventListener('focus', function() {renderSearchHistory();});
             document.addEventListener('click', function(e) {
-                if(!searchWrapper.contains(e.target)) {
-                    historyDropdown.style.display = 'none';
-                }
+                if(!searchWrapper.contains(e.target)) historyDropdown.style.display = 'none';
             });
-
-            // 提交时保存历史
             searchInput.closest('form').addEventListener('submit', function() {
                 const keyword = searchInput.value.trim();
                 if(keyword) saveSearchHistory(keyword);
             });
         };
 
-        // ========== 保存搜索历史 ==========
         function saveSearchHistory(keyword) {
             if(!keyword || !CURRENT_USER) return;
             keyword = keyword.trim();
-            
             let history = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
             history = history.filter(item => item.keyword !== keyword);
             history.unshift({ keyword: keyword, time: new Date().getTime() });
-            
-            if(history.length > MAX_HISTORY_COUNT) {
-                history = history.slice(0, MAX_HISTORY_COUNT);
-            }
-            
+            if(history.length > MAX_HISTORY_COUNT) history = history.slice(0, MAX_HISTORY_COUNT);
             localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
         }
 
-        // ========== 渲染最近搜索 ==========
         function renderSearchHistory() {
             const historyDropdown = document.getElementById('searchHistoryDropdown');
             const searchInput = document.getElementById('productSearchInput');
@@ -310,11 +271,9 @@
                     html += `<div class="history-item" data-keyword="${item.keyword}">${item.keyword}</div>`;
                 });
                 historyDropdown.innerHTML = html;
-
                 document.querySelectorAll('.history-item').forEach(item => {
                     item.onclick = function() {
-                        const keyword = this.dataset.keyword;
-                        searchInput.value = keyword;
+                        searchInput.value = this.dataset.keyword;
                         searchInput.closest('form').submit();
                         historyDropdown.style.display = 'none';
                     };

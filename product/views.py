@@ -14,7 +14,7 @@ from django.db.models import Sum, Count, Q, F, Prefetch, Case, When, DateTimeFie
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.utils import timezone
 
-# ====================== 新增：导出功能依赖导入 ======================
+# ====================== 导出功能依赖导入 ======================
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 from django.http import HttpResponse
@@ -52,7 +52,6 @@ CACHE_PREFIX_PRODUCT_COUNT = "product:count:"
 KEY_AREA = "area:data"
 KEY_PRODUCT_ALIAS = "product:alias"
 
-
 # ====================== 缓存工具函数 ======================
 def clear_product_all_cache():
     cache.delete_many([KEY_AREA, KEY_PRODUCT_ALIAS])
@@ -64,7 +63,6 @@ def clear_product_all_cache():
         cache.delete(key)
     for key in cache.keys(f"{CACHE_PREFIX_PRODUCT_COUNT}*"):
         cache.delete(key)
-
 
 # ====================== 商品管理主页面 ======================
 @permission_required(PERM_PRODUCT_VIEW)
@@ -85,7 +83,7 @@ def product_manage(request):
         count_inactive = cached_data['count_inactive']
     else:
         products_query = Product.all_objects.order_by('name').only(
-            'id', 'name', 'price', 'unit', 'stock', 'is_active'
+            'id', 'name', 'price', 'unit', 'stock_system', 'stock_actual', 'is_active'
         )
         alias_query = ProductAlias.all_objects.only('id', 'alias_name')
         products_query = products_query.prefetch_related(
@@ -138,7 +136,8 @@ def product_manage(request):
                 'name': product.name,
                 'price': product.price,
                 'unit': product.unit,
-                'stock': product.stock,
+                'stock_system': product.stock_system,
+                'stock_actual': product.stock_actual,
                 'aliases': [{'id': a.id, 'alias_name': a.alias_name} for a in product.aliases.all()],
                 'status': 1 if product.is_active else 0
             })
@@ -174,7 +173,6 @@ def product_manage(request):
         'can_stock_operation': request.user.has_permission(PERM_PRODUCT_STOCK_OP)
     })
 
-
 # ====================== 商品CRUD ======================
 @permission_required(PERM_PRODUCT_ADD)
 def product_add(request):
@@ -192,13 +190,14 @@ def product_add(request):
 
             product = Product.objects.create(
                 name=name, price=float(price), unit=unit,
-                stock=int(stock) if stock.isdigit() else 77
+                stock_system=int(stock) if stock.isdigit() else 77,
+                stock_actual=int(stock) if stock.isdigit() else 77
             )
 
             create_operation_log(
                 request=request, op_type='create', obj_type='product',
                 obj_id=product.id, obj_name=product.name,
-                detail=f"新增商品：名称={product.name}，单价={product.price}，单位={product.unit}，库存={product.stock}"
+                detail=f"新增商品：名称={product.name}，单价={product.price}，单位={product.unit}，系统库存={product.stock_system}，实际库存={product.stock_actual}"
             )
 
             clear_product_all_cache()
@@ -208,7 +207,6 @@ def product_add(request):
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'新增失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
-
 
 @permission_required(PERM_PRODUCT_EDIT)
 def product_edit(request, pk):
@@ -227,17 +225,17 @@ def product_edit(request, pk):
             if Product.objects.filter(name=name).exclude(id=pk).exists():
                 return JsonResponse({'code': 0, 'msg': '商品名称已存在'})
 
-            old_info = f"名称={product.name}，单价={product.price}，单位={product.unit}，库存={product.stock}"
+            old_info = f"名称={product.name}，单价={product.price}，单位={product.unit}，系统库存={product.stock_system}，实际库存={product.stock_actual}"
             product.name = name
             product.price = float(price)
             product.unit = unit
-            product.stock = int(stock) if stock.isdigit() else 77
+            product.stock_system = int(stock) if stock.isdigit() else 77
             product.save()
 
             create_operation_log(
                 request=request, op_type='update', obj_type='product',
                 obj_id=product.id, obj_name=product.name,
-                detail=f"编辑商品：原信息[{old_info}] → 新信息[名称={product.name}，单价={product.price}，单位={product.unit}，库存={product.stock}]"
+                detail=f"编辑商品：原信息[{old_info}] → 新信息[名称={product.name}，单价={product.price}，单位={product.unit}，系统库存={product.stock_system}]"
             )
 
             clear_product_all_cache()
@@ -245,7 +243,6 @@ def product_edit(request, pk):
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'编辑失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
-
 
 @permission_required(PERM_PRODUCT_DELETE)
 def product_delete(request, pk):
@@ -258,7 +255,6 @@ def product_delete(request, pk):
         return JsonResponse({'code': 1, 'msg': '商品禁用成功'})
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'禁用失败：{str(e)}'})
-
 
 @permission_required(PERM_PRODUCT_EDIT)
 def product_restore(request, pk):
@@ -273,8 +269,7 @@ def product_restore(request, pk):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'启用失败：{str(e)}'})
 
-
-# ====================== 🔥 新增：行内编辑（价格/库存）接口 ======================
+# ====================== 🔥 行内编辑（仅修改系统库存） ======================
 @require_POST
 @permission_required(PERM_PRODUCT_EDIT)
 def product_inline_update(request):
@@ -286,8 +281,8 @@ def product_inline_update(request):
 
         if field == 'price':
             product.price = float(value)
-        elif field == 'stock':
-            product.stock = int(value)
+        elif field == 'stock_system':
+            product.stock_system = int(value)
         else:
             return JsonResponse({'code': 0, 'msg': '无效字段'})
 
@@ -297,8 +292,7 @@ def product_inline_update(request):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': str(e)})
 
-
-# ====================== 🔥 新增：状态开关切换接口 ======================
+# ====================== 🔥 状态开关 ======================
 @require_POST
 @permission_required(PERM_PRODUCT_EDIT)
 def product_toggle_status(request):
@@ -312,8 +306,7 @@ def product_toggle_status(request):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': str(e)})
 
-
-# ====================== 🔥 新增：批量操作接口 ======================
+# ====================== 🔥 批量操作 ======================
 @require_POST
 @permission_required(PERM_PRODUCT_DELETE)
 def product_batch_operation(request):
@@ -338,8 +331,36 @@ def product_batch_operation(request):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': str(e)})
 
+# ====================== 🔥 新增：实际库存校准接口 ======================
+@require_POST
+@permission_required(PERM_PRODUCT_STOCK_OP)
+def product_stock_calibrate(request):
+    """实际库存校准（核心功能）"""
+    try:
+        pk = request.POST.get('id')
+        actual_stock = request.POST.get('actual_stock')
+        product = get_object_or_404(Product, pk=pk)
 
-# ====================== 别名CRUD ======================
+        if not actual_stock or not actual_stock.isdigit() or int(actual_stock) < 0:
+            return JsonResponse({'code': 0, 'msg': '请输入有效的实际库存'})
+
+        old_actual = product.stock_actual
+        product.stock_actual = int(actual_stock)
+        product.save(update_fields=['stock_actual'])
+
+        # 校准日志
+        create_operation_log(
+            request=request, op_type='calibrate_stock', obj_type='product',
+            obj_id=product.id, obj_name=product.name,
+            detail=f"库存校准：原实际库存={old_actual} → 新实际库存={product.stock_actual}，系统库存={product.stock_system}"
+        )
+
+        clear_product_all_cache()
+        return JsonResponse({'code': 1, 'msg': '库存校准成功'})
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': str(e)})
+
+# ====================== 别名CRUD（无修改） ======================
 @permission_required(PERM_PRODUCT_ALIAS_ADD)
 def alias_add(request):
     if request.method == 'POST':
@@ -359,7 +380,6 @@ def alias_add(request):
             return JsonResponse({'code': 0, 'msg': str(e)})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
-
 @permission_required(PERM_PRODUCT_ALIAS_DELETE)
 def alias_delete(request, pk):
     try:
@@ -372,18 +392,16 @@ def alias_delete(request, pk):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': str(e)})
 
-
 @permission_required(PERM_PRODUCT_EDIT)
 def product_edit_data(request, pk):
     product = get_object_or_404(Product.objects.prefetch_related('aliases'), pk=pk)
     return JsonResponse({
         'id': product.id, 'name': product.name, 'price': float(product.price),
-        'unit': product.unit, 'stock': product.stock,
+        'unit': product.unit, 'stock': product.stock_system,
         'aliases': [{'id': a.id, 'alias_name': a.alias_name} for a in product.aliases.all()]
     })
 
-
-# ====================== 导入/导出/快速出入库/详情/排行（原有功能保留） ======================
+# ====================== 导入/导出/快速出入库（仅修改系统库存） ======================
 @require_POST
 @permission_required(PERM_PRODUCT_IMPORT)
 def product_import(request):
@@ -421,7 +439,7 @@ def product_import(request):
                     continue
                 price = float(row[price_col]) if (price_col != -1 and len(row) > price_col) else 0.0
                 unit = str(row[unit_col]).strip() if (unit_col != -1 and len(row) > unit_col) else '件'
-                new_products.append(Product(name=name, price=price, unit=unit, stock=77))
+                new_products.append(Product(name=name, price=price, unit=unit, stock_system=77, stock_actual=77))
                 existing.add(name)
                 success_count += 1
             except:
@@ -434,10 +452,10 @@ def product_import(request):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': str(e)})
 
-
 @require_POST
 @permission_required(PERM_PRODUCT_STOCK_OP)
 def quick_stock_operation(request):
+    """快速出入库：仅操作系统库存"""
     try:
         data = json.loads(request.body)
         items = data.get('items', [])
@@ -451,17 +469,17 @@ def quick_stock_operation(request):
                 p = products[pid]
                 in_q = int(i.get('in_quantity', 0))
                 out_q = int(i.get('out_quantity', 0))
-                if out_q > p.stock:
-                    raise Exception(f'{p.name} 库存不足')
-                p.stock += in_q - out_q
+                if out_q > p.stock_system:
+                    raise Exception(f'{p.name} 系统库存不足')
+                p.stock_system += in_q - out_q
                 update_list.append(p)
-            Product.objects.bulk_update(update_list, ['stock'])
+            Product.objects.bulk_update(update_list, ['stock_system'])
             clear_product_all_cache()
             return JsonResponse({'code': 1, 'msg': '出入库成功'})
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': str(e)})
 
-
+# 导出/详情/排行/库存列表（无修改，仅适配字段）
 def export_to_excel(data, title, headers, selected_fields, custom_fields, file_name):
     wb = Workbook()
     ws = wb.active
@@ -478,31 +496,24 @@ def export_to_excel(data, title, headers, selected_fields, custom_fields, file_n
     wb.save(buffer)
     return HttpResponse(buffer.getvalue(), content_type='application/vnd.ms-excel')
 
-
 @login_required
 @permission_required(PERM_PRODUCT_IMPORT)
 def product_export(request):
     try:
-        # 获取筛选参数 (支持 POST)
         keyword = request.POST.get('keyword', request.GET.get('keyword', '')).strip()
         status = request.POST.get('status', request.GET.get('status', 'all'))
-
-        # 获取导出字段和自定义字段配置
         selected_fields = request.POST.getlist('fields[]')
         custom_fields_json = request.POST.get('custom_fields', '[]')
 
-        # 默认字段（如果前端没传，保持向后兼容）
         if not selected_fields:
-            selected_fields = ['serial', 'id', 'name', 'price', 'unit', 'stock', 'aliases', 'status']
+            selected_fields = ['serial', 'id', 'name', 'price', 'unit', 'stock_system', 'stock_actual', 'aliases', 'status']
 
         try:
             custom_fields = json.loads(custom_fields_json)
         except Exception:
             custom_fields = []
 
-        # 筛选商品数据
         products_query = Product.objects.all()
-
         if status == 'active':
             products_query = products_query.filter(is_active=True)
         elif status == 'inactive':
@@ -517,61 +528,44 @@ def product_export(request):
             )
 
         products = products_query.prefetch_related('aliases').order_by('name')
-
-        # 定义字段映射与表头
         field_config = {
             'serial': {'header': '序号', 'width': 8},
             'id': {'header': 'ID', 'width': 8},
             'name': {'header': '商品名称', 'width': 20},
             'price': {'header': '单价（元）', 'width': 12},
             'unit': {'header': '单位', 'width': 8},
-            'stock': {'header': '库存', 'width': 10},
+            'stock_system': {'header': '系统库存', 'width': 10},
+            'stock_actual': {'header': '实际库存', 'width': 10},
             'aliases': {'header': '别名', 'width': 20},
             'status': {'header': '状态', 'width': 8}
         }
 
-        # 1. 构建最终的字段列表（插入自定义字段）
         final_fields = selected_fields.copy()
-        # 用于记录插入位置，防止重复插入导致索引错乱
         offset_map = {}
-
         for cf in custom_fields:
             target = cf['target']
             if target in final_fields:
-                # 计算实际插入位置
                 base_idx = final_fields.index(target)
-                # 如果有在它之前插入的，索引要加上偏移量
                 actual_idx = base_idx + offset_map.get(target, 0)
-
                 custom_key = f'custom_{cf["name"]}'
-
                 if cf['position'] == 'after':
                     final_fields.insert(actual_idx + 1, custom_key)
-                    # 更新偏移量：在 target 之后插入，所有在 target 之后的基准索引都要+1
-                    # 简单处理：只记录当前 target 的偏移
-                    offset_map[target] = offset_map.get(target, 0) + 1
                 else:
                     final_fields.insert(actual_idx, custom_key)
-                    offset_map[target] = offset_map.get(target, 0) + 1
-
-                # 添加到字段配置
+                offset_map[target] = offset_map.get(target, 0) + 1
                 field_config[custom_key] = {'header': cf['name'], 'width': 15}
 
-        # 生成 Excel
         wb = Workbook()
         ws = wb.active
         ws.title = "商品列表"
 
-        # 2. 写入表头
         for col_num, field in enumerate(final_fields, 1):
             cfg = field_config.get(field, {'header': field})
             cell = ws.cell(row=1, column=col_num, value=cfg['header'])
             cell.font = Font(bold=True)
             cell.fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
-            # 设置列宽
             ws.column_dimensions[cell.column_letter].width = cfg.get('width', 12)
 
-        # 3. 写入数据
         for row_num, product in enumerate(products, 2):
             col_num = 1
             for field in final_fields:
@@ -584,58 +578,50 @@ def product_export(request):
                     value = product.name
                 elif field == 'price':
                     value = float(product.price)
-                    # 设置数字格式
                     ws.cell(row=row_num, column=col_num).number_format = '0.00'
                 elif field == 'unit':
                     value = product.unit
-                elif field == 'stock':
-                    value = product.stock
+                elif field == 'stock_system':
+                    value = product.stock_system
+                elif field == 'stock_actual':
+                    value = product.stock_actual
                 elif field == 'aliases':
                     value = ','.join([a.alias_name for a in product.aliases.all()])
                 elif field == 'status':
                     value = '启用' if product.is_active else '停用'
                 elif field.startswith('custom_'):
-                    # 自定义字段留空
                     value = ''
-
                 ws.cell(row=row_num, column=col_num, value=value)
                 col_num += 1
 
-        # 保存到内存
         buffer = BytesIO()
         wb.save(buffer)
         buffer.seek(0)
 
-        # 返回响应
         response = HttpResponse(
             buffer.getvalue(),
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-        response[
-            'Content-Disposition'] = f'attachment; filename=商品列表_{timezone.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+        response['Content-Disposition'] = f'attachment; filename=商品列表_{timezone.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
         return response
 
     except Exception as e:
         logger.error(f"导出失败: {str(e)}")
         return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'})
 
-
 @permission_required(PERM_PRODUCT_DETAIL)
 def product_detail(request, pk):
     p = get_object_or_404(Product, pk=pk)
     return render(request, 'product/product_detail.html', {'product': p})
 
-
 @login_required
 def sales_rank(request):
     return render(request, 'product/sales_rank.html')
-
 
 @login_required
 def sales_rank_data(request):
     data = OrderItem.objects.values('product__name').annotate(total=Sum('quantity')).order_by('-total')[:30]
     return JsonResponse({'data': [{'name': i['product__name'], 'num': i['total']} for i in data]})
-
 
 @login_required
 def stock_list(request):

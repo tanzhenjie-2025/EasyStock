@@ -35,5 +35,7 @@ path('stock/', views.stock_list, name='stock_list'),
 path('inline-update/', views.product_inline_update, name='product_inline_update'),
 path('toggle-status/', views.product_toggle_status, name='product_toggle_status'),
 path('batch-operation/', views.product_batch_operation, name='product_batch_operation'),
+
+path('stock-calibrate/', views.product_stock_calibrate, name='product_stock_calibrate'),
 ]
 
