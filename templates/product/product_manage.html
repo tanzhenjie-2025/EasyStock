@@ -109,7 +109,7 @@ input:checked + .slider:before{transform:translateX(26px);}
 {% block content %}
 <div class="product-manage-container">
     <h1>商品管理</h1>
-    
+
     <div class="search-form">
         <form method="get">
             <input type="text" name="keyword" class="search-input" placeholder="搜索商品/别名" value="{{ keyword }}">
@@ -120,8 +120,11 @@ input:checked + .slider:before{transform:translateX(26px);}
         <button class="btn btn-success" onclick="openModal()">➕ 新增商品</button>
         <button class="btn btn-warning" onclick="openBatchModal()">⚙️ 批量操作</button>
         <button class="btn btn-primary" onclick="openStockModal()">📦 快速出入库</button>
+        
         <button class="btn btn-success" onclick="exportData()">📥 导出</button>
         <button class="btn btn-warning" onclick="showImportModal()">📤 导入</button>
+        <li class="nav-item"><a class="nav-link" href="/product/stock-in/index/">入库单</a></li>
+        <li class="nav-item"><a class="nav-link" href="/product/stock-in/list/">入库列表</a></li>
     </div>
 
     <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;">
@@ -254,6 +257,7 @@ input:checked + .slider:before{transform:translateX(26px);}
 <div class="modal" id="stockModal">
     <div class="modal-content">
         <h3>快速出入库</h3>
+        
         <button class="btn" onclick="addStockRow()">新增行</button>
         <table class="product-table" id="stockTable">
             <thead><tr><th>商品</th><th>入库</th><th>出库</th><th>操作</th></tr></thead>
@@ -294,7 +298,7 @@ input:checked + .slider:before{transform:translateX(26px);}
                 <button class="btn btn-xs btn-primary" onclick="selectAllFields(true)">全选</button>
                 <button class="btn btn-xs btn-default" onclick="selectAllFields(false)">取消全选</button>
             </div>
-            
+
             <div class="field-checkbox">
                 <input type="checkbox" id="field_serial" name="export_fields" value="serial" checked>
                 <label for="field_serial">序号</label>
@@ -331,7 +335,7 @@ input:checked + .slider:before{transform:translateX(26px);}
                 <input type="checkbox" id="field_status" name="export_fields" value="status" checked>
                 <label for="field_status">状态</label>
             </div>
-            
+
             <div class="custom-fields-section">
                 <h6>自定义字段</h6>
                 <div id="customFieldsContainer"></div>
@@ -343,7 +347,7 @@ input:checked + .slider:before{transform:translateX(26px);}
             <button class="btn btn-primary" onclick="exportExcel()">确认导出</button>
         </div>
     </div>
-</div>    
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -358,7 +362,7 @@ function openModal(id=null){
     $('#productForm')[0].reset();
     $('#editId').val('');
     $('#productModal').addClass('active');
-    
+
     if(id){
         $.get('/product/edit/data/'+id+'/', function(res){
             $('#editId').val(res.id);
@@ -429,7 +433,7 @@ $(document).on('click', '.editable', function(){
     let id = $(this).closest('tr').data('id');
     $(this).html(`<input type="number" step="${field=='price'?'0.01':'1'}" value="${val}" class="inline-input">`);
     $(this).find('input').focus().select();
-    
+
     $(this).find('input').blur(function(){
         saveInline(id, field, $(this).val());
     });
@@ -473,7 +477,7 @@ function batchOperation(action){
     let ids = [];
     $('.checkItem:checked').each(function(){ids.push($(this).val());});
     if(ids.length===0) return showToast('请选择商品', 'error');
-    
+
     $.post('/product/batch-operation/', {
         csrfmiddlewaretoken: csrf, ids:JSON.stringify(ids), action:action
     }, function(res){
@@ -518,7 +522,7 @@ function addCustomField() {
         const fieldLabel = $(this).next('label').text();
         targetFieldsHtml += `<option value="${fieldValue}">${fieldLabel}</option>`;
     });
-    
+
     const customFieldHtml = `
     <div class="custom-field-item" data-index="${customFieldCount}">
         <input type="text" class="custom-field-name" placeholder="字段名称" value="备注${customFieldCount}">

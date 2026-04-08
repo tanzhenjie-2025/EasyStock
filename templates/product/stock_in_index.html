@@ -1,0 +1,473 @@
+{% extends "base.html" %}
+
+<!-- 页面标题 -->
+{% block title %}快速入库工具（表格版） - EasyStock{% endblock %}
+
+<!-- 页面专属样式 -->
+{% block extra_css %}
+    <style>
+        .reopen-tag {
+            background: #ffc107;
+            color: #000;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 14px;
+            margin-bottom: 10px;
+            display: inline-block;
+        }
+        body { font-family: "Microsoft YaHei", sans-serif; margin: 0; }
+        .content-container { 
+            max-width: 1000px; 
+            margin: 20px auto; 
+            padding: 0 15px;
+        }
+        .btn-add-row { padding: 8px 20px; font-size: 16px; cursor: pointer; background: #0066cc; color: #fff; border: none; border-radius: 4px; margin-bottom: 10px; }
+        .btn-add-row:hover { background: #0055bb; }
+
+        .bill-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        .bill-table th, .bill-table td { border: 1px solid #000; padding: 8px; text-align: center; position: relative; }
+        .bill-table th { background: #e9e9e9; font-weight: bold; }
+        .bill-table input { 
+            width: 95%; padding: 6px; text-align: center; border: 1px solid #ddd; border-radius: 3px; font-size: 14px; outline: none;
+        }
+        .bill-table input:focus { border-color: #0066cc; }
+        .amount-cell { background: #f5f5f5; font-weight: bold; }
+        .serial-cell { font-weight: bold; color: #666; }
+        .btn-del { padding: 4px 8px; background: #ff4400; color: #fff; border: none; border-radius: 3px; cursor: pointer; font-size: 12px; }
+        .btn-del:hover { background: #dd3300; }
+        .total-row { background: #f0f0f0; font-weight: bold; }
+
+        /* 输入法式候选框 */
+        .suggest-dropdown {
+            position: absolute;
+            top: 100%; left: 0;
+            min-width: 350px;
+            max-width: 500px;
+            width: auto !important;
+            background: #fff;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            z-index: 9999;
+            font-size: 14px;
+            text-align: left;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+        .suggest-dropdown div {
+            padding: 6px 12px;
+            cursor: pointer;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            overflow: hidden;
+        }
+        .suggest-dropdown div:hover,
+        .suggest-dropdown div.active {
+            background: #0066cc;
+            color: #fff;
+        }
+
+        .btn-group { margin: 20px 0; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; border-radius: 4px; border: 1px solid #ccc; }
+        .btn-save { background: #009900; color: #fff; border: none; }
+        .btn-print { background: #ff6600; color: #fff; border: none; }
+
+        @media print {
+            .navbar, .btn-add-row, .btn-group, .suggest-dropdown { display: none !important; }
+            .bill-table input { border: none; }
+            .btn-del { display: none; }
+        }
+    </style>
+{% endblock %}
+
+<!-- 页面主体内容 -->
+{% block content %}
+    <div class="content-container">
+        <h1>快速入库工具（表格版）</h1>
+        <button class="btn-add-row" onclick="addBlankRow()">新增空白行</button>
+
+        <table class="bill-table" id="bill-table">
+            <thead>
+                <tr>
+                    <th>序号</th>
+                    <th>商品名称</th>
+                    <th>入库数量</th>
+                    <th>入库单位</th>
+                    <th>入库单价（¥）</th>
+                    <th>入库金额（¥）</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="bill-tbody"></tbody>
+            <tfoot>
+                <tr class="total-row">
+                    <td colspan="5" align="right">入库单总计：</td>
+                    <td id="total-amount">¥0.00</td>
+                    <td></td>
+                </tr>
+            </tfoot>
+        </table>
+
+        <div class="btn-group">
+            <button class="btn-save" onclick="saveOrder()">保存并提交</button>
+            <button class="btn-print" onclick="printBill()">一键打印</button>
+        </div>
+    </div>
+{% endblock %}
+
+<!-- 页面专属JS -->
+{% block extra_js %}
+    <script>
+        // ========== 全局配置 ==========
+        let rowIdCounter = 0;
+        const inputColsCount = 4;
+        let currentSearchInput = null;    // 当前商品搜索输入框
+        let currentSuggestList = [];      // 当前商品候选列表
+        let suggestBox = null;            // 全局候选DOM
+        let originalOrderNo = {% if reopen_order_data %}"{{ reopen_order_data.order_no }}"{% else %}null{% endif %};
+
+        // 防抖函数
+        function debounce(func, delay = 500) {
+            let timeoutId;
+            return function(...args) {
+                clearTimeout(timeoutId);
+                timeoutId = setTimeout(() => {
+                    func.apply(this, args);
+                }, delay);
+            };
+        }
+        const debouncedProductSearch = debounce(onProductInput, 500);
+
+        // ========== 初始化 ==========
+        initSuggestBox();
+        window.addEventListener('click', hideAllSuggest);
+        
+        // ========== 通用候选框初始化 ==========
+        function initSuggestBox() {
+            suggestBox = document.createElement('div');
+            suggestBox.className = 'suggest-dropdown';
+            document.body.appendChild(suggestBox);
+        }
+
+        function hideSuggest() {
+            if (suggestBox) suggestBox.style.display = 'none';
+            currentSearchInput = null;
+            currentSuggestList = [];
+        }
+
+        function hideAllSuggest(e) {
+            if (e && e.target.closest('.suggest-dropdown')) return;
+            if (e && e.target.classList.contains('name-input')) return;
+            hideSuggest();
+        }
+
+        // ========== 商品搜索逻辑 ==========
+        async function onProductInput(input) {
+            const keyword = input.value.trim();
+            if (!keyword) {
+                hideSuggest();
+                return;
+            }
+            currentSearchInput = input;
+            try {
+                const res = await fetch(`/bill/search-product/?keyword=${encodeURIComponent(keyword)}&customer_id=`);
+                const data = await res.json();
+                if (data.code === 1 && data.data.length > 0) {
+                    currentSuggestList = data.data;
+                    showSuggest(input, data.data);
+                } else {
+                    hideSuggest();
+                }
+            } catch (e) { hideSuggest(); }
+        }
+
+        function showSuggest(input, list) {
+            const rect = input.getBoundingClientRect();
+            suggestBox.style.left = rect.left + 'px';
+            suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
+            suggestBox.innerHTML = '';
+
+            list.slice(0, 8).forEach((item, idx) => {
+                const div = document.createElement('div');
+                let priceText = `¥${item.price}/${item.unit}`;
+                if (item.standard_price !== item.price) {
+                    priceText = `¥${item.price}/${item.unit}（原价¥${item.standard_price}）`;
+                }
+                div.textContent = `${idx+1} ${item.name}  ${priceText}`;
+                div.dataset.index = idx;
+                div.onclick = () => selectItem(idx);
+                suggestBox.appendChild(div);
+            });
+            suggestBox.style.display = 'block';
+        }
+
+        function selectItem(index) {
+            const item = currentSuggestList[index];
+            if (!item || !currentSearchInput) return;
+            const tr = currentSearchInput.closest('tr');
+            const nameInput = tr.querySelector('.name-input');
+            nameInput.value = item.name;
+            nameInput.dataset.productId = item.id;
+            tr.querySelector('.price-input').value = item.price;
+            tr.querySelector('.unit-input').value = item.unit;
+            calcRowAmount(tr.querySelector('.price-input'));
+            hideSuggest();
+        }
+
+        function handleProductInputKey(e) {
+            if (!currentSuggestList.length) return;
+            if (e.key === ' ') {
+                e.preventDefault();
+                selectItem(0);
+            }
+            const num = parseInt(e.key);
+            if (!isNaN(num) && num >= 1 && num <= currentSuggestList.length) {
+                e.preventDefault();
+                selectItem(num - 1);
+            }
+            if (e.key === 'Escape') hideSuggest();
+        }
+
+        // ========== 表格行操作 ==========
+        function createInputElement(type, className, placeholder, value = '') {
+            const input = document.createElement('input');
+            input.type = type;
+            input.className = className;
+            input.placeholder = placeholder;
+            input.value = value;
+
+            if (type === 'number') {
+                input.min = className === 'quantity-input' ? 1 : 0;
+                input.step = className === 'price-input' ? 0.01 : 1;
+                input.addEventListener('input', () => calcRowAmount(input));
+            }
+
+            if (className === 'name-input') {
+                input.addEventListener('input', () => debouncedProductSearch(input));
+                input.addEventListener('keydown', handleProductInputKey);
+            }
+
+            bindInputKeyboardEvents(input);
+            return input;
+        }
+
+        function bindInputKeyboardEvents(input) {
+            input.addEventListener('keydown', e => {
+                if (e.shiftKey && e.key === 'Enter') {
+                    e.preventDefault();
+                    saveOrder();
+                    return;
+                }
+
+                if (e.key === 'Enter') { e.preventDefault(); handleEnterKey(input); }
+                const dir = ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'];
+                if (dir.includes(e.key)) { e.preventDefault(); handleDirectionKeys(input,e.key); }
+                if (e.shiftKey && (e.key === 'Backspace' || e.key === 'Delete')) {
+                    e.preventDefault();
+                    handleDeleteRowByKey(input);
+                }
+            });
+        }
+
+        function handleEnterKey(input) {
+            const tr = input.closest('tr');
+            const inputs = tr.querySelectorAll('input');
+            const idx = Array.from(inputs).indexOf(input);
+            if (idx < inputColsCount - 1) {
+                inputs[idx+1].focus(); inputs[idx+1].select();
+            } else {
+                const newTr = addBlankRow(true);
+                newTr.querySelector('.name-input').focus();
+            }
+        }
+
+        function handleDirectionKeys(input, key) {
+            const tr = input.closest('tr');
+            const allTr = Array.from(document.querySelectorAll('#bill-tbody tr'));
+            const trIdx = allTr.indexOf(tr);
+            const inputs = tr.querySelectorAll('input');
+            const idx = Array.from(inputs).indexOf(input);
+            const rowCount = allTr.length;
+
+            switch(key) {
+                case 'ArrowLeft':
+                    const l = idx === 0 ? inputColsCount-1 : idx-1;
+                    inputs[l].focus(); inputs[l].select(); break;
+                case 'ArrowRight':
+                    const r = idx === inputColsCount-1 ? 0 : idx+1;
+                    inputs[r].focus(); inputs[r].select(); break;
+                case 'ArrowUp':
+                    const upTr = allTr[trIdx === 0 ? rowCount-1 : trIdx-1];
+                    upTr.querySelectorAll('input')[idx].focus(); break;
+                case 'ArrowDown':
+                    const dnTr = allTr[trIdx === rowCount-1 ? 0 : trIdx+1];
+                    dnTr.querySelectorAll('input')[idx].focus(); break;
+            }
+        }
+
+        function handleDeleteRowByKey(input) {
+            const tr = input.closest('tr');
+            const tbody = document.getElementById('bill-tbody');
+            if (tbody.children.length <= 1) {
+                alert('至少保留1行');
+                return;
+            }
+
+            const allTr = Array.from(tbody.querySelectorAll('tr'));
+            const trIdx = allTr.indexOf(tr);
+            const inputs = tr.querySelectorAll('input');
+            const inputIdx = Array.from(inputs).indexOf(input);
+
+            tr.remove();
+            updateRowNumbers();
+            calcTotalAmount();
+
+            const newAllTr = Array.from(tbody.querySelectorAll('tr'));
+            if (newAllTr.length > 0) {
+                const targetTrIdx = trIdx > 0 ? trIdx - 1 : 0;
+                const targetTr = newAllTr[targetTrIdx];
+                const targetInputs = targetTr.querySelectorAll('input');
+
+                const targetInputIdx = inputIdx < targetInputs.length ? inputIdx : targetInputs.length - 1;
+                const targetInput = targetInputs[targetInputIdx];
+
+                targetInput.focus();
+                targetInput.select();
+            }
+        }
+
+        // ========== 计算逻辑 ==========
+        function calcRowAmount(input) {
+            const tr = input.closest('tr');
+            const qty = parseFloat(tr.querySelector('.quantity-input').value) || 0;
+            const price = parseFloat(tr.querySelector('.price-input').value) || 0;
+            tr.querySelector('.amount-cell').textContent = `¥${(qty*price).toFixed(2)}`;
+            calcTotalAmount();
+        }
+
+        function calcTotalAmount() {
+            let total = 0;
+            document.querySelectorAll('#bill-tbody tr').forEach(tr => {
+                const t = tr.querySelector('.amount-cell').textContent;
+                total += parseFloat(t.replace('¥','')) || 0;
+            });
+            document.getElementById('total-amount').textContent = `¥${total.toFixed(2)}`;
+        }
+
+        // ========== 行操作 ==========
+        function updateRowNumbers() {
+            document.querySelectorAll('#bill-tbody tr').forEach((r,i)=>{
+                r.querySelector('.serial-cell').textContent = i+1;
+            });
+        }
+
+        function addBlankRow(returnRow=false) {
+            rowIdCounter++;
+            const tbody = document.getElementById('bill-tbody');
+            const tr = document.createElement('tr');
+            tr.dataset.rowId = rowIdCounter;
+            tr.innerHTML = `
+                <td class="serial-cell">${tbody.children.length+1}</td>
+                <td></td><td></td><td></td><td></td>
+                <td class="amount-cell">¥0.00</td>
+                <td><button class="btn-del" onclick="deleteRow(this)">删除</button></td>`;
+            tr.cells[1].appendChild(createInputElement('text','name-input','商品名称/拼音'));
+            tr.cells[2].appendChild(createInputElement('number','quantity-input','数量',1));
+            tr.cells[3].appendChild(createInputElement('text','unit-input','单位'));
+            tr.cells[4].appendChild(createInputElement('number','price-input','单价'));
+            tbody.appendChild(tr);
+            updateRowNumbers();
+            calcTotalAmount();
+            const nameInput = tr.querySelector('.name-input');
+            if (returnRow) return tr;
+        }
+
+        function deleteRow(btn) {
+            const tr = btn.closest('tr');
+            const tbody = document.getElementById('bill-tbody');
+            if (tbody.children.length <=1) { alert('至少保留1行'); return; }
+            tr.remove(); updateRowNumbers(); calcTotalAmount();
+        }
+
+        // CSRF Token
+        function getCsrfToken() {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, 10) === 'csrftoken=') {
+                        cookieValue = decodeURIComponent(cookie.substring(10));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+        // ========== 保存/打印/重置 ==========
+        async function saveOrder() {
+            const items = [];
+            document.querySelectorAll('#bill-tbody tr').forEach(tr=>{
+                const nameInput = tr.querySelector('.name-input');
+                const name = nameInput.value.trim();
+                const qty = parseInt(tr.querySelector('.quantity-input').value)||0;
+                const unit = tr.querySelector('.unit-input').value.trim();
+                const price = parseFloat(tr.querySelector('.price-input').value)||0;
+                const amt = parseFloat(tr.querySelector('.amount-cell').textContent.replace('¥',''))||0;
+                const productId = nameInput.dataset.productId || '';
+                if(name&&qty&&price>=0) items.push({
+                    id: productId,
+                    name, qty, unit, price, amt
+                });
+            });
+            if(!items.length){alert('请填写商品');return;}
+            const total = items.reduce((s,i)=>s+parseFloat(i.amt),0).toFixed(2);
+            
+            try{
+                const requestData = { items, total_amount: total };
+                if (originalOrderNo) requestData.original_order_no = originalOrderNo;
+
+                const r = await fetch(`/product/stock-in/save/`,{
+                    method:'POST',
+                    headers:{'Content-Type':'application/json', 'X-CSRFToken':getCsrfToken()},
+                    body:JSON.stringify(requestData)
+                });
+                const d=await r.json();
+                if(d.code===1){alert('入库成功：'+d.order_no); window.open(`/bill/print/${d.order_no}/`); resetBill();}
+                else alert(d.msg);
+            }catch(e){alert('保存失败：' + e.message)}
+        }
+
+        function printBill(){window.print();}
+        function resetBill(){
+            document.getElementById('bill-tbody').innerHTML='';
+            rowIdCounter=0;
+            addBlankRow();
+            originalOrderNo = null;
+        }
+        
+        // ========== 页面初始化 ==========
+        window.onload = function() {
+            {% if reopen_order_data %}
+                document.getElementById('bill-tbody').innerHTML = '';
+                rowIdCounter = 0;
+                const reopenItems = {{ reopen_order_data.items|safe }};
+                reopenItems.forEach(item => {
+                    const tr = addBlankRow(true);
+                    const nameInput = tr.querySelector('.name-input');
+                    nameInput.value = item.name;
+                    nameInput.dataset.productId = item.id;
+                    tr.querySelector('.quantity-input').value = item.qty;
+                    tr.querySelector('.unit-input').value = item.unit;
+                    tr.querySelector('.price-input').value = item.price;
+                    calcRowAmount(tr.querySelector('.price-input'));
+                });
+                if (reopenItems.length === 0) addBlankRow();
+            {% else %}
+                // 自动生成第一行空白栏，无任何报错
+                addBlankRow();
+            {% endif %}
+        };
+    </script>
+{% endblock %}

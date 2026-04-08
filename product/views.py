@@ -1,19 +1,11 @@
-from django.contrib.auth.decorators import login_required
-from django.shortcuts import render, redirect, get_object_or_404
-from django.http import JsonResponse
+
 from django.db import IntegrityError, transaction
 from django.views.decorators.http import require_POST
-from django.core.files.uploadedfile import InMemoryUploadedFile
-import os
 import io
 import openpyxl
 import xlrd
-import json
 from datetime import datetime, timedelta
 from django.db.models import Sum, Count, Q, F, Prefetch, Case, When, DateTimeField
-from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
-from django.utils import timezone
-
 # ====================== 导出功能依赖导入 ======================
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
@@ -22,6 +14,26 @@ from io import BytesIO
 import logging
 # ========== 缓存核心导入 ==========
 from django.core.cache import cache
+# ========== 导入依赖（和bill模块保持一致） ==========
+from django.db import transaction
+from django.shortcuts import render, redirect, get_object_or_404
+from django.http import JsonResponse, HttpResponse
+from django.utils import timezone
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+from django.contrib.auth.decorators import login_required
+from django.db.models import Q, Sum, Count
+from accounts.views import permission_required, create_operation_log
+from accounts.models import ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OPERATOR
+from product.models import Product, StockIn, StockInItem
+from bill.views import (
+    # 复用缓存工具
+    clear_stock_cache, clear_product_search_cache,
+    # 复用AJAX装饰器
+    ajax_login_required, ajax_permission_required
+)
+import json
+import decimal
+import logging
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +48,6 @@ from accounts.models import (
 # 业务模型
 from bill.models import Order, OrderItem
 from product.models import Product, ProductAlias
-from customer_manage.models import CustomerPrice, RepaymentRecord
 from area_manage.models import Area
 
 # ====================== 缓存常量配置 ======================
@@ -52,6 +63,10 @@ CACHE_PREFIX_PRODUCT_COUNT = "product:count:"
 KEY_AREA = "area:data"
 KEY_PRODUCT_ALIAS = "product:alias"
 
+# ========== 入库模块权限常量 ==========
+PERM_STOCK_IN_CREATE = 'stock_in_create'    # 新建入库
+PERM_STOCK_IN_VIEW = 'stock_in_view'        # 查看入库
+PERM_STOCK_IN_CANCEL = 'stock_in_cancel'    # 作废入库
 # ====================== 缓存工具函数 ======================
 def clear_product_all_cache():
     cache.delete_many([KEY_AREA, KEY_PRODUCT_ALIAS])
@@ -629,3 +644,263 @@ def stock_list(request):
     qs = Product.objects.filter(name__icontains=kw)
     page = Paginator(qs, 10).get_page(request.GET.get('page', 1))
     return render(request, 'product/stock.html', {'products': page})
+
+# ========== 1. 入库首页（替换开单首页，无客户搜索） ==========
+@login_required
+@permission_required(PERM_STOCK_IN_CREATE)
+def stock_in_index(request):
+    """快速入库首页"""
+    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+    return render(request, 'product/stock_in_index.html', {
+        'is_super_admin': is_super_admin
+    })
+
+# ========== 2. 保存入库单（核心：增加库存） ==========
+@login_required
+@permission_required(PERM_STOCK_IN_CREATE)
+def save_stock_in(request):
+    """保存入库单 + 增加商品库存"""
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+
+    try:
+        with transaction.atomic():
+            data = json.loads(request.body)
+            items = data.get('items', [])
+
+            if not items:
+                return JsonResponse({'code': 0, 'msg': '请填写入库商品'})
+
+            # 校验商品数据
+            product_ids = []
+            item_map = {}
+            for item in items:
+                pid = item.get('id')
+                try:
+                    pid = int(pid)
+                except:
+                    return JsonResponse({'code': 0, 'msg': '商品ID格式错误'})
+
+                qty = item.get('qty', 0)
+                price = item.get('price', 0)
+                if not pid or qty <= 0:
+                    return JsonResponse({'code': 0, 'msg': '商品数量必须大于0'})
+
+                product_ids.append(pid)
+                item_map[pid] = {'qty': qty, 'price': decimal.Decimal(str(price))}
+
+            # 批量查询商品
+            products = Product.objects.filter(id__in=product_ids).in_bulk()
+            for pid in product_ids:
+                if pid not in products:
+                    return JsonResponse({'code': 0, 'msg': f'商品ID {pid} 不存在'})
+
+            # 创建入库单
+            stock_in = StockIn()
+            stock_in.creator = request.user
+            total_amount = 0
+            stock_in_items = []
+
+            for pid in product_ids:
+                product = products[pid]
+                qty = item_map[pid]['qty']
+                price = item_map[pid]['price']
+                amount = price * qty
+                total_amount += amount
+
+                stock_in_items.append(StockInItem(
+                    stock_in=stock_in,
+                    product=product,
+                    quantity=qty,
+                    amount=amount,
+                    actual_unit_price=price
+                ))
+
+            stock_in.total_amount = total_amount
+            stock_in.save()
+            StockInItem.objects.bulk_create(stock_in_items)
+
+            # ✅ 核心：入库 = 增加库存
+            for pid in product_ids:
+                products[pid].stock_system += item_map[pid]['qty']
+            Product.objects.bulk_update(products.values(), ['stock_system'])
+
+            # 日志+清理缓存
+            create_operation_log(request, 'create_stock_in', 'stock_in', str(stock_in.id),
+                                f"入库单-{stock_in.stock_in_no}", "创建入库单")
+            clear_stock_cache()
+            clear_product_search_cache()
+
+            return JsonResponse({'code': 1, 'msg': '入库成功', 'stock_in_no': stock_in.stock_in_no})
+
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': f'入库失败：{str(e)}'})
+
+# ========== 3. 入库单列表（替换订单列表） ==========
+@login_required
+@permission_required(PERM_STOCK_IN_VIEW)
+def stock_in_list(request):
+    """入库单列表页"""
+    stock_in_no = request.GET.get('stock_in_no', '').strip()
+    date_from = request.GET.get('date_from', '')
+    date_to = request.GET.get('date_to', '')
+    status = request.GET.get('status', 'all')
+    page = request.GET.get('page', 1)
+
+    # 查询集
+    stock_ins = StockIn.objects.select_related('creator').order_by('-create_time')
+
+    # 权限控制
+    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+    if not is_super_admin:
+        stock_ins = stock_ins.filter(creator=request.user)
+
+    # 状态筛选
+    if status == 'normal':
+        stock_ins = stock_ins.filter(status__in=['pending', 'completed'])
+    elif status == 'cancelled':
+        stock_ins = stock_ins.filter(status='cancelled')
+
+    # 搜索筛选
+    if stock_in_no:
+        stock_ins = stock_ins.filter(stock_in_no__startswith=stock_in_no)
+    if date_from:
+        try:
+            start = timezone.make_aware(datetime.datetime.strptime(date_from, '%Y-%m-%d'))
+            stock_ins = stock_ins.filter(create_time__gte=start)
+        except:
+            pass
+    if date_to:
+        try:
+            end_date = datetime.datetime.strptime(date_to, '%Y-%m-%d').date()
+            end = timezone.make_aware(datetime.datetime.combine(end_date + datetime.timedelta(days=1), datetime.datetime.min.time()))
+            stock_ins = stock_ins.filter(create_time__lt=end)
+        except:
+            pass
+
+    # 分页
+    paginator = Paginator(stock_ins, 10)
+    try:
+        page_data = paginator.page(page)
+    except:
+        page_data = paginator.page(1)
+
+    # 统计
+    stats = stock_ins.aggregate(
+        total=Count('id'),
+        total_amount=Sum('total_amount', default=decimal.Decimal('0.00'))
+    )
+
+    # 作废权限
+    current_time = timezone.now()
+    data_list = list(page_data)
+    for item in data_list:
+        time_diff = (current_time - item.create_time).total_seconds() / 60
+        item.can_cancel = (
+            item.status != 'cancelled'
+            and is_super_admin
+            or (item.creator == request.user and time_diff <= 5)
+        )
+
+    context = {
+        'stock_ins': data_list,
+        'page_data': page_data,
+        'paginator': paginator,
+        'stock_in_no': stock_in_no,
+        'date_from': date_from,
+        'date_to': date_to,
+        'status': status,
+        'total': stats['total'],
+        'total_amount': stats['total_amount'],
+        'is_super_admin': is_super_admin,
+    }
+    return render(request, 'product/stock_in_list.html', context)
+
+# ========== 4. 入库单详情（替换订单详情） ==========
+@login_required
+@permission_required(PERM_STOCK_IN_VIEW)
+def stock_in_detail(request, stock_in_no):
+    """入库单详情页"""
+    stock_in = get_object_or_404(
+        StockIn.objects.select_related('creator'),
+        stock_in_no=stock_in_no
+    )
+
+    # 权限控制
+    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+    if not is_super_admin and stock_in.creator != request.user:
+        return redirect('product:stock_in_list')
+
+    # 作废按钮判断
+    current_time = timezone.now()
+    time_diff = (current_time - stock_in.create_time).total_seconds() / 60
+    show_cancel_btn = (
+        stock_in.status != 'cancelled'
+        and is_super_admin
+        or (stock_in.creator == request.user and time_diff <= 5)
+    )
+
+    # 明细
+    items = StockInItem.objects.select_related('product').filter(stock_in=stock_in)
+
+    context = {
+        'stock_in': stock_in,
+        'items': items,
+        'is_super_admin': is_super_admin,
+        'show_cancel_btn': show_cancel_btn,
+    }
+    return render(request, 'product/stock_in_detail.html', context)
+
+# ========== 5. 作废入库单（核心：回滚库存） ==========
+@login_required
+@permission_required(PERM_STOCK_IN_CANCEL)
+def cancel_stock_in(request, stock_in_no):
+    """作废入库单 + 减少库存"""
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST'})
+
+    try:
+        with transaction.atomic():
+            stock_in = get_object_or_404(StockIn, stock_in_no=stock_in_no)
+
+            # 校验
+            if stock_in.status == 'cancelled':
+                return JsonResponse({'code': 0, 'msg': '已作废，无需重复操作'})
+
+            # 权限
+            is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+            if not is_super_admin and stock_in.creator != request.user:
+                return JsonResponse({'code': 0, 'msg': '仅能作废自己的入库单'})
+
+            # 参数
+            data = json.loads(request.body)
+            reason = data.get('reason', '').strip()
+            if not reason:
+                return JsonResponse({'code': 0, 'msg': '请填写作废原因'})
+
+            # 更新状态
+            stock_in.status = 'cancelled'
+            stock_in.cancelled_by = request.user
+            stock_in.cancelled_time = timezone.now()
+            stock_in.cancelled_reason = reason
+            stock_in.save()
+
+            # ✅ 核心：作废入库 = 减少库存
+            items = stock_in.items.select_related('product')
+            product_list = []
+            for item in items:
+                if item.product:
+                    item.product.stock_system -= item.quantity
+                    product_list.append(item.product)
+            if product_list:
+                Product.objects.bulk_update(product_list, ['stock_system'])
+
+            # 日志+缓存
+            create_operation_log(request, 'cancel_stock_in', 'stock_in', str(stock_in.id),
+                                f"入库单-{stock_in.stock_in_no}", f"作废：{reason}")
+            clear_stock_cache()
+
+            return JsonResponse({'code': 1, 'msg': '作废成功'})
+
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': f'作废失败：{str(e)}'})

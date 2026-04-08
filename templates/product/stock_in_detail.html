@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+
+{% block title %}入库单详情 - {{ stock_in.stock_in_no }} - EasyStock{% endblock %}
+
+{% block extra_css %}
+<style>
+    .breadcrumb { gap:8px; margin-bottom:20px; color:#666; }
+    .breadcrumb a { color:#0066cc; text-decoration:none; }
+    .product-table { margin:16px 0; }
+    .total-row { font-weight:bold; background:#f8f9fa; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <!-- 面包屑：修复路由 -->
+    <div class="breadcrumb">
+        <a href="{% url 'stock_in_list' %}">入库单管理</a>
+        <span>/</span>
+        <span>详情</span>
+    </div>
+
+    <a href="{% url 'stock_in_list' %}" class="btn btn-sm btn-secondary">← 返回列表</a>
+
+    <div class="card mt-3">
+        <div class="card-header">
+            <h4>入库单详情
+                {% if stock_in.status == 'cancelled' %}
+                    <span class="badge bg-danger ms-2">已作废</span>
+                {% endif %}
+            </h4>
+        </div>
+        <div class="card-body">
+            <!-- 基本信息：修复变量 stock_in -->
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <p><strong>入库单编号：</strong> {{ stock_in.stock_in_no }}</p>
+                    <p><strong>开单时间：</strong> {{ stock_in.create_time|date:"Y-m-d H:i:s" }}</p>
+                    <p><strong>开单人：</strong> {{ stock_in.creator.name|default:"未知" }}</p>
+                </div>
+                <div class="col-md-6">
+                    <p><strong>总金额：</strong> ¥{{ stock_in.total_amount }}</p>
+                    <p><strong>状态：</strong> 
+                        {% if stock_in.status == 'pending' %}
+                            <span class="badge bg-secondary">未处理</span>
+                        {% elif stock_in.status == 'completed' %}
+                            <span class="badge bg-primary">已完成</span>
+                        {% elif stock_in.status == 'cancelled' %}
+                            <span class="badge bg-danger">已作废</span>
+                            <br><small class="text-danger">
+                                作废时间：{{ stock_in.cancelled_time|date:"Y-m-d H:i" }} 
+                                作废人：{{ stock_in.cancelled_by.name|default:"未知" }}
+                            </small>
+                        {% endif %}
+                    </p>
+                </div>
+            </div>
+
+            <!-- 商品明细：正常渲染 -->
+            <h5>商品入库明细</h5>
+            <table class="table table-sm table-bordered product-table">
+                <thead class="table-light">
+                    <tr>
+                        <th>序号</th>
+                        <th>商品名称</th>
+                        <th>入库数量</th>
+                        <th>单位</th>
+                        <th>金额</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        <td>{{ item.product.name|default:"未知商品" }}</td>
+                        <td>{{ item.quantity }}</td>
+                        <td>{{ item.product.unit|default:"件" }}</td>
+                        <td>¥{{ item.amount|default:"0.00" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="5" class="text-center">暂无商品</td></tr>
+                    {% endfor %}
+                    <tr class="total-row">
+                        <td colspan="4" class="text-end">合计：</td>
+                        <td>¥{{ stock_in.total_amount|default:"0.00" }}</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <!-- 操作按钮 -->
+            <div class="mt-4">
+                {% if show_cancel_btn %}
+                <button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#cancelModal">作废入库单</button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 作废模态框 -->
+{% if show_cancel_btn %}
+<div class="modal fade" id="cancelModal">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">作废 {{ stock_in.stock_in_no }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label">作废原因</label>
+                <textarea class="form-control" id="cancelReason" rows="3" required></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-danger" onclick="submitCancel()">确认作废</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function submitCancel() {
+    const reason = $('#cancelReason').val().trim();
+    if(!reason) return alert('请填写作废原因');
+    
+    fetch(`/product/stock-in/cancel/{{ stock_in.stock_in_no }}/`, {
+        method:'POST',
+        headers:{
+            'Content-Type':'application/json',
+            'X-CSRFToken':getCsrfToken()
+        },
+        body:JSON.stringify({ reason })
+    }).then(res=>res.json())
+      .then(data=>{
+        if(data.code===1){
+            alert('作废成功');
+            location.reload();
+        }else{
+            alert('失败：'+data.msg);
+        }
+    });
+}
+
+function getCsrfToken(){
+    const c = document.cookie.split('; ').find(row=>row.startsWith('csrftoken='));
+    return c ? c.split('=')[1] : '';
+}
+</script>
+{% endblock %}

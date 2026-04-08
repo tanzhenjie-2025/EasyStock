@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+
+{% block title %}入库单列表 - EasyStock{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* 核心：表格固定布局，防止列宽挤压 */
+    .table-fixed {
+        table-layout: fixed;
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+    /* 各列宽度设置（适配内容长度） */
+    .col-select { width: 30px; }          /* 选择框列 */
+    .col-order-no { width: 180px; }       /* 入库单编号列 */
+    .col-create-time { width: 180px; }    /* 开单时间列 */
+    .col-creator { width: 150px; }        /* 开单人列 */
+    .col-amount { width: 120px; }         /* 总金额列 */
+    .col-status { width: 120px; }         /* 状态列 */
+    .col-operation { width: 200px; }      /* 操作列 */
+
+    /* 单元格样式 */
+    .table td, .table th {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        border: 1px solid #dee2e6;
+        padding: 8px 10px;
+    }
+
+    /* Tab切换样式 */
+    .status-tab {
+        cursor: pointer;
+        padding: 8px 16px;
+        border-radius: 4px;
+        margin-right: 8px;
+        transition: all 0.2s;
+        text-decoration: none;
+        color: #333;
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+    }
+    .status-tab:hover {
+        background-color: #e9ecef;
+    }
+    .status-tab.active {
+        background-color: #0d6efd;
+        color: white;
+        border-color: #0d6efd;
+    }
+    .status-tab.cancelled-tab.active {
+        background-color: #dc3545;
+    }
+
+    /* 行交互样式 */
+    .order-row {
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+    .order-row:hover td {
+        background-color: #f1f1f1 !important;
+    }
+    .order-row.cancelled {
+        background-color: #fdf2f2 !important;
+        opacity: 0.85;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<script>
+const orderDetailUrlTemplate = "{% url 'stock_in_detail' 'ORDER_NO_PLACEHOLDER' %}";
+</script>
+    
+<h3>入库单列表</h3>
+
+<!-- 搜索框：参数名匹配后端 -->
+<form method="get" class="mb-3">
+    <div class="row g-2 align-items-center">
+        <div class="col-auto">
+            <label class="form-label-sm mb-0">入库单号搜索：</label>
+        </div>
+        <div class="col-auto">
+            <input type="text" name="stock_in_no" class="form-control form-control-sm" 
+                   placeholder="请输入入库单编号" value="{{ stock_in_no }}">
+        </div>
+        <input type="hidden" name="status" value="{{ status }}">
+        <div class="col-auto">
+            <button type="submit" class="btn btn-sm btn-outline-primary">搜索</button>
+        </div>
+    </div>
+</form>
+
+<!-- 状态Tab -->
+<div class="mb-4">
+    <div class="d-flex align-items-center">
+        <span class="me-3 text-muted">入库单状态：</span>
+        <a href="?status=all&stock_in_no={{ stock_in_no }}" 
+           class="status-tab {% if status == 'all' %}active{% endif %}">
+            全部
+        </a>
+        <a href="?status=normal&stock_in_no={{ stock_in_no }}" 
+           class="status-tab {% if status == 'normal' %}active{% endif %}">
+            正常
+        </a>
+        <a href="?status=cancelled&stock_in_no={{ stock_in_no }}" 
+           class="status-tab cancelled-tab {% if status == 'cancelled' %}active{% endif %}">
+            已作废
+        </a>
+    </div>
+</div>
+
+<!-- 表格：核心修复 → 循环 stock_ins，字段用 stock_in_no -->
+<table class="table table-striped table-bordered table-fixed">
+    <thead>
+        <tr>
+            <th class="col-select"><input type="checkbox" id="selectAll"></th>
+            <th class="col-order-no">入库单编号</th>
+            <th class="col-create-time">开单时间</th>
+            <th class="col-creator">开单人</th>
+            <th class="col-amount">总金额</th>
+            <th class="col-status">状态</th>
+            <th class="col-operation">操作</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for order in stock_ins %}  <!-- 核心修复：orders → stock_ins -->
+        <tr class="order-row {% if order.status == 'cancelled' %}cancelled{% endif %}"
+            data-order-no="{{ order.stock_in_no }}">
+            <td class="col-select">
+                <input type="checkbox" class="orderCheckbox" value="{{ order.stock_in_no }}" 
+                       {% if order.status == 'cancelled' %}disabled{% endif %}>
+            </td>
+            <td class="col-order-no">{{ order.stock_in_no }}</td>  <!-- 核心修复：order_no → stock_in_no -->
+            <td class="col-create-time">{{ order.create_time|date:"Y-m-d H:i" }}</td>
+            <td class="col-creator">{% if order.creator %}{{ order.creator.name }}{% else %}未知{% endif %}</td>
+            <td class="col-amount">¥{{ order.total_amount }}</td>
+            <td class="col-status">
+                {% if order.status == 'pending' %}
+                    <span class="badge bg-secondary">未处理</span>
+                {% elif order.status == 'completed' %}
+                    <span class="badge bg-primary">已完成</span>
+                {% elif order.status == 'cancelled' %}
+                    <span class="badge bg-danger">作废</span>
+                {% endif %}
+            </td>
+            <td class="col-operation">
+                <!-- 路由修复：product命名空间 -->
+                <a href="{% url 'stock_in_detail' order.stock_in_no %}" class="btn btn-sm btn-info">详情</a>
+                {% if order.can_cancel %}
+                    <button class="btn btn-sm btn-danger cancelBtn" data-order-no="{{ order.stock_in_no }}">作废</button>
+                {% endif %}
+            </td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="10" class="text-center">暂无入库单数据</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- 分页：核心修复 → page_orders → page_data -->
+{% if page_data.has_other_pages %}
+<nav aria-label="Page navigation" class="mt-4">
+    <ul class="pagination justify-content-center">
+        {% if page_data.has_previous %}
+        <li class="page-item">
+            <a class="page-link" href="?page={{ page_data.previous_page_number }}&stock_in_no={{ stock_in_no }}&status={{ status }}">上一页</a>
+        </li>
+        {% else %}
+        <li class="page-item disabled"><a class="page-link">上一页</a></li>
+        {% endif %}
+
+        {% for num in paginator.page_range %}
+            {% if page_data.number == num %}
+            <li class="page-item active"><a class="page-link">{{ num }}</a></li>
+            {% else %}
+            <li class="page-item">
+                <a class="page-link" href="?page={{ num }}&stock_in_no={{ stock_in_no }}&status={{ status }}">{{ num }}</a>
+            </li>
+            {% endif %}
+        {% endfor %}
+
+        {% if page_data.has_next %}
+        <li class="page-item">
+            <a class="page-link" href="?page={{ page_data.next_page_number }}&stock_in_no={{ stock_in_no }}&status={{ status }}">下一页</a>
+        </li>
+        {% else %}
+        <li class="page-item disabled"><a class="page-link">下一页</a></li>
+        {% endif %}
+    </ul>
+</nav>
+{% endif %}
+
+<!-- 作废模态框 -->
+<div class="modal fade" id="cancelModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">作废入库单</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="cancelOrderNo">
+                <label class="form-label">作废原因</label>
+                <textarea class="form-control" id="cancelReason" rows="3" required></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-danger" onclick="submitCancel()">确认作废</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(function() {
+    // 全选/反选
+    $('#selectAll').change(function() {
+        $('.orderCheckbox:not(:disabled)').prop('checked', this.checked);
+    });
+
+    // 打开作废弹窗
+    $('.cancelBtn').click(function() {
+        $('#cancelOrderNo').val($(this).data('order-no'));
+        $('#cancelModal').modal('show');
+    });
+
+    // 行点击跳转详情
+    $('.order-row').click(function(e) {
+        if($(e.target).is('button,input,a')) return;
+        const no = $(this).data('order-no');
+        location.href = orderDetailUrlTemplate.replace('ORDER_NO_PLACEHOLDER', no);
+    });
+});
+
+// 提交作废
+function submitCancel() {
+    const no = $('#cancelOrderNo').val();
+    const reason = $('#cancelReason').val().trim();
+    if(!reason) return alert('请填写作废原因');
+
+    fetch(`/product/stock-in/cancel/${no}/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken()
+        },
+        body: JSON.stringify({ reason })
+    }).then(res => res.json())
+      .then(data => {
+        if(data.code ===1) {
+            alert('作废成功');
+            location.reload();
+        } else {
+            alert('失败：'+data.msg);
+        }
+    });
+}
+
+// 获取CSRF
+function getCsrfToken(){
+    const c = document.cookie.split('; ').find(row=>row.startsWith('csrftoken='));
+    return c ? c.split('=')[1] : '';
+}
+</script>
+{% endblock %}
