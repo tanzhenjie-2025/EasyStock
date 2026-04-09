@@ -31,4 +31,7 @@ urlpatterns = [
     #     区域组导入导出
     path('api/group/import/', views.group_import, name='group_import'),
     path('api/group/export/', views.group_export, name='group_export'),
+
+# 新增：深度统计接口
+    path('api/area/stats/<int:pk>/', views.area_statistics_api, name='area_stats_api'),
 ]

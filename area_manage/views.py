@@ -1,4 +1,5 @@
 from django.db.models.functions import Coalesce
+from django.db.models import DecimalField
 from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from django.utils import timezone
@@ -11,7 +12,7 @@ import json
 
 from accounts.models import Permission
 from accounts.views import permission_required, create_operation_log
-from bill.models import Order
+from bill.models import Order, OrderItem
 from area_manage.models import Area, AreaGroup
 from customer_manage.models import Customer
 
@@ -206,37 +207,44 @@ def area_list(request):
 @permission_required('area_view')
 def area_detail_api(request, pk):
     try:
-        cache_key = generate_cache_key(request, CACHE_PREFIX['AREA_DETAIL'], pk)
-        cache_data = cache.get(cache_key)
-        if cache_data:
-            return JsonResponse(cache_data)
-
-        # 🔧 优化：only()限制字段 + 预加载
+        # 1. 基础区域信息
         area = get_object_or_404(
-            Area.objects.only('id', 'name', 'remark', 'create_time', 'update_time')
-            .prefetch_related('areagroup_set'),
+            Area.objects.only('id', 'name', 'remark', 'create_time', 'update_time'),
             pk=pk
         )
-        customer_count = get_area_statistics(pk)['customer_count']
-        customers = Customer.objects.filter(area_id=pk).values('id', 'name', 'phone')
-        order_count = Order.objects.filter(area_id=pk).exclude(status='cancelled').aggregate(
-            total=Coalesce(Count('id'), 0))['total']
         related_groups = area.areagroup_set.values('id', 'name')
 
-        # 🔧 修复：update_time正确赋值，无数据失真
-        update_time = format_datetime(area.update_time) if hasattr(area, 'update_time') else format_datetime(
-            area.create_time)
+        # 2. 获取分页参数
+        page = max(int(request.GET.get('c_page', 1)), 1)
+        page_size = 15
+
+        # 3. 查询客户 (分页)
+        customers_qs = Customer.objects.filter(area_id=pk).only('id', 'name', 'phone').order_by('-create_time')
+        total_customers = customers_qs.count()
+
+        start = (page - 1) * page_size
+        end = start + page_size
+        customers_page = customers_qs[start:end]
+
+        customers = [{'id': c.id, 'name': c.name, 'phone': c.phone} for c in customers_page]
+
+        # 4. 组装数据
         data = {
-            'id': area.id, 'name': area.name, 'code': '', 'parent_name': '',
+            'id': area.id,
+            'name': area.name,
             'remark': area.remark or '',
             'create_time': format_datetime(area.create_time),
-            'update_time': update_time,
-            'customer_count': customer_count, 'order_count': order_count,
-            'customers': list(customers), 'related_groups': list(related_groups)
+            'update_time': format_datetime(area.update_time),
+            'customer_count': total_customers,
+            'customers': customers,
+            'customer_pagination': {
+                'page': page,
+                'total_pages': (total_customers + page_size - 1) // page_size,
+                'total': total_customers
+            },
+            'related_groups': list(related_groups)
         }
-        response_data = {'code': 1, 'data': data}
-        cache.set(cache_key, response_data, CACHE_API_DETAIL)
-        return JsonResponse(response_data)
+        return JsonResponse({'code': 1, 'data': data})
 
     except Exception as e:
         logger.error(f"查询区域{pk}详情失败：{str(e)}")
@@ -914,3 +922,75 @@ def group_export(request):
     except Exception as e:
         logger.error(f"导出区域组失败：{str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': '导出失败'})
+
+# ===================== 修复版：区域深度统计API =====================
+@login_required
+@permission_required('area_view')
+def area_statistics_api(request, pk):
+    """
+    按需统计：点击按钮才执行的深度计算
+    数据范围：该区域下所有非作废订单
+    """
+    try:
+        # 1. 基础校验
+        area = get_object_or_404(Area.objects.only('id'), pk=pk)
+
+        # 2. 锁定订单范围 (利用索引: status, area, is_settled)
+        base_orders = Order.objects.filter(
+            area_id=pk,
+            status__in=['pending', 'printed', 'reopened']  # 排除作废
+        ).only('id', 'total_amount', 'is_settled')
+
+        # 3. 统计1：订单总金额 & 欠款 (修复：显式指定 output_field)
+        agg_result = base_orders.aggregate(
+            total_order_amount=Coalesce(
+                Sum('total_amount'),
+                0,
+                output_field=DecimalField(max_digits=12, decimal_places=2)
+            ),
+            total_debt=Coalesce(
+                Sum('total_amount', filter=Q(is_settled=False)),
+                0,
+                output_field=DecimalField(max_digits=12, decimal_places=2)
+            )
+        )
+
+        # 4. 统计2：商品销售汇总 (利用 OrderItem 索引)
+        items = OrderItem.objects.filter(
+            order__area_id=pk,
+            order__status__in=['pending', 'printed', 'reopened']
+        ).select_related('product').only(
+            'product__id', 'product__name', 'quantity', 'amount'
+        )
+
+        product_summary = {}
+        for item in items:
+            pid = item.product.id if item.product else 0
+            pname = item.product.name if item.product else "未知商品"
+            if pid not in product_summary:
+                product_summary[pid] = {
+                    'product_id': pid,
+                    'product_name': pname,
+                    'total_quantity': 0,
+                    'total_amount': 0.0  # 初始化为 float，方便后续处理
+                }
+            product_summary[pid]['total_quantity'] += item.quantity or 0
+            # 安全累加 Decimal，转为 float
+            product_summary[pid]['total_amount'] += float(item.amount) if item.amount else 0.0
+
+        # 转换为列表并排序
+        product_list = sorted(product_summary.values(), key=lambda x: -x['total_amount'])
+
+        # 5. 组装返回数据 (统一转为 float 以支持 JSON 序列化)
+        data = {
+            'total_order_amount': float(agg_result['total_order_amount']),
+            'total_debt': float(agg_result['total_debt']),
+            'product_summary': product_list,
+            'calculated_at': timezone.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+
+        return JsonResponse({'code': 1, 'data': data})
+
+    except Exception as e:
+        logger.error(f"区域{pk}统计失败：{str(e)}", exc_info=True)
+        return JsonResponse({'code': 0, 'msg': f'统计失败：{str(e)}'})
