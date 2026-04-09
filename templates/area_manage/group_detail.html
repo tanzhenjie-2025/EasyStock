@@ -6,7 +6,7 @@
 <!-- 页面专属样式 -->
 {% block extra_css %}
 <style>
-    /* 新增：面包屑导航样式（与订单详情页统一） */
+    /* 面包屑导航 */
     .breadcrumb {
         display: flex;
         align-items: center;
@@ -15,164 +15,99 @@
         font-size: 14px;
         color: #666;
     }
-    .breadcrumb a {
-        color: #0066cc;
-        text-decoration: none;
-    }
-    .breadcrumb a:hover {
-        text-decoration: underline;
-    }
-    .breadcrumb .separator {
-        color: #ccc;
-    }
+    .breadcrumb a { color: #0066cc; text-decoration: none; }
+    .breadcrumb a:hover { text-decoration: underline; }
+    .breadcrumb .separator { color: #ccc; }
 
-    /* 原有样式保留 */
-    /* 基础详情卡片样式 */
-    .detail-card {
+    /* 布局：两列 */
+    .detail-container { display: flex; gap: 20px; flex-wrap: wrap; }
+    .left-col { flex: 0 0 350px; }
+    .right-col { flex: 1; min-width: 300px; }
+
+    /* 卡片通用 */
+    .card {
         border: 1px solid #e9ecef;
         border-radius: 8px;
         padding: 20px;
         margin-bottom: 20px;
+        background: #fff;
     }
-    .detail-title {
-        font-size: 18px;
-        font-weight: 600;
-        margin-bottom: 20px;
-        padding-bottom: 10px;
-        border-bottom: 1px solid #eee;
-    }
-    .detail-item {
-        display: flex;
-        margin-bottom: 15px;
-        line-height: 1.6;
-    }
-    .detail-label {
-        width: 120px;
-        color: #666;
-        font-weight: 500;
-    }
-    .detail-value {
-        flex: 1;
-        color: #333;
-    }
-    .back-btn {
-        margin-bottom: 20px;
-    }
-    .amount-text {
-        color: #e63946;
-        font-weight: 600;
-    }
-    .area-tag {
-        display: inline-block;
-        padding: 4px 8px;
-        background: #e9ecef;
-        border-radius: 4px;
-        margin-right: 8px;
-        margin-bottom: 8px;
-        font-size: 14px;
-    }
-
-    /* 修复：补充吐司提示样式（避免样式缺失） */
-    .toast-container {
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        z-index: 9999;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-    }
-    .toast {
-        padding: 12px 20px;
-        border-radius: 4px;
-        color: white;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s;
-        opacity: 0;
-        transform: translateX(100%);
-    }
-    .toast-success { background-color: #28a745; }
-    .toast-error { background-color: #dc3545; }
-    .toast-warning { background-color: #ffc107; color: #333; }
-    .toast-info { background-color: #17a2b8; }
-
-    @keyframes slideIn {
-        from { opacity: 0; transform: translateX(100%); }
-        to { opacity: 1; transform: translateX(0); }
-    }
-    @keyframes fadeOut {
-        from { opacity: 1; transform: translateX(0); }
-        to { opacity: 0; transform: translateX(100%); }
-    }
-
-    /* 修复：补充模态框样式（避免弹窗无样式） */
-    .modal-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background-color: rgba(0,0,0,0.5);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 10000;
-        opacity: 0;
-        visibility: hidden;
-        transition: opacity 0.3s ease, visibility 0.3s ease;
-    }
-    .modal-overlay.active {
-        opacity: 1;
-        visibility: visible;
-    }
-    .modal-box {
-        background-color: white;
-        padding: 20px;
-        border-radius: 8px;
-        width: 90%;
-        max-width: 350px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    }
-    .modal-title {
+    .card-title {
         font-size: 16px;
         font-weight: 600;
         margin-bottom: 15px;
-        color: #333;
-    }
-    .modal-content {
-        margin-bottom: 20px;
-        color: #555;
-    }
-    .modal-buttons {
+        padding-bottom: 10px;
+        border-bottom: 1px solid #eee;
         display: flex;
-        justify-content: flex-end;
-        gap: 10px;
-        margin-top: 20px;
+        justify-content: space-between;
+        align-items: center;
     }
-    .modal-btn {
-        padding: 8px 16px;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 14px;
-    }
-    .modal-btn-confirm {
-        background-color: #007bff;
-        color: white;
-    }
-    .modal-btn-cancel {
-        background-color: #6c757d;
-        color: white;
-    }
+
+    /* 详情项 */
+    .detail-item { display: flex; margin-bottom: 12px; line-height: 1.6; }
+    .detail-label { width: 100px; color: #666; font-weight: 500; flex-shrink: 0; }
+    .detail-value { flex: 1; color: #333; }
+
+    /* 统计金额 */
+    .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px; }
+    .stat-box { background: #f8f9fa; padding: 15px; border-radius: 6px; text-align: center; }
+    .stat-label { font-size: 13px; color: #666; margin-bottom: 5px; }
+    .stat-value { font-size: 20px; font-weight: 700; color: #333; }
+    .stat-value.debt { color: #e63946; }
+    .stat-value.amount { color: #2a9d8f; }
+
+    /* 按钮 */
+    .btn { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; transition: all 0.2s; }
+    .btn-primary { background-color: #007bff; color: white; }
+    .btn-primary:hover { background-color: #0056b3; }
+    .btn-primary:disabled { background-color: #ccc; cursor: not-allowed; }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+    .btn-warning { background-color: #ffc107; color: #333; }
+    .btn-danger { background-color: #dc3545; color: white; }
+    .back-btn { margin-bottom: 20px; }
+
+    /* 区域标签 */
+    .area-tag { display: inline-block; padding: 2px 8px; background: #e9ecef; border-radius: 4px; margin-right: 5px; margin-bottom: 5px; font-size: 13px; }
+
+    /* 表格 */
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 10px; text-align: left; border-bottom: 1px solid #eee; }
+    th { background-color: #f8f9fa; font-weight: 600; color: #444; }
+    tr:hover { background-color: #fafafa; }
+
+    /* 分页 */
+    .pagination { display: flex; justify-content: flex-end; align-items: center; gap: 10px; margin-top: 15px; font-size: 14px; color: #666; }
+    .page-btn { padding: 4px 10px; border: 1px solid #ddd; background: #fff; cursor: pointer; border-radius: 4px; }
+    .page-btn:disabled { cursor: not-allowed; opacity: 0.5; }
+    .page-btn.active { background: #007bff; color: white; border-color: #007bff; }
+
+    /* 商品列表 */
+    .product-list { max-height: 300px; overflow-y: auto; }
+    .product-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed #eee; }
+    .product-name { flex: 1; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; }
+    .product-stats { color: #666; font-size: 13px; }
+
+    /* 吐司 & 模态框 (保留原有) */
+    .toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; display: flex; flex-direction: column; gap: 10px; }
+    .toast { padding: 12px 20px; border-radius: 4px; color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.15); display: flex; align-items: center; gap: 8px; animation: slideIn 0.3s ease, fadeOut 0.3s ease 2.7s; opacity: 0; transform: translateX(100%); }
+    .toast-success { background-color: #28a745; }
+    .toast-error { background-color: #dc3545; }
+    .toast-info { background-color: #17a2b8; }
+    @keyframes slideIn { to { opacity: 1; transform: translateX(0); } }
+    @keyframes fadeOut { to { opacity: 0; transform: translateX(100%); } }
+
+    .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000; opacity: 0; visibility: hidden; transition: opacity 0.3s ease, visibility 0.3s ease; }
+    .modal-overlay.active { opacity: 1; visibility: visible; }
+    .modal-box { background-color: white; padding: 20px; border-radius: 8px; width: 90%; max-width: 350px; }
+    .modal-title { font-size: 16px; font-weight: 600; margin-bottom: 15px; }
+    .modal-buttons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+    .modal-btn-cancel { background-color: #6c757d; color: white; }
+    .modal-btn-confirm { background-color: #dc3545; color: white; }
 </style>
 {% endblock %}
 
 <!-- 页面专属内容 -->
 {% block content %}
-    <!-- 新增：面包屑导航 固定路径：首页 → 区域组管理 → 详情 -->
     <div class="breadcrumb">
         <a href="/bill/">首页</a>
         <span class="separator">/</span>
@@ -181,216 +116,336 @@
         <span>详情</span>
     </div>
 
-    <!-- 返回按钮 -->
     <button class="btn btn-sm btn-secondary back-btn" onclick="window.history.back()">← 返回列表</button>
 
-    <!-- 区域组详情卡片 -->
-    <div class="detail-card">
-        <div class="detail-title">{{ group.name|default:"未命名组" }} - 区域组详情</div>
-        
-        <div class="detail-item">
-            <div class="detail-label">组ID：</div>
-            <div class="detail-value">{{ group.id|default:"-" }}</div>
-        </div>
-        
-        <div class="detail-item">
-            <div class="detail-label">组名：</div>
-            <div class="detail-value">{{ group.name|default:"未命名组" }}</div>
-        </div>
-        
-        <div class="detail-item">
-            <div class="detail-label">包含区域：</div>
-            <div class="detail-value">
-                {% if group.area_names %}
-                    {% for area_name in group.area_names %}
-                        <span class="area-tag">{{ area_name|default:"未知区域" }}</span>
-                    {% endfor %}
-                {% else %}
-                    无
-                {% endif %}
-            </div>
-        </div>
-        
-        <div class="detail-item">
-            <div class="detail-label">备注：</div>
-            <div class="detail-value">{{ group.remark|default:"无" }}</div>
-        </div>
-        
-        <div class="detail-item">
-            <div class="detail-label">客户数量：</div>
-            <div class="detail-value">{{ group.customer_count|default:0 }}</div>
-        </div>
-        
-        <div class="detail-item">
-            <div class="detail-label">累计消费金额：</div>
-            <div class="detail-value amount-text">
-                {% if group.total_amount and group.total_amount > 0 %}
-                    ¥{{ group.total_amount|floatformat:2 }}
-                {% else %}
-                    ¥0.00
-                {% endif %}
-            </div>
-        </div>
-        
-        <div class="detail-item">
-            <div class="detail-label">创建时间：</div>
-            <div class="detail-value">{{ group.create_time|default:"未知" }}</div>
-        </div>
-        
-        <div class="detail-item">
-            <div class="detail-label">更新时间：</div>
-            <div class="detail-value">{{ group.update_time|default:"未知" }}</div>
-        </div>
-    </div>
+    <div class="detail-container">
+        <!-- 左侧：基础信息 + 统计面板 -->
+        <div class="left-col">
+            <!-- 基础信息 -->
+            <div class="card">
+                <div class="card-title">{{ group.name|default:"加载中..." }} - 基本信息</div>
+                <div class="detail-item">
+                    <div class="detail-label">组名：</div>
+                    <div class="detail-value" id="groupName">{{ group.name|default:"-" }}</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">客户总数：</div>
+                    <div class="detail-value" id="groupCustCount">计算中...</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">创建时间：</div>
+                    <div class="detail-value" id="groupCreateTime">{{ group.create_time|default:"-" }}</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">备注：</div>
+                    <div class="detail-value">{{ group.remark|default:"无" }}</div>
+                </div>
 
-    <!-- 操作按钮（仅当有有效ID时显示） -->
-    {% if group.id %}
-    <div>
-        <button class="btn btn-sm btn-warning me-2" onclick="editGroup({{ group.id }})">编辑</button>
-        <button class="btn btn-sm btn-danger" onclick="deleteGroup({{ group.id }})">禁用</button>
+                {% if group.id %}
+                <div style="margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px;">
+                    <button class="btn btn-sm btn-warning me-2" onclick="editGroup({{ group.id }})">编辑</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteGroup({{ group.id }})">禁用</button>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- 深度统计面板 -->
+            <div class="card">
+                <div class="card-title">
+                    <span>业务统计</span>
+                    <button id="statsBtn" class="btn btn-sm btn-primary" onclick="loadStats()">开始统计</button>
+                </div>
+
+                <div id="statsPlaceholder" style="color: #999; font-size: 13px; text-align: center; padding: 20px 0;">
+                    点击右上角按钮开始统计<br>（包含该组下所有区域的订单）
+                </div>
+
+                <div id="statsContent" style="display: none;">
+                    <div class="stats-grid">
+                        <div class="stat-box">
+                            <div class="stat-label">销售总金额</div>
+                            <div class="stat-value amount" id="statTotalAmount">¥0.00</div>
+                        </div>
+                        <div class="stat-box">
+                            <div class="stat-label">欠款余额</div>
+                            <div class="stat-value debt" id="statDebt">¥0.00</div>
+                        </div>
+                    </div>
+
+                    <div style="font-size: 12px; color: #666; margin-bottom: 10px;">
+                        统计时间：<span id="statTime">-</span>
+                    </div>
+
+                    <div>
+                        <div style="font-weight: 600; margin-bottom: 8px; font-size: 14px;">商品销售明细</div>
+                        <div class="product-list" id="productList">
+                            <!-- JS 填充 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧：区域列表 -->
+        <div class="right-col">
+            <div class="card">
+                <div class="card-title">
+                    <span>包含区域列表</span>
+                    <span style="font-weight: normal; font-size: 13px; color: #666;">共 <span id="totalAreaCount">0</span> 个区域</span>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>区域名称</th>
+                            <th style="width: 120px; text-align: right;">客户数量</th>
+                            <th style="width: 100px; text-align: center;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="areaTableBody">
+                        <tr><td colspan="3" style="text-align: center; color: #999;">加载中...</td></tr>
+                    </tbody>
+                </table>
+
+                <div class="pagination" id="areaPagination">
+                    <!-- JS 填充 -->
+                </div>
+            </div>
+        </div>
     </div>
-    {% endif %}
 {% endblock %}
 
 <!-- 页面专属JS -->
 {% block extra_js %}
-    <script src="https://cdn.bootcdn.net/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
-    <script>
-        // 确保jQuery加载完成
-        $(document).ready(function() {
-            // 初始化吐司容器
-            if (!document.getElementById('toastContainer')) {
-                const toastContainer = document.createElement('div');
-                toastContainer.id = 'toastContainer';
-                toastContainer.className = 'toast-container';
-                document.body.appendChild(toastContainer);
+<script src="https://cdn.bootcdn.net/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+<script>
+    const GROUP_ID = {{ group.id|default:0 }};
+
+    // 前端缓存变量
+    let cachedStatsData = null;
+    let currentAreaPage = 1;
+
+    $(document).ready(function() {
+        initToastContainer();
+        if (GROUP_ID) {
+            loadDetail();
+        }
+    });
+
+    // --- 数据加载 ---
+
+    function loadDetail() {
+        $.ajax({
+            url: `/area-manage/api/group/detail/${GROUP_ID}/?a_page=${currentAreaPage}`,
+            type: 'GET',
+            success: function(res) {
+                if (res && res.code === 1) {
+                    renderDetail(res.data);
+                    renderAreaList(res.data.areas, res.data.area_pagination);
+                } else {
+                    showToast(res?.msg || '加载失败', 'error');
+                }
+            },
+            error: function() {
+                showToast('网络错误', 'error');
             }
         });
+    }
 
-        // 吐司提示函数
-        function showToast(message, type = 'info', duration = 3000) {
-            const toastContainer = document.getElementById('toastContainer');
-            const toast = document.createElement('div');
-            toast.className = `toast toast-${type}`;
-            toast.textContent = message;
-            toastContainer.appendChild(toast);
-            
-            // 触发动画（延迟确保DOM渲染）
-            setTimeout(() => {
-                toast.style.opacity = '1';
-                toast.style.transform = 'translateX(0)';
-            }, 10);
-            
-            // 自动移除
-            setTimeout(() => {
-                toast.style.opacity = '0';
-                toast.style.transform = 'translateX(100%)';
-                setTimeout(() => toast.remove(), 300);
-            }, duration);
+    function renderDetail(data) {
+        $('#groupName').text(data.name);
+        $('#groupCustCount').text(data.customer_count);
+        $('#groupCreateTime').text(data.create_time);
+        // 如果统计数据已缓存，且客户数变化不大，可以选择不清除缓存，这里为了简单暂不处理关联
+    }
+
+    // --- 核心功能：统计 (含前端缓存 & 加载状态) ---
+
+    function loadStats() {
+        // 1. 如果有缓存，直接渲染
+        if (cachedStatsData) {
+            renderStats(cachedStatsData);
+            showToast('已加载本地缓存结果', 'info');
+            return;
         }
 
-        // 确认弹窗函数
-        function showConfirmModal(message, callback) {
-            // 创建遮罩层
-            const overlay = document.createElement('div');
-            overlay.className = 'modal-overlay';
-            overlay.innerHTML = `
+        // 2. 防止重复点击
+        const $btn = $('#statsBtn');
+        if ($btn.is(':disabled')) return;
+
+        $btn.prop('disabled', true).text('统计中...');
+
+        $.ajax({
+            url: `/area-manage/api/group/stats/${GROUP_ID}/`,
+            type: 'GET',
+            success: function(res) {
+                if (res && res.code === 1) {
+                    cachedStatsData = res.data; // 存入缓存
+                    renderStats(res.data);
+                    showToast('统计完成', 'success');
+                } else {
+                    showToast(res?.msg || '统计失败', 'error');
+                }
+            },
+            error: function() {
+                showToast('统计请求失败', 'error');
+            },
+            complete: function() {
+                $btn.prop('disabled', false).text('重新统计'); // 即使成功也允许重新统计
+            }
+        });
+    }
+
+    function renderStats(data) {
+        $('#statsPlaceholder').hide();
+        $('#statsContent').show();
+
+        $('#statTotalAmount').text('¥' + data.total_order_amount.toFixed(2));
+        $('#statDebt').text('¥' + data.total_debt.toFixed(2));
+        $('#statTime').text(data.calculated_at);
+
+        // 渲染商品列表
+        const $list = $('#productList');
+        $list.empty();
+
+        if (data.product_summary && data.product_summary.length > 0) {
+            data.product_summary.forEach(item => {
+                $list.append(`
+                    <div class="product-row">
+                        <div class="product-name" title="${item.product_name}">${item.product_name}</div>
+                        <div class="product-stats">
+                            ${item.total_quantity} 件 / ¥${item.total_amount.toFixed(2)}
+                        </div>
+                    </div>
+                `);
+            });
+        } else {
+            $list.append('<div style="color:#999; padding:10px 0; text-align:center;">暂无销售记录</div>');
+        }
+    }
+
+    // --- 区域列表分页 ---
+
+    function renderAreaList(areas, pagination) {
+        const $tbody = $('#areaTableBody');
+        $tbody.empty();
+
+        $('#totalAreaCount').text(pagination.total);
+
+        if (areas && areas.length > 0) {
+            areas.forEach(area => {
+                $tbody.append(`
+                    <tr>
+                        <td>${area.name}</td>
+                        <td style="text-align: right;">${area.customer_count}</td>
+                        <td style="text-align: center;">
+                            <a href="/area-manage/detail/${area.id}/" class="btn btn-sm" style="background:#e9ecef; color:#333; text-decoration:none;">查看</a>
+                        </td>
+                    </tr>
+                `);
+            });
+        } else {
+            $tbody.append('<tr><td colspan="3" style="text-align: center; color: #999; padding: 20px;">该组下暂无区域</td></tr>');
+        }
+
+        renderPagination(pagination);
+    }
+
+    function renderPagination(pagination) {
+        const $pager = $('#areaPagination');
+        $pager.empty();
+
+        if (pagination.total_pages <= 1) return;
+
+        const prevDisabled = pagination.page <= 1;
+        const nextDisabled = pagination.page >= pagination.total_pages;
+
+        $pager.append(`<span>第 ${pagination.page} / ${pagination.total_pages} 页</span>`);
+        $pager.append(`<button class="page-btn" onclick="goToPage(${pagination.page - 1})" ${prevDisabled ? 'disabled' : ''}>上一页</button>`);
+        $pager.append(`<button class="page-btn" onclick="goToPage(${pagination.page + 1})" ${nextDisabled ? 'disabled' : ''}>下一页</button>`);
+    }
+
+    function goToPage(page) {
+        currentAreaPage = page;
+        loadDetail(); // 重新加载详情（主要是为了加载区域列表，实际项目中可以拆分API）
+        // 这里的小技巧：loadDetail 会重新渲染基础信息，但因为我们没改它，视觉上不会闪烁
+    }
+
+    // --- 编辑与删除 (复用原有逻辑) ---
+
+    function editGroup(groupId) {
+        window.location.href = `/area-manage/group/`; // 简单处理：返回列表
+    }
+
+    function deleteGroup(groupId) {
+        showConfirmModal('确定要禁用该区域组吗？', (confirm) => {
+            if(!confirm) return;
+            $.ajax({
+                url: `/area-manage/api/group/delete/${groupId}/`,
+                type: 'POST',
+                headers: { 'X-CSRFToken': getCookie('csrftoken') },
+                success: function(res) {
+                    if(res && res.code === 1){
+                        showToast('禁用成功', 'success');
+                        setTimeout(() => window.location.href = '/area-manage/group/', 1500);
+                    } else {
+                        showToast(res.msg || '失败', 'error');
+                    }
+                },
+                error: function() { showToast('网络错误', 'error'); }
+            });
+        });
+    }
+
+    // --- 工具函数 ---
+
+    function initToastContainer() {
+        if (!document.getElementById('toastContainer')) {
+            const c = document.createElement('div');
+            c.id = 'toastContainer';
+            c.className = 'toast-container';
+            document.body.appendChild(c);
+        }
+    }
+    function showToast(msg, type = 'info') {
+        const $c = $('#toastContainer');
+        const $t = $(`<div class="toast toast-${type}">${msg}</div>`);
+        $c.append($t);
+        setTimeout(() => { $t.css({'opacity': '1', 'transform': 'translateX(0)'}); }, 10);
+        setTimeout(() => { $t.remove(); }, 3000);
+    }
+    function showConfirmModal(msg, callback) {
+        const $overlay = $(`
+            <div class="modal-overlay">
                 <div class="modal-box">
                     <div class="modal-title">确认操作</div>
-                    <div class="modal-content">${message}</div>
+                    <div class="modal-content">${msg}</div>
                     <div class="modal-buttons">
-                        <button class="modal-btn modal-btn-cancel">取消</button>
-                        <button class="modal-btn modal-btn-confirm">确认</button>
+                        <button class="btn modal-btn-cancel">取消</button>
+                        <button class="btn modal-btn-confirm">确认</button>
                     </div>
                 </div>
-            `;
-            document.body.appendChild(overlay);
-            
-            // 显示弹窗
-            setTimeout(() => overlay.classList.add('active'), 10);
-            
-            // 绑定事件
-            const cancelBtn = overlay.querySelector('.modal-btn-cancel');
-            const confirmBtn = overlay.querySelector('.modal-btn-confirm');
+            </div>
+        `);
+        $('body').append($overlay);
+        setTimeout(() => $overlay.addClass('active'), 10);
 
-            cancelBtn.addEventListener('click', () => {
-                overlay.remove();
-                callback(false);
-            });
-
-            confirmBtn.addEventListener('click', () => {
-                overlay.remove();
-                callback(true);
-            });
-
-            // ESC键关闭
-            document.addEventListener('keydown', function escHandler(e) {
-                if (e.key === 'Escape') {
-                    overlay.remove();
-                    callback(false);
-                    document.removeEventListener('keydown', escHandler);
-                }
-            });
-        }
-
-        // 编辑区域组
-        function editGroup(groupId) {
-            if (!groupId) {
-                showToast('无效的区域组ID', 'error');
-                return;
-            }
-            window.location.href = `/area-manage/group/`; // 返回列表页并触发编辑
-        }
-
-        // 禁用区域组
-        function deleteGroup(groupId) {
-            if (!groupId) {
-                showToast('无效的区域组ID', 'error');
-                return;
-            }
-            
-            showConfirmModal('确定要禁用该区域组吗？', (confirm) => {
-                if(!confirm) return;
-                
-                $.ajax({
-                    url: `/area-manage/api/group/delete/${groupId}/`,
-                    type: 'POST',
-                    // 修复：添加CSRF令牌（Django必须）
-                    headers: {
-                        'X-CSRFToken': getCookie('csrftoken')
-                    },
-                    success: function(res) {
-                        if(res && res.code === 1){
-                            showToast('区域组禁用成功', 'success');
-                            setTimeout(() => {
-                                window.location.href = '/area-manage/group/';
-                            }, 1500);
-                        } else {
-                            showToast(res?.msg || '禁用失败', 'error');
-                        }
-                    },
-                    error: function(xhr, status, error) {
-                        console.error('禁用区域组失败：', xhr.responseText);
-                        showToast('禁用区域组失败：' + error, 'error');
-                    }
-                });
-            });
-        }
-
-        // 修复：Django CSRF令牌获取函数
-        function getCookie(name) {
-            let cookieValue = null;
-            if (document.cookie && document.cookie !== '') {
-                const cookies = document.cookie.split(';');
-                for (let i = 0; i < cookies.length; i++) {
-                    const cookie = cookies[i].trim();
-                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                        break;
-                    }
+        $overlay.find('.modal-btn-cancel').on('click', () => { $overlay.remove(); callback(false); });
+        $overlay.find('.modal-btn-confirm').on('click', () => { $overlay.remove(); callback(true); });
+    }
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
                 }
             }
-            return cookieValue;
         }
-    </script>
+        return cookieValue;
+    }
+</script>
 {% endblock %}

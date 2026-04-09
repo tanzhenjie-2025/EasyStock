@@ -34,4 +34,6 @@ urlpatterns = [
 
 # 新增：深度统计接口
     path('api/area/stats/<int:pk>/', views.area_statistics_api, name='area_stats_api'),
+
+path('api/group/stats/<int:pk>/', views.group_statistics_api, name='group_stats_api'),
 ]
