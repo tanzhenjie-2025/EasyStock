@@ -1,11 +1,12 @@
 
 from django.db import IntegrityError, transaction
+from django.db.models.functions import Coalesce
 from django.views.decorators.http import require_POST
 import io
 import openpyxl
 import xlrd
 from datetime import datetime, timedelta
-from django.db.models import Sum, Count, Q, F, Prefetch, Case, When, DateTimeField
+from django.db.models import Sum, Count, Q, F, Prefetch, Case, When, DateTimeField, DecimalField
 # ====================== 导出功能依赖导入 ======================
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
@@ -24,7 +25,7 @@ from django.contrib.auth.decorators import login_required
 from django.db.models import Q, Sum, Count
 from accounts.views import permission_required, create_operation_log
 from accounts.models import ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OPERATOR
-from product.models import Product, StockIn, StockInItem
+from product.models import Product, StockIn, StockInItem, ProductPriceHistory
 from bill.views import (
     # 复用缓存工具
     clear_stock_cache, clear_product_search_cache,
@@ -223,6 +224,7 @@ def product_add(request):
             return JsonResponse({'code': 0, 'msg': f'新增失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
+
 @permission_required(PERM_PRODUCT_EDIT)
 def product_edit(request, pk):
     product = get_object_or_404(Product.objects.prefetch_related('aliases'), pk=pk)
@@ -232,6 +234,8 @@ def product_edit(request, pk):
             price = request.POST.get('price', '0').strip()
             unit = request.POST.get('unit', '件').strip()
             stock = request.POST.get('stock', '77').strip()
+            # 可选：接收备注
+            remark = request.POST.get('remark', '后台编辑').strip()
 
             if not name:
                 return JsonResponse({'code': 0, 'msg': '商品名称不能为空'})
@@ -240,17 +244,32 @@ def product_edit(request, pk):
             if Product.objects.filter(name=name).exclude(id=pk).exists():
                 return JsonResponse({'code': 0, 'msg': '商品名称已存在'})
 
-            old_info = f"名称={product.name}，单价={product.price}，单位={product.unit}，系统库存={product.stock_system}，实际库存={product.stock_actual}"
+            old_info = f"名称={product.name}，单价={product.price}，单位={product.unit}，系统库存={product.stock_system}"
+
+            # 🔥 核心：检测价格变动
+            old_price_val = product.price
+            new_price_val = decimal.Decimal(price)
+
             product.name = name
-            product.price = float(price)
+            product.price = new_price_val
             product.unit = unit
             product.stock_system = int(stock) if stock.isdigit() else 77
             product.save()
 
+            # 🔥 如果价格变了，写入历史表
+            if old_price_val != new_price_val:
+                ProductPriceHistory.objects.create(
+                    product=product,
+                    old_price=old_price_val,
+                    new_price=new_price_val,
+                    operator=request.user,
+                    remark=remark
+                )
+
             create_operation_log(
                 request=request, op_type='update', obj_type='product',
                 obj_id=product.id, obj_name=product.name,
-                detail=f"编辑商品：原信息[{old_info}] → 新信息[名称={product.name}，单价={product.price}，单位={product.unit}，系统库存={product.stock_system}]"
+                detail=f"编辑商品：原信息[{old_info}] → 新信息[名称={product.name}，单价={product.price}]"
             )
 
             clear_product_all_cache()
@@ -258,7 +277,6 @@ def product_edit(request, pk):
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'编辑失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
-
 @permission_required(PERM_PRODUCT_DELETE)
 def product_delete(request, pk):
     try:
@@ -624,10 +642,37 @@ def product_export(request):
         logger.error(f"导出失败: {str(e)}")
         return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'})
 
+
+# ===================== 修改：商品详情主视图 =====================
 @permission_required(PERM_PRODUCT_DETAIL)
 def product_detail(request, pk):
-    p = get_object_or_404(Product, pk=pk)
-    return render(request, 'product/product_detail.html', {'product': p})
+    product = get_object_or_404(Product, pk=pk)
+
+    # 1. 最近售卖订单列表 (分页20条，展示当时售价)
+    # 排除作废订单
+    valid_status = ['pending', 'printed', 'reopened']
+    recent_sales_qs = OrderItem.objects.filter(
+        product_id=pk,
+        order__status__in=valid_status
+    ).select_related('order', 'order__customer').order_by('-order__create_time')
+
+    paginator = Paginator(recent_sales_qs, 20)
+    page = request.GET.get('page', 1)
+    try:
+        recent_sales = paginator.page(page)
+    except PageNotAnInteger:
+        recent_sales = paginator.page(1)
+    except EmptyPage:
+        recent_sales = paginator.page(paginator.num_pages)
+
+    # 2. 价格变更历史
+    price_history = ProductPriceHistory.objects.filter(product=product).select_related('operator')[:50]  # 限制展示条数
+
+    return render(request, 'product/product_detail.html', {
+        'product': product,
+        'recent_sales': recent_sales,
+        'price_history': price_history,
+    })
 
 @login_required
 def sales_rank(request):
@@ -904,3 +949,38 @@ def cancel_stock_in(request, stock_in_no):
 
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'作废失败：{str(e)}'})
+
+
+# ===================== 新增：商品详情统计 API =====================
+@login_required
+@permission_required(PERM_PRODUCT_DETAIL)
+def product_statistics_api(request, pk):
+    """
+    异步统计接口：点击按钮后才计算
+    优化：使用 select_related 关联 order，利用索引
+    """
+    product = get_object_or_404(Product, pk=pk)
+
+    # 排除作废订单，只统计有效单据
+    valid_status = ['pending', 'printed', 'reopened']
+
+    # 利用索引 (product, order) 进行过滤
+    items_qs = OrderItem.objects.filter(
+        product_id=pk,
+        order__status__in=valid_status
+    ).select_related('order')  # 减少回表
+
+    stats = items_qs.aggregate(
+        total_qty=Coalesce(Sum('quantity'), 0),
+        total_amount=Coalesce(Sum('amount'), 0, output_field=DecimalField()),
+        count_orders=Count('order', distinct=True),
+    )
+
+    return JsonResponse({
+        'code': 1,
+        'data': {
+            'total_qty': stats['total_qty'],
+            'total_amount': float(stats['total_amount']),
+            'count_orders': stats['count_orders'],
+        }
+    })

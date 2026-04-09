@@ -155,3 +155,38 @@ class StockInItem(models.Model):
     class Meta:
         verbose_name = '入库明细'
         verbose_name_plural = '入库明细管理'
+
+
+# ===================== 商品价格历史表 =====================
+class ProductPriceHistory(models.Model):
+    """商品标准价变更历史"""
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        verbose_name='关联商品',
+        related_name='price_history'
+    )
+    old_price = models.DecimalField('变更前价格', max_digits=10, decimal_places=2)
+    new_price = models.DecimalField('变更后价格', max_digits=10, decimal_places=2)
+    remark = models.CharField('变更原因', max_length=200, blank=True, default='')
+
+    # 审计字段
+    operator = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name='操作人'
+    )
+    create_time = models.DateTimeField('变更时间', auto_now_add=True)
+
+    class Meta:
+        verbose_name = '价格变更记录'
+        verbose_name_plural = '价格变更记录'
+        ordering = ['-create_time']
+        indexes = [
+            models.Index(fields=['product', 'create_time']),
+        ]
+
+    def __str__(self):
+        return f'{self.product.name}: {self.old_price} -> {self.new_price}'

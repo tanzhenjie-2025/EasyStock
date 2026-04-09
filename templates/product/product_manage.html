@@ -152,7 +152,12 @@ input:checked + .slider:before{transform:translateX(26px);}
             <tr data-id="{{ p.id }}" class="{% if p.status == 0 %}disabled-row{% endif %}">
                 <td><input type="checkbox" class="checkItem" value="{{ p.id }}"></td>
                 <td>{{ p.id }}</td>
-                <td>{{ p.name }}</td>
+                <td>
+    <!-- 增加这个 a 标签 -->
+    <a href="{% url 'product:product_detail' p.id %}" style="color: #0066cc; text-decoration: none;">
+        {{ p.name }}
+    </a>
+</td>
                 <td class="editable" data-field="price" data-value="{{ p.price }}">{{ p.price|floatformat:2 }}</td>
                 <td>{{ p.unit }}</td>
                 <td class="editable" data-field="stock_system" data-value="{{ p.stock_system }}">{{ p.stock_system }}</td>
