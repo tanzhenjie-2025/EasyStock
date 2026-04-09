@@ -136,9 +136,9 @@
     <div class="detail-container">
         <!-- 新增：面包屑导航 固定路径：首页 → 区域管理 → 详情 -->
         <div class="breadcrumb">
-            <a href="/bill/">首页</a>
+            <a href={% url 'bill:index' %}>首页</a>
             <span class="separator">/</span>
-            <a href="{% url 'area_manage:area_page' %}">区域管理</a>
+            <a href={% url 'area_manage:area_page' %}>区域管理</a>
             <span class="separator">/</span>
             <span>详情</span>
         </div>
