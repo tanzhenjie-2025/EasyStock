@@ -110,7 +110,7 @@
             </thead>
             <tbody>
                 {% for log in logs %}
-                <tr class="log-row" onclick="window.location.href='{% url 'log_detail' log.id %}'">
+                <tr class="log-row" onclick="window.location.href='{% url 'operation_log:log_detail' log.id %}'">
                     <td>{{ page_obj.start_index|add:forloop.counter0 }}</td>
                     <td>{{ log.operator.name|default:"未知用户" }}</td>
                     <td>{{ log.operation_time|date:"Y-m-d H:i:s" }}</td>

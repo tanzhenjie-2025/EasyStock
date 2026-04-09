@@ -115,7 +115,7 @@ input:checked + .slider:before{transform:translateX(26px);}
             <input type="text" name="keyword" class="search-input" placeholder="搜索商品/别名" value="{{ keyword }}">
             <input type="hidden" name="status" value="{{ status }}">
             <button class="btn btn-primary" type="submit">搜索</button>
-            <button class="btn btn-default" type="button" onclick="location.href='{% url 'product_manage' %}'">重置</button>
+            <button class="btn btn-default" type="button" onclick="location.href='{% url 'product:product_manage' %}'">重置</button>
         </form>
         <button class="btn btn-success" onclick="openModal()">➕ 新增商品</button>
         <button class="btn btn-warning" onclick="openBatchModal()">⚙️ 批量操作</button>
@@ -559,7 +559,7 @@ function exportExcel() {
     selectedFields.forEach(field => {formData.append('fields[]', field);});
 
     $.ajax({
-        url: "{% url 'product_export' %}",
+        url: "{% url 'product:product_export' %}",
         type: 'POST',
         data: formData,
         headers: {'X-CSRFToken': csrf},
@@ -586,7 +586,7 @@ $('#importForm').submit(function(e){
     e.preventDefault();
     let formData = new FormData(this);
     $.ajax({
-        url: "{% url 'product_import' %}",
+        url: "{% url 'product:product_import' %}",
         type: 'POST',
         data: formData,
         processData: false,

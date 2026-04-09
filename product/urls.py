@@ -2,6 +2,8 @@
 from django.urls import path
 from . import views
 
+app_name = 'product'
+
 urlpatterns = [
     # 商品管理主页面
     path('product-manage/', views.product_manage, name='product_manage'),

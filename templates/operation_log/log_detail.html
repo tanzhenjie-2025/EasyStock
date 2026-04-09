@@ -51,13 +51,13 @@
     <div class="breadcrumb">
         <a href="/bill/">首页</a>
         <span class="separator">/</span>
-        <a href="{% url 'log_list' %}">操作日志</a>
+        <a href="{% url 'operation_log:log_list' %}">操作日志</a>
         <span class="separator">/</span>
         <span>日志详情</span>
     </div>
 
     <h1>操作日志详情</h1>
-    <a href="{% url 'log_list' %}" class="btn btn-secondary mb-3">返回列表</a>
+    <a href="{% url 'operation_log:log_list' %}" class="btn btn-secondary mb-3">返回列表</a>
 
     <div class="detail-card">
         <div class="detail-item">

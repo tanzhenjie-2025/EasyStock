@@ -2,6 +2,8 @@
 from django.urls import path
 from . import views
 
+app_name = 'summary'
+
 urlpatterns = [
     # 原有商品汇总相关
     path('page/', views.summary_page, name='summary_page'),
