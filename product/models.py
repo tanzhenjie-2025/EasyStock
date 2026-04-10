@@ -2,39 +2,66 @@ from django.db import models, transaction
 from pypinyin import lazy_pinyin
 from django.utils import timezone
 from accounts.models import User
+
 # ====================== 新增：软删除管理器 ======================
 class SoftDeleteManager(models.Manager):
     """默认只查询未删除（is_active=True）的数据"""
     def get_queryset(self):
         return super().get_queryset().filter(is_active=True)
 
+# ====================== 新增：商品标签模型 ======================
+class ProductTag(models.Model):
+    """商品标签（仅禁用，不物理删除）"""
+    name = models.CharField('标签名称', max_length=50, unique=True)
+    # 标签显示颜色
+    color = models.CharField('标签颜色', max_length=20, default='#3498db', help_text='如 #3498db')
+    sort_order = models.IntegerField('排序', default=0)
+    # 软删除/禁用
+    is_active = models.BooleanField('是否启用', default=True, db_index=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+
+    # 软删除管理器
+    objects = SoftDeleteManager()
+    all_objects = models.Manager()
+
+    class Meta:
+        verbose_name = '商品标签'
+        verbose_name_plural = '商品标签'
+        ordering = ['sort_order', 'id']
+
+    def __str__(self):
+        return self.name
+
+    def delete(self, *args, **kwargs):
+        """软删除：禁用标签"""
+        self.is_active = False
+        self.save(update_fields=['is_active'])
+
+
 class Product(models.Model):
-    """商品表（含拼音检索字段 + 双库存）"""
+    """商品表（含拼音检索字段 + 双库存 + 标签）"""
     name = models.CharField('商品名称', max_length=100, unique=True)
     pinyin_full = models.CharField('全拼', max_length=200, blank=True, db_index=True)
     pinyin_abbr = models.CharField('拼音首字母', max_length=50, blank=True, db_index=True)
-    # 双库存核心字段
-    stock_system = models.IntegerField('系统库存', default=9999, db_index=True)  # 原stock → 系统库存
-    stock_actual = models.IntegerField('实际库存', default=0, db_index=True)  # 新增：实际库存
+    stock_system = models.IntegerField('系统库存', default=9999, db_index=True)
+    stock_actual = models.IntegerField('实际库存', default=0, db_index=True)
     price = models.DecimalField('单价', max_digits=10, decimal_places=2, db_index=True)
     unit = models.CharField('单位', max_length=20, default='件')
     create_time = models.DateTimeField(auto_now_add=True, db_index=True)
-
-    # ====================== 新增：软删除字段 ======================
     is_active = models.BooleanField('是否启用', default=True, db_index=True)
 
-    # ====================== 新增：软删除管理器 ======================
+    # ====================== 核心：商品关联标签 ======================
+    tags = models.ManyToManyField(ProductTag, blank=True, verbose_name='商品标签', related_name='products')
+
     objects = SoftDeleteManager()
     all_objects = models.Manager()
 
     def save(self, *args, **kwargs):
-        """保存时自动生成拼音字段"""
         self.pinyin_full = ''.join(lazy_pinyin(self.name, style=0))
         self.pinyin_abbr = ''.join([p[0] for p in lazy_pinyin(self.name, style=0)])
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
-        """软删除"""
         self.is_active = False
         self.save(update_fields=['is_active'])
 
@@ -49,6 +76,7 @@ class Product(models.Model):
             models.Index(fields=['name', 'id', 'price', 'unit', 'stock_system', 'stock_actual']),
             models.Index(fields=['is_active']),
         ]
+
 
 class ProductAlias(models.Model):
     """商品别名表"""
