@@ -30,4 +30,5 @@ path('user-detail/<int:user_id>/', views.user_detail, name='user_detail'),
 # 用户导入导出
     path('api/user/import/', views.user_import, name='user_import'),
     path('api/user/export/', views.user_export, name='user_export'),
+path('user/<int:user_id>/stats/', views.user_statistics_api, name='user_stats_api'),
 ]

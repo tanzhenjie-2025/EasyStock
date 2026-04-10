@@ -464,42 +464,100 @@ def user_edit(request, user_id):
         'user': user, 'roles': get_cached_roles(), 'role_id': user.role.id if user.role else '', 'is_edit': True
     })
 
+
+# ===================== 新增：用户详情页（优化版） =====================
 @login_required
 @permission_required('user_view')
 def user_detail(request, user_id):
-    """用户详情 - 优化N+1查询，命中索引"""
+    """用户详情 - 移除自动统计，改为手动触发，添加订单分页"""
     user = get_object_or_404(User.objects.select_related('role'), id=user_id)
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
-    user_stats = {'total_orders': 0, 'total_sales': 0, 'total_cancelled': 0, 'sales_ratio': 0}
 
-    if is_super_admin and user.is_active:
-        # ✅ 修复：移除所有 is_settled=False 限制
-        stats = Order.objects.aggregate(
-            shop_total=Coalesce(Sum('total_amount', filter=Q(status__in=['pending', 'printed', 'reopened'])), 0, output_field=DecimalField()),
-            user_orders=Count('id', filter=Q(creator=user, status__in=['pending', 'printed', 'reopened'])),
-            user_sales=Coalesce(Sum('total_amount', filter=Q(creator=user, status__in=['pending', 'printed', 'reopened'])), 0, output_field=DecimalField()),
-            user_canceled=Count('id', filter=Q(creator=user, status='cancelled'))
-        )
-        user_stats['total_orders'] = stats['user_orders']
-        user_stats['total_sales'] = stats['user_sales']
-        user_stats['total_cancelled'] = stats['user_canceled']
-        shop_total = stats['shop_total']
-        user_stats['sales_ratio'] = round((user_stats['total_sales'] / shop_total) * 100) if shop_total > 0 else 0
+    # 最近订单列表（分页20条）
+    page = request.GET.get('page', 1)
+    recent_orders_qs = Order.objects.filter(
+        creator=user
+    ).select_related('customer', 'area', 'creator').order_by('-create_time')
 
-    recent_orders = []
-    if is_super_admin:
-        # 🔥 优化：select_related 消除N+1查询
-        recent_orders = Order.objects.filter(
-            creator=user,
-            status__in=['pending', 'printed', 'reopened', 'cancelled']
-        ).select_related('customer', 'area', 'creator').order_by('-create_time')[:15]
+    paginator = Paginator(recent_orders_qs, 20)
+    try:
+        recent_orders = paginator.page(page)
+    except PageNotAnInteger:
+        recent_orders = paginator.page(1)
+    except EmptyPage:
+        recent_orders = paginator.page(paginator.num_pages)
 
     return render(request, 'accounts/user_detail.html', {
         'target_user': user,
         'is_super_admin': is_super_admin,
-        'user_stats': user_stats,
         'recent_orders': recent_orders,
         'roles': get_cached_roles()
+    })
+
+
+# ===================== 新增：统计数据 API =====================
+@login_required
+@permission_required('user_view')
+def user_statistics_api(request, user_id):
+    """异步统计用户数据：包含首单/最后活跃时间等维度"""
+    user = get_object_or_404(User, id=user_id)
+
+    # 有效单据状态
+    valid_status = ['pending', 'printed', 'reopened']
+
+    # 1. 该用户的核心数据
+    from django.db.models import Min, Max
+    user_data = Order.objects.filter(creator=user).aggregate(
+        # 有效单数据
+        total_amount=Coalesce(Sum('total_amount', filter=Q(status__in=valid_status)), 0, output_field=DecimalField()),
+        valid_count=Count('id', filter=Q(status__in=valid_status)),
+        # 作废数据
+        cancel_count=Count('id', filter=Q(status='cancelled')),
+        # 客户数
+        customer_count=Count('customer', distinct=True, filter=Q(status__in=valid_status)),
+        # 🔥 新增：时间维度
+        first_order_time=Min('create_time', filter=Q(status__in=valid_status)),
+        last_order_time=Max('create_time'),
+    )
+
+    # 2. 全店数据 (计算占比)
+    total_store_amount = Order.objects.filter(status__in=valid_status).aggregate(
+        s=Coalesce(Sum('total_amount'), 0, output_field=DecimalField())
+    )['s']
+
+    # 计算占比
+    ratio = 0
+    if total_store_amount > 0:
+        ratio = (user_data['total_amount'] / total_store_amount) * 100
+
+    # 计算平均客单价
+    avg_ticket = 0
+    if user_data['valid_count'] > 0:
+        avg_ticket = user_data['total_amount'] / user_data['valid_count']
+
+    # 计算作废率
+    total_count = user_data['valid_count'] + user_data['cancel_count']
+    cancel_rate = 0
+    if total_count > 0:
+        cancel_rate = (user_data['cancel_count'] / total_count) * 100
+
+    return JsonResponse({
+        'code': 1,
+        'data': {
+            'total_amount': float(user_data['total_amount']),
+            'valid_count': user_data['valid_count'],
+            'cancel_count': user_data['cancel_count'],
+            'customer_count': user_data['customer_count'],
+            'ratio': round(ratio, 2),
+            'avg_ticket': float(avg_ticket),
+            'cancel_rate': round(cancel_rate, 2),
+            # 🔥 新增：时间维度格式化
+            'first_order_time': user_data['first_order_time'].strftime('%Y-%m-%d') if user_data[
+                'first_order_time'] else '-',
+            'last_order_time': user_data['last_order_time'].strftime('%Y-%m-%d %H:%M') if user_data[
+                'last_order_time'] else '-',
+            'join_time': user.date_joined.strftime('%Y-%m-%d'),
+        }
     })
 
 @login_required
