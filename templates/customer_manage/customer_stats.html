@@ -1,0 +1,210 @@
+{% extends 'base.html' %}
+{% block title %}客户统计详情{% endblock %}
+{% block extra_css %}
+<style>
+    .stat-card { border-radius: 8px; padding: 20px; text-align: center; margin-bottom: 20px; }
+    .card-consume { background: #e3f2fd; }
+    .card-debt { background: #fff3cd; }
+    .card-order { background: #d1e7dd; }
+    .disabled-btn { pointer-events: none; opacity: 0.6; }
+    .table th, .table td { vertical-align: middle; text-align: center; }
+</style>
+{% endblock %}
+
+{% block content %}
+<meta name="csrf-token" content="{{ csrf_token }}">
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5>客户统计详情</h5>
+        <a href="{% url 'customer_manage:customer_page' %}" class="btn btn-sm btn-outline-secondary">返回客户列表</a>
+    </div>
+    <div class="card-body">
+        <!-- 筛选区域 -->
+        <div class="row mb-4 g-3">
+            <div class="col-md-2">
+                <select id="time_range" class="form-select">
+                    <option value="all">全部时间</option>
+                    <option value="today">今日</option>
+                    <option value="month">本月</option>
+                    <option value="year">本年</option>
+                    <option value="custom">自定义时间</option>
+                </select>
+            </div>
+            <div class="col-md-2 d-none" id="date_range">
+                <input type="date" id="start_date" class="form-control">
+            </div>
+            <div class="col-md-2 d-none" id="date_range_end">
+                <input type="date" id="end_date" class="form-control">
+            </div>
+            <div class="col-md-2">
+                <select id="area_id" class="form-select">
+                    <option value="">全部区域</option>
+                    {% for area in areas %}
+                    <option value="{{ area.id }}">{{ area.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <select id="status" class="form-select">
+                    <option value="all">全部客户</option>
+                    <option value="active">启用客户</option>
+                    <option value="disabled">禁用客户</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <!-- 🔥 统计按钮（防重+加载） -->
+                <button id="calcBtn" class="btn btn-primary w-100" onclick="calculateStats()">开始统计</button>
+            </div>
+        </div>
+
+        <!-- 🔥 全局统计卡片 -->
+        <div class="row" id="globalStats" style="display: none;">
+            <div class="col-md-4">
+                <div class="stat-card card-consume">
+                    <h6>总消费金额</h6>
+                    <h4 class="text-primary" id="total_consume">0</h4>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="stat-card card-debt">
+                    <h6>总欠款金额</h6>
+                    <h4 class="text-warning" id="total_debt">0</h4>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="stat-card card-order">
+                    <h6>总订单数量</h6>
+                    <h4 class="text-success" id="total_order">0</h4>
+                </div>
+            </div>
+        </div>
+
+        <!-- 统计列表 -->
+        <div class="table-responsive mt-4">
+            <table class="table table-bordered table-hover">
+                <thead>
+                    <tr>
+                        <th>序号</th>
+                        <th>客户名称</th>
+                        <th>区域</th>
+                        <th>电话</th>
+                        <th>状态</th>
+                        <th>总消费</th>
+                        <th>总欠款</th>
+                        <th>总订单</th>
+                        <th>已完成</th>
+                        <th>未结清</th>
+                        <th>最近消费</th>
+                    </tr>
+                </thead>
+                <tbody id="statsTable"></tbody>
+            </table>
+        </div>
+
+        <!-- 分页 -->
+        <div id="pagination" class="text-center mt-3"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// 🔥 前端缓存（不刷新不重算）
+let statsCache = null;
+let currentPage = 1;
+
+// 时间选择器切换
+$('#time_range').change(function(){
+    if($(this).val() === 'custom'){
+        $('#date_range, #date_range_end').removeClass('d-none');
+    }else{
+        $('#date_range, #date_range_end').addClass('d-none');
+    }
+});
+
+// 🔥 核心：统计函数（防重+加载+缓存）
+function calculateStats(page=1) {
+    currentPage = page;
+
+    // 防重复点击
+    const btn = $('#calcBtn');
+    btn.addClass('disabled-btn').text('统计中...').prop('disabled', true);
+
+    // 读取筛选参数
+    const params = {
+        time_range: $('#time_range').val(),
+        start_date: $('#start_date').val(),
+        end_date: $('#end_date').val(),
+        area_id: $('#area_id').val(),
+        status: $('#status').val(),
+        page: page
+    };
+
+    // 使用缓存
+    if(statsCache && JSON.stringify(statsCache.params) === JSON.stringify(params)){
+        renderStats(statsCache.data);
+        btn.removeClass('disabled-btn').text('开始统计').prop('disabled', false);
+        return;
+    }
+
+    // 请求接口
+    $.getJSON("{% url 'customer_manage:calculate_customer_stats' %}", params, function(res){
+        if(res.code === 0){
+            alert(res.msg);
+            btn.removeClass('disabled-btn').text('开始统计').prop('disabled', false);
+            return;
+        }
+        // 缓存结果
+        statsCache = { params: params, data: res };
+        renderStats(res);
+    }).always(function(){
+        btn.removeClass('disabled-btn').text('开始统计').prop('disabled', false);
+    });
+}
+
+// 渲染统计数据
+function renderStats(res) {
+    $('#globalStats').show();
+    // 全局卡片
+    $('#total_consume').text(res.global_stats.total_consume + ' 元');
+    $('#total_debt').text(res.global_stats.total_debt + ' 元');
+    $('#total_order').text(res.global_stats.total_order + ' 单');
+
+    // 列表
+    const tbody = $('#statsTable'); tbody.empty();
+    res.customers.forEach((item, index) => {
+        const status = item.is_active ? '<span class="text-success">启用</span>' : '<span class="text-danger">禁用</span>';
+        tbody.append(`
+            <tr>
+                <td>${(currentPage-1)*20 + index+1}</td>
+                <td>${item.name}</td>
+                <td>${item.area_name}</td>
+                <td>${item.phone}</td>
+                <td>${status}</td>
+                <td>${item.total_consume.toFixed(2)}</td>
+                <td class="text-warning">${item.total_debt.toFixed(2)}</td>
+                <td>${item.total_order}</td>
+                <td>${item.finished_order}</td>
+                <td>${item.unsettled_order}</td>
+                <td>${item.last_consume_time}</td>
+            </tr>
+        `);
+    });
+
+    // 分页
+    renderPagination(res.total_count, 20, res.total_pages);
+}
+
+// 分页
+function renderPagination(total, pageSize, totalPages) {
+    const html = [];
+    for(let i=1; i<=totalPages; i++){
+        html.push(`<button class="btn btn-sm ${i==currentPage ? 'btn-primary' : 'btn-outline-primary'}" onclick="calculateStats(${i})">${i}</button>`);
+    }
+    $('#pagination').html(html.join(' '));
+}
+
+// 获取CSRF
+function getCsrfToken() { return $('meta[name="csrf-token"]').attr('content'); }
+</script>
+{% endblock %}

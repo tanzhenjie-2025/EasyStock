@@ -133,6 +133,7 @@ class Order(models.Model):
             models.Index(fields=['status', 'is_settled', 'area', 'customer','create_time']),
             models.Index(fields=['status','area', 'create_time', 'total_amount']),
             models.Index(fields=['create_time']),
+            models.Index(fields=['customer', 'status', 'is_settled', 'create_time', 'total_amount']),
         ]
 
 

@@ -7,7 +7,7 @@
         table-layout: fixed;
         width: 100%;
     }
-    
+
     /* 易换行列的宽度设置（强制不换行） */
     .col-serial { width: 50px; white-space: nowrap; }
     .col-user-code { width: 100px; white-space: nowrap; }
@@ -16,7 +16,7 @@
     .col-order-count { width: 60px; white-space: nowrap; }
     .col-sales { width: 70px; white-space: nowrap; }
     .col-ratio { width: 50px; white-space: nowrap; }
-    
+
     /* 其他列保持可换行 */
     .col-username { min-width: 80px; }
     .col-name { min-width: 70px; }
@@ -24,25 +24,25 @@
     .col-create-time { min-width: 200px; }
 
     /* 🔥 关键修改：操作列加宽，并强制内部不换行 */
-    .col-operation { 
+    .col-operation {
         width: 420px;       /* 增加固定宽度，容纳4个按钮 */
         min-width: 420px;
         white-space: nowrap; /* 禁止操作列内容换行 */
     }
 
     /* 状态徽章 */
-    .status-badge { 
-        padding: 2px 6px; 
-        border-radius: 4px; 
+    .status-badge {
+        padding: 2px 6px;
+        border-radius: 4px;
         display: inline-block;
         font-size: 0.85rem;
     }
     .status-active { background: #d1e7dd; color: #0f5132; }
     .status-inactive { background: #f8d7da; color: #842029; }
-    
+
     .role-tag { font-size: 0.85rem; padding: 2px 6px; }
     .shop-stats { background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
-    
+
     /* 🔥 关键修改：极致压缩按钮尺寸 */
     .btn-group-sm .btn {
         padding: 1px 5px;       /* 减小内边距 */
@@ -54,10 +54,10 @@
     .clickable-row { cursor: pointer; }
 
     /* 🔥 关键修改：减小按钮间距 */
-    .btn-group-action { 
+    .btn-group-action {
         gap: 4px;          /* 从 8px 减到 4px */
-        display: flex; 
-        align-items: center; 
+        display: flex;
+        align-items: center;
     }
 
     /* 🔥 新增：确保表格容器允许横向滚动（防止屏幕太窄时崩坏） */
@@ -67,7 +67,7 @@
 
     /* ... (保留后面的模态框、Toast 等其他样式不变) ... */
     /* 为了节省篇幅，此处省略后面未修改的 CSS，请保留你原来的代码 */
-    
+
 </style>
 {% endblock %}
 
@@ -96,8 +96,8 @@
         <div class="shop-stats">
             <h6 class="mb-2">【全店销售统计】</h6>
             <p class="mb-0">
-                总开单：{{ shop_stats.total_orders }} 单 | 
-                总销售额：{{ shop_stats.total_sales }} 元 | 
+                总开单：{{ shop_stats.total_orders }} 单 |
+                总销售额：{{ shop_stats.total_sales }} 元 |
                 总作废：{{ shop_stats.total_cancelled }} 单
             </p>
         </div>
@@ -106,7 +106,7 @@
         <!-- 筛选表单 -->
         <form method="get" class="mb-4 row g-3" id="filterForm">
             <div class="col-md-4">
-                <input type="text" name="keyword" class="form-control form-control-sm" 
+                <input type="text" name="keyword" class="form-control form-control-sm"
                        placeholder="搜索编号/用户名/电话/姓名" value="{{ keyword }}">
             </div>
             <div class="col-md-2">
@@ -120,19 +120,19 @@
         <!-- Tab切换 -->
         <ul class="nav nav-tabs mb-3" id="statusTabs">
             <li class="nav-item">
-                <a class="nav-link {% if status == 'all' %}active{% endif %}" 
+                <a class="nav-link {% if status == 'all' %}active{% endif %}"
                    href="#" data-status="all">
                     全部 ({{ all_count }})
                 </a>
             </li>
             <li class="nav-item">
-                <a class="nav-link {% if status == 'active' %}active{% endif %}" 
+                <a class="nav-link {% if status == 'active' %}active{% endif %}"
                    href="#" data-status="active">
                     正常 ({{ active_count }})
                 </a>
             </li>
             <li class="nav-item">
-                <a class="nav-link {% if status == 'inactive' %}active{% endif %} text-danger" 
+                <a class="nav-link {% if status == 'inactive' %}active{% endif %} text-danger"
                    href="#" data-status="inactive">
                     已停用 ({{ inactive_count }})
                 </a>
@@ -156,7 +156,7 @@
                         <th class="col-sales">销售额</th>
                         <th class="col-ratio">占比</th>
                         {% endif %}
-                        
+
                         <th class="col-operation">操作</th>
                     </tr>
                 </thead>
@@ -188,22 +188,22 @@
                         <td class="col-sales">{{ user.sales|default:0 }}元</td>
                         <td class="col-ratio">{{ user.ratio|default:0 }}%</td>
                         {% endif %}
-                        
+
                         <td class="col-operation">
                             <!-- 🔥 整合：动态操作列 -->
                             <div class="btn-group-action">
                                 <a href="{% url 'accounts:user_detail' user.id %}" class="btn btn-outline-info btn-sm">详情</a>
                                 {% if user.is_active %}
                                     <a href="{% url 'accounts:user_edit' user.id %}" class="btn btn-outline-primary btn-sm">编辑</a>
-                                    <button class="btn btn-outline-danger btn-sm status-toggle-btn" 
-                                            data-user-id="{{ user.id }}" 
+                                    <button class="btn btn-outline-danger btn-sm status-toggle-btn"
+                                            data-user-id="{{ user.id }}"
                                             data-user-code="{{ user.user_code }}"
                                             data-is-active="1">
                                         停用
                                     </button>
                                 {% else %}
-                                    <button class="btn btn-outline-success btn-sm status-toggle-btn" 
-                                            data-user-id="{{ user.id }}" 
+                                    <button class="btn btn-outline-success btn-sm status-toggle-btn"
+                                            data-user-id="{{ user.id }}"
                                             data-user-code="{{ user.user_code }}"
                                             data-is-active="0">
                                         启用
@@ -225,7 +225,7 @@
                 </tbody>
             </table>
         </div>
-    
+
         <!-- Bootstrap 分页控件 -->
         {% if page_obj.has_other_pages %}
         <nav aria-label="Page navigation" class="mt-4">
@@ -278,7 +278,7 @@
                     <button type="button" class="btn btn-xs btn-outline-primary" onclick="selectAllFields(true)">全选</button>
                     <button type="button" class="btn btn-xs btn-outline-secondary ms-1" onclick="selectAllFields(false)">取消全选</button>
                 </div>
-                
+
                 <!-- 用户字段选项 -->
                 <div class="field-checkbox">
                     <input type="checkbox" id="field_serial" name="export_fields" value="serial" checked>
@@ -316,8 +316,8 @@
                     <input type="checkbox" id="field_status" name="export_fields" value="status" checked>
                     <label for="field_status">状态</label>
                 </div>
-                
-                
+
+
                 <!-- 自定义字段区域 -->
                 <div class="custom-fields-section">
                     <h6>自定义字段（用于手动填写）</h6>
@@ -368,7 +368,7 @@ function showImportModal() {
     document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
     let overlay = document.createElement('div');
     overlay.className = 'modal-overlay form-modal';
-    
+
     overlay.innerHTML = `
         <div class="modal-box">
             <div class="modal-title">导入用户数据</div>
@@ -400,7 +400,7 @@ function showImportModal() {
             showToast('请先选择文件', 'warning');
             return;
         }
-        
+
         let formData = new FormData();
         formData.append('file', fileInput.files[0]);
 
@@ -557,7 +557,7 @@ $(document).on('click', '.status-toggle-btn', function() {
     const userCode = $(this).data('user-code');
     const isActive = $(this).data('is-active') === 1;
     const action = isActive ? '禁用' : '启用';
-    
+
     if (confirm(`确定要${action}用户【${userCode}】吗？`)) {
         $.ajax({
             url: `{% url 'accounts:user_toggle_status' 0 %}`.replace('0', userId),
@@ -583,7 +583,7 @@ $(document).on('click', '.status-toggle-btn', function() {
 $(document).on('click', '.reset-password-btn', function() {
     const userId = $(this).data('user-id');
     const userCode = $(this).data('user-code');
-    
+
     if (confirm(`确定要重置用户【${userCode}】的密码吗？\n重置后密码为：123456（登录后强制修改）`)) {
         $.ajax({
             url: `{% url 'accounts:reset_password' 0 %}`.replace('0', userId),

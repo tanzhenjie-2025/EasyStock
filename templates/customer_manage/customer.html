@@ -381,14 +381,20 @@
 {% block content %}
 <div class="content-container">
     
-    <!-- 1. 页面标题与特殊入口 -->
+    <!-- 1. 页面标题 + 统计入口 -->
     <div class="page-header">
         <h3 class="page-title">客户管理</h3>
-        {% if request.user.role and request.user.role.code == 'super_admin' %}
-            <a href="/customer-manage/customer/sales-rank/page/" class="btn btn-warning">
-                🔝 客户消费TOP30排行
+        <div class="d-flex gap-2">
+            <!-- 🔥 新增：客户统计入口 -->
+            <a href="{% url 'customer_manage:customer_stats_page' %}" class="btn btn-success">
+                📊 客户统计
             </a>
-        {% endif %}
+            {% if request.user.role and request.user.role.code == 'super_admin' %}
+                <a href="/customer-manage/customer/sales-rank/page/" class="btn btn-warning">
+                    🔝 客户消费TOP30排行
+                </a>
+            {% endif %}
+        </div>
     </div>
 
     <!-- 2. 控制面板 (操作按钮 + 筛选) -->
@@ -445,7 +451,7 @@
         </div>
     </div>
 
-    <!-- 3. 数据表格 -->
+    <!-- 3. 数据表格（已删除总消费/总欠款，仅保留基础信息） -->
     <div class="table-container">
         <table class="table table-sm table-bordered table-hover">
             <thead class="table-light">
@@ -454,8 +460,6 @@
                     <th>客户名称</th>
                     <th>所属区域</th>
                     <th>联系电话</th>
-                    <th style="width: 120px;">总消费金额</th>
-                    <th style="width: 100px;">总欠款</th>
                     <th style="width: 80px;">状态</th>
                     <th>备注</th>
                     <th style="width: 180px;">操作</th>
@@ -724,8 +728,6 @@
                 if (res[0].counts) updateTabCounts(res[0].counts);
                 
                 res.forEach(customer => {
-                    const totalDebt = customer.total_debt ? customer.total_debt.toFixed(2) : '0.00';
-                    const totalConsumption = customer.total_consumption ? customer.total_consumption.toFixed(2) : '0.00';
                     let name = highlightKeyword(customer.name, keyword);
                     let phone = highlightKeyword(customer.phone, keyword);
                     let areaName = highlightKeyword(customer.area_name || '无', keyword);
@@ -752,20 +754,19 @@
                         `;
                     }
                     
+                    // 🔥 已删除总消费、总欠款列
                     html += `<tr class="${rowClass}" onclick="openCustomerDetail(${customer.id})">
                         <td>${id}</td>
                         <td>${name}</td>
                         <td>${areaName}</td>
                         <td>${phone}</td>
-                        <td>¥${totalConsumption}</td>
-                        <td class="debt-red">¥${totalDebt}</td>
                         <td>${statusBadge}</td>
                         <td>${customer.remark || '无'}</td>
                         <td>${actionBtns}</td>
                     </tr>`;
                 });
             } else {
-                html = '<tr><td colspan="9" class="no-result">暂无匹配的客户，请更换关键词重试</td></tr>';
+                html = '<tr><td colspan="7" class="no-result">暂无匹配的客户，请更换关键词重试</td></tr>';
             }
             $('#customerList').html(html);
             $('#searchInput').focus();

@@ -45,5 +45,8 @@ urlpatterns = [
     path('api/price/export/', views.customer_price_export, name='customer_price_export'),
     path('api/price/import/', views.customer_price_import, name='customer_price_import'),
     path('price/enable/<int:pk>/', views.customer_price_enable, name='customer_price_enable'),
+
+path('stats/page/', views.customer_stats_page, name='customer_stats_page'),  # 统计页面
+    path('api/stats/calculate/', views.calculate_customer_stats, name='calculate_customer_stats'),  # 统计接口
 ]
 

@@ -14,7 +14,7 @@ import unicodedata
 from django.contrib.auth.decorators import login_required
 from accounts.views import permission_required, create_operation_log
 
-from django.db.models import Sum, F, Q, OuterRef, Subquery, DecimalField, Max
+from django.db.models import Sum, F, Q, OuterRef, Subquery, DecimalField, Max, Count
 from django.db.models.functions import Coalesce
 from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
 
@@ -89,14 +89,14 @@ def full_to_half(s):
     return ''.join(result)
 
 # ========== 客户列表（手动缓存） ==========
-# ========== 客户列表（手动缓存，支持状态筛选） ==========
+# ========== 客户列表（纯基本信息，无任何统计聚合） ==========
 @login_required
 @permission_required('customer_view')
 def customer_list(request):
-    """优化版：无N+1、批量聚合、带分页 + 手动缓存 + 状态筛选"""
+    """极简版：仅返回客户基本信息，零算力消耗"""
     try:
         keyword = request.GET.get('keyword', '').strip()
-        status = request.GET.get('status', 'all')  # all/active/disabled
+        status = request.GET.get('status', 'all')
         page = request.GET.get('page', 1)
         page_size = 10
 
@@ -105,21 +105,8 @@ def customer_list(request):
         if cached_data:
             return JsonResponse(cached_data, safe=False)
 
-        # 使用 all_objects 获取包含禁用的所有客户
-        customers = Customer.all_objects.all().select_related('area').annotate(
-            unpaid_amount=Coalesce(Subquery(Order.objects.filter(
-                customer=OuterRef('pk'),
-                status__in=['pending', 'printed', 'reopened'],
-                is_settled=False
-            ).values('customer').annotate(total=Sum('total_amount')).values('total')), 0, output_field=DecimalField()),
-            total_consumption=Coalesce(Subquery(Order.objects.filter(
-                customer=OuterRef('pk'),
-                status__in=['pending', 'printed', 'reopened']
-            ).values('customer').annotate(total=Sum('total_amount')).values('total')), 0, output_field=DecimalField()),
-            paid_amount=Coalesce(Subquery(RepaymentRecord.objects.filter(
-                customer=OuterRef('pk')
-            ).values('customer').annotate(total=Sum('repayment_amount')).values('total')), 0, output_field=DecimalField()),
-        )
+        # 仅查询基本信息 + 关联区域，无任何聚合计算
+        customers = Customer.all_objects.all().select_related('area')
 
         # 状态筛选
         if status == 'active':
@@ -139,11 +126,12 @@ def customer_list(request):
                 Q(area__name__icontains=keyword)
             )
 
-        # 计算各状态数量（用于Tab显示）
+        # 统计数量
         all_count = Customer.all_objects.count()
-        active_count = Customer.objects.count()  # 默认管理器只返回active
+        active_count = Customer.objects.count()
         disabled_count = all_count - active_count
 
+        # 分页
         paginator = Paginator(customers, page_size)
         try:
             customer_page = paginator.page(page)
@@ -152,10 +140,9 @@ def customer_list(request):
         except EmptyPage:
             customer_page = paginator.page(paginator.num_pages)
 
+        # 仅返回基本信息
         result = []
         for c in customer_page:
-            total_debt = float(c.unpaid_amount - c.paid_amount)
-            total_debt = max(total_debt, 0)
             result.append({
                 'id': c.id,
                 'name': c.name,
@@ -163,12 +150,10 @@ def customer_list(request):
                 'area_name': c.area.name if c.area else '',
                 'phone': c.phone,
                 'remark': c.remark or '',
-                'total_debt': total_debt,
-                'total_consumption': float(c.total_consumption),
-                'is_active': c.is_active,  # 新增：返回状态
+                'is_active': c.is_active,
                 'page': int(page),
                 'total': paginator.count,
-                'counts': {  # 新增：返回各状态数量
+                'counts': {
                     'all': all_count,
                     'active': active_count,
                     'disabled': disabled_count
@@ -1386,3 +1371,126 @@ def customer_price_import(request):
             logger.error(f"导入客户专属价格系统异常：{str(e)}", exc_info=True)
             return JsonResponse({'code': 0, 'msg': f'导入系统异常：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+
+# ==================== 客户统计功能（新增） ====================
+@login_required
+@permission_required('customer_view')
+def customer_stats_page(request):
+    """客户统计详情页面"""
+    areas = Area.objects.all().order_by('name')
+    return render(request, 'customer_manage/customer_stats.html', {
+        'areas': areas
+    })
+
+@login_required
+@permission_required('customer_view')
+def calculate_customer_stats(request):
+    """
+    客户统计接口
+    支持：时间筛选/地区筛选/状态筛选
+    返回：全局统计 + 分页客户统计数据
+    """
+    try:
+        # 筛选参数
+        time_range = request.GET.get('time_range', 'all')  # today/month/year/all/custom
+        start_date = request.GET.get('start_date', '')
+        end_date = request.GET.get('end_date', '')
+        area_id = request.GET.get('area_id', '')
+        status = request.GET.get('status', 'all')
+        page = request.GET.get('page', 1)
+        page_size = 20
+
+        # 基础查询：有效订单 + 有效客户
+        base_orders = Order.objects.filter(
+            status__in=['pending', 'printed', 'reopened'],
+            customer__isnull=False
+        )
+        base_customers = Customer.all_objects.all().select_related('area')
+
+        # 1. 时间筛选
+        today = timezone.now().date()
+        if time_range == 'today':
+            base_orders = base_orders.filter(create_time__date=today)
+        elif time_range == 'month':
+            base_orders = base_orders.filter(create_time__year=today.year, create_time__month=today.month)
+        elif time_range == 'year':
+            base_orders = base_orders.filter(create_time__year=today.year)
+        elif time_range == 'custom' and start_date and end_date:
+            base_orders = base_orders.filter(create_time__date__gte=start_date, create_time__date__lte=end_date)
+
+        # 2. 地区筛选
+        if area_id and area_id.isdigit():
+            base_customers = base_customers.filter(area_id=area_id)
+            base_orders = base_orders.filter(area_id=area_id)
+
+        # 3. 客户状态筛选
+        if status == 'active':
+            base_customers = base_customers.filter(is_active=True)
+        elif status == 'disabled':
+            base_customers = base_customers.filter(is_active=False)
+
+        # 4. 预计算：所有客户的统计数据
+        customer_ids = base_customers.values_list('id', flat=True)
+        order_stats = base_orders.filter(customer_id__in=customer_ids).values('customer_id').annotate(
+            total_consume=Sum('total_amount'),
+            total_order=Count('id'),
+            finished_order=Count('id', filter=Q(is_settled=True)),
+            unsettled_order=Count('id', filter=Q(is_settled=False)),
+            last_consume_time=Max('create_time')
+        )
+        order_dict = {item['customer_id']: item for item in order_stats}
+
+        # 还款统计
+        repay_stats = RepaymentRecord.objects.filter(customer_id__in=customer_ids).values('customer_id').annotate(
+            total_repay=Sum('repayment_amount')
+        )
+        repay_dict = {item['customer_id']: item['total_repay'] or 0 for item in repay_stats}
+
+        # 5. 组装客户数据
+        customer_list = []
+        for customer in base_customers:
+            stats = order_dict.get(customer.id, {
+                'total_consume': 0, 'total_order': 0, 'finished_order': 0, 'unsettled_order': 0, 'last_consume_time': None
+            })
+            total_repay = repay_dict.get(customer.id, 0)
+            total_debt = max(float(stats.get('total_consume', 0)) - total_repay, 0)
+
+            customer_list.append({
+                'id': customer.id,
+                'name': customer.name,
+                'area_name': customer.area.name if customer.area else '无区域',
+                'phone': customer.phone,
+                'is_active': customer.is_active,
+                'total_consume': float(stats.get('total_consume', 0)),
+                'total_debt': total_debt,
+                'total_order': stats.get('total_order', 0),
+                'finished_order': stats.get('finished_order', 0),
+                'unsettled_order': stats.get('unsettled_order', 0),
+                'last_consume_time': stats.get('last_consume_time').strftime('%Y-%m-%d %H:%M') if stats.get('last_consume_time') else '无消费'
+            })
+
+        # 6. 分页
+        paginator = Paginator(customer_list, page_size)
+        current_page = paginator.get_page(page)
+
+        # 7. 全局统计卡片
+        total_consume_all = sum([item['total_consume'] for item in customer_list])
+        total_debt_all = sum([item['total_debt'] for item in customer_list])
+        total_order_all = sum([item['total_order'] for item in customer_list])
+
+        return JsonResponse({
+            'code': 1,
+            'global_stats': {
+                'total_consume': round(total_consume_all, 2),
+                'total_debt': round(total_debt_all, 2),
+                'total_order': total_order_all
+            },
+            'customers': current_page.object_list,
+            'page': current_page.number,
+            'total_pages': paginator.num_pages,
+            'total_count': paginator.count
+        })
+
+    except Exception as e:
+        logger.error(f"客户统计失败：{str(e)}", exc_info=True)
+        return JsonResponse({'code': 0, 'msg': f'统计失败：{str(e)}'})
