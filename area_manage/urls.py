@@ -36,4 +36,9 @@ urlpatterns = [
     path('api/area/stats/<int:pk>/', views.area_statistics_api, name='area_stats_api'),
 
 path('api/group/stats/<int:pk>/', views.group_statistics_api, name='group_stats_api'),
+
+# 🔥 新增：区域统计相关
+    path('area/stats/page/', views.area_stats_page, name='area_stats_page'),
+    path('api/area/stats/calculate/', views.calculate_area_stats, name='calculate_area_stats'),
+    path('api/area/<int:area_id>/portrait/', views.area_portrait_api, name='area_portrait_api'),
 ]

@@ -21,7 +21,8 @@ from django.http import HttpResponse
 from io import BytesIO
 
 from summary.views import export_to_excel
-
+from django.db.models import Sum, Count, Max, Q, F, DecimalField
+from django.db.models.functions import Coalesce
 # 配置日志
 logger = logging.getLogger(__name__)
 
@@ -1090,3 +1091,186 @@ def group_statistics_api(request, pk):
     except Exception as e:
         logger.error(f"区域组{pk}统计失败：{str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'统计失败：{str(e)}'})
+
+
+
+
+
+# 工具函数：解析时间范围
+def parse_time_range(time_range, start_date_str, end_date_str):
+    from datetime import datetime, timedelta
+    today = timezone.now().date()
+
+    if time_range == 'today':
+        return today, today
+    elif time_range == 'week':
+        start = today - timedelta(days=today.weekday())
+        return start, today
+    elif time_range == 'month':
+        return today.replace(day=1), today
+    elif time_range == 'custom' and start_date_str and end_date_str:
+        try:
+            start = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            end = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+            return start, end
+        except:
+            pass
+    # 默认：最近30天
+    return today - timedelta(days=30), today
+
+
+# 1. 区域统计页面入口
+@login_required
+@permission_required('area_view')
+def area_stats_page(request):
+    return render(request, 'area_manage/area_stats.html')
+
+
+# 2. 核心：区域统计数据接口（统一入口）
+@login_required
+@permission_required('area_view')
+def calculate_area_stats(request):
+    try:
+        # 获取参数
+        time_range = request.GET.get('time_range', '30days')
+        start_date = request.GET.get('start_date', '')
+        end_date = request.GET.get('end_date', '')
+        top_type = request.GET.get('top_type', 'amount')  # amount/order
+
+        # 1. 解析时间
+        start_dt, end_dt = parse_time_range(time_range, start_date, end_date)
+
+        # 2. 基础订单QuerySet（利用索引：status, area, create_time）
+        base_orders = Order.objects.filter(
+            status__in=['pending', 'printed', 'reopened'],
+            create_time__date__gte=start_dt,
+            create_time__date__lte=end_dt
+        ).select_related('area')
+
+        # 3. 全局核心指标
+        global_stats = base_orders.aggregate(
+            total_sales=Coalesce(Sum('total_amount'), 0, output_field=DecimalField(max_digits=12, decimal_places=2)),
+            total_orders=Count('id')
+        )
+
+        # 4. 区域明细列表（按区域分组统计）
+        area_details = base_orders.values(
+            'area_id', 'area__name'
+        ).annotate(
+            sales=Coalesce(Sum('total_amount'), 0, output_field=DecimalField(max_digits=12, decimal_places=2)),
+            order_count=Count('id'),
+            last_order_time=Max('create_time')
+        ).order_by('-sales')
+
+        # 计算总销售额用于占比
+        total_sales_val = float(global_stats['total_sales']) if global_stats['total_sales'] else 0
+
+        # 组装区域明细数据
+        area_list = []
+        for item in area_details:
+            contribution = 0.0
+            if total_sales_val > 0:
+                contribution = (float(item['sales']) / total_sales_val) * 100
+
+            area_list.append({
+                'area_id': item['area_id'],
+                'area_name': item['area__name'] or '未分配区域',
+                'sales': float(item['sales']),
+                'order_count': item['order_count'],
+                'contribution': round(contribution, 2),
+                'last_order_time': item['last_order_time'].strftime('%Y-%m-%d %H:%M') if item[
+                    'last_order_time'] else '无'
+            })
+
+        # 5. TOP 排行（直接复用 area_list 的排序结果）
+        top_list = area_list[:30]
+        if top_type == 'order':
+            top_list = sorted(area_list, key=lambda x: -x['order_count'])[:30]
+
+        return JsonResponse({
+            'code': 1,
+            'global_stats': {
+                'total_sales': float(global_stats['total_sales']),
+                'total_orders': global_stats['total_orders']
+            },
+            'area_list': area_list,
+            'top_list': top_list,
+            'date_range': {
+                'start': start_dt.strftime('%Y-%m-%d'),
+                'end': end_dt.strftime('%Y-%m-%d')
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"区域统计计算失败：{str(e)}", exc_info=True)
+        return JsonResponse({'code': 0, 'msg': f'统计失败：{str(e)}'})
+
+
+# 3. 区域画像详情接口（点击查看详情时调用）
+@login_required
+@permission_required('area_view')
+def area_portrait_api(request, area_id):
+    try:
+        area = get_object_or_404(Area.objects.only('id', 'name', 'remark', 'create_time'), pk=area_id)
+
+        # 时间范围（默认最近30天）
+        end_date = timezone.now().date()
+        start_date = end_date - timezone.timedelta(days=30)
+
+        # 该区域订单基础数据
+        base_orders = Order.objects.filter(
+            area_id=area_id,
+            status__in=['pending', 'printed', 'reopened'],
+            create_time__date__gte=start_date,
+            create_time__date__lte=end_date
+        )
+
+        # 1. 区域核心指标
+        area_stats = base_orders.aggregate(
+            total_sales=Coalesce(Sum('total_amount'), 0, output_field=DecimalField(max_digits=12, decimal_places=2)),
+            total_orders=Count('id'),
+            total_debt=Coalesce(
+                Sum('total_amount', filter=Q(is_settled=False)),
+                0,
+                output_field=DecimalField(max_digits=12, decimal_places=2)
+            )
+        )
+
+        # 2. 该区域客户 TOP 10
+        customer_top = base_orders.filter(
+            customer__isnull=False
+        ).values(
+            'customer_id', 'customer__name'
+        ).annotate(
+            sales=Sum('total_amount'),
+            order_count=Count('id')
+        ).order_by('-sales')[:10]
+
+        customer_list = [
+            {
+                'customer_id': item['customer_id'],
+                'customer_name': item['customer__name'],
+                'sales': float(item['sales']),
+                'order_count': item['order_count']
+            } for item in customer_top
+        ]
+
+        return JsonResponse({
+            'code': 1,
+            'area_info': {
+                'id': area.id,
+                'name': area.name,
+                'remark': area.remark or '无',
+                'create_time': area.create_time.strftime('%Y-%m-%d')
+            },
+            'stats': {
+                'total_sales': float(area_stats['total_sales']),
+                'total_orders': area_stats['total_orders'],
+                'total_debt': float(area_stats['total_debt'])
+            },
+            'customer_top': customer_list
+        })
+
+    except Exception as e:
+        logger.error(f"获取区域画像失败：{str(e)}", exc_info=True)
+        return JsonResponse({'code': 0, 'msg': f'获取失败：{str(e)}'})

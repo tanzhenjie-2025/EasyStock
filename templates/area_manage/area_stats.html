@@ -1,0 +1,559 @@
+{% extends "base.html" %}
+
+{% block title %}区域统计 - EasyStock{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* 全局布局 */
+    .stats-container { padding: 20px; }
+    
+    /* 顶部控制区 */
+    .control-bar {
+        background: white;
+        padding: 16px 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+    
+    .filter-group { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .filter-item { display: flex; align-items: center; gap: 8px; }
+    .filter-label { font-weight: 500; color: #333; font-size: 14px; }
+    .filter-select, .filter-input {
+        padding: 6px 12px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 14px;
+    }
+    
+    /* 核心指标卡片 */
+    .stats-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 16px;
+        margin-bottom: 20px;
+    }
+    .stat-card {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        text-align: center;
+    }
+    .stat-card-title { color: #666; font-size: 14px; margin-bottom: 8px; }
+    .stat-card-value { font-size: 28px; font-weight: 600; color: #007bff; }
+    
+    /* Tab 切换 */
+    .tab-container {
+        background: white;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        overflow: hidden;
+    }
+    .tab-header {
+        display: flex;
+        border-bottom: 1px solid #eee;
+        background: #f8f9fa;
+    }
+    .tab-item {
+        padding: 14px 24px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        color: #666;
+        border-bottom: 2px solid transparent;
+        transition: all 0.2s;
+    }
+    .tab-item:hover { color: #333; background: #e9ecef; }
+    .tab-item.active {
+        color: #007bff;
+        background: white;
+        border-bottom-color: #007bff;
+    }
+    .tab-content { padding: 20px; display: none; }
+    .tab-content.active { display: block; }
+    
+    /* 表格样式 */
+    .table th, .table td { vertical-align: middle; text-align: center; }
+    .contribution-bar {
+        height: 6px;
+        background: #e9ecef;
+        border-radius: 3px;
+        overflow: hidden;
+        margin-top: 4px;
+    }
+    .contribution-fill {
+        height: 100%;
+        background: #007bff;
+        border-radius: 3px;
+        transition: width 0.3s;
+    }
+    
+    /* 骨架屏 */
+    .skeleton {
+        background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+        background-size: 200% 100%;
+        animation: skeleton-loading 1.5s infinite;
+    }
+    @keyframes skeleton-loading {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
+    .skeleton-card { height: 100px; border-radius: 8px; }
+    .skeleton-row { height: 40px; margin: 10px 0; border-radius: 4px; }
+    
+    /* 区域画像弹窗 */
+    .portrait-modal { max-width: 700px !important; }
+    .portrait-section { margin-bottom: 20px; }
+    .portrait-title { font-size: 16px; font-weight: 600; color: #333; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #eee; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="stats-container">
+    <!-- 1. 顶部控制区 -->
+    <div class="control-bar">
+        <div class="filter-group">
+            <div class="filter-item">
+                <span class="filter-label">时间范围：</span>
+                <select class="filter-select" id="timeRange" onchange="handleTimeRangeChange()">
+                    <option value="30days">最近30天</option>
+                    <option value="today">今天</option>
+                    <option value="week">本周</option>
+                    <option value="month">本月</option>
+                    <option value="custom">自定义</option>
+                </select>
+            </div>
+            <div class="filter-item" id="customDateGroup" style="display: none;">
+                <input type="date" class="filter-input" id="startDate">
+                <span>至</span>
+                <input type="date" class="filter-input" id="endDate">
+            </div>
+            <button class="btn btn-primary btn-sm" onclick="loadStats()">
+                🔄 重新统计
+            </button>
+        </div>
+        <div>
+            <span class="text-muted" id="dateRangeText"></span>
+        </div>
+    </div>
+
+    <!-- 2. 核心指标卡片 -->
+    <div class="stats-cards" id="statsCards">
+        <div class="stat-card skeleton skeleton-card"></div>
+        <div class="stat-card skeleton skeleton-card"></div>
+    </div>
+
+    <!-- 3. Tab 内容区 -->
+    <div class="tab-container">
+        <div class="tab-header">
+            <div class="tab-item active" data-tab="list" onclick="switchTab('list')">
+                📋 区域明细
+            </div>
+            <div class="tab-item" data-tab="top" onclick="switchTab('top')">
+                🏆 TOP 排行
+            </div>
+            <div class="tab-item" data-tab="compare" onclick="switchTab('compare')">
+                📊 区域对比
+            </div>
+        </div>
+
+        <!-- Tab 1：区域明细列表 -->
+        <div class="tab-content active" id="tabList">
+            <div id="listSkeleton">
+                <div class="skeleton skeleton-row"></div>
+                <div class="skeleton skeleton-row"></div>
+                <div class="skeleton skeleton-row"></div>
+            </div>
+            <div id="listContent" style="display: none;">
+                <table class="table table-sm table-bordered table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 60px;">排名</th>
+                            <th>区域名称</th>
+                            <th style="width: 140px;">销售额</th>
+                            <th style="width: 120px;">订单数</th>
+                            <th>贡献占比</th>
+                            <th style="width: 160px;">最后下单时间</th>
+                            <th style="width: 100px;">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="areaListTbody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Tab 2：TOP 排行 -->
+        <div class="tab-content" id="tabTop">
+            <div class="mb-3">
+                <div class="filter-group">
+                    <span class="filter-label">排行依据：</span>
+                    <select class="filter-select" id="topType" onchange="renderTopList()">
+                        <option value="amount">按销售额</option>
+                        <option value="order">按订单数</option>
+                    </select>
+                </div>
+            </div>
+            <table class="table table-sm table-bordered table-hover">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 60px;">排名</th>
+                        <th>区域名称</th>
+                        <th style="width: 160px;">销售额</th>
+                        <th style="width: 140px;">订单数</th>
+                    </tr>
+                </thead>
+                <tbody id="topListTbody"></tbody>
+            </table>
+        </div>
+
+        <!-- Tab 3：区域对比（简单实现：多选展示） -->
+        <div class="tab-content" id="tabCompare">
+            <div class="mb-3">
+                <div class="filter-group">
+                    <span class="filter-label">选择对比区域（最多5个）：</span>
+                    <div id="compareCheckboxes" class="mt-2" style="display: flex; flex-wrap: wrap; gap: 12px;"></div>
+                </div>
+            </div>
+            <table class="table table-sm table-bordered table-hover" id="compareTable" style="display: none;">
+                <thead class="table-light">
+                    <tr>
+                        <th>指标</th>
+                        <th id="compareTh1"></th>
+                        <th id="compareTh2"></th>
+                        <th id="compareTh3"></th>
+                        <th id="compareTh4"></th>
+                        <th id="compareTh5"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td>销售额</td><td id="compareTd1-1"></td><td id="compareTd1-2"></td><td id="compareTd1-3"></td><td id="compareTd1-4"></td><td id="compareTd1-5"></td></tr>
+                    <tr><td>订单数</td><td id="compareTd2-1"></td><td id="compareTd2-2"></td><td id="compareTd2-3"></td><td id="compareTd2-4"></td><td id="compareTd2-5"></td></tr>
+                    <tr><td>贡献占比</td><td id="compareTd3-1"></td><td id="compareTd3-2"></td><td id="compareTd3-3"></td><td id="compareTd3-4"></td><td id="compareTd3-5"></td></tr>
+                </tbody>
+            </table>
+            <div id="compareEmpty" class="text-muted text-center py-4">请选择区域进行对比</div>
+        </div>
+    </div>
+</div>
+
+<!-- 区域画像弹窗 -->
+<div class="modal-overlay" id="portraitModal">
+    <div class="modal-box portrait-modal">
+        <div class="modal-header">
+            <h3 class="modal-title" id="portraitTitle">区域画像</h3>
+            <button class="modal-close" onclick="closePortraitModal()">×</button>
+        </div>
+        <div class="modal-body" id="portraitBody">
+            <!-- 内容由JS填充 -->
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // 全局数据缓存
+    let statsData = null;
+    let currentTab = 'list';
+
+    // 页面加载
+    $(document).ready(function() {
+        loadStats();
+    });
+
+    // 1. 时间范围处理
+    function handleTimeRangeChange() {
+        const val = $('#timeRange').val();
+        if (val === 'custom') {
+            $('#customDateGroup').show();
+        } else {
+            $('#customDateGroup').hide();
+        }
+    }
+
+    // 2. 核心：加载统计数据
+    function loadStats() {
+        showSkeleton(true);
+        
+        const timeRange = $('#timeRange').val();
+        const startDate = $('#startDate').val();
+        const endDate = $('#endDate').val();
+
+        let url = '{% url "area_manage:calculate_area_stats" %}?';
+        url += `time_range=${timeRange}`;
+        if (timeRange === 'custom') {
+            url += `&start_date=${startDate}&end_date=${endDate}`;
+        }
+
+        $.getJSON(url, function(res) {
+            if (res.code !== 1) {
+                alert(res.msg);
+                showSkeleton(false);
+                return;
+            }
+            
+            statsData = res;
+            renderGlobalStats();
+            renderAreaList();
+            renderTopList();
+            renderCompareCheckboxes();
+            
+            $('#dateRangeText').text(`统计周期：${res.date_range.start} 至 ${res.date_range.end}`);
+            showSkeleton(false);
+        }).fail(function() {
+            alert('加载统计数据失败，请重试');
+            showSkeleton(false);
+        });
+    }
+
+    // 3. 骨架屏控制
+    function showSkeleton(show) {
+        if (show) {
+            $('#statsCards').html(`
+                <div class="stat-card skeleton skeleton-card"></div>
+                <div class="stat-card skeleton skeleton-card"></div>
+            `);
+            $('#listSkeleton').show();
+            $('#listContent').hide();
+        } else {
+            $('#listSkeleton').hide();
+            $('#listContent').show();
+        }
+    }
+
+    // 4. 渲染核心指标
+    function renderGlobalStats() {
+        if (!statsData) return;
+        const gs = statsData.global_stats;
+        $('#statsCards').html(`
+            <div class="stat-card">
+                <div class="stat-card-title">总销售额</div>
+                <div class="stat-card-value">¥${gs.total_sales.toFixed(2)}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-card-title">总订单数</div>
+                <div class="stat-card-value">${gs.total_orders}</div>
+            </div>
+        `);
+    }
+
+    // 5. Tab 切换
+    function switchTab(tab) {
+        currentTab = tab;
+        $('.tab-item').removeClass('active');
+        $(`.tab-item[data-tab="${tab}"]`).addClass('active');
+        $('.tab-content').removeClass('active');
+        $(`#tab${tab.charAt(0).toUpperCase() + tab.slice(1)}`).addClass('active');
+    }
+
+    // 6. 渲染区域明细列表
+    function renderAreaList() {
+        if (!statsData) return;
+        const list = statsData.area_list;
+        let html = '';
+        
+        list.forEach((item, index) => {
+            html += `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td>${item.area_name}</td>
+                    <td>¥${item.sales.toFixed(2)}</td>
+                    <td>${item.order_count}</td>
+                    <td>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <span>${item.contribution}%</span>
+                            <div class="contribution-bar" style="flex: 1; max-width: 150px;">
+                                <div class="contribution-fill" style="width: ${item.contribution}%;"></div>
+                            </div>
+                        </div>
+                    </td>
+                    <td>${item.last_order_time}</td>
+                    <td>
+                        <button class="btn btn-sm btn-info" onclick="openPortrait(${item.area_id})">
+                            查看画像
+                        </button>
+                    </td>
+                </tr>
+            `;
+        });
+        
+        if (list.length === 0) {
+            html = '<tr><td colspan="7" class="text-muted text-center py-4">暂无数据</td></tr>';
+        }
+        
+        $('#areaListTbody').html(html);
+    }
+
+    // 7. 渲染 TOP 排行
+    function renderTopList() {
+        if (!statsData) return;
+        const topType = $('#topType').val();
+        
+        // 根据选择重新排序
+        let list = [...statsData.area_list];
+        if (topType === 'order') {
+            list.sort((a, b) => b.order_count - a.order_count);
+        } else {
+            list.sort((a, b) => b.sales - a.sales);
+        }
+        
+        list = list.slice(0, 30);
+        
+        let html = '';
+        list.forEach((item, index) => {
+            const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `${index + 1}`;
+            html += `
+                <tr>
+                    <td>${medal}</td>
+                    <td>${item.area_name}</td>
+                    <td>¥${item.sales.toFixed(2)}</td>
+                    <td>${item.order_count}</td>
+                </tr>
+            `;
+        });
+        
+        if (list.length === 0) {
+            html = '<tr><td colspan="4" class="text-muted text-center py-4">暂无数据</td></tr>';
+        }
+        
+        $('#topListTbody').html(html);
+    }
+
+    // 8. 渲染区域对比复选框
+    function renderCompareCheckboxes() {
+        if (!statsData) return;
+        const list = statsData.area_list;
+        let html = '';
+        
+        list.forEach(item => {
+            html += `
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" 
+                           value="${item.area_id}" id="compare_${item.area_id}"
+                           onchange="handleCompareChange()">
+                    <label class="form-check-label" for="compare_${item.area_id}">
+                        ${item.area_name}
+                    </label>
+                </div>
+            `;
+        });
+        
+        $('#compareCheckboxes').html(html);
+    }
+
+    // 处理区域对比选择
+    function handleCompareChange() {
+        const checked = $('input[type="checkbox"]:checked').slice(0, 5);
+        
+        // 清空表格
+        for (let i = 1; i <= 5; i++) {
+            $(`#compareTh${i}`).text('');
+            $(`#compareTd1-${i}`).text('');
+            $(`#compareTd2-${i}`).text('');
+            $(`#compareTd3-${i}`).text('');
+        }
+        
+        if (checked.length === 0) {
+            $('#compareTable').hide();
+            $('#compareEmpty').show();
+            return;
+        }
+        
+        $('#compareTable').show();
+        $('#compareEmpty').hide();
+        
+        // 填充数据
+        checked.each((index, elem) => {
+            const areaId = parseInt($(elem).val());
+            const areaData = statsData.area_list.find(a => a.area_id === areaId);
+            if (!areaData) return;
+            
+            const colIndex = index + 1;
+            $(`#compareTh${colIndex}`).text(areaData.area_name);
+            $(`#compareTd1-${colIndex}`).text(`¥${areaData.sales.toFixed(2)}`);
+            $(`#compareTd2-${colIndex}`).text(areaData.order_count);
+            $(`#compareTd3-${colIndex}`).text(`${areaData.contribution}%`);
+        });
+    }
+
+    // 9. 区域画像相关
+    function openPortrait(areaId) {
+        $('#portraitModal').addClass('active');
+        $('#portraitBody').html('<div class="text-center py-4">加载中...</div>');
+        
+        $.getJSON(`/area-manage/api/area/${areaId}/portrait/`, function(res) {
+            if (res.code !== 1) {
+                alert(res.msg);
+                closePortraitModal();
+                return;
+            }
+            
+            const data = res;
+            $('#portraitTitle').text(`${data.area_info.name} - 区域画像`);
+            
+            let customerHtml = '';
+            data.customer_top.forEach((c, i) => {
+                customerHtml += `
+                    <tr>
+                        <td>${i + 1}</td>
+                        <td>${c.customer_name}</td>
+                        <td>¥${c.sales.toFixed(2)}</td>
+                        <td>${c.order_count}</td>
+                    </tr>
+                `;
+            });
+            if (data.customer_top.length === 0) {
+                customerHtml = '<tr><td colspan="4" class="text-muted text-center">暂无客户数据</td></tr>';
+            }
+            
+            $('#portraitBody').html(`
+                <div class="portrait-section">
+                    <div class="portrait-title">基本信息</div>
+                    <p><strong>区域名称：</strong>${data.area_info.name}</p>
+                    <p><strong>备注：</strong>${data.area_info.remark}</p>
+                    <p><strong>创建时间：</strong>${data.area_info.create_time}</p>
+                </div>
+                <div class="portrait-section">
+                    <div class="portrait-title">核心指标（最近30天）</div>
+                    <div class="row">
+                        <div class="col-md-4 text-center">
+                            <div class="text-muted">销售额</div>
+                            <div class="h4 text-primary">¥${data.stats.total_sales.toFixed(2)}</div>
+                        </div>
+                        <div class="col-md-4 text-center">
+                            <div class="text-muted">订单数</div>
+                            <div class="h4 text-success">${data.stats.total_orders}</div>
+                        </div>
+                        <div class="col-md-4 text-center">
+                            <div class="text-muted">总欠款</div>
+                            <div class="h4 text-danger">¥${data.stats.total_debt.toFixed(2)}</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="portrait-section">
+                    <div class="portrait-title">客户 TOP 10</div>
+                    <table class="table table-sm table-bordered">
+                        <thead class="table-light">
+                            <tr><th>排名</th><th>客户名称</th><th>销售额</th><th>订单数</th></tr>
+                        </thead>
+                        <tbody>${customerHtml}</tbody>
+                    </table>
+                </div>
+            `);
+        }).fail(function() {
+            alert('加载区域画像失败');
+            closePortraitModal();
+        });
+    }
+
+    function closePortraitModal() {
+        $('#portraitModal').removeClass('active');
+    }
+</script>
+{% endblock %}

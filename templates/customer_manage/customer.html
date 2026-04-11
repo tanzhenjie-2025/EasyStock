@@ -166,6 +166,17 @@
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
 
+    /* 🔥 核心：表格列宽均匀优化 */
+    .table-fixed {
+        table-layout: fixed;
+        width: 100%;
+    }
+    .table-fixed th, .table-fixed td {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
     /* 保持原有其他样式不变 */
     .modal-overlay {
         position: fixed;
@@ -451,18 +462,18 @@
         </div>
     </div>
 
-    <!-- 3. 数据表格（已删除总消费/总欠款，仅保留基础信息） -->
+    <!-- 3. 数据表格（已删除总消费/总欠款，仅保留基础信息 + 均匀列宽） -->
     <div class="table-container">
-        <table class="table table-sm table-bordered table-hover">
+        <table class="table table-sm table-bordered table-hover table-fixed">
             <thead class="table-light">
                 <tr>
-                    <th style="width: 60px;">ID</th>
-                    <th>客户名称</th>
-                    <th>所属区域</th>
-                    <th>联系电话</th>
-                    <th style="width: 80px;">状态</th>
-                    <th>备注</th>
-                    <th style="width: 180px;">操作</th>
+                    <th style="width: 8%;">ID</th>
+                    <th style="width: 18%;">客户名称</th>
+                    <th style="width: 15%;">所属区域</th>
+                    <th style="width: 15%;">联系电话</th>
+                    <th style="width: 10%;">状态</th>
+                    <th style="width: 19%;">备注</th>
+                    <th style="width: 15%;">操作</th>
                 </tr>
             </thead>
             <tbody id="customerList">
