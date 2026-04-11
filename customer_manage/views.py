@@ -1372,7 +1372,9 @@ def customer_price_import(request):
             return JsonResponse({'code': 0, 'msg': f'导入系统异常：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
-# ==================== 客户统计功能（新增） ====================
+# ==================== 客户统计功能（优化版） ====================
+from django.core.paginator import Paginator # 确保你导入了这个
+
 @login_required
 @permission_required('customer_view')
 def customer_stats_page(request):
@@ -1386,13 +1388,13 @@ def customer_stats_page(request):
 @permission_required('customer_view')
 def calculate_customer_stats(request):
     """
-    客户统计接口
+    客户统计接口（优化版）
+    默认：最近30天（轻量级）
     支持：时间筛选/地区筛选/状态筛选
-    返回：全局统计 + 分页客户统计数据
     """
     try:
-        # 筛选参数
-        time_range = request.GET.get('time_range', 'all')  # today/month/year/all/custom
+        # 筛选参数 (🔥 默认改为 30days)
+        time_range = request.GET.get('time_range', '30days')  # today/month/year/30days/custom
         start_date = request.GET.get('start_date', '')
         end_date = request.GET.get('end_date', '')
         area_id = request.GET.get('area_id', '')
@@ -1407,9 +1409,13 @@ def calculate_customer_stats(request):
         )
         base_customers = Customer.all_objects.all().select_related('area')
 
-        # 1. 时间筛选
+        # 1. 时间筛选 (🔥 新增最近30天逻辑)
         today = timezone.now().date()
-        if time_range == 'today':
+        if time_range == '30days':
+            # 默认：最近30天
+            thirty_days_ago = today - timezone.timedelta(days=30)
+            base_orders = base_orders.filter(create_time__date__gte=thirty_days_ago)
+        elif time_range == 'today':
             base_orders = base_orders.filter(create_time__date=today)
         elif time_range == 'month':
             base_orders = base_orders.filter(create_time__year=today.year, create_time__month=today.month)
@@ -1417,6 +1423,7 @@ def calculate_customer_stats(request):
             base_orders = base_orders.filter(create_time__year=today.year)
         elif time_range == 'custom' and start_date and end_date:
             base_orders = base_orders.filter(create_time__date__gte=start_date, create_time__date__lte=end_date)
+        # 注意：移除了 'all' 的全量加载，防止误操作拖慢数据库
 
         # 2. 地区筛选
         if area_id and area_id.isdigit():

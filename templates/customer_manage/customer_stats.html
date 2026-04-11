@@ -8,6 +8,19 @@
     .card-order { background: #d1e7dd; }
     .disabled-btn { pointer-events: none; opacity: 0.6; }
     .table th, .table td { vertical-align: middle; text-align: center; }
+
+    /* 骨架屏样式 */
+    .skeleton {
+        background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+        background-size: 200% 100%;
+        animation: skeleton-loading 1.5s infinite;
+    }
+    @keyframes skeleton-loading {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
+    .skeleton-card { height: 100px; border-radius: 8px; }
+    .skeleton-row { height: 40px; margin: 10px 0; border-radius: 4px; }
 </style>
 {% endblock %}
 
@@ -23,7 +36,7 @@
         <div class="row mb-4 g-3">
             <div class="col-md-2">
                 <select id="time_range" class="form-select">
-                    <option value="all">全部时间</option>
+                    <option value="30days" selected>最近30天</option>
                     <option value="today">今日</option>
                     <option value="month">本月</option>
                     <option value="year">本年</option>
@@ -52,53 +65,70 @@
                 </select>
             </div>
             <div class="col-md-2">
-                <!-- 🔥 统计按钮（防重+加载） -->
-                <button id="calcBtn" class="btn btn-primary w-100" onclick="calculateStats()">开始统计</button>
+                <button id="calcBtn" class="btn btn-primary w-100" onclick="calculateStats()">
+                    🔄 重新统计
+                </button>
             </div>
         </div>
 
-        <!-- 🔥 全局统计卡片 -->
-        <div class="row" id="globalStats" style="display: none;">
-            <div class="col-md-4">
-                <div class="stat-card card-consume">
-                    <h6>总消费金额</h6>
-                    <h4 class="text-primary" id="total_consume">0</h4>
-                </div>
+        <!-- 全局统计卡片 -->
+        <div class="row" id="statsCardsWrapper">
+            <div id="cardsSkeleton">
+                <div class="col-md-4"><div class="skeleton skeleton-card"></div></div>
+                <div class="col-md-4"><div class="skeleton skeleton-card"></div></div>
+                <div class="col-md-4"><div class="skeleton skeleton-card"></div></div>
             </div>
-            <div class="col-md-4">
-                <div class="stat-card card-debt">
-                    <h6>总欠款金额</h6>
-                    <h4 class="text-warning" id="total_debt">0</h4>
+            <div class="row" id="globalStats" style="display: none;">
+                <div class="col-md-4">
+                    <div class="stat-card card-consume">
+                        <h6>总消费金额</h6>
+                        <h4 class="text-primary" id="total_consume">0</h4>
+                    </div>
                 </div>
-            </div>
-            <div class="col-md-4">
-                <div class="stat-card card-order">
-                    <h6>总订单数量</h6>
-                    <h4 class="text-success" id="total_order">0</h4>
+                <div class="col-md-4">
+                    <div class="stat-card card-debt">
+                        <h6>总欠款金额</h6>
+                        <h4 class="text-warning" id="total_debt">0</h4>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="stat-card card-order">
+                        <h6>总订单数量</h6>
+                        <h4 class="text-success" id="total_order">0</h4>
+                    </div>
                 </div>
             </div>
         </div>
 
         <!-- 统计列表 -->
-        <div class="table-responsive mt-4">
-            <table class="table table-bordered table-hover">
-                <thead>
-                    <tr>
-                        <th>序号</th>
-                        <th>客户名称</th>
-                        <th>区域</th>
-                        <th>电话</th>
-                        <th>状态</th>
-                        <th>总消费</th>
-                        <th>总欠款</th>
-                        <th>总订单</th>
-                        <th>已完成</th>
-                        <th>未结清</th>
-                        <th>最近消费</th>
-                    </tr>
-                </thead>
-                <tbody id="statsTable"></tbody>
-            </table>
+        <div class="table-responsive mt-4" id="tableWrapper">
+            <div id="tableSkeleton">
+                <div class="skeleton skeleton-row"></div>
+                <div class="skeleton skeleton-row"></div>
+                <div class="skeleton skeleton-row"></div>
+                <div class="skeleton skeleton-row"></div>
+                <div class="skeleton skeleton-row"></div>
+            </div>
+            <div id="tableContent" style="display: none;">
+                <table class="table table-bordered table-hover">
+                    <thead>
+                        <tr>
+                            <th>序号</th>
+                            <th>客户名称</th>
+                            <th>区域</th>
+                            <th>电话</th>
+                            <th>状态</th>
+                            <th>总消费</th>
+                            <th>总欠款</th>
+                            <th>总订单</th>
+                            <th>已完成</th>
+                            <th>未结清</th>
+                            <th>最近消费</th>
+                        </tr>
+                    </thead>
+                    <tbody id="statsTable"></tbody>
+                </table>
+            </div>
         </div>
 
         <!-- 分页 -->
@@ -109,11 +139,16 @@
 
 {% block extra_js %}
 <script>
-// 🔥 前端缓存（不刷新不重算）
 let statsCache = null;
 let currentPage = 1;
 
-// 时间选择器切换
+// 页面加载
+$(document).ready(function(){
+    console.log("页面加载完成，开始请求统计数据...");
+    calculateStats();
+});
+
+// 时间选择器
 $('#time_range').change(function(){
     if($(this).val() === 'custom'){
         $('#date_range, #date_range_end').removeClass('d-none');
@@ -122,15 +157,20 @@ $('#time_range').change(function(){
     }
 });
 
-// 🔥 核心：统计函数（防重+加载+缓存）
+// 🔥 核心：统计函数（修复版）
 function calculateStats(page=1) {
     currentPage = page;
+    console.log("开始统计，当前页：", page);
 
-    // 防重复点击
+    // 1. 显示骨架屏
+    showSkeleton(true);
+
+    // 2. 防重复点击
     const btn = $('#calcBtn');
-    btn.addClass('disabled-btn').text('统计中...').prop('disabled', true);
+    const originalText = btn.html();
+    btn.addClass('disabled-btn').html('⏳ 统计中...').prop('disabled', true);
 
-    // 读取筛选参数
+    // 3. 读取参数
     const params = {
         time_range: $('#time_range').val(),
         start_date: $('#start_date').val(),
@@ -139,60 +179,122 @@ function calculateStats(page=1) {
         status: $('#status').val(),
         page: page
     };
+    console.log("请求参数：", params);
 
-    // 使用缓存
+    // 4. 缓存检查
     if(statsCache && JSON.stringify(statsCache.params) === JSON.stringify(params)){
+        console.log("命中缓存，直接渲染");
         renderStats(statsCache.data);
-        btn.removeClass('disabled-btn').text('开始统计').prop('disabled', false);
+        showSkeleton(false); // 🔥 修复：缓存命中也要关骨架屏
+        btn.removeClass('disabled-btn').html(originalText).prop('disabled', false);
         return;
     }
 
-    // 请求接口
+    // 5. 请求接口
     $.getJSON("{% url 'customer_manage:calculate_customer_stats' %}", params, function(res){
-        if(res.code === 0){
-            alert(res.msg);
-            btn.removeClass('disabled-btn').text('开始统计').prop('disabled', false);
+        console.log("接口返回数据：", res); // 🔥 调试日志
+        
+        if(res.code !== 1){
+            alert(res.msg || '统计失败');
+            showSkeleton(false);
+            btn.removeClass('disabled-btn').html(originalText).prop('disabled', false);
             return;
         }
+        
         // 缓存结果
         statsCache = { params: params, data: res };
         renderStats(res);
+        
+    }).fail(function(xhr, status, error){
+        console.error("请求失败：", error);
+        alert('加载统计数据失败，请重试');
+        showSkeleton(false);
     }).always(function(){
-        btn.removeClass('disabled-btn').text('开始统计').prop('disabled', false);
+        // 🔥 修复：无论成功失败，最后都恢复按钮
+        btn.removeClass('disabled-btn').html(originalText).prop('disabled', false);
     });
 }
 
-// 渲染统计数据
+// 骨架屏控制
+function showSkeleton(show) {
+    console.log("骨架屏状态：", show ? "显示" : "隐藏");
+    if (show) {
+        $('#cardsSkeleton').show();
+        $('#globalStats').hide();
+        $('#tableSkeleton').show();
+        $('#tableContent').hide();
+    } else {
+        $('#cardsSkeleton').hide();
+        $('#globalStats').show();
+        $('#tableSkeleton').hide();
+        $('#tableContent').show();
+    }
+}
+
+// 🔥 渲染统计数据（增强版：带安全检查）
 function renderStats(res) {
-    $('#globalStats').show();
-    // 全局卡片
-    $('#total_consume').text(res.global_stats.total_consume + ' 元');
-    $('#total_debt').text(res.global_stats.total_debt + ' 元');
-    $('#total_order').text(res.global_stats.total_order + ' 单');
+    console.log("开始渲染数据...");
+    
+    // 安全检查
+    if (!res || !res.global_stats) {
+        console.error("数据格式错误：", res);
+        return;
+    }
 
-    // 列表
-    const tbody = $('#statsTable'); tbody.empty();
-    res.customers.forEach((item, index) => {
-        const status = item.is_active ? '<span class="text-success">启用</span>' : '<span class="text-danger">禁用</span>';
-        tbody.append(`
-            <tr>
-                <td>${(currentPage-1)*20 + index+1}</td>
-                <td>${item.name}</td>
-                <td>${item.area_name}</td>
-                <td>${item.phone}</td>
-                <td>${status}</td>
-                <td>${item.total_consume.toFixed(2)}</td>
-                <td class="text-warning">${item.total_debt.toFixed(2)}</td>
-                <td>${item.total_order}</td>
-                <td>${item.finished_order}</td>
-                <td>${item.unsettled_order}</td>
-                <td>${item.last_consume_time}</td>
-            </tr>
-        `);
-    });
+    // 1. 关闭骨架屏（双重保险）
+    showSkeleton(false);
 
-    // 分页
-    renderPagination(res.total_count, 20, res.total_pages);
+    // 2. 渲染全局卡片
+    try {
+        const tc = res.global_stats.total_consume || 0;
+        const td = res.global_stats.total_debt || 0;
+        const to = res.global_stats.total_order || 0;
+        
+        $('#total_consume').text(parseFloat(tc).toFixed(2) + ' 元');
+        $('#total_debt').text(parseFloat(td).toFixed(2) + ' 元');
+        $('#total_order').text(to + ' 单');
+    } catch (e) {
+        console.error("渲染卡片失败：", e);
+    }
+
+    // 3. 渲染列表
+    const tbody = $('#statsTable'); 
+    tbody.empty();
+    
+    const customers = res.customers || [];
+    if (customers.length === 0) {
+        tbody.append('<tr><td colspan="11" class="text-center text-muted py-4">暂无数据</td></tr>');
+    } else {
+        customers.forEach((item, index) => {
+            const status = item.is_active 
+                ? '<span class="text-success">启用</span>' 
+                : '<span class="text-danger">禁用</span>';
+            
+            // 安全取值
+            const consume = item.total_consume ? parseFloat(item.total_consume).toFixed(2) : '0.00';
+            const debt = item.total_debt ? parseFloat(item.total_debt).toFixed(2) : '0.00';
+            
+            tbody.append(`
+                <tr>
+                    <td>${(currentPage-1)*20 + index+1}</td>
+                    <td>${item.name || '-'}</td>
+                    <td>${item.area_name || '无'}</td>
+                    <td>${item.phone || '-'}</td>
+                    <td>${status}</td>
+                    <td>${consume}</td>
+                    <td class="text-warning">${debt}</td>
+                    <td>${item.total_order || 0}</td>
+                    <td>${item.finished_order || 0}</td>
+                    <td>${item.unsettled_order || 0}</td>
+                    <td>${item.last_consume_time || '无'}</td>
+                </tr>
+            `);
+        });
+    }
+
+    // 4. 渲染分页
+    renderPagination(res.total_count || 0, 20, res.total_pages || 1);
+    console.log("渲染完成");
 }
 
 // 分页
@@ -204,7 +306,6 @@ function renderPagination(total, pageSize, totalPages) {
     $('#pagination').html(html.join(' '));
 }
 
-// 获取CSRF
 function getCsrfToken() { return $('meta[name="csrf-token"]').attr('content'); }
 </script>
 {% endblock %}
