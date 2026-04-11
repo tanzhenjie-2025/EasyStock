@@ -102,8 +102,10 @@
     <h3>区域组管理</h3>
     <div class="my-3 btn-group-action">
         <button class="btn btn-sm btn-primary" onclick="add()">新增区域组</button>
+        <button class="btn btn-sm btn-info" onclick="window.location.href='{% url 'area_manage:group_stats_page' %}'">📊 区域组统计</button>
         <button class="btn btn-sm btn-success" onclick="exportData()">📥 导出数据</button>
         <button class="btn btn-sm btn-warning" onclick="showImportModal()">📤 导入数据</button>
+        
     </div>
 
     <!-- 🔥 新增：状态Tab切换 -->

@@ -1274,3 +1274,125 @@ def area_portrait_api(request, area_id):
     except Exception as e:
         logger.error(f"获取区域画像失败：{str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'获取失败：{str(e)}'})
+
+
+# ===================== 新增：区域组统计页面入口 =====================
+@login_required
+@permission_required('area_view')
+def group_stats_page(request):
+    return render(request, 'area_manage/group_stats.html')
+
+
+# ===================== 新增：核心区域组统计数据接口 =====================
+@login_required
+@permission_required('area_view')
+def calculate_group_stats(request):
+    try:
+        # 获取参数
+        time_range = request.GET.get('time_range', '30days')
+        start_date = request.GET.get('start_date', '')
+        end_date = request.GET.get('end_date', '')
+        sort_by = request.GET.get('sort_by', 'sales')  # sales/order_count/debt
+        keyword = request.GET.get('keyword', '').strip()
+
+        # 1. 解析时间
+        start_dt, end_dt = parse_time_range(time_range, start_date, end_date)
+
+        # 2. 预加载所有区域组及其包含的区域映射关系 (减少DB查询)
+        group_area_map = {}
+        all_groups = AreaGroup.objects.only('id', 'name').filter(is_active=True)
+        for g in all_groups:
+            group_area_map[g.id] = {
+                'name': g.name,
+                'area_ids': list(g.areas.values_list('id', flat=True))
+            }
+
+        # 3. 基础订单QuerySet (利用索引)
+        base_orders = Order.objects.filter(
+            status__in=['pending', 'printed', 'reopened'],
+            create_time__date__gte=start_dt,
+            create_time__date__lte=end_dt
+        ).select_related('area').only('id', 'area_id', 'total_amount', 'is_settled')
+
+        # 4. 按区域组聚合统计 (Python层聚合，灵活度高)
+        group_stats_data = {}
+        global_total_sales = 0.0
+        global_total_orders = 0
+        global_total_debt = 0.0
+
+        # 初始化所有组数据
+        for g_id, g_info in group_area_map.items():
+            group_stats_data[g_id] = {
+                'group_id': g_id,
+                'group_name': g_info['name'],
+                'sales': 0.0,
+                'order_count': 0,
+                'debt': 0.0,
+                'area_ids': g_info['area_ids']
+            }
+
+        # 遍历订单进行累加
+        for order in base_orders:
+            order_amount = float(order.total_amount) if order.total_amount else 0.0
+            is_debt = not order.is_settled
+
+            # 全局累加
+            global_total_sales += order_amount
+            global_total_orders += 1
+            if is_debt:
+                global_total_debt += order_amount
+
+            # 匹配区域组 (一个订单可能属于多个组，也可能不属于任何组)
+            if order.area_id:
+                for g_id, g_data in group_stats_data.items():
+                    if order.area_id in g_data['area_ids']:
+                        g_data['sales'] += order_amount
+                        g_data['order_count'] += 1
+                        if is_debt:
+                            g_data['debt'] += order_amount
+
+        # 5. 转换为列表并计算占比
+        group_list = list(group_stats_data.values())
+
+        for g in group_list:
+            # 计算占比
+            if global_total_sales > 0:
+                g['contribution'] = round((g['sales'] / global_total_sales) * 100, 2)
+            else:
+                g['contribution'] = 0.0
+            # 移除不需要的area_ids
+            del g['area_ids']
+
+        # 6. 搜索过滤
+        if keyword:
+            group_list = [g for g in group_list if keyword.lower() in g['group_name'].lower()]
+
+        # 7. 排序
+        if sort_by == 'order_count':
+            group_list.sort(key=lambda x: (-x['order_count'], -x['sales']))
+        elif sort_by == 'debt':
+            group_list.sort(key=lambda x: (-x['debt'], -x['sales']))
+        else:  # 默认按销售额
+            group_list.sort(key=lambda x: (-x['sales'], -x['order_count']))
+
+        # 8. 计算排名
+        for idx, g in enumerate(group_list):
+            g['rank'] = idx + 1
+
+        return JsonResponse({
+            'code': 1,
+            'global_stats': {
+                'total_sales': round(global_total_sales, 2),
+                'total_orders': global_total_orders,
+                'total_debt': round(global_total_debt, 2)
+            },
+            'group_list': group_list,
+            'date_range': {
+                'start': start_dt.strftime('%Y-%m-%d'),
+                'end': end_dt.strftime('%Y-%m-%d')
+            }
+        })
+
+    except Exception as e:
+        logger.error(f"区域组统计计算失败：{str(e)}", exc_info=True)
+        return JsonResponse({'code': 0, 'msg': f'统计失败：{str(e)}'})

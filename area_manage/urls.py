@@ -41,4 +41,8 @@ path('api/group/stats/<int:pk>/', views.group_statistics_api, name='group_stats_
     path('area/stats/page/', views.area_stats_page, name='area_stats_page'),
     path('api/area/stats/calculate/', views.calculate_area_stats, name='calculate_area_stats'),
     path('api/area/<int:area_id>/portrait/', views.area_portrait_api, name='area_portrait_api'),
+
+    path('group/stats/', views.group_stats_page, name='group_stats_page'),
+    # 🔥 新增：区域组统计数据 API
+    path('api/group/stats/calculate/', views.calculate_group_stats, name='calculate_group_stats'),
 ]
