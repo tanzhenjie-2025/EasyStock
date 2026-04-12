@@ -1,5 +1,6 @@
 # ========== 先导入所有必要模块（统一开头，避免重复） ==========
 from django.db import transaction
+from django.db.models.functions import Coalesce
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, HttpResponse
 
@@ -1195,3 +1196,124 @@ def price_check_ajax(request):
     }
 
     return JsonResponse({'code': 1, 'data': results, 'stats': stats})
+
+
+# ===================== 新增：订单统计相关视图 =====================
+
+# 工具函数：解析时间范围（复用你区域组统计的逻辑）
+def parse_order_time_range(time_range, start_date_str, end_date_str):
+    from datetime import datetime, timedelta
+    today = timezone.now().date()
+
+    if time_range == 'today':
+        return today, today
+    elif time_range == '7days':
+        return today - timedelta(days=7), today
+    elif time_range == 'month':
+        return today.replace(day=1), today
+    elif time_range == 'custom' and start_date_str and end_date_str:
+        try:
+            start = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+            end = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+            return start, end
+        except:
+            pass
+    # 默认：最近30天
+    return today - timedelta(days=30), today
+
+
+@login_required
+@permission_required(PERM_ORDER_SUMMARY)
+def order_stats_page(request):
+    """订单统计页面入口（零计算，仅渲染HTML）"""
+    return render(request, 'bill/order_stats.html')
+
+
+@login_required
+@permission_required(PERM_ORDER_SUMMARY)
+def calculate_order_stats(request):
+    """
+    核心：订单统计计算接口（懒加载专用）
+    只有点击按钮才调用，利用现有索引优化性能
+    """
+    try:
+        # 1. 获取参数
+        time_range = request.GET.get('time_range', '30days')
+        start_date = request.GET.get('start_date', '')
+        end_date = request.GET.get('end_date', '')
+
+        # 2. 解析时间
+        start_dt, end_dt = parse_order_time_range(time_range, start_date, end_date)
+
+        # 3. 构建基础QuerySet（利用索引：status, is_settled, create_time）
+        # 注意：这里不做权限过滤，统计全公司数据（如果需要按人过滤请自行添加）
+        base_orders = Order.objects.filter(
+            create_time__date__gte=start_dt,
+            create_time__date__lte=end_dt
+        )
+
+        # 4. 核心指标聚合（一次数据库查询搞定所有聚合）
+        # 利用索引：status, is_settled, create_time, total_amount
+        agg_result = base_orders.aggregate(
+            # 经营核心
+            total_sales=Coalesce(Sum('total_amount', filter=Q(status__in=ORDER_STATUS_VALID)), 0,
+                                 output_field=DecimalField(max_digits=12, decimal_places=2)),
+            total_orders=Count('id', filter=Q(status__in=ORDER_STATUS_VALID)),
+
+            # 回款监控
+            settled_amount=Coalesce(Sum('total_amount', filter=Q(status__in=ORDER_STATUS_VALID, is_settled=True)), 0,
+                                    output_field=DecimalField(max_digits=12, decimal_places=2)),
+            total_debt=Coalesce(Sum('total_amount', filter=Q(status__in=ORDER_STATUS_VALID, is_settled=False)), 0,
+                                output_field=DecimalField(max_digits=12, decimal_places=2)),
+            debt_order_count=Count('id', filter=Q(status__in=ORDER_STATUS_VALID, is_settled=False)),
+
+            # 风险预警
+            cancelled_count=Count('id', filter=Q(status='cancelled')),
+            reopened_count=Count('id', filter=Q(status='reopened')),
+
+            # 活跃客户
+            active_customers=Count('customer', distinct=True,
+                                   filter=Q(status__in=ORDER_STATUS_VALID, customer__isnull=False))
+        )
+
+        # 5. 计算衍生指标
+        total_sales_val = float(agg_result['total_sales'])
+        total_orders_val = agg_result['total_orders']
+        settled_amount_val = float(agg_result['settled_amount'])
+
+        avg_order_value = round(total_sales_val / total_orders_val, 2) if total_orders_val > 0 else 0.0
+        repayment_rate = round((settled_amount_val / total_sales_val) * 100, 2) if total_sales_val > 0 else 0.0
+
+        # 6. 组装返回数据
+        data = {
+            # 经营核心
+            'total_sales': total_sales_val,
+            'total_orders': total_orders_val,
+            'avg_order_value': avg_order_value,
+
+            # 回款监控
+            'settled_amount': settled_amount_val,
+            'total_debt': float(agg_result['total_debt']),
+            'repayment_rate': repayment_rate,
+            'debt_order_count': agg_result['debt_order_count'],
+
+            # 风险预警
+            'cancelled_count': agg_result['cancelled_count'],
+            'reopened_count': agg_result['reopened_count'],
+
+            # 活跃客户
+            'active_customers': agg_result['active_customers'],
+
+            # 统计信息
+            'date_range': {
+                'start': start_dt.strftime('%Y-%m-%d'),
+                'end': end_dt.strftime('%Y-%m-%d')
+            },
+            'calculated_at': timezone.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+
+        return JsonResponse({'code': 1, 'data': data})
+
+    except Exception as e:
+        logger.error(f"订单统计计算失败：{str(e)}", exc_info=True)
+        return JsonResponse({'code': 0, 'msg': f'统计失败：{str(e)}'})

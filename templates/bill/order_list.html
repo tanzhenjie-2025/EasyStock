@@ -160,8 +160,12 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
     {% if not is_boss %}
         <span class="badge bg-secondary">仅显示您创建的订单</span>
     {% endif %}
-<a href="{% url 'bill:price_check' %}" class="btn btn-sm btn-outline-danger ms-2">
+    <a href="{% url 'bill:price_check' %}" class="btn btn-sm btn-outline-danger ms-2">
         <i class="bi bi-calculator"></i> 价格核算
+    </a>
+    <!-- 🔥 新增：订单统计按钮 -->
+    <a href="{% url 'bill:order_stats_page' %}" class="btn btn-sm btn-outline-info ms-2">
+        <i class="bi bi-bar-chart"></i> 订单统计
     </a>
 </h3>
 

@@ -1,0 +1,266 @@
+{% extends "base.html" %}
+
+{% block title %}订单统计 - EasyStock{% endblock %}
+
+{% block extra_css %}
+<style>
+    .stats-card {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        text-align: center;
+        margin-bottom: 20px;
+    }
+    .stats-card .value {
+        font-size: 28px;
+        font-weight: bold;
+        color: #333;
+        margin: 10px 0;
+    }
+    .stats-card .label { color: #666; font-size: 14px; }
+    
+    .sales-color { color: #28a745 !important; }
+    .debt-color { color: #dc3545 !important; }
+    .warning-color { color: #ffc107 !important; }
+    .info-color { color: #17a2b8 !important; }
+
+    .filter-bar { 
+        background: white; 
+        padding: 15px; 
+        border-radius: 8px; 
+        margin-bottom: 20px; 
+        display: flex; 
+        align-items: center; 
+        gap: 15px; 
+        flex-wrap: wrap;
+    }
+    .filter-btn { padding: 6px 16px; border: 1px solid #ddd; background: white; border-radius: 4px; cursor: pointer; }
+    .filter-btn.active { background: #007bff; color: white; border-color: #007bff; }
+    
+    .section-title {
+        font-size: 16px;
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 15px;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #eee;
+    }
+    
+    .loading-overlay {
+        position: fixed;
+        top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(255,255,255,0.8);
+        display: flex; align-items: center; justify-content: center;
+        z-index: 9999;
+    }
+    .spinner-border { width: 3rem; height: 3rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+    <h3>订单统计分析</h3>
+    
+    <!-- 筛选栏 -->
+    <div class="filter-bar">
+        <div>
+            <strong>时间范围：</strong>
+            <button class="filter-btn" onclick="changeTimeRange('today')">今日</button>
+            <button class="filter-btn" onclick="changeTimeRange('7days')">7天</button>
+            <button class="filter-btn active" onclick="changeTimeRange('30days')" id="btn-30days">30天</button>
+            <button class="filter-btn" onclick="changeTimeRange('month')">本月</button>
+            <span style="margin:0 10px;">或自定义：</span>
+            <input type="date" id="start-date" class="form-control form-control-sm" style="width:150px; display:inline;">
+            <span>至</span>
+            <input type="date" id="end-date" class="form-control form-control-sm" style="width:150px; display:inline;">
+        </div>
+        <div style="margin-left: auto;">
+            <!-- 🔥 核心：懒加载统计按钮 -->
+            <button class="btn btn-lg btn-primary" id="btn-calculate" onclick="loadData()">
+                <i class="bi bi-play-circle"></i> 开始统计
+            </button>
+        </div>
+    </div>
+
+    <!-- 统计结果区域（初始隐藏） -->
+    <div id="stats-result" style="display: none;">
+        <!-- 统计时间提示 -->
+        <div class="alert alert-info mb-4" role="alert" id="stats-info">
+            <i class="bi bi-info-circle"></i> 
+            <span id="stats-time-text"></span>
+        </div>
+
+        <!-- 第一行：经营核心 -->
+        <div class="section-title">📊 经营核心指标</div>
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="stats-card">
+                    <div class="label">销售总金额</div>
+                    <div class="value sales-color" id="val-total-sales">¥0.00</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card">
+                    <div class="label">有效订单数</div>
+                    <div class="value" id="val-total-orders">0</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card">
+                    <div class="label">平均客单价</div>
+                    <div class="value info-color" id="val-avg-order">¥0.00</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card">
+                    <div class="label">活跃客户数</div>
+                    <div class="value" id="val-active-customers">0</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 第二行：回款监控 -->
+        <div class="section-title">💰 回款监控</div>
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="stats-card">
+                    <div class="label">已结清回款</div>
+                    <div class="value sales-color" id="val-settled">¥0.00</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card">
+                    <div class="label">总欠款</div>
+                    <div class="value debt-color" id="val-total-debt">¥0.00</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card">
+                    <div class="label">回款率</div>
+                    <div class="value" id="val-repayment-rate">0.00%</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="stats-card">
+                    <div class="label">欠款订单数</div>
+                    <div class="value debt-color" id="val-debt-orders">0</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 第三行：风险预警 -->
+        <div class="section-title">⚠️ 风险预警</div>
+        <div class="row">
+            <div class="col-md-6">
+                <div class="stats-card">
+                    <div class="label">作废订单数</div>
+                    <div class="value warning-color" id="val-cancelled">0</div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="stats-card">
+                    <div class="label">重开订单数</div>
+                    <div class="value" id="val-reopened">0</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 加载遮罩 -->
+    <div id="loading-overlay" class="loading-overlay" style="display: none;">
+        <div class="text-center">
+            <div class="spinner-border text-primary" role="status"></div>
+            <div class="mt-3">正在统计数据，请稍候...</div>
+        </div>
+    </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    let currentTimeRange = '30days';
+    let hasCalculated = false; // 标记是否已统计过
+
+    $(document).ready(function(){
+        // 页面加载时不做任何计算
+    });
+
+    function changeTimeRange(range) {
+        currentTimeRange = range;
+        // 更新按钮样式
+        $('.filter-btn').removeClass('active');
+        if(range !== 'custom') {
+            $(`.filter-btn:contains('${range === 'today' ? '今日' : range === '7days' ? '7天' : range === '30days' ? '30天' : '本月'}')`).addClass('active');
+        }
+        // 切换时间范围时，如果已经统计过，可以提示重新统计
+        if(hasCalculated) {
+            $('#btn-calculate').removeClass('btn-success').addClass('btn-primary').html('<i class="bi bi-arrow-repeat"></i> 重新统计');
+        }
+    }
+
+    function loadData() {
+        let startDate = '';
+        let endDate = '';
+        if(currentTimeRange === 'custom') {
+            startDate = $('#start-date').val();
+            endDate = $('#end-date').val();
+            if(!startDate || !endDate) {
+                alert('请选择完整的自定义日期范围');
+                return;
+            }
+        }
+
+        // 显示加载遮罩
+        $('#loading-overlay').show();
+        // 禁用按钮防止重复点击
+        const $btn = $('#btn-calculate');
+        $btn.prop('disabled', true).html('<i class="bi bi-hourglass-split"></i> 统计中...');
+
+        let url = `/bill/api/orders/stats/calculate/?time_range=${currentTimeRange}`;
+        if(startDate) url += `&start_date=${startDate}&end_date=${endDate}`;
+
+        $.get(url, function(res){
+            if(res.code !== 1) {
+                alert(res.msg);
+                return;
+            }
+            
+            const d = res.data;
+            
+            // 1. 渲染经营核心
+            $('#val-total-sales').text('¥' + d.total_sales.toFixed(2));
+            $('#val-total-orders').text(d.total_orders);
+            $('#val-avg-order').text('¥' + d.avg_order_value.toFixed(2));
+            $('#val-active-customers').text(d.active_customers);
+
+            // 2. 渲染回款监控
+            $('#val-settled').text('¥' + d.settled_amount.toFixed(2));
+            $('#val-total-debt').text('¥' + d.total_debt.toFixed(2));
+            $('#val-repayment-rate').text(d.repayment_rate + '%');
+            $('#val-debt-orders').text(d.debt_order_count);
+
+            // 3. 渲染风险预警
+            $('#val-cancelled').text(d.cancelled_count);
+            $('#val-reopened').text(d.reopened_count);
+
+            // 4. 更新统计时间
+            $('#stats-time-text').html(
+                `统计周期：<strong>${d.date_range.start}</strong> 至 <strong>${d.date_range.end}</strong> | 计算时间：${d.calculated_at}`
+            );
+
+            // 5. 显示结果区域
+            $('#stats-result').show();
+            
+            // 6. 更新按钮状态
+            hasCalculated = true;
+            $btn.prop('disabled', false).removeClass('btn-primary').addClass('btn-success').html('<i class="bi bi-check-circle"></i> 统计完成 (点击重算)');
+
+        }, 'json').fail(function(){
+            alert('加载统计数据失败，请重试');
+            $btn.prop('disabled', false).html('<i class="bi bi-exclamation-triangle"></i> 统计失败，重试');
+        }).always(function(){
+            // 隐藏加载遮罩
+            $('#loading-overlay').hide();
+        });
+    }
+</script>
+{% endblock %}

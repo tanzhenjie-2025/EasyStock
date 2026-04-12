@@ -28,5 +28,10 @@ urlpatterns = [
     path('price-check/', views.price_check_view, name='price_check'), # 新增
     path('price-check/ajax/', views.price_check_ajax, name='price_check_ajax'), # 新增
 
+    # 🔥 新增：订单统计页面
+    path('orders/stats/', views.order_stats_page, name='order_stats_page'),
+    # 🔥 新增：订单统计数据 API（懒加载）
+    path('api/orders/stats/calculate/', views.calculate_order_stats, name='calculate_order_stats'),
+
 
 ]
