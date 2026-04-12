@@ -212,7 +212,7 @@ input:checked + .slider:before{transform:translateX(26px);}
 <div class="product-manage-container">
     <h1 style="margin-bottom: 20px;">商品管理</h1>
 
-    <!-- ==================== Tab 导航栏 (4个选项 + 统计按钮) ==================== -->
+    <!-- ==================== Tab 导航栏 (5个选项 + 统计按钮) ==================== -->
     <ul class="nav nav-tabs" id="myTab" role="tablist" style="align-items: center;">
         <li class="nav-item" role="presentation">
             <button class="nav-link active" id="tab-list" data-bs-toggle="tab" data-bs-target="#panel-list" type="button" role="tab">
@@ -222,6 +222,11 @@ input:checked + .slider:before{transform:translateX(26px);}
         <li class="nav-item" role="presentation">
             <button class="nav-link" id="tab-tag" data-bs-toggle="tab" data-bs-target="#panel-tag" type="button" role="tab">
                 🏷️ 标签操作
+            </button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-alias" data-bs-toggle="tab" data-bs-target="#panel-alias" type="button" role="tab">
+                🏷️ 商品别名
             </button>
         </li>
         <li class="nav-item" role="presentation">
@@ -303,7 +308,62 @@ input:checked + .slider:before{transform:translateX(26px);}
             </div>
         </div>
 
-        <!-- -------------------- Tab 3: 入库管理 -------------------- -->
+        <!-- -------------------- Tab 3: 商品别名管理 -------------------- -->
+        <div class="tab-pane fade" id="panel-alias" role="tabpanel">
+            <div class="search-bar-wrapper" style="margin-top: 10px;">
+                <form method="get" class="search-form">
+                    <input type="text" name="keyword" class="search-input" placeholder="搜索商品/别名" value="{{ keyword }}">
+                    <input type="hidden" name="status" value="{{ status }}">
+                    <button class="btn btn-primary" type="submit">搜索</button>
+                    <button class="btn btn-default" type="button" onclick="location.href='{% url 'product:product_manage' %}'">重置</button>
+                </form>
+            </div>
+            
+            <!-- 别名管理列表 -->
+            <div style="margin-top: 20px;">
+                <table class="product-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>商品名称</th>
+                            <th>现有别名</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in products %}
+                        <tr data-id="{{ p.id }}">
+                            <td>{{ p.id }}</td>
+                            <td>
+                                <a href="{% url 'product:product_detail' p.id %}" style="color: #0066cc; text-decoration: none;">
+                                    {{ p.name }}
+                                </a>
+                            </td>
+                            <td>
+                                <div style="display: flex; flex-wrap: wrap; gap: 5px; align-items: center;">
+                                    {% for a in p.aliases %}
+                                    <span class="tag-pill" style="background: #6c757d;">
+                                        {{ a.alias_name }}
+                                        <button style="margin-left: 5px; background: none; border: none; color: white; cursor: pointer; padding: 0 2px;" onclick="deleteAlias({{ a.id }})">×</button>
+                                    </span>
+                                    {% empty %}
+                                    <span class="text-muted">暂无别名</span>
+                                    {% endfor %}
+                                </div>
+                            </td>
+                            <td>
+                                <button class="btn btn-primary" onclick="openAddAliasModal({{ p.id }}, '{{ p.name|escapejs }}')">添加别名</button>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="4" align="center">暂无数据</tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- -------------------- Tab 4: 入库管理 -------------------- -->
         <div class="tab-pane fade" id="panel-stock" role="tabpanel">
             <div class="search-bar-wrapper" style="margin-top: 10px;">
                 <a href="/product/stock-in/index/" class="nav-btn">📝 新增入库单</a>
@@ -314,7 +374,7 @@ input:checked + .slider:before{transform:translateX(26px);}
             </div>
         </div>
 
-        <!-- -------------------- Tab 4: 数据工具 -------------------- -->
+        <!-- -------------------- Tab 5: 数据工具 -------------------- -->
         <div class="tab-pane fade" id="panel-tool" role="tabpanel">
             <div class="row" style="margin-top: 10px; justify-content: flex-start;">
                 <div class="col-md-4" style="margin-bottom: 20px; max-width: 350px;">
@@ -351,6 +411,7 @@ input:checked + .slider:before{transform:translateX(26px);}
                     <th>系统库存</th>
                     <th>实际库存</th>
                     <th>商品标签</th>
+                    <th>商品别名</th>
                     <th>状态</th>
                     <th>操作</th>
                 </tr>
@@ -377,20 +438,28 @@ input:checked + .slider:before{transform:translateX(26px);}
                         {% endfor %}
                     </td>
                     <td>
+                        <div style="display: flex; flex-wrap: wrap; gap: 4px;">
+                            {% for a in p.aliases %}
+                            <span class="tag-pill" style="background: #6c757d; font-size: 11px; padding: 2px 6px;">{{ a.alias_name }}</span>
+                            {% empty %}
+                            <span class="text-muted" style="font-size: 12px;">无</span>
+                            {% endfor %}
+                        </div>
+                    </td>
+                    <td>
                         <label class="switch">
                             <input type="checkbox" class="status-switch" data-id="{{ p.id }}" {% if p.status == 1 %}checked{% endif %}>
                             <span class="slider"></span>
                         </label>
                     </td>
                     <!-- 在原有的 <td>操作</td> 内添加 -->
-<td>
-    <button class="btn btn-primary" onclick="editProduct({{ p.id }})">编辑</button>
-    <button class="btn btn-warning" onclick="openCalibrateModal({{ p.id }}, {{ p.stock_actual }})">校准</button>
-    
-</td>
+                    <td>
+                        <button class="btn btn-primary" onclick="editProduct({{ p.id }})">编辑</button>
+                        <button class="btn btn-warning" onclick="openCalibrateModal({{ p.id }}, {{ p.stock_actual }})">校准</button>
+                    </td>
                 </tr>
                 {% empty %}
-                <tr><td colspan="10" align="center">暂无数据</tr>
+                <tr><td colspan="11" align="center">暂无数据</tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -433,6 +502,29 @@ input:checked + .slider:before{transform:translateX(26px);}
                 </div>
             </div>
             <button type="submit" class="btn btn-success">创建标签</button>
+        </form>
+    </div>
+</div>
+
+<!-- 新增：添加别名弹窗 -->
+<div class="modal" id="addAliasModal">
+    <div class="modal-content" style="width:400px;">
+        <div class="modal-header">
+            <h3>添加别名</h3>
+            <button class="btn btn-default" onclick="closeAddAliasModal()">关闭</button>
+        </div>
+        <form id="addAliasForm" method="post" class="modal-form">
+            {% csrf_token %}
+            <input type="hidden" name="product_id" id="alias_product_id">
+            <div class="form-item">
+                <label>商品名称</label>
+                <input type="text" id="alias_product_name" disabled style="background: #f5f5f5;">
+            </div>
+            <div class="form-item">
+                <label>别名 *</label>
+                <input type="text" name="alias_name" id="alias_name" placeholder="输入别名" required>
+            </div>
+            <button type="submit" class="btn btn-success">添加</button>
         </form>
     </div>
 </div>
@@ -635,6 +727,52 @@ let csrf = $('input[name="csrfmiddlewaretoken"]').val();
 // ====================== 新增 JS：新建标签弹窗 ======================
 function showAddTagModal(){$('#addTagModal').addClass('active');}
 function closeAddTagModal(){$('#addTagModal').removeClass('active');}
+
+// ====================== 别名管理 JS ======================
+function openAddAliasModal(productId, productName){
+    $('#alias_product_id').val(productId);
+    $('#alias_product_name').val(productName);
+    $('#alias_name').val('');
+    $('#addAliasModal').addClass('active');
+}
+function closeAddAliasModal(){$('#addAliasModal').removeClass('active');}
+
+$('#addAliasForm').submit(function(e){
+    e.preventDefault();
+    let productId = $('#alias_product_id').val();
+    let aliasName = $('#alias_name').val().trim();
+    if(!aliasName){
+        showToast('请输入别名', 'error');
+        return;
+    }
+    $.post('{% url "product:alias_add" %}', {
+        csrfmiddlewaretoken: csrf,
+        product_id: productId,
+        alias_name: aliasName
+    }, function(res){
+        if(res.code===1){
+            showToast(res.msg, 'success');
+            closeAddAliasModal();
+            setTimeout(()=>location.reload(), 1000);
+        }else{
+            showToast(res.msg, 'error');
+        }
+    });
+});
+
+function deleteAlias(aliasId){
+    if(!confirm('确定要删除这个别名吗？')) return;
+    $.post('{% url "product:alias_delete" 0 %}'.replace('0', aliasId), {
+        csrfmiddlewaretoken: csrf
+    }, function(res){
+        if(res.code===1){
+            showToast(res.msg, 'success');
+            setTimeout(()=>location.reload(), 1000);
+        }else{
+            showToast(res.msg, 'error');
+        }
+    });
+}
 
 // ====================== 批量标签操作 ======================
 function openTagBatchModal(){
