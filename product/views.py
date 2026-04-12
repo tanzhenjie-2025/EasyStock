@@ -756,10 +756,25 @@ def sales_rank_data(request):
 
 @login_required
 def stock_list(request):
-    kw = request.GET.get('keyword', '')
-    qs = Product.objects.filter(name__icontains=kw)
-    page = Paginator(qs, 10).get_page(request.GET.get('page', 1))
-    return render(request, 'product/stock.html', {'products': page})
+    # 获取搜索关键词
+    keyword = request.GET.get('keyword', '')
+    # 筛选商品数据
+    product_list = Product.objects.filter(name__icontains=keyword)
+
+    # 分页配置：每页10条数据
+    paginator = Paginator(product_list, 10)
+    # 获取当前页码
+    page_number = request.GET.get('page', 1)
+    # 获取当前页的商品数据
+    page_products = paginator.get_page(page_number)
+
+    # 传递所有前端需要的变量：分页数据、分页器、关键词
+    return render(request, 'product/stock.html', {
+        'page_products': page_products,  # 匹配前端分页变量名
+        'paginator': paginator,  # 传递分页器，用于渲染页码
+        'keyword': keyword,  # 传递搜索关键词，保持分页搜索
+        'products': page_products  # 保留原变量名，用于表格渲染
+    })
 
 
 # ========== 1. 入库首页（替换开单首页，无客户搜索） ==========
