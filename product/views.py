@@ -1,4 +1,3 @@
-
 from django.db import IntegrityError, transaction
 from django.db.models.functions import Coalesce
 from django.views.decorators.http import require_POST
@@ -65,9 +64,11 @@ KEY_AREA = "area:data"
 KEY_PRODUCT_ALIAS = "product:alias"
 
 # ========== 入库模块权限常量 ==========
-PERM_STOCK_IN_CREATE = 'stock_in_create'    # 新建入库
-PERM_STOCK_IN_VIEW = 'stock_in_view'        # 查看入库
-PERM_STOCK_IN_CANCEL = 'stock_in_cancel'    # 作废入库
+PERM_STOCK_IN_CREATE = 'stock_in_create'  # 新建入库
+PERM_STOCK_IN_VIEW = 'stock_in_view'  # 查看入库
+PERM_STOCK_IN_CANCEL = 'stock_in_cancel'  # 作废入库
+
+
 # ====================== 缓存工具函数 ======================
 def clear_product_all_cache():
     cache.delete_many([KEY_AREA, KEY_PRODUCT_ALIAS])
@@ -79,6 +80,7 @@ def clear_product_all_cache():
         cache.delete(key)
     for key in cache.keys(f"{CACHE_PREFIX_PRODUCT_COUNT}*"):
         cache.delete(key)
+
 
 # ====================== 商品管理主页面 ======================
 # ====================== 重写：商品管理主页面（集成标签功能） ======================
@@ -238,6 +240,7 @@ def product_manage(request):
         'can_stock_operation': request.user.has_permission(PERM_PRODUCT_STOCK_OP)
     })
 
+
 # ====================== 商品CRUD ======================
 @permission_required(PERM_PRODUCT_ADD)
 def product_add(request):
@@ -326,6 +329,8 @@ def product_edit(request, pk):
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'编辑失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+
+
 @permission_required(PERM_PRODUCT_DELETE)
 def product_delete(request, pk):
     try:
@@ -337,6 +342,7 @@ def product_delete(request, pk):
         return JsonResponse({'code': 1, 'msg': '商品禁用成功'})
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'禁用失败：{str(e)}'})
+
 
 @permission_required(PERM_PRODUCT_EDIT)
 def product_restore(request, pk):
@@ -350,6 +356,7 @@ def product_restore(request, pk):
         return JsonResponse({'code': 1, 'msg': '商品启用成功'})
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'启用失败：{str(e)}'})
+
 
 # ====================== 🔥 行内编辑（仅修改系统库存） ======================
 @require_POST
@@ -374,6 +381,7 @@ def product_inline_update(request):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': str(e)})
 
+
 # ====================== 🔥 状态开关 ======================
 @require_POST
 @permission_required(PERM_PRODUCT_EDIT)
@@ -387,6 +395,7 @@ def product_toggle_status(request):
         return JsonResponse({'code': 1, 'status': 1 if product.is_active else 0, 'msg': '状态已更新'})
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': str(e)})
+
 
 # ====================== 🔥 批量操作 ======================
 @require_POST
@@ -412,6 +421,7 @@ def product_batch_operation(request):
         return JsonResponse({'code': 1, 'msg': msg})
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': str(e)})
+
 
 # ====================== 🔥 新增：实际库存校准接口 ======================
 @require_POST
@@ -442,6 +452,7 @@ def product_stock_calibrate(request):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': str(e)})
 
+
 # ====================== 别名CRUD（无修改） ======================
 @permission_required(PERM_PRODUCT_ALIAS_ADD)
 def alias_add(request):
@@ -462,6 +473,7 @@ def alias_add(request):
             return JsonResponse({'code': 0, 'msg': str(e)})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
+
 @permission_required(PERM_PRODUCT_ALIAS_DELETE)
 def alias_delete(request, pk):
     try:
@@ -474,6 +486,7 @@ def alias_delete(request, pk):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': str(e)})
 
+
 @permission_required(PERM_PRODUCT_EDIT)
 def product_edit_data(request, pk):
     product = get_object_or_404(Product.objects.prefetch_related('aliases'), pk=pk)
@@ -482,6 +495,7 @@ def product_edit_data(request, pk):
         'unit': product.unit, 'stock': product.stock_system,
         'aliases': [{'id': a.id, 'alias_name': a.alias_name} for a in product.aliases.all()]
     })
+
 
 # ====================== 导入/导出/快速出入库（仅修改系统库存） ======================
 @require_POST
@@ -534,6 +548,7 @@ def product_import(request):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': str(e)})
 
+
 @require_POST
 @permission_required(PERM_PRODUCT_STOCK_OP)
 def quick_stock_operation(request):
@@ -561,6 +576,7 @@ def quick_stock_operation(request):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': str(e)})
 
+
 # 导出/详情/排行/库存列表（无修改，仅适配字段）
 def export_to_excel(data, title, headers, selected_fields, custom_fields, file_name):
     wb = Workbook()
@@ -578,6 +594,7 @@ def export_to_excel(data, title, headers, selected_fields, custom_fields, file_n
     wb.save(buffer)
     return HttpResponse(buffer.getvalue(), content_type='application/vnd.ms-excel')
 
+
 @login_required
 @permission_required(PERM_PRODUCT_IMPORT)
 def product_export(request):
@@ -588,7 +605,8 @@ def product_export(request):
         custom_fields_json = request.POST.get('custom_fields', '[]')
 
         if not selected_fields:
-            selected_fields = ['serial', 'id', 'name', 'price', 'unit', 'stock_system', 'stock_actual', 'aliases', 'status']
+            selected_fields = ['serial', 'id', 'name', 'price', 'unit', 'stock_system', 'stock_actual', 'aliases',
+                               'status']
 
         try:
             custom_fields = json.loads(custom_fields_json)
@@ -684,7 +702,8 @@ def product_export(request):
             buffer.getvalue(),
             content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-        response['Content-Disposition'] = f'attachment; filename=商品列表_{timezone.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+        response[
+            'Content-Disposition'] = f'attachment; filename=商品列表_{timezone.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
         return response
 
     except Exception as e:
@@ -723,14 +742,17 @@ def product_detail(request, pk):
         'price_history': price_history,
     })
 
+
 @login_required
 def sales_rank(request):
     return render(request, 'product/sales_rank.html')
+
 
 @login_required
 def sales_rank_data(request):
     data = OrderItem.objects.values('product__name').annotate(total=Sum('quantity')).order_by('-total')[:30]
     return JsonResponse({'data': [{'name': i['product__name'], 'num': i['total']} for i in data]})
+
 
 @login_required
 def stock_list(request):
@@ -738,6 +760,7 @@ def stock_list(request):
     qs = Product.objects.filter(name__icontains=kw)
     page = Paginator(qs, 10).get_page(request.GET.get('page', 1))
     return render(request, 'product/stock.html', {'products': page})
+
 
 # ========== 1. 入库首页（替换开单首页，无客户搜索） ==========
 @login_required
@@ -748,6 +771,7 @@ def stock_in_index(request):
     return render(request, 'product/stock_in_index.html', {
         'is_super_admin': is_super_admin
     })
+
 
 # ========== 2. 保存入库单（核心：增加库存） ==========
 @login_required
@@ -821,7 +845,7 @@ def save_stock_in(request):
 
             # 日志+清理缓存
             create_operation_log(request, 'create_stock_in', 'stock_in', str(stock_in.id),
-                                f"入库单-{stock_in.stock_in_no}", "创建入库单")
+                                 f"入库单-{stock_in.stock_in_no}", "创建入库单")
             clear_stock_cache()
             clear_product_search_cache()
 
@@ -829,6 +853,7 @@ def save_stock_in(request):
 
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'入库失败：{str(e)}'})
+
 
 # ========== 3. 入库单列表（替换订单列表） ==========
 @login_required
@@ -867,7 +892,8 @@ def stock_in_list(request):
     if date_to:
         try:
             end_date = datetime.datetime.strptime(date_to, '%Y-%m-%d').date()
-            end = timezone.make_aware(datetime.datetime.combine(end_date + datetime.timedelta(days=1), datetime.datetime.min.time()))
+            end = timezone.make_aware(
+                datetime.datetime.combine(end_date + datetime.timedelta(days=1), datetime.datetime.min.time()))
             stock_ins = stock_ins.filter(create_time__lt=end)
         except:
             pass
@@ -891,9 +917,9 @@ def stock_in_list(request):
     for item in data_list:
         time_diff = (current_time - item.create_time).total_seconds() / 60
         item.can_cancel = (
-            item.status != 'cancelled'
-            and is_super_admin
-            or (item.creator == request.user and time_diff <= 5)
+                item.status != 'cancelled'
+                and is_super_admin
+                or (item.creator == request.user and time_diff <= 5)
         )
 
     context = {
@@ -909,6 +935,7 @@ def stock_in_list(request):
         'is_super_admin': is_super_admin,
     }
     return render(request, 'product/stock_in_list.html', context)
+
 
 # ========== 4. 入库单详情（替换订单详情） ==========
 @login_required
@@ -929,9 +956,9 @@ def stock_in_detail(request, stock_in_no):
     current_time = timezone.now()
     time_diff = (current_time - stock_in.create_time).total_seconds() / 60
     show_cancel_btn = (
-        stock_in.status != 'cancelled'
-        and is_super_admin
-        or (stock_in.creator == request.user and time_diff <= 5)
+            stock_in.status != 'cancelled'
+            and is_super_admin
+            or (stock_in.creator == request.user and time_diff <= 5)
     )
 
     # 明细
@@ -944,6 +971,7 @@ def stock_in_detail(request, stock_in_no):
         'show_cancel_btn': show_cancel_btn,
     }
     return render(request, 'product/stock_in_detail.html', context)
+
 
 # ========== 5. 作废入库单（核心：回滚库存） ==========
 @login_required
@@ -991,7 +1019,7 @@ def cancel_stock_in(request, stock_in_no):
 
             # 日志+缓存
             create_operation_log(request, 'cancel_stock_in', 'stock_in', str(stock_in.id),
-                                f"入库单-{stock_in.stock_in_no}", f"作废：{reason}")
+                                 f"入库单-{stock_in.stock_in_no}", f"作废：{reason}")
             clear_stock_cache()
 
             return JsonResponse({'code': 1, 'msg': '作废成功'})
@@ -1000,12 +1028,12 @@ def cancel_stock_in(request, stock_in_no):
         return JsonResponse({'code': 0, 'msg': f'作废失败：{str(e)}'})
 
 
-# ===================== 新增：商品详情统计 API =====================
+# ===================== 新增：商品详情统计 API (单个商品) =====================
 @login_required
 @permission_required(PERM_PRODUCT_DETAIL)
-def product_statistics_api(request, pk):
+def product_one_statistics_api(request, pk):
     """
-    异步统计接口：点击按钮后才计算
+    异步统计接口：点击按钮后才计算 (单个商品)
     优化：使用 select_related 关联 order，利用索引
     """
     product = get_object_or_404(Product, pk=pk)
@@ -1031,5 +1059,98 @@ def product_statistics_api(request, pk):
             'total_qty': stats['total_qty'],
             'total_amount': float(stats['total_amount']),
             'count_orders': stats['count_orders'],
+        }
+    })
+
+
+# ===================== 修改：商品统计详情页面视图 (无需PK) =====================
+@permission_required(PERM_PRODUCT_DETAIL)
+def product_statistics_detail(request):
+    """全部商品统计页面"""
+    all_tags = ProductTag.objects.filter(is_active=True)
+    return render(request, 'product/product_statistics.html', {
+        'all_tags': all_tags,
+    })
+
+
+# ===================== 修改：商品统计 API (全部商品，无需PK) =====================
+@login_required
+@permission_required(PERM_PRODUCT_DETAIL)
+def product_statistics_api(request):
+    """
+    异步统计接口：全部商品统计，支持标签筛选、时间范围筛选、排序
+    优化：充分利用已有索引
+    """
+    # 获取参数
+    tag_ids = request.GET.getlist('tag_ids', [])
+    date_from = request.GET.get('date_from', '')
+    date_to = request.GET.get('date_to', '')
+    order_by = request.GET.get('order_by', '-total_amount')  # 默认按金额降序
+
+    # 基础查询：排除作废订单，统计所有商品
+    valid_status = ['pending', 'printed', 'reopened']
+    items_qs = OrderItem.objects.filter(
+        order__status__in=valid_status
+    ).select_related('order', 'product')
+
+    # 时间范围筛选 (利用 order__create_time 索引)
+    if date_from:
+        try:
+            start = timezone.make_aware(datetime.datetime.strptime(date_from, '%Y-%m-%d'))
+            items_qs = items_qs.filter(order__create_time__gte=start)
+        except:
+            pass
+    if date_to:
+        try:
+            end_date = datetime.datetime.strptime(date_to, '%Y-%m-%d').date()
+            end = timezone.make_aware(
+                datetime.datetime.combine(end_date + datetime.timedelta(days=1), datetime.datetime.min.time()))
+            items_qs = items_qs.filter(order__create_time__lt=end)
+        except:
+            pass
+
+    # 1. 核心KPI统计 (全部商品)
+    stats = items_qs.aggregate(
+        total_qty=Coalesce(Sum('quantity'), 0),
+        total_amount=Coalesce(Sum('amount'), 0, output_field=DecimalField()),
+        count_orders=Count('order', distinct=True),
+    )
+
+    # 2. 标签占比分析 (统计商品标签在所有销售中的占比)
+    tag_analysis = []
+    all_tags = ProductTag.objects.filter(is_active=True)
+    total_orders = stats['count_orders'] or 1
+
+    for tag in all_tags:
+        # 统计带有该标签的商品的订单数
+        tag_order_count = items_qs.filter(product__tags__id=tag.id).count()
+        tag_analysis.append({
+            'id': tag.id,
+            'name': tag.name,
+            'color': tag.color,
+            'count': tag_order_count,
+            'percentage': round(tag_order_count / total_orders * 100, 2) if total_orders else 0
+        })
+
+    # 3. 商品排行列表 (按商品维度聚合)
+    rank_items = items_qs.values(
+        'product__id',
+        'product__name'
+    ).annotate(
+        total_qty=Sum('quantity'),
+        total_amount=Sum('amount')
+    ).order_by(order_by)[:100]  # 限制100条
+
+    return JsonResponse({
+        'code': 1,
+        'data': {
+            # KPI数据
+            'total_qty': stats['total_qty'],
+            'total_amount': float(stats['total_amount']),
+            'count_orders': stats['count_orders'],
+            # 标签分析
+            'tag_analysis': tag_analysis,
+            # 商品排行
+            'rank_items': list(rank_items),
         }
     })

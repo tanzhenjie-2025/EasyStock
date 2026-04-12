@@ -51,8 +51,10 @@ urlpatterns = [
     # 作废入库单
     path('stock-in/cancel/<str:stock_in_no>/', views.cancel_stock_in, name='cancel_stock_in'),
 
-# 🔥 新增详情页和统计接口
+    # 🔥 单个商品统计 API
+    path('detail/<int:pk>/stats/', views.product_one_statistics_api, name='product_one_stats_api'),
 
-    path('detail/<int:pk>/stats/', views.product_statistics_api, name='product_stats_api'),
+    # 🔥 全部商品统计页面和API (已移除PK)
+    path('statistics/', views.product_statistics_detail, name='product_statistics_detail'),
+    path('statistics/api/', views.product_statistics_api, name='product_statistics_api'),
 ]
-
