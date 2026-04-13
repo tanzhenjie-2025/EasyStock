@@ -349,7 +349,7 @@ def save_order(request):
 @login_required
 @permission_required(PERM_ORDER_VIEW)
 def order_list(request):
-    """订单列表页（新增Tab状态筛选版）"""
+    """订单列表页（新增Tab状态筛选版 + 财务进度展示）"""
     order_no = request.GET.get('order_no', '').strip()
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
@@ -452,12 +452,21 @@ def order_list(request):
     settled_orders = stats['settled_orders']
     total_debt = stats['total_debt']
 
-    # 作废权限计算
+    # 作废权限计算 & 🔥 新增：财务数据计算
     current_time = timezone.now()
     order_list = list(page_orders)
     for order in order_list:
         time_diff = (current_time - order.create_time).total_seconds() / 60
         order.time_diff = time_diff
+
+        # 🔥 新增：计算财务进度 (统一用 Decimal 计算，防止浮点数误差)
+        order.unpaid_amount = order.total_amount - order.received_amount
+        # 计算已收比例 (用于前端进度条，可选)
+        if order.total_amount > 0:
+            order.paid_percent = (order.received_amount / order.total_amount) * 100
+        else:
+            order.paid_percent = 100
+
         can_cancel = False
         if order.status != 'cancelled' and not order.is_settled and order.status != 'printed':
             if is_super_admin:
@@ -504,11 +513,10 @@ def order_list(request):
 
     return response
 
-
 @login_required
 @permission_required(PERM_ORDER_VIEW)
 def order_detail(request, order_no):
-    """订单详情页（手动缓存版）"""
+    """订单详情页（手动缓存版 + 财务数据展示）"""
     # 🔥 手动缓存 Key
     cache_key = f"{CACHE_PREFIX_ORDER_DETAIL}{order_no}"
     cached_data = cache.get(cache_key)
@@ -558,6 +566,13 @@ def order_detail(request, order_no):
     # 🔥 优化4：使用已优化的明细数据（模板必须用这个，禁止用order.items.all）
     items = OrderItem.objects.select_related('product').filter(order=order)
 
+    # 🔥 新增：详情页财务数据计算
+    unpaid_amount = order.total_amount - order.received_amount
+    if order.total_amount > 0:
+        paid_percent = (order.received_amount / order.total_amount) * 100
+    else:
+        paid_percent = 100
+
     context = {
         'order': order,
         'items': items,  # 模板必须用这个变量
@@ -567,7 +582,10 @@ def order_detail(request, order_no):
         'can_cancel_others': can_cancel_others,
         'is_admin': is_admin,
         'is_operator': is_operator,
-        'show_cancel_btn': show_cancel_btn
+        'show_cancel_btn': show_cancel_btn,
+        # 🔥 新增：传递给模板
+        'unpaid_amount': unpaid_amount,
+        'paid_percent': paid_percent
     }
 
     response = render(request, 'bill/order_detail.html', context)

@@ -18,7 +18,7 @@
     .col-creator { width: 120px; }       /* 开单人列 */
     .col-customer { width: 100px; }      /* 客户列（2-5个字） */
     .col-area { width: 50px; }           /* 区域列（2个字） */
-    .col-amount { width: 100px; }        /* 总金额列 */
+    .col-amount { width: 140px; }        /* 🔥 修改：财务进度列加宽 */
     .col-status { width: 120px; }        /* 订单状态列 */
     .col-settled { width: 140px; }       /* 结清状态列 */
     .col-operation { width: 300px; }     /* 操作列（多个按钮） */
@@ -147,6 +147,22 @@
     }
     .col-select {
         pointer-events: auto;
+    }
+
+    /* 🔥 新增：财务金额样式 */
+    .finance-cell {
+        line-height: 1.4;
+    }
+    .finance-main {
+        font-weight: bold;
+    }
+    .finance-sub {
+        font-size: 0.8em;
+        color: #666;
+    }
+    .debt-text {
+        color: #dc3545; /*  Bootstrap 红色 */
+        font-weight: bold;
     }
 </style>
 {% endblock %}
@@ -318,7 +334,7 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
             <th class="col-creator">开单人</th>
             <th class="col-customer">客户</th>
             <th class="col-area">区域</th>
-            <th class="col-amount">总金额</th>
+            <th class="col-amount">财务进度</th>
             <th class="col-status">订单状态</th>
             <th class="col-settled">结清状态</th>
             <th class="col-operation">操作</th>
@@ -344,7 +360,32 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
             <td class="col-creator">{% if order.creator %}{{ order.creator.name }} ({{ order.creator.user_code }}){% else %}未知{% endif %}</td>
             <td class="col-customer">{{ order.customer.name|default:"无" }}</td>
             <td class="col-area">{{ order.area.name|default:"无" }}</td>
-            <td class="col-amount">¥{{ order.total_amount }}</td>
+            
+            <!-- 🔥 核心修改：财务进度列 -->
+            <td class="col-amount finance-cell">
+                {% if order.is_settled %}
+                    {# 已结清：显示绿色对勾 + 总额 #}
+                    <div class="finance-main text-success">
+                        <i class="bi bi-check-circle-fill"></i> ¥{{ order.total_amount }}
+                    </div>
+                    <div class="finance-sub text-muted">已结清</div>
+                {% else %}
+                    {# 未结清：显示 已收/总额，欠款标红 #}
+                    <div class="finance-main">
+                        ¥{{ order.received_amount }}<span class="text-muted">/</span><span class="text-dark">¥{{ order.total_amount }}</span>
+                    </div>
+                    {% if order.unpaid_amount > 0 %}
+                        <div class="finance-sub debt-text">
+                            欠 ¥{{ order.unpaid_amount }}
+                        </div>
+                    {% else %}
+                        <div class="finance-sub text-muted">
+                            待核销
+                        </div>
+                    {% endif %}
+                {% endif %}
+            </td>
+
             <td class="col-status">
                 <div class="status-badge-wrap">
                     {% if order.status == 'pending' %}

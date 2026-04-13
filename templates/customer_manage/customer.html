@@ -924,51 +924,88 @@
     }
 
     // ===================== 还款登记相关功能 =====================
+    // 1. 打开弹窗时的初始化保持不变，但搜索逻辑要改
     function openRepaymentModal() {
         const now = new Date();
-        const datetimeStr = now.toISOString().slice(0, 16);
+        // 生成符合 datetime-local 的格式 (YYYY-MM-DDTHH:MM)
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const hours = String(now.getHours()).padStart(2, '0');
+        const minutes = String(now.getMinutes()).padStart(2, '0');
+        const datetimeStr = `${year}-${month}-${day}T${hours}:${minutes}`;
+        
         $('#repaymentTime').val(datetimeStr);
         $('#repaymentForm')[0].reset();
         $('#repayCustomerId').val('');
         $('#customerSuggest').hide();
+        // 手动把时间填回去，因为 reset 会清空
+        $('#repaymentTime').val(datetimeStr);
         $('#repaymentModal').css('display', 'flex');
     }
+
 
     function closeRepaymentModal() {
         $('#repaymentModal').css('display', 'none');
         $('#customerSuggest').hide();
     }
 
+    // 2. 🔥 核心修复：搜索客户函数
     function searchCustomer(keyword) {
-        if (!keyword || keyword.trim() === '') { $('#customerSuggest').hide(); return; }
-        $.get('/customer-manage/customer/list/', function(res) {
-            const filtered = res.filter(item => item.name.includes(keyword.trim()));
+        if (!keyword || keyword.trim() === '') { 
+            $('#customerSuggest').hide(); 
+            return; 
+        }
+        
+        // 🔥 注意：URL 增加 with_debt=1 参数
+        let url = '/customer-manage/customer/list/?keyword=' + encodeURIComponent(keyword) + '&with_debt=1';
+        
+        $.get(url, function(res) {
+            // res 现在是数组
+            const filtered = Array.isArray(res) ? res : [];
             customerSuggestList = filtered;
+            
             let html = '';
             if (filtered.length > 0) {
                 filtered.forEach(item => {
-                    const totalDebt = item.total_debt ? item.total_debt.toFixed(2) : '0.00';
-                    html += `<div style="padding: 4px 8px; cursor: pointer;" onclick="selectCustomer(${item.id}, '${item.name}')">
-                        ${item.name} (欠款¥${totalDebt})
+                    // 🔥 修复：确保 total_debt 是数字并保留两位小数
+                    const debt = parseFloat(item.total_debt || 0).toFixed(2);
+                    html += `<div style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;" 
+                                onmouseover="this.style.backgroundColor='#f8f9fa'" 
+                                onmouseout="this.style.backgroundColor='#fff'"
+                                onclick="selectCustomer(${item.id}, '${item.name.replace(/'/g, "\\'")}', ${debt})">
+                        <div style="font-weight: bold;">${item.name}</div>
+                        <div style="font-size: 12px; color: #666;">
+                            ${item.area_name || '无区域'} | ${item.phone}
+                        </div>
+                        <div style="font-size: 13px; margin-top: 4px;">
+                            当前欠款：<span style="color: ${debt > 0 ? '#dc3545' : '#28a745'}; font-weight: bold;">¥${debt}</span>
+                        </div>
                     </div>`;
                 });
                 $('#customerSuggest').html(html).show();
             } else {
-                html = '<div style="padding: 4px 8px; color: #999;">未找到匹配客户</div>';
+                html = '<div style="padding: 12px; color: #999; text-align: center;">未找到匹配客户</div>';
                 $('#customerSuggest').html(html).show();
             }
         }, 'json').fail(function(xhr, status, error) {
             console.error('搜索客户失败：', xhr.responseText);
-            alert('搜索客户失败！\n' + error);
+            // 即使失败也不要弹窗打扰用户，只是不显示提示
             $('#customerSuggest').hide();
         });
     }
 
-    function selectCustomer(customerId, customerName) {
+    function selectCustomer(customerId, customerName, debt) {
         $('#repayCustomer').val(customerName);
         $('#repayCustomerId').val(customerId);
         $('#customerSuggest').hide();
+        
+        // 可选：如果有欠款，可以自动把欠款金额填到还款输入框作为建议
+        if(debt && debt > 0) {
+            // $('#repaymentAmount').val(debt); // 如果你想自动填充，取消这行注释
+        }
     }
+
 
     function addRemark(remarkText) {
         const currentRemark = $('#repaymentRemark').val();
@@ -976,10 +1013,12 @@
         else $('#repaymentRemark').val(remarkText);
     }
 
+    // 4. 保存还款函数保持不变，主要靠后端兼容时间格式
     function saveRepayment() {
         const customerId = $('#repayCustomerId').val().trim();
         const amount = parseFloat($('#repaymentAmount').val().trim());
-        const repaymentTime = $('#repaymentTime').val().trim();
+        // 🔥 获取时间字符串，直接传给后端，后端会处理 'T'
+        const repaymentTime = $('#repaymentTime').val().trim(); 
         const remark = $('#repaymentRemark').val().trim();
 
         if (!customerId) { alert('请先选择客户！'); $('#repayCustomer').focus(); return; }
@@ -987,22 +1026,28 @@
         if (!repaymentTime) { alert('请选择还款时间！'); $('#repaymentTime').focus(); return; }
 
         const data = {
-            customer_id: customerId, repayment_amount: amount,
-            repayment_time: repaymentTime, repayment_remark: remark
+            customer_id: customerId, 
+            repayment_amount: amount,
+            repayment_time: repaymentTime, // 直接传，格式如 "2026-04-13T15:30"
+            repayment_remark: remark
         };
 
         $.ajax({
             url: '/customer-manage/repayment/register/',
-            type: 'POST', data: data,
+            type: 'POST', 
+            data: data,
             headers: {'X-CSRFToken': getCsrfToken()},
             dataType: 'json',
             success: function(res) {
                 alert(res.msg);
-                if (res.code === 1) { closeRepaymentModal(); loadCustomerList(); }
+                if (res.code === 1) { 
+                    closeRepaymentModal(); 
+                    loadCustomerList(); // 刷新列表
+                }
             },
             error: function(xhr, status, error) {
                 console.error('保存还款记录失败：', xhr.responseText);
-                alert('保存还款记录失败！\n' + xhr.responseText);
+                alert('保存还款记录失败！\n' + (xhr.responseJSON?.msg || error));
             }
         });
     }

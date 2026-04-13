@@ -25,6 +25,9 @@ from openpyxl import load_workbook
 from openpyxl.styles import Font, Alignment, PatternFill
 import openpyxl
 
+from django.db import transaction, models
+from django.db.models import F, Sum
+
 # ========== 缓存时长常量配置 ==========
 CACHE_HIGH_PRIORITY = 300  # 复杂聚合查询 5分钟
 CACHE_MID_PRIORITY = 600  # 静态数据/搜索接口 10分钟
@@ -89,23 +92,25 @@ def full_to_half(s):
     return ''.join(result)
 
 # ========== 客户列表（手动缓存） ==========
-# ========== 客户列表（纯基本信息，无任何统计聚合） ==========
+# ========== 客户列表（修改：增加 with_debt 参数支持） ==========
 @login_required
 @permission_required('customer_view')
 def customer_list(request):
-    """极简版：仅返回客户基本信息，零算力消耗"""
+    """极简版：仅返回客户基本信息，零算力消耗；支持 with_debt 参数返回欠款"""
     try:
         keyword = request.GET.get('keyword', '').strip()
         status = request.GET.get('status', 'all')
         page = request.GET.get('page', 1)
         page_size = 10
+        # 🔥 新增：是否需要返回欠款数据（用于还款登记）
+        with_debt = request.GET.get('with_debt', '0') == '1'
 
-        cache_key = f"{CACHE_PREFIX_CUSTOMER_LIST}{request.user.id}_{keyword}_{status}_{page}"
+        cache_key = f"{CACHE_PREFIX_CUSTOMER_LIST}{request.user.id}_{keyword}_{status}_{page}_{with_debt}"
         cached_data = cache.get(cache_key)
         if cached_data:
             return JsonResponse(cached_data, safe=False)
 
-        # 仅查询基本信息 + 关联区域，无任何聚合计算
+        # 仅查询基本信息 + 关联区域
         customers = Customer.all_objects.all().select_related('area')
 
         # 状态筛选
@@ -140,10 +145,10 @@ def customer_list(request):
         except EmptyPage:
             customer_page = paginator.page(paginator.num_pages)
 
-        # 仅返回基本信息
+        # 组装返回数据
         result = []
         for c in customer_page:
-            result.append({
+            item = {
                 'id': c.id,
                 'name': c.name,
                 'area_id': c.area.id if c.area else '',
@@ -158,12 +163,32 @@ def customer_list(request):
                     'active': active_count,
                     'disabled': disabled_count
                 }
-            })
+            }
 
-        cache.set(cache_key, result, CACHE_HIGH_PRIORITY)
+            # 🔥 新增：如果需要欠款数据，则实时计算
+            if with_debt:
+                # 计算该客户总欠款
+                base_orders = Order.objects.filter(
+                    customer=c,
+                    status__in=['pending', 'printed', 'reopened']
+                )
+                unpaid_amount = base_orders.filter(is_settled=False).aggregate(
+                    total=Sum(F('total_amount') - F('received_amount'), output_field=models.DecimalField())
+                )['total'] or 0
+                paid_amount = RepaymentRecord.objects.filter(customer=c).aggregate(total=Sum('repayment_amount'))[
+                                  'total'] or 0
+                item['total_debt'] = max(float(unpaid_amount) - float(paid_amount), 0)
+            else:
+                item['total_debt'] = 0.00
+
+            result.append(item)
+
+        cache.set(cache_key, result, CACHE_HIGH_PRIORITY if not with_debt else 10)  # 欠款数据缓存时间短一点
         return JsonResponse(result, safe=False)
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'})
+
+
 
 # ========== 新增：启用客户 ==========
 @login_required
@@ -224,7 +249,10 @@ def customer_detail(request, pk):
 
         unpaid_orders = base_orders.filter(is_settled=False)
         unpaid_order_count = unpaid_orders.count()
-        unpaid_amount = unpaid_orders.aggregate(total=Sum('total_amount'))['total'] or 0
+        # 精准计算：总欠款 = Sum(订单总额 - 已收金额)
+        unpaid_amount = unpaid_orders.aggregate(
+            total=Sum(F('total_amount') - F('received_amount'), output_field=models.DecimalField())
+        )['total'] or 0
         paid_amount = RepaymentRecord.objects.filter(customer=customer).aggregate(total=Sum('repayment_amount'))[
                           'total'] or 0
         total_debt = max(float(unpaid_amount) - float(paid_amount), 0)
@@ -308,11 +336,15 @@ def customer_detail(request, pk):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'}, safe=False)
 
-# ========== 还款登记（写操作，清理缓存） ==========
+
+# 记得在文件顶部确保有这个导入（如果没有请加上）
+from decimal import Decimal
+
+
+# ========== 还款登记（最终修复版：统一使用 Decimal） ==========
 @login_required
 @permission_required('customer_repayment')
 def repayment_register(request):
-    """还款登记接口"""
     if request.method == 'POST':
         try:
             customer_id = request.POST.get('customer_id', '').strip()
@@ -323,8 +355,9 @@ def repayment_register(request):
             if not customer_id or not repayment_amount:
                 return JsonResponse({'code': 0, 'msg': '客户和还款金额不能为空'}, content_type='application/json')
 
+            # 🔥 修复1：直接转成 Decimal，不要用 float
             try:
-                repayment_amount = float(repayment_amount)
+                repayment_amount = Decimal(repayment_amount)
                 if repayment_amount <= 0:
                     return JsonResponse({'code': 0, 'msg': '还款金额必须大于0'}, content_type='application/json')
             except:
@@ -332,21 +365,59 @@ def repayment_register(request):
 
             customer = get_object_or_404(Customer, id=customer_id)
 
+            # 时间解析保持不变
             if repayment_time:
                 try:
-                    repayment_time = timezone.make_aware(datetime.datetime.strptime(repayment_time, '%Y-%m-%d %H:%M'))
-                except:
-                    return JsonResponse({'code': 0, 'msg': '还款时间格式错误'}, content_type='application/json')
+                    if 'T' in repayment_time:
+                        dt = datetime.datetime.strptime(repayment_time, '%Y-%m-%dT%H:%M')
+                    else:
+                        dt = datetime.datetime.strptime(repayment_time, '%Y-%m-%d %H:%M')
+                    repayment_time = timezone.make_aware(dt)
+                except Exception as e:
+                    return JsonResponse({'code': 0, 'msg': '还款时间格式错误，请重新选择'},
+                                        content_type='application/json')
             else:
                 repayment_time = timezone.now()
 
-            repayment = RepaymentRecord.objects.create(
-                customer=customer,
-                repayment_amount=repayment_amount,
-                repayment_time=repayment_time,
-                repayment_remark=repayment_remark,
-                operator=request.user if request.user.is_authenticated else None
-            )
+            with transaction.atomic():
+                repayment = RepaymentRecord.objects.create(
+                    customer=customer,
+                    repayment_amount=repayment_amount,
+                    repayment_time=repayment_time,
+                    repayment_remark=repayment_remark,
+                    operator=request.user if request.user.is_authenticated else None
+                )
+
+                # 🔥 修复2：现在 remaining_to_allocate 也是 Decimal 了
+                remaining_to_allocate = repayment_amount
+
+                unsettled_orders = Order.objects.filter(
+                    customer=customer,
+                    is_settled=False,
+                    status__in=['pending', 'printed', 'reopened']
+                ).select_for_update().order_by('create_time')
+
+                for order in unsettled_orders:
+                    if remaining_to_allocate <= 0:
+                        break
+
+                    # 这里 order_unpaid 本身就是 Decimal，相减没问题
+                    order_unpaid = order.total_amount - order.received_amount
+                    if order_unpaid <= 0:
+                        continue
+
+                    if remaining_to_allocate >= order_unpaid:
+                        order.received_amount = order.total_amount
+                        order.is_settled = True
+                        order.settled_by = request.user
+                        order.settled_time = timezone.now()
+                        order.settled_remark = f"系统自动核销（还款ID:{repayment.id}）"
+                        remaining_to_allocate -= order_unpaid  # Decimal - Decimal，完美
+                    else:
+                        # 🔥 修复3：Decimal += Decimal，不再报错
+                        order.received_amount += remaining_to_allocate
+                        remaining_to_allocate = Decimal('0')
+                    order.save()
 
             create_operation_log(
                 request=request,
@@ -354,12 +425,13 @@ def repayment_register(request):
                 obj_type='repayment',
                 obj_id=repayment.id,
                 obj_name=f'{customer.name} - 还款¥{repayment_amount}',
-                detail=f"为客户{customer.name}登记还款"
+                detail=f"登记还款¥{repayment_amount}，系统自动核销订单"
             )
 
             clear_customer_cache(customer_id=int(customer_id))
-            return JsonResponse({'code': 1, 'msg': '还款登记成功'}, content_type='application/json')
+            return JsonResponse({'code': 1, 'msg': '还款登记成功！系统已自动核销旧账'}, content_type='application/json')
         except Exception as e:
+            logger.error(f"还款登记失败: {str(e)}", exc_info=True)
             return JsonResponse({'code': 0, 'msg': f'登记失败：{str(e)}'}, content_type='application/json')
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
 

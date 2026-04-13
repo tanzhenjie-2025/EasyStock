@@ -82,6 +82,14 @@ class Order(models.Model):
     unsettled_time = models.DateTimeField('撤销结清时间', null=True, blank=True)
     unsettled_remark = models.TextField('撤销结清备注', null=True, blank=True)
 
+    received_amount = models.DecimalField(
+        '已收金额',
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        help_text="该订单累计已收到的货款"
+    )
+
     def get_overdue_days(self):
         if self.is_settled:
             return 0

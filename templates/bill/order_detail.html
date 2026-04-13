@@ -92,20 +92,47 @@
                         <strong>结清状态：</strong> 
                         {% if order.is_settled %}
                             <span class="badge bg-success">已结清</span>
-                            <br><small class="text-success">
-                                结清人：{{ order.settled_by.name|default:"未知" }} | 结清时间：{{ order.settled_time|date:"Y-m-d H:i" }}
-                                <br>结清备注：{{ order.settled_remark|default:"无" }}
-                                {% if order.unsettled_time %}
-                                <br><small class="text-danger">
-                                    撤销结清：{{ order.unsettled_by.name|default:"未知" }} | {{ order.unsettled_time|date:"Y-m-d H:i" }}
-                                    <br>撤销备注：{{ order.unsettled_remark|default:"无" }}
-                                </small>
-                                {% endif %}
-                            </small>
                         {% else %}
                             <span class="badge bg-danger">未结清</span>
                         {% endif %}
                     </p>
+
+                    {# 🔥 新增：核心财务数据展示 #}
+                    <div class="p-3 bg-light rounded border mt-3">
+                        <h6 class="mb-2 text-muted">💰 订单资金情况</h6>
+                        <div class="d-flex justify-content-between mb-1">
+                            <span>订单总额：</span>
+                            <strong>¥{{ order.total_amount }}</strong>
+                        </div>
+                        <div class="d-flex justify-content-between mb-1">
+                            <span>累计已收：</span>
+                            <strong class="text-success">¥{{ order.received_amount }}</strong>
+                        </div>
+                        <hr style="margin: 8px 0;">
+                        <div class="d-flex justify-content-between">
+                            <span><strong>剩余欠款：</strong></span>
+                            <strong class="{% if unpaid_amount > 0 %}text-danger{% else %}text-success{% endif %}">
+                                {% if unpaid_amount > 0 %}
+                                    ¥{{ unpaid_amount }}
+                                {% else %}
+                                    ¥0.00 (已清)
+                                {% endif %}
+                            </strong>
+                        </div>
+                    </div>
+
+                    {% if order.is_settled %}
+                    <br><small class="text-success">
+                        结清人：{{ order.settled_by.name|default:"未知" }} | 结清时间：{{ order.settled_time|date:"Y-m-d H:i" }}
+                        <br>结清备注：{{ order.settled_remark|default:"无" }}
+                        {% if order.unsettled_time %}
+                        <br><small class="text-danger">
+                            撤销结清：{{ order.unsettled_by.name|default:"未知" }} | {{ order.unsettled_time|date:"Y-m-d H:i" }}
+                            <br>撤销备注：{{ order.unsettled_remark|default:"无" }}
+                        </small>
+                        {% endif %}
+                    </small>
+                    {% endif %}
                 </div>
                 <div class="col-md-6">
                     <p><strong>客户名称：</strong> {{ order.customer.name|default:"无" }}</p>
