@@ -89,10 +89,10 @@ def product_manage(request):
     page = request.GET.get('page', 1)
     keyword = request.GET.get('keyword', '').strip()
     status = request.GET.get('status', 'all')
-    # 新增：标签筛选参数
+    # 新增：标签筛选参数 + 当前Tab参数
     tag_ids = request.GET.getlist('tag_ids', [])
+    active_tab = request.GET.get('active_tab', 'list')
 
-    # ====================== 处理 POST 请求：标签操作 + 批量打标 ======================
     # ====================== 处理 POST 请求：标签操作 + 批量打标 ======================
     if request.method == 'POST':
         action = request.POST.get('action')
@@ -138,7 +138,8 @@ def product_manage(request):
                                      '批量移除标签')
         # 清理缓存
         clear_product_all_cache()
-        return redirect('product:product_manage')
+        # 重定向时保持当前Tab
+        return redirect(f"{request.path}?active_tab={active_tab}")
 
     # ====================== 获取所有标签（统计绑定商品数） ======================
     all_tags = ProductTag.all_objects.annotate(
@@ -233,6 +234,7 @@ def product_manage(request):
         'all_tags': all_tags,  # 传递标签数据到前端
         'count_all': count_all, 'count_active': count_active, 'count_inactive': count_inactive,
         'areas': areas,
+        'active_tab': active_tab, # 传递当前Tab状态
         'can_add_product': request.user.has_permission(PERM_PRODUCT_ADD),
         'can_edit_product': request.user.has_permission(PERM_PRODUCT_EDIT),
         'can_delete_product': request.user.has_permission(PERM_PRODUCT_DELETE),

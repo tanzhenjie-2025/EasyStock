@@ -215,27 +215,27 @@ input:checked + .slider:before{transform:translateX(26px);}
     <!-- ==================== Tab 导航栏 (5个选项 + 统计按钮) ==================== -->
     <ul class="nav nav-tabs" id="myTab" role="tablist" style="align-items: center;">
         <li class="nav-item" role="presentation">
-            <button class="nav-link active" id="tab-list" data-bs-toggle="tab" data-bs-target="#panel-list" type="button" role="tab">
+            <button class="nav-link {% if active_tab == 'list' or not active_tab %}active{% endif %}" id="tab-list" data-bs-toggle="tab" data-bs-target="#panel-list" type="button" role="tab">
                 📦 商品列表
             </button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link" id="tab-tag" data-bs-toggle="tab" data-bs-target="#panel-tag" type="button" role="tab">
+            <button class="nav-link {% if active_tab == 'tag' %}active{% endif %}" id="tab-tag" data-bs-toggle="tab" data-bs-target="#panel-tag" type="button" role="tab">
                 🏷️ 标签操作
             </button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link" id="tab-alias" data-bs-toggle="tab" data-bs-target="#panel-alias" type="button" role="tab">
+            <button class="nav-link {% if active_tab == 'alias' %}active{% endif %}" id="tab-alias" data-bs-toggle="tab" data-bs-target="#panel-alias" type="button" role="tab">
                 🏷️ 商品别名
             </button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link" id="tab-stock" data-bs-toggle="tab" data-bs-target="#panel-stock" type="button" role="tab">
+            <button class="nav-link {% if active_tab == 'stock' %}active{% endif %}" id="tab-stock" data-bs-toggle="tab" data-bs-target="#panel-stock" type="button" role="tab">
                 📥 入库管理
             </button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link" id="tab-tool" data-bs-toggle="tab" data-bs-target="#panel-tool" type="button" role="tab">
+            <button class="nav-link {% if active_tab == 'tool' %}active{% endif %}" id="tab-tool" data-bs-toggle="tab" data-bs-target="#panel-tool" type="button" role="tab">
                 🛠️ 数据工具
             </button>
         </li>
@@ -249,10 +249,11 @@ input:checked + .slider:before{transform:translateX(26px);}
     <div class="tab-content" id="myTabContent">
         
         <!-- -------------------- Tab 1: 核心操作 (默认页) -------------------- -->
-        <div class="tab-pane fade show active" id="panel-list" role="tabpanel">
+        <div class="tab-pane fade {% if active_tab == 'list' or not active_tab %}show active{% endif %}" id="panel-list" role="tabpanel">
             <!-- 搜索栏 + 功能按钮 (已移除标签相关) -->
             <div class="search-bar-wrapper">
                 <form method="get" class="search-form">
+                    <input type="hidden" name="active_tab" value="list">
                     <input type="text" name="keyword" class="search-input" placeholder="搜索商品/别名" value="{{ keyword }}">
                     <input type="hidden" name="status" value="{{ status }}">
                     <button class="btn btn-primary" type="submit">搜索</button>
@@ -264,17 +265,18 @@ input:checked + .slider:before{transform:translateX(26px);}
 
             <!-- 状态筛选 -->
             <div class="status-filter">
-                <a href="?status=all&keyword={{ keyword }}" class="btn {% if status == 'all' %}btn-primary{% else %}btn-default{% endif %}">全部({{ count_all }})</a>
-                <a href="?status=active&keyword={{ keyword }}" class="btn {% if status == 'active' %}btn-primary{% else %}btn-default{% endif %}">启用({{ count_active }})</a>
-                <a href="?status=inactive&keyword={{ keyword }}" class="btn {% if status == 'inactive' %}btn-primary{% else %}btn-default{% endif %}">停用({{ count_inactive }})</a>
+                <a href="?active_tab=list&status=all&keyword={{ keyword }}" class="btn {% if status == 'all' %}btn-primary{% else %}btn-default{% endif %}">全部({{ count_all }})</a>
+                <a href="?active_tab=list&status=active&keyword={{ keyword }}" class="btn {% if status == 'active' %}btn-primary{% else %}btn-default{% endif %}">启用({{ count_active }})</a>
+                <a href="?active_tab=list&status=inactive&keyword={{ keyword }}" class="btn {% if status == 'inactive' %}btn-primary{% else %}btn-default{% endif %}">停用({{ count_inactive }})</a>
             </div>
         </div>
 
         <!-- -------------------- Tab 2: 标签操作 -------------------- -->
-        <div class="tab-pane fade" id="panel-tag" role="tabpanel">
+        <div class="tab-pane fade {% if active_tab == 'tag' %}show active{% endif %}" id="panel-tag" role="tabpanel">
             <div class="search-bar-wrapper" style="margin-top: 10px;">
                 <!-- 标签搜索 -->
                 <form method="get" class="search-form">
+                    <input type="hidden" name="active_tab" value="tag">
                     <input type="text" name="keyword" class="search-input" placeholder="搜索商品/别名" value="{{ keyword }}">
                     <select name="tag_ids" class="tag-select" multiple>
                         <option value="">全部标签</option>
@@ -309,13 +311,14 @@ input:checked + .slider:before{transform:translateX(26px);}
         </div>
 
         <!-- -------------------- Tab 3: 商品别名管理 -------------------- -->
-        <div class="tab-pane fade" id="panel-alias" role="tabpanel">
+        <div class="tab-pane fade {% if active_tab == 'alias' %}show active{% endif %}" id="panel-alias" role="tabpanel">
             <div class="search-bar-wrapper" style="margin-top: 10px;">
                 <form method="get" class="search-form">
+                    <input type="hidden" name="active_tab" value="alias">
                     <input type="text" name="keyword" class="search-input" placeholder="搜索商品/别名" value="{{ keyword }}">
                     <input type="hidden" name="status" value="{{ status }}">
                     <button class="btn btn-primary" type="submit">搜索</button>
-                    <button class="btn btn-default" type="button" onclick="location.href='{% url 'product:product_manage' %}'">重置</button>
+                    <button class="btn btn-default" type="button" onclick="location.href='{% url 'product:product_manage' %}?active_tab=alias'">重置</button>
                 </form>
             </div>
             
@@ -360,11 +363,24 @@ input:checked + .slider:before{transform:translateX(26px);}
                         {% endfor %}
                     </tbody>
                 </table>
+                
+                <!-- 别名列表分页 -->
+                {% if page_products.has_other_pages %}
+                <div style="text-align:center; margin:15px 0;">
+                    {% if page_products.has_previous %}
+                    <a href="?page={{ page_products.previous_page_number }}&active_tab=alias&keyword={{ keyword }}&status={{ status }}&tag_ids={{ tag_ids|join:',' }}" class="btn btn-default">上一页</a>
+                    {% endif %}
+                    <span style="margin:0 10px;">{{ page_products.number }} / {{ page_products.paginator.num_pages }}</span>
+                    {% if page_products.has_next %}
+                    <a href="?page={{ page_products.next_page_number }}&active_tab=alias&keyword={{ keyword }}&status={{ status }}&tag_ids={{ tag_ids|join:',' }}" class="btn btn-default">下一页</a>
+                    {% endif %}
+                </div>
+                {% endif %}
             </div>
         </div>
 
         <!-- -------------------- Tab 4: 入库管理 -------------------- -->
-        <div class="tab-pane fade" id="panel-stock" role="tabpanel">
+        <div class="tab-pane fade {% if active_tab == 'stock' %}show active{% endif %}" id="panel-stock" role="tabpanel">
             <div class="search-bar-wrapper" style="margin-top: 10px;">
                 <a href="/product/stock-in/index/" class="nav-btn">📝 新增入库单</a>
                 <a href="/product/stock-in/list/" class="nav-btn">📋 入库记录列表</a>
@@ -375,7 +391,7 @@ input:checked + .slider:before{transform:translateX(26px);}
         </div>
 
         <!-- -------------------- Tab 5: 数据工具 -------------------- -->
-        <div class="tab-pane fade" id="panel-tool" role="tabpanel">
+        <div class="tab-pane fade {% if active_tab == 'tool' %}show active{% endif %}" id="panel-tool" role="tabpanel">
             <div class="row" style="margin-top: 10px; justify-content: flex-start;">
                 <div class="col-md-4" style="margin-bottom: 20px; max-width: 350px;">
                     <div class="tool-card" onclick="showImportModal()" style="cursor: pointer;">
@@ -464,15 +480,15 @@ input:checked + .slider:before{transform:translateX(26px);}
             </tbody>
         </table>
 
-        <!-- 分页 -->
+        <!-- 底部分页 -->
         {% if page_products.has_other_pages %}
         <div style="text-align:center; margin:15px 0;">
             {% if page_products.has_previous %}
-            <a href="?page={{ page_products.previous_page_number }}&keyword={{ keyword }}&status={{ status }}&tag_ids={{ tag_ids|join:',' }}" class="btn btn-default">上一页</a>
+            <a href="?page={{ page_products.previous_page_number }}&active_tab=list&keyword={{ keyword }}&status={{ status }}&tag_ids={{ tag_ids|join:',' }}" class="btn btn-default">上一页</a>
             {% endif %}
             <span style="margin:0 10px;">{{ page_products.number }} / {{ page_products.paginator.num_pages }}</span>
             {% if page_products.has_next %}
-            <a href="?page={{ page_products.next_page_number }}&keyword={{ keyword }}&status={{ status }}&tag_ids={{ tag_ids|join:',' }}" class="btn btn-default">下一页</a>
+            <a href="?page={{ page_products.next_page_number }}&active_tab=list&keyword={{ keyword }}&status={{ status }}&tag_ids={{ tag_ids|join:',' }}" class="btn btn-default">下一页</a>
             {% endif %}
         </div>
         {% endif %}
@@ -723,6 +739,8 @@ input:checked + .slider:before{transform:translateX(26px);}
 <script>
 let customFieldCount = 0;
 let csrf = $('input[name="csrfmiddlewaretoken"]').val();
+// 获取当前active_tab用于JS逻辑
+let currentActiveTab = '{{ active_tab|escapejs }}' || 'list';
 
 // ====================== 新增 JS：新建标签弹窗 ======================
 function showAddTagModal(){$('#addTagModal').addClass('active');}
@@ -1031,5 +1049,24 @@ function showToast(msg, type){
     setTimeout(()=>{$('.toast').remove();}, 2000);
 }
 function editProduct(id){openModal(id);}
+
+// ========== 修复：页面加载时根据URL参数激活Tab ==========
+$(document).ready(function(){
+    // 强制触发Bootstrap Tab切换，解决刷新后内容不显示的问题
+    if(currentActiveTab) {
+        var tabMap = {
+            'list': '#tab-list',
+            'tag': '#tab-tag',
+            'alias': '#tab-alias',
+            'stock': '#tab-stock',
+            'tool': '#tab-tool'
+        };
+        var tabId = tabMap[currentActiveTab];
+        if(tabId && $(tabId).length) {
+            var tab = new bootstrap.Tab($(tabId)[0]);
+            tab.show();
+        }
+    }
+});
 </script>
 {% endblock %}
