@@ -174,7 +174,9 @@ class OrderItem(models.Model):
         verbose_name = '订单明细'
         verbose_name_plural = '订单明细管理'
         indexes = [
-            models.Index(fields=['product', 'order', 'quantity', 'amount'])
+            # 新增：商品+订单联合索引（优化销量统计）
+            models.Index(fields=['product_id', 'order_id']),
+            models.Index(fields=['product', 'order', 'quantity', 'amount']),
         ]
 
 

@@ -73,6 +73,8 @@ class Product(models.Model):
         verbose_name_plural = '商品管理'
         indexes = [
             models.Index(fields=['pinyin_abbr', 'pinyin_full']),
+            # 新增：状态筛选+名称排序联合索引
+            models.Index(fields=['is_active', 'name']),
             models.Index(fields=['name', 'id', 'price', 'unit', 'stock_system', 'stock_actual']),
             models.Index(fields=['is_active']),
         ]
@@ -113,6 +115,8 @@ class ProductAlias(models.Model):
         verbose_name = '商品别名'
         verbose_name_plural = '商品别名管理'
         indexes = [
+            # 新增：商品+启用状态联合索引（优化预加载）
+            models.Index(fields=['product', 'is_active']),
             models.Index(fields=['product', 'alias_name']),
             models.Index(fields=['alias_pinyin_abbr', 'alias_pinyin_full']),
             models.Index(fields=['is_active']),

@@ -3,6 +3,7 @@
 
 {% block extra_css %}
 <style>
+/* 原有样式保持不变 */
 .product-manage-container {
     max-width: 1400px;
     margin: 10px auto;
@@ -364,15 +365,15 @@ input:checked + .slider:before{transform:translateX(26px);}
                     </tbody>
                 </table>
                 
-                <!-- 别名列表分页 -->
-                {% if page_products.has_other_pages %}
+                <!-- 别名列表分页 (适配 paginator_data) -->
+                {% if paginator_data.num_pages > 1 %}
                 <div style="text-align:center; margin:15px 0;">
-                    {% if page_products.has_previous %}
-                    <a href="?page={{ page_products.previous_page_number }}&active_tab=alias&keyword={{ keyword }}&status={{ status }}&tag_ids={{ tag_ids|join:',' }}" class="btn btn-default">上一页</a>
+                    {% if paginator_data.has_previous %}
+                    <a href="?page={{ paginator_data.previous_page_number }}&active_tab=alias&keyword={{ keyword }}&status={{ status }}&tag_ids={{ tag_ids|join:',' }}" class="btn btn-default">上一页</a>
                     {% endif %}
-                    <span style="margin:0 10px;">{{ page_products.number }} / {{ page_products.paginator.num_pages }}</span>
-                    {% if page_products.has_next %}
-                    <a href="?page={{ page_products.next_page_number }}&active_tab=alias&keyword={{ keyword }}&status={{ status }}&tag_ids={{ tag_ids|join:',' }}" class="btn btn-default">下一页</a>
+                    <span style="margin:0 10px;">{{ paginator_data.current_page }} / {{ paginator_data.num_pages }}</span>
+                    {% if paginator_data.has_next %}
+                    <a href="?page={{ paginator_data.next_page_number }}&active_tab=alias&keyword={{ keyword }}&status={{ status }}&tag_ids={{ tag_ids|join:',' }}" class="btn btn-default">下一页</a>
                     {% endif %}
                 </div>
                 {% endif %}
@@ -480,15 +481,15 @@ input:checked + .slider:before{transform:translateX(26px);}
             </tbody>
         </table>
 
-        <!-- 底部分页 -->
-        {% if page_products.has_other_pages %}
+        <!-- 底部分页 (适配 paginator_data) -->
+        {% if paginator_data.num_pages > 1 %}
         <div style="text-align:center; margin:15px 0;">
-            {% if page_products.has_previous %}
-            <a href="?page={{ page_products.previous_page_number }}&active_tab=list&keyword={{ keyword }}&status={{ status }}&tag_ids={{ tag_ids|join:',' }}" class="btn btn-default">上一页</a>
+            {% if paginator_data.has_previous %}
+            <a href="?page={{ paginator_data.previous_page_number }}&active_tab=list&keyword={{ keyword }}&status={{ status }}&tag_ids={{ tag_ids|join:',' }}" class="btn btn-default">上一页</a>
             {% endif %}
-            <span style="margin:0 10px;">{{ page_products.number }} / {{ page_products.paginator.num_pages }}</span>
-            {% if page_products.has_next %}
-            <a href="?page={{ page_products.next_page_number }}&active_tab=list&keyword={{ keyword }}&status={{ status }}&tag_ids={{ tag_ids|join:',' }}" class="btn btn-default">下一页</a>
+            <span style="margin:0 10px;">{{ paginator_data.current_page }} / {{ paginator_data.num_pages }}</span>
+            {% if paginator_data.has_next %}
+            <a href="?page={{ paginator_data.next_page_number }}&active_tab=list&keyword={{ keyword }}&status={{ status }}&tag_ids={{ tag_ids|join:',' }}" class="btn btn-default">下一页</a>
             {% endif %}
         </div>
         {% endif %}

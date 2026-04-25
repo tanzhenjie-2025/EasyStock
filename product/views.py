@@ -6,15 +6,13 @@ import openpyxl
 import xlrd
 from datetime import datetime, timedelta
 from django.db.models import Sum, Count, Q, F, Prefetch, Case, When, DateTimeField, DecimalField
-# ====================== 导出功能依赖导入 ======================
+
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
-from django.http import HttpResponse
 from io import BytesIO
-import logging
-# ========== 缓存核心导入 ==========
+
 from django.core.cache import cache
-# ========== 导入依赖（和bill模块保持一致） ==========
+
 from django.db import transaction
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import JsonResponse, HttpResponse
@@ -22,14 +20,12 @@ from django.utils import timezone
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q, Sum, Count
-from accounts.views import permission_required, create_operation_log
+
 from accounts.models import ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OPERATOR
 from product.models import Product, StockIn, StockInItem, ProductPriceHistory, ProductTag
 from bill.views import (
     # 复用缓存工具
     clear_stock_cache, clear_product_search_cache,
-    # 复用AJAX装饰器
-    ajax_login_required, ajax_permission_required
 )
 import json
 import decimal
@@ -82,85 +78,70 @@ def clear_product_all_cache():
         cache.delete(key)
 
 
-# ====================== 商品管理主页面 ======================
-# ====================== 重写：商品管理主页面（集成标签功能） ======================
 @permission_required(PERM_PRODUCT_VIEW)
 def product_manage(request):
     page = request.GET.get('page', 1)
     keyword = request.GET.get('keyword', '').strip()
     status = request.GET.get('status', 'all')
-    # 新增：标签筛选参数 + 当前Tab参数
-    tag_ids = request.GET.getlist('tag_ids', [])
+    # 🔥 修复：清洗 tag_ids，过滤空字符串和非数字
+    tag_ids = [tid for tid in request.GET.getlist('tag_ids', []) if tid.strip().isdigit()]
     active_tab = request.GET.get('active_tab', 'list')
 
-    # ====================== 处理 POST 请求：标签操作 + 批量打标 ======================
+    # ====================== POST逻辑保持不变 ======================
     if request.method == 'POST':
         action = request.POST.get('action')
-        # 1. 新增标签
         if action == 'add_tag':
             tag_name = request.POST.get('tag_name', '').strip()
             tag_color = request.POST.get('tag_color', '#3498db')
             if tag_name:
                 ProductTag.objects.create(name=tag_name, color=tag_color)
                 create_operation_log(request, 'create', 'product_tag', 0, tag_name, '新增标签')
-        # 2. 切换标签启用/禁用
         elif action == 'toggle_tag':
             tag_id = request.POST.get('tag_id')
             tag = get_object_or_404(ProductTag.all_objects, id=tag_id)
             tag.is_active = not tag.is_active
             tag.save(update_fields=['is_active'])
             create_operation_log(request, 'update', 'product_tag', tag.id, tag.name, '切换标签状态')
-        # 3. 批量给商品添加标签 ✅修复核心
         elif action == 'batch_add_tag':
             target_tag_id = request.POST.get('target_tag_id')
-            # 核心修复：接收逗号分隔的ID字符串，分割+转整数列表
             product_ids_str = request.POST.get('product_ids', '').strip()
             product_ids = [int(pid) for pid in product_ids_str.split(',') if pid.strip().isdigit()]
-
             if target_tag_id and product_ids:
                 tag = get_object_or_404(ProductTag, id=target_tag_id)
-                # 批量添加标签（Django ORM 原生支持，无需循环）
                 tag.products.add(*product_ids)
-                create_operation_log(request, 'update', 'product', 0, f'批量为{len(product_ids)}个商品添加标签',
-                                     '批量打标')
-        # 4. 批量移除商品标签 ✅修复核心
+                create_operation_log(request, 'update', 'product', 0, f'批量为{len(product_ids)}个商品添加标签', '批量打标')
         elif action == 'batch_remove_tag':
             target_tag_id = request.POST.get('target_tag_id')
-            # 核心修复：接收逗号分隔的ID字符串，分割+转整数列表
             product_ids_str = request.POST.get('product_ids', '').strip()
             product_ids = [int(pid) for pid in product_ids_str.split(',') if pid.strip().isdigit()]
-
             if target_tag_id and product_ids:
                 tag = get_object_or_404(ProductTag, id=target_tag_id)
-                # 批量移除标签（Django ORM 原生支持，无需循环）
                 tag.products.remove(*product_ids)
-                create_operation_log(request, 'update', 'product', 0, f'批量为{len(product_ids)}个商品移除标签',
-                                     '批量移除标签')
-        # 清理缓存
+                create_operation_log(request, 'update', 'product', 0, f'批量为{len(product_ids)}个商品移除标签', '批量移除标签')
         clear_product_all_cache()
-        # 重定向时保持当前Tab
         return redirect(f"{request.path}?active_tab={active_tab}")
 
-    # ====================== 获取所有标签（统计绑定商品数） ======================
+    # ====================== 标签查询 ======================
     all_tags = ProductTag.all_objects.annotate(
         product_count=Count('products')
     ).order_by('sort_order', '-id')
 
-    # ====================== 商品查询（新增标签筛选） ======================
+    # ====================== 商品查询缓存 ======================
     cache_key = f"{CACHE_PREFIX_PRODUCT_LIST}{keyword}:{page}:{status}:{','.join(tag_ids)}"
     cached_data = cache.get(cache_key)
 
     if cached_data:
-        product_list = cached_data['product_list']
-        paginator = cached_data['paginator']
-        page_products = cached_data['page_products']
-        count_all = cached_data['count_all']
-        count_active = cached_data['count_active']
-        count_inactive = cached_data['count_inactive']
+        product_list_data = cached_data['product_list']
+        paginator_data = cached_data['paginator']
+        count_stats = cached_data['count_stats']
     else:
+        # 基础查询集（优化预加载）
         products_query = Product.all_objects.order_by('name').only(
             'id', 'name', 'price', 'unit', 'stock_system', 'stock_actual', 'is_active'
-        ).prefetch_related('tags', 'aliases')  # 预加载标签+别名
+        ).prefetch_related(
+            Prefetch('tags', queryset=ProductTag.objects.only('id', 'name', 'color')),
+            Prefetch('aliases', queryset=ProductAlias.all_objects.only('id', 'alias_name', 'product_id'))
+        )
 
         # 状态筛选
         if status == 'active':
@@ -168,7 +149,7 @@ def product_manage(request):
         elif status == 'inactive':
             products_query = products_query.filter(is_active=False)
 
-        # 关键词搜索：商品名/别名
+        # 关键词搜索
         if keyword:
             alias_product_ids = ProductAlias.all_objects.filter(
                 Q(alias_name__icontains=keyword)
@@ -177,15 +158,18 @@ def product_manage(request):
                 Q(name__icontains=keyword) | Q(id__in=alias_product_ids)
             )
 
-        # 标签筛选（多选）
+        # 标签筛选
         if tag_ids:
             products_query = products_query.filter(tags__id__in=tag_ids).distinct()
 
-        # 统计数量
-        count_all = Product.all_objects.count()
-        count_active = Product.all_objects.filter(is_active=True).count()
-        count_inactive = Product.all_objects.filter(is_active=False).count()
+        # 优化：合并商品状态统计为一次查询
+        count_stats = Product.all_objects.aggregate(
+            count_all=Count('id'),
+            count_active=Count(Case(When(is_active=True, then=1))),
+            count_inactive=Count(Case(When(is_active=False, then=1)))
+        )
 
+        # 分页总数缓存
         count_cache_key = f"{CACHE_PREFIX_PRODUCT_COUNT}{keyword}:{status}:{','.join(tag_ids)}"
         total_count = cache.get(count_cache_key)
         if total_count is None:
@@ -202,13 +186,13 @@ def product_manage(request):
         except EmptyPage:
             page_products = paginator.page(paginator.num_pages)
 
-        # 组装商品数据（包含标签）
-        product_list = []
+        # 序列化商品数据（仅缓存必要字段）
+        product_list_data = []
         for product in page_products:
-            product_list.append({
+            product_list_data.append({
                 'id': product.id,
                 'name': product.name,
-                'price': product.price,
+                'price': float(product.price),
                 'unit': product.unit,
                 'stock_system': product.stock_system,
                 'stock_actual': product.stock_actual,
@@ -217,24 +201,42 @@ def product_manage(request):
                 'status': 1 if product.is_active else 0
             })
 
-        # 缓存
+        # 序列化分页器数据
+        paginator_data = {
+            'num_pages': paginator.num_pages,
+            'page_range': list(paginator.page_range),
+            'current_page': page_products.number,
+            'has_previous': page_products.has_previous(),
+            'has_next': page_products.has_next(),
+            'previous_page_number': page_products.previous_page_number() if page_products.has_previous() else None,
+            'next_page_number': page_products.next_page_number() if page_products.has_next() else None,
+        }
+
+        # 缓存数据
         cache.set(cache_key, {
-            'product_list': product_list, 'paginator': paginator, 'page_products': page_products,
-            'count_all': count_all, 'count_active': count_active, 'count_inactive': count_inactive
+            'product_list': product_list_data,
+            'paginator': paginator_data,
+            'count_stats': count_stats
         }, CACHE_COMMON)
 
+    # 区域缓存
     areas = cache.get(KEY_AREA)
     if not areas:
         areas = list(Area.objects.only('id', 'name'))
         cache.set(KEY_AREA, areas, CACHE_AREA)
 
     return render(request, 'product/product_manage.html', {
-        'products': product_list, 'paginator': paginator, 'page_products': page_products,
-        'keyword': keyword, 'status': status, 'tag_ids': list(map(int, tag_ids)),
-        'all_tags': all_tags,  # 传递标签数据到前端
-        'count_all': count_all, 'count_active': count_active, 'count_inactive': count_inactive,
+        'products': product_list_data,
+        'paginator_data': paginator_data,  # 前端需适配分页器数据结构
+        'keyword': keyword,
+        'status': status,
+        'tag_ids': list(map(int, tag_ids)),  # 转换为整数列表供前端使用
+        'all_tags': all_tags,
+        'count_all': count_stats['count_all'],
+        'count_active': count_stats['count_active'],
+        'count_inactive': count_stats['count_inactive'],
         'areas': areas,
-        'active_tab': active_tab, # 传递当前Tab状态
+        'active_tab': active_tab,
         'can_add_product': request.user.has_permission(PERM_PRODUCT_ADD),
         'can_edit_product': request.user.has_permission(PERM_PRODUCT_EDIT),
         'can_delete_product': request.user.has_permission(PERM_PRODUCT_DELETE),
@@ -1090,27 +1092,20 @@ def product_statistics_detail(request):
     })
 
 
-# ===================== 修改：商品统计 API (全部商品，无需PK) =====================
 @login_required
 @permission_required(PERM_PRODUCT_DETAIL)
 def product_statistics_api(request):
-    """
-    异步统计接口：全部商品统计，支持标签筛选、时间范围筛选、排序
-    优化：充分利用已有索引
-    """
-    # 获取参数
     tag_ids = request.GET.getlist('tag_ids', [])
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
-    order_by = request.GET.get('order_by', '-total_amount')  # 默认按金额降序
+    order_by = request.GET.get('order_by', '-amount')  # 默认按金额降序
 
-    # 基础查询：排除作废订单，统计所有商品
     valid_status = ['pending', 'printed', 'reopened']
     items_qs = OrderItem.objects.filter(
         order__status__in=valid_status
-    ).select_related('order', 'product')
+    ).select_related('order', 'product')  # 减少回表
 
-    # 时间范围筛选 (利用 order__create_time 索引)
+    # 时间范围筛选
     if date_from:
         try:
             start = timezone.make_aware(datetime.datetime.strptime(date_from, '%Y-%m-%d'))
@@ -1126,21 +1121,33 @@ def product_statistics_api(request):
         except:
             pass
 
-    # 1. 核心KPI统计 (全部商品)
+    # 标签筛选（如果有）
+    if tag_ids:
+        items_qs = items_qs.filter(product__tags__id__in=tag_ids).distinct()
+
+    # 核心KPI统计
     stats = items_qs.aggregate(
         total_qty=Coalesce(Sum('quantity'), 0),
         total_amount=Coalesce(Sum('amount'), 0, output_field=DecimalField()),
         count_orders=Count('order', distinct=True),
     )
 
-    # 2. 标签占比分析 (统计商品标签在所有销售中的占比)
-    tag_analysis = []
+    # 标签占比分析
     all_tags = ProductTag.objects.filter(is_active=True)
     total_orders = stats['count_orders'] or 1
 
+    tag_order_counts = {
+        tag['product__tags__id']: tag['order_count']
+        for tag in items_qs.filter(
+            product__tags__in=all_tags
+        ).values('product__tags__id').annotate(
+            order_count=Count('order', distinct=True)
+        ).values('product__tags__id', 'order_count')
+    }
+
+    tag_analysis = []
     for tag in all_tags:
-        # 统计带有该标签的商品的订单数
-        tag_order_count = items_qs.filter(product__tags__id=tag.id).count()
+        tag_order_count = tag_order_counts.get(tag.id, 0)
         tag_analysis.append({
             'id': tag.id,
             'name': tag.name,
@@ -1149,25 +1156,22 @@ def product_statistics_api(request):
             'percentage': round(tag_order_count / total_orders * 100, 2) if total_orders else 0
         })
 
-    # 3. 商品排行列表 (按商品维度聚合)
+    # 🔥 修复：销售明细排行（返回订单号、开单时间、数量、金额）
+    # 注意：这里直接取订单项明细，不做聚合
     rank_items = items_qs.values(
-        'product__id',
-        'product__name'
-    ).annotate(
-        total_qty=Sum('quantity'),
-        total_amount=Sum('amount')
-    ).order_by(order_by)[:100]  # 限制100条
+        'order__order_no',       # 订单号
+        'order__create_time',    # 开单时间
+        'quantity',              # 销售数量
+        'amount'                 # 销售金额
+    ).order_by(order_by)[:100]
 
     return JsonResponse({
         'code': 1,
         'data': {
-            # KPI数据
             'total_qty': stats['total_qty'],
             'total_amount': float(stats['total_amount']),
             'count_orders': stats['count_orders'],
-            # 标签分析
             'tag_analysis': tag_analysis,
-            # 商品排行
             'rank_items': list(rank_items),
         }
     })

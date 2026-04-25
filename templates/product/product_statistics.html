@@ -130,7 +130,7 @@
 {% block content %}
 <div class="stats-container">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h2>📊 {{ product.name }} - 统计详情</h2>
+        <h2>📊 统计详情</h2>
         <a href="{% url 'product:product_manage' %}" class="btn btn-default" style="background:#e9e9e9;">← 返回列表</a>
     </div>
 
@@ -296,7 +296,7 @@ function renderTagAnalysis(data) {
     $('#tagAnalysisContainer').html(html);
 }
 
-// 渲染排行表
+// 🔥 修复：渲染排行表（对应后端返回的 order__order_no, order__create_time, quantity, amount）
 function renderRankTable(data) {
     if (!data.rank_items || data.rank_items.length === 0) {
         $('#rankTableContainer').html('<div class="loading-text">暂无销售明细数据</div>');
@@ -323,7 +323,7 @@ function renderRankTable(data) {
     data.rank_items.forEach(item => {
         html += `
             <tr>
-                <td>${item.order__order_no}</td>
+                <td>${item.order__order_no || '-'}</td>
                 <td>${item.order__create_time ? new Date(item.order__create_time).toLocaleString() : '-'}</td>
                 <td>${item.quantity}</td>
                 <td>¥${parseFloat(item.amount).toLocaleString('zh-CN', {minimumFractionDigits: 2})}</td>
@@ -338,7 +338,7 @@ function renderRankTable(data) {
 // 排序
 function sortRankItems(orderBy) {
     currentOrderBy = orderBy;
-    // 如果已经加载过数据，直接重新请求（或者前端排序，这里为了简单直接重新请求）
+    // 如果已经加载过数据，直接重新请求
     if ($('#kpiContainer').find('.kpi-item').length > 0) {
         loadStatistics();
     }
