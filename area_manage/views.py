@@ -1,5 +1,3 @@
-from django.db.models.functions import Coalesce
-from django.db.models import DecimalField
 from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from django.utils import timezone
@@ -10,15 +8,12 @@ from django.db.models import Q, Count, Prefetch, OuterRef, Subquery, Sum
 import logging
 import json
 
-from accounts.models import Permission
 from accounts.views import permission_required, create_operation_log
 from bill.models import Order, OrderItem
 from area_manage.models import Area, AreaGroup
 from customer_manage.models import Customer
 
 import openpyxl
-from django.http import HttpResponse
-from io import BytesIO
 
 from summary.views import export_to_excel
 from django.db.models import Sum, Count, Max, Q, F, DecimalField
@@ -356,7 +351,7 @@ def group_list(request):
         sort_order = request.GET.get('order', 'asc')
         page = max(int(request.GET.get('page', 1)), 1)
         page_size = min(int(request.GET.get('page_size', 20)), PAGE_SIZE_MAX)
-        status = request.GET.get('status', 'all').strip()  # 新增：状态筛选参数
+        status = request.GET.get('status', 'all').strip()
 
         if sort_by not in ALLOW_SORT_GROUP:
             sort_by = 'name'
@@ -367,12 +362,11 @@ def group_list(request):
         if cache_data:
             return JsonResponse(cache_data)
 
-        # 🔧 核心优化：数据库聚合统计客户数，移除Python层循环sum
+        # 🔧 优化：简化 Subquery，直接对 area_id 计数
         customer_subquery = Customer.objects.filter(
             area_id=OuterRef('areas__id')
-        ).values('area_id').annotate(count=Count('id')).values('count')
+        ).annotate(count=Count('id')).values('count')
 
-        # 🔧 优化：only()限制字段 + 预加载 + 数据库聚合，包含is_active
         base_groups = AreaGroup.objects.only('id', 'name', 'remark', 'create_time', 'update_time', 'is_active')
         base_groups = base_groups.prefetch_related(
             Prefetch('areas', queryset=Area.objects.only('id', 'name'))
@@ -386,7 +380,6 @@ def group_list(request):
                 Q(name__icontains=keyword) | Q(remark__icontains=keyword) | Q(areas__name__icontains=keyword)
             ).distinct()
 
-        # 根据状态过滤
         groups = base_groups
         if status == 'active':
             groups = groups.filter(is_active=True)
@@ -397,7 +390,6 @@ def group_list(request):
         groups = groups.order_by(sort_by)
         total = groups.count()
 
-        # 计算各状态数量
         all_count = base_groups.count()
         active_count = base_groups.filter(is_active=True).count()
         inactive_count = all_count - active_count
@@ -406,7 +398,6 @@ def group_list(request):
         end = start + page_size
         groups_page = groups[start:end]
 
-        # 🔧 优化：统一时间格式化，包含is_active
         result = [
             {
                 'id': g.id, 'name': g.name, 'remark': g.remark or '',
@@ -416,7 +407,7 @@ def group_list(request):
                 'area_count': g.area_count,
                 'create_time': format_datetime(g.create_time),
                 'update_time': format_datetime(g.update_time),
-                'is_active': g.is_active  # 新增：返回状态字段
+                'is_active': g.is_active
             }
             for g in groups_page
         ]
@@ -425,11 +416,7 @@ def group_list(request):
             'code': 1, 'data': result,
             'pagination': {'total': total, 'page': page, 'page_size': page_size,
                            'total_pages': (total + page_size - 1) // page_size},
-            'counts': {  # 新增：返回各状态数量
-                'all': all_count,
-                'active': active_count,
-                'inactive': inactive_count
-            }
+            'counts': {'all': all_count, 'active': active_count, 'inactive': inactive_count}
         }
         cache.set(cache_key, response_data, CACHE_API_LIST)
         return JsonResponse(response_data)
@@ -443,22 +430,18 @@ def group_list(request):
 @permission_required('area_view')
 def group_detail_api(request, pk):
     try:
-        # 1. 基础区域组信息
         group = get_object_or_404(
             AreaGroup.objects.only('id', 'name', 'remark', 'create_time', 'update_time'),
             pk=pk
         )
 
-        # 2. 获取分页参数 (针对区域列表)
         page = max(int(request.GET.get('a_page', 1)), 1)
-        page_size = 10  # 区域列表每页数量
+        page_size = 10
 
-        # 3. 查询该组下的区域并分页
-        # 注意：prefetch_related 对于 ManyToMany 分页不太好直接切，我们分开查
-        all_areas_qs = group.areas.all().only('id', 'name', 'create_time').order_by('name')
+        # 🔧 优化：先用 values_list 取 area_ids，避免加载所有区域对象
+        area_ids = list(group.areas.values_list('id', flat=True))
 
-        # 统计客户数映射
-        area_ids = [a.id for a in all_areas_qs]
+        # 🔧 优化：批量查询客户数映射
         area_customer_map = dict(
             Customer.objects.filter(area_id__in=area_ids)
             .values('area_id')
@@ -466,7 +449,8 @@ def group_detail_api(request, pk):
             .values_list('area_id', 'count')
         )
 
-        # 手动分页
+        # 再查询分页所需的区域对象
+        all_areas_qs = group.areas.only('id', 'name', 'create_time').order_by('name')
         total_areas = len(area_ids)
         start = (page - 1) * page_size
         end = start + page_size
@@ -480,15 +464,14 @@ def group_detail_api(request, pk):
             } for a in areas_page
         ]
 
-        # 4. 组装数据
         data = {
             'id': group.id,
             'name': group.name,
             'remark': group.remark or '',
             'create_time': format_datetime(group.create_time),
             'update_time': format_datetime(group.update_time),
-            'customer_count': sum(area_customer_map.values()),  # 总客户数
-            'areas': areas,  # 当前页区域
+            'customer_count': sum(area_customer_map.values()),
+            'areas': areas,
             'area_pagination': {
                 'page': page,
                 'total_pages': (total_areas + page_size - 1) // page_size,
@@ -1288,39 +1271,45 @@ def group_stats_page(request):
 @permission_required('area_view')
 def calculate_group_stats(request):
     try:
-        # 获取参数
         time_range = request.GET.get('time_range', '30days')
         start_date = request.GET.get('start_date', '')
         end_date = request.GET.get('end_date', '')
-        sort_by = request.GET.get('sort_by', 'sales')  # sales/order_count/debt
+        sort_by = request.GET.get('sort_by', 'sales')
         keyword = request.GET.get('keyword', '').strip()
 
-        # 1. 解析时间
         start_dt, end_dt = parse_time_range(time_range, start_date, end_date)
 
-        # 2. 预加载所有区域组及其包含的区域映射关系 (减少DB查询)
+        # 1. 预加载所有区域组及其包含的区域映射
         group_area_map = {}
         all_groups = AreaGroup.objects.only('id', 'name').filter(is_active=True)
         for g in all_groups:
             group_area_map[g.id] = {
                 'name': g.name,
-                'area_ids': list(g.areas.values_list('id', flat=True))
+                'area_ids': set(g.areas.values_list('id', flat=True))  # 用 set 提高查找效率
             }
 
-        # 3. 基础订单QuerySet (利用索引)
-        base_orders = Order.objects.filter(
+        # 2. 🔧 核心优化：先在数据库层按 Area 聚合订单数据，避免加载全量 Order
+        area_order_stats = Order.objects.filter(
             status__in=['pending', 'printed', 'reopened'],
             create_time__date__gte=start_dt,
-            create_time__date__lte=end_dt
-        ).select_related('area').only('id', 'area_id', 'total_amount', 'is_settled')
+            create_time__date__lte=end_dt,
+            area_id__isnull=False  # 排除无区域的订单
+        ).values('area_id').annotate(
+            sales=Coalesce(Sum('total_amount'), 0, output_field=DecimalField(max_digits=12, decimal_places=2)),
+            order_count=Count('id'),
+            debt=Coalesce(
+                Sum('total_amount', filter=Q(is_settled=False)),
+                0,
+                output_field=DecimalField(max_digits=12, decimal_places=2)
+            )
+        )
 
-        # 4. 按区域组聚合统计 (Python层聚合，灵活度高)
+        # 3. 初始化组统计数据
         group_stats_data = {}
         global_total_sales = 0.0
         global_total_orders = 0
         global_total_debt = 0.0
 
-        # 初始化所有组数据
         for g_id, g_info in group_area_map.items():
             group_stats_data[g_id] = {
                 'group_id': g_id,
@@ -1331,51 +1320,41 @@ def calculate_group_stats(request):
                 'area_ids': g_info['area_ids']
             }
 
-        # 遍历订单进行累加
-        for order in base_orders:
-            order_amount = float(order.total_amount) if order.total_amount else 0.0
-            is_debt = not order.is_settled
+        # 4. 遍历按 Area 聚合的结果，累加到对应的 Group
+        for area_stat in area_order_stats:
+            area_id = area_stat['area_id']
+            sales = float(area_stat['sales'])
+            order_count = area_stat['order_count']
+            debt = float(area_stat['debt'])
 
             # 全局累加
-            global_total_sales += order_amount
-            global_total_orders += 1
-            if is_debt:
-                global_total_debt += order_amount
+            global_total_sales += sales
+            global_total_orders += order_count
+            global_total_debt += debt
 
-            # 匹配区域组 (一个订单可能属于多个组，也可能不属于任何组)
-            if order.area_id:
-                for g_id, g_data in group_stats_data.items():
-                    if order.area_id in g_data['area_ids']:
-                        g_data['sales'] += order_amount
-                        g_data['order_count'] += 1
-                        if is_debt:
-                            g_data['debt'] += order_amount
+            # 匹配区域组并累加
+            for g_id, g_data in group_stats_data.items():
+                if area_id in g_data['area_ids']:
+                    g_data['sales'] += sales
+                    g_data['order_count'] += order_count
+                    g_data['debt'] += debt
 
-        # 5. 转换为列表并计算占比
+        # 5. 后续处理（计算占比、过滤、排序）保持不变
         group_list = list(group_stats_data.values())
-
         for g in group_list:
-            # 计算占比
-            if global_total_sales > 0:
-                g['contribution'] = round((g['sales'] / global_total_sales) * 100, 2)
-            else:
-                g['contribution'] = 0.0
-            # 移除不需要的area_ids
+            g['contribution'] = round((g['sales'] / global_total_sales) * 100, 2) if global_total_sales > 0 else 0.0
             del g['area_ids']
 
-        # 6. 搜索过滤
         if keyword:
             group_list = [g for g in group_list if keyword.lower() in g['group_name'].lower()]
 
-        # 7. 排序
         if sort_by == 'order_count':
             group_list.sort(key=lambda x: (-x['order_count'], -x['sales']))
         elif sort_by == 'debt':
             group_list.sort(key=lambda x: (-x['debt'], -x['sales']))
-        else:  # 默认按销售额
+        else:
             group_list.sort(key=lambda x: (-x['sales'], -x['order_count']))
 
-        # 8. 计算排名
         for idx, g in enumerate(group_list):
             g['rank'] = idx + 1
 
