@@ -387,10 +387,15 @@ def order_list(request):
     elif status == 'cancelled':
         orders = orders.filter(status='cancelled')
 
-    # 🔥 新增：Tab数量统计（基于权限控制后的基础数据）
-    count_all = base_orders.count()
-    count_normal = base_orders.filter(status__in=ORDER_STATUS_VALID).count()
-    count_cancelled = base_orders.filter(status='cancelled').count()
+    # 🔥 优化：Tab数量统计（一次聚合查询替代三次count查询）
+    counts = base_orders.aggregate(
+        count_all=Count('id'),
+        count_normal=Count(Case(When(status__in=ORDER_STATUS_VALID, then='id'))),
+        count_cancelled=Count(Case(When(status='cancelled', then='id')))
+    )
+    count_all = counts['count_all']
+    count_normal = counts['count_normal']
+    count_cancelled = counts['count_cancelled']
 
     # 原有筛选逻辑（保留，注意移除了原来强制的 status__in=ORDER_STATUS_VALID）
     if order_no:
