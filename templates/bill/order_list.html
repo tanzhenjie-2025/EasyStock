@@ -164,6 +164,45 @@
         color: #dc3545; /*  Bootstrap 红色 */
         font-weight: bold;
     }
+
+    /* ================ 优化：统一展开收起样式 ================ */
+    .filter-toggle-btn {
+        cursor: pointer;
+        user-select: none;
+        display: flex;
+        align-items: center;
+        justify-content: space-between; /* 两端对齐，文字左，图标右 */
+        gap: 8px;
+        padding: 10px 15px;
+        margin-bottom: 12px;
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+        color: #495057;
+        font-weight: 500;
+        font-size: 0.95rem;
+        transition: all 0.2s;
+    }
+    .filter-toggle-btn:hover {
+        background-color: #e9ecef;
+        color: #0d6efd;
+        border-color: #ced4da;
+    }
+    .toggle-content-wrapper {
+        overflow: hidden;
+        transition: max-height 0.4s ease-in-out, opacity 0.3s ease-in-out, margin-bottom 0.3s ease-in-out;
+        max-height: 2000px; /* 足够大的值 */
+        opacity: 1;
+    }
+    .toggle-content-wrapper.collapsed {
+        max-height: 0;
+        opacity: 0;
+        margin-bottom: 0 !important;
+    }
+    .toggle-icon {
+        transition: transform 0.3s ease;
+        font-size: 1.1rem;
+    }
 </style>
 {% endblock %}
 
@@ -185,115 +224,127 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
     </a>
 </h3>
 
+<!-- 🔥 优化：统一的切换按钮 -->
+<div class="filter-toggle-btn" id="masterToggle">
+    <span><i class="bi bi-funnel me-2"></i>筛选与数据统计</span>
+    <i class="bi bi-chevron-down toggle-icon" id="toggleIcon"></i>
+</div>
 
+<!-- 🔥 包裹：将筛选栏和统计栏包在一起 -->
+<div class="toggle-content-wrapper collapsed" id="contentWrapper">
+    <!-- 包裹：筛选栏内容 (搜索框 + 筛选表单) -->
+    <div id="filterSection">
+        <!-- 新增：订单号搜索框 -->
+        <form method="get" class="mb-3">
+            <div class="row g-2 align-items-center">
+                <div class="col-auto">
+                    <label class="form-label-sm mb-0">订单号搜索：</label>
+                </div>
+                <div class="col-auto">
+                    <input type="text" name="order_no" class="form-control form-control-sm" placeholder="请输入订单编号" value="{{ order_no }}">
+                </div>
+                <!-- 🔥 新增：保持status筛选参数 -->
+                <input type="hidden" name="status" value="{{ status }}">
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-sm btn-outline-primary">搜索</button>
+                </div>
+            </div>
+        </form>
 
-<!-- 新增：订单号搜索框 -->
-<form method="get" class="mb-3">
-    <div class="row g-2 align-items-center">
-        <div class="col-auto">
-            <label class="form-label-sm mb-0">订单号搜索：</label>
-        </div>
-        <div class="col-auto">
-            <input type="text" name="order_no" class="form-control form-control-sm" placeholder="请输入订单编号" value="{{ order_no }}">
-        </div>
-        <!-- 🔥 新增：保持status筛选参数 -->
-        <input type="hidden" name="status" value="{{ status }}">
-        <div class="col-auto">
-            <button type="submit" class="btn btn-sm btn-outline-primary">搜索</button>
-        </div>
-    </div>
-</form>
-
-<!-- 筛选表单 -->
-<form method="get" class="mb-4">
-    <div class="mb-1"><small class="text-muted">订单筛选：</small></div>
-    <div class="row g-2">
-        <div class="col-auto">
-            <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
-        </div>
-        <div class="col-auto">
-            <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
-        </div>
-        <div class="col-auto">
-            <select name="area_id" class="form-select form-select-sm">
-                <option value="">所有区域</option>
-                {% for area in areas %}
-                    <option value="{{ area.id }}" {% if area_id == area.id|stringformat:"i" %}selected{% endif %}>{{ area.name }}</option>
-                {% endfor %}
-            </select>
-        </div>
-        <div class="col-auto">
-            <input type="text" id="customerNameInput" name="customer_name" class="form-control form-control-sm" placeholder="客户名称" value="{{ customer_name }}">
-        </div>
-        <div class="col-auto">
-            <select name="settled_status" class="form-select form-select-sm">
-                <option value="" {% if settled_status == "" %}selected{% endif %}>所有状态</option>
-                <option value="settled" {% if settled_status == "settled" %}selected{% endif %}>已结清</option>
-                <option value="unsettled" {% if settled_status == "unsettled" %}selected{% endif %}>未结清</option>
-            </select>
-        </div>
-        <div class="col-auto">
-            <select name="amount_operator" class="form-select form-select-sm">
-                <option value="" {% if amount_operator == "" %}selected{% endif %}>金额</option>
-                <option value="gt" {% if amount_operator == "gt" %}selected{% endif %}>大于</option>
-                <option value="lt" {% if amount_operator == "lt" %}selected{% endif %}>小于</option>
-            </select>
-        </div>
-        <div class="col-auto">
-            <div class="input-group input-group-sm">
-                <input type="number" name="amount_value" class="form-control form-control-sm" id="amountValueInput"
-                       placeholder="自定义金额" value="{{ amount_value }}" min="0" step="0.01">
-                <div class="input-group-append">
-                    <div class="btn-group btn-group-sm">
-                        <button type="button" class="btn btn-outline-secondary amount-quick-btn" data-value="100">100</button>
-                        <button type="button" class="btn btn-outline-secondary amount-quick-btn" data-value="500">500</button>
-                        <button type="button" class="btn btn-outline-secondary amount-quick-btn" data-value="1000">1000</button>
-                        <button type="button" class="btn btn-outline-secondary amount-quick-btn" data-value="2000">2000</button>
+        <!-- 筛选表单 -->
+        <form method="get" class="mb-4">
+            <div class="mb-1"><small class="text-muted">订单筛选：</small></div>
+            <div class="row g-2">
+                <div class="col-auto">
+                    <input type="date" name="date_from" class="form-control form-control-sm" value="{{ date_from }}">
+                </div>
+                <div class="col-auto">
+                    <input type="date" name="date_to" class="form-control form-control-sm" value="{{ date_to }}">
+                </div>
+                <div class="col-auto">
+                    <select name="area_id" class="form-select form-select-sm">
+                        <option value="">所有区域</option>
+                        {% for area in areas %}
+                            <option value="{{ area.id }}" {% if area_id == area.id|stringformat:"i" %}selected{% endif %}>{{ area.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <input type="text" id="customerNameInput" name="customer_name" class="form-control form-control-sm" placeholder="客户名称" value="{{ customer_name }}">
+                </div>
+                <div class="col-auto">
+                    <select name="settled_status" class="form-select form-select-sm">
+                        <option value="" {% if settled_status == "" %}selected{% endif %}>所有状态</option>
+                        <option value="settled" {% if settled_status == "settled" %}selected{% endif %}>已结清</option>
+                        <option value="unsettled" {% if settled_status == "unsettled" %}selected{% endif %}>未结清</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <select name="amount_operator" class="form-select form-select-sm">
+                        <option value="" {% if amount_operator == "" %}selected{% endif %}>金额</option>
+                        <option value="gt" {% if amount_operator == "gt" %}selected{% endif %}>大于</option>
+                        <option value="lt" {% if amount_operator == "lt" %}selected{% endif %}>小于</option>
+                    </select>
+                </div>
+                <div class="col-auto">
+                    <div class="input-group input-group-sm">
+                        <input type="number" name="amount_value" class="form-control form-control-sm" id="amountValueInput"
+                               placeholder="自定义金额" value="{{ amount_value }}" min="0" step="0.01">
+                        <div class="input-group-append">
+                            <div class="btn-group btn-group-sm">
+                                <button type="button" class="btn btn-outline-secondary amount-quick-btn" data-value="100">100</button>
+                                <button type="button" class="btn btn-outline-secondary amount-quick-btn" data-value="500">500</button>
+                                <button type="button" class="btn btn-outline-secondary amount-quick-btn" data-value="1000">1000</button>
+                                <button type="button" class="btn btn-outline-secondary amount-quick-btn" data-value="2000">2000</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
+                <!-- 🔥 新增：保持status筛选参数 -->
+                <input type="hidden" name="status" value="{{ status }}">
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-sm btn-primary">筛选</button>
+                </div>
             </div>
-        </div>
-        <!-- 🔥 新增：保持status筛选参数 -->
-        <input type="hidden" name="status" value="{{ status }}">
-        <div class="col-auto">
-            <button type="submit" class="btn btn-sm btn-primary">筛选</button>
-        </div>
+        </form>
     </div>
-</form>
 
-<!-- 数据统计展示栏 -->
-<div class="mb-4 p-3 bg-light rounded border">
-    <h6 class="mb-2">筛选数据统计</h6>
-    <div class="row g-3">
-        <div class="col-md-3">
-            <div class="card bg-white shadow-sm">
-                <div class="card-body">
-                    <h6 class="card-title text-muted">总订单数</h6>
-                    <p class="card-text fs-4 fw-bold text-primary">{{ total_orders }}</p>
+    <!-- 包裹：统计栏内容 -->
+    <div class="mb-4" id="statsSection">
+        <div class="p-3 bg-light rounded border">
+            <h6 class="mb-2">筛选数据统计</h6>
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <div class="card bg-white shadow-sm">
+                        <div class="card-body">
+                            <h6 class="card-title text-muted">总订单数</h6>
+                            <p class="card-text fs-4 fw-bold text-primary">{{ total_orders }}</p>
+                        </div>
+                    </div>
                 </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card bg-white shadow-sm">
-                <div class="card-body">
-                    <h6 class="card-title text-muted">总销售金额</h6>
-                    <p class="card-text fs-4 fw-bold text-success">¥{{ total_sales|floatformat:2 }}</p>
+                <div class="col-md-3">
+                    <div class="card bg-white shadow-sm">
+                        <div class="card-body">
+                            <h6 class="card-title text-muted">总销售金额</h6>
+                            <p class="card-text fs-4 fw-bold text-success">¥{{ total_sales|floatformat:2 }}</p>
+                        </div>
+                    </div>
                 </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card bg-white shadow-sm">
-                <div class="card-body">
-                    <h6 class="card-title text-muted">总结清数</h6>
-                    <p class="card-text fs-4 fw-bold text-info">{{ settled_orders }}</p>
+                <div class="col-md-3">
+                    <div class="card bg-white shadow-sm">
+                        <div class="card-body">
+                            <h6 class="card-title text-muted">总结清数</h6>
+                            <p class="card-text fs-4 fw-bold text-info">{{ settled_orders }}</p>
+                        </div>
+                    </div>
                 </div>
-            </div>
-        </div>
-        <div class="col-md-3">
-            <div class="card bg-white shadow-sm">
-                <div class="card-body">
-                    <h6 class="card-title text-muted">总欠款</h6>
-                    <p class="card-text fs-4 fw-bold text-danger">¥{{ total_debt|floatformat:2 }}</p>
+                <div class="col-md-3">
+                    <div class="card bg-white shadow-sm">
+                        <div class="card-body">
+                            <h6 class="card-title text-muted">总欠款</h6>
+                            <p class="card-text fs-4 fw-bold text-danger">¥{{ total_debt|floatformat:2 }}</p>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -486,7 +537,7 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
 </nav>
 {% endif %}
 
-<!-- 模态框部分（保持不变，仅在非作废Tab时相关按钮可用） -->
+<!-- 模态框部分（保持不变） -->
 <div class="modal fade" id="settleModal" tabindex="-1" aria-labelledby="settleModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -639,6 +690,25 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
 {% block extra_js %}
 <script>
 $(document).ready(function() {
+    // =============== 优化：统一展开收起逻辑 ===============
+    const wrapper = $('#contentWrapper');
+    const masterToggle = $('#masterToggle');
+    const toggleIcon = $('#toggleIcon');
+
+    // 点击事件
+    masterToggle.click(function() {
+        wrapper.toggleClass('collapsed');
+        const isCollapsed = wrapper.hasClass('collapsed');
+        
+        // 切换图标：向下(bi-chevron-down) 或 向上(bi-chevron-up)
+        if (isCollapsed) {
+            toggleIcon.removeClass('bi-chevron-up').addClass('bi-chevron-down');
+        } else {
+            toggleIcon.removeClass('bi-chevron-down').addClass('bi-chevron-up');
+        }
+    });
+    // =============== 逻辑结束 ===============
+
     $('.amount-quick-btn').click(function() {
         const value = $(this).data('value');
         $('#amountValueInput').val(value);
