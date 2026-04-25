@@ -10,7 +10,6 @@ from customer_manage.models import Customer,CustomerPrice,RepaymentRecord
 from area_manage.models import Area
 
 import datetime
-import unicodedata
 from django.contrib.auth.decorators import login_required
 from accounts.views import permission_required, create_operation_log
 
@@ -102,7 +101,6 @@ def customer_list(request):
         status = request.GET.get('status', 'all')
         page = request.GET.get('page', 1)
         page_size = 10
-        # 🔥 新增：是否需要返回欠款数据（用于还款登记）
         with_debt = request.GET.get('with_debt', '0') == '1'
 
         cache_key = f"{CACHE_PREFIX_CUSTOMER_LIST}{request.user.id}_{keyword}_{status}_{page}_{with_debt}"
@@ -145,6 +143,30 @@ def customer_list(request):
         except EmptyPage:
             customer_page = paginator.page(paginator.num_pages)
 
+        # 🔥 优化：批量计算欠款（仅需2次查询，替代N*2次）
+        unpaid_dict = {}
+        paid_dict = {}
+        if with_debt:
+            customer_ids = [c.id for c in customer_page]
+
+            # 批量查询未付款金额
+            unpaid_orders = Order.objects.filter(
+                customer_id__in=customer_ids,
+                status__in=['pending', 'printed', 'reopened'],
+                is_settled=False
+            ).values('customer_id').annotate(
+                total=Sum(F('total_amount') - F('received_amount'), output_field=models.DecimalField())
+            )
+            unpaid_dict = {item['customer_id']: item['total'] or 0 for item in unpaid_orders}
+
+            # 批量查询已还款金额
+            paid_records = RepaymentRecord.objects.filter(
+                customer_id__in=customer_ids
+            ).values('customer_id').annotate(
+                total=Sum('repayment_amount')
+            )
+            paid_dict = {item['customer_id']: item['total'] or 0 for item in paid_records}
+
         # 组装返回数据
         result = []
         for c in customer_page:
@@ -165,25 +187,17 @@ def customer_list(request):
                 }
             }
 
-            # 🔥 新增：如果需要欠款数据，则实时计算
+            # 从预查询的字典中取欠款数据
             if with_debt:
-                # 计算该客户总欠款
-                base_orders = Order.objects.filter(
-                    customer=c,
-                    status__in=['pending', 'printed', 'reopened']
-                )
-                unpaid_amount = base_orders.filter(is_settled=False).aggregate(
-                    total=Sum(F('total_amount') - F('received_amount'), output_field=models.DecimalField())
-                )['total'] or 0
-                paid_amount = RepaymentRecord.objects.filter(customer=c).aggregate(total=Sum('repayment_amount'))[
-                                  'total'] or 0
+                unpaid_amount = unpaid_dict.get(c.id, 0)
+                paid_amount = paid_dict.get(c.id, 0)
                 item['total_debt'] = max(float(unpaid_amount) - float(paid_amount), 0)
             else:
                 item['total_debt'] = 0.00
 
             result.append(item)
 
-        cache.set(cache_key, result, CACHE_HIGH_PRIORITY if not with_debt else 10)  # 欠款数据缓存时间短一点
+        cache.set(cache_key, result, CACHE_HIGH_PRIORITY if not with_debt else 10)
         return JsonResponse(result, safe=False)
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'})
@@ -1456,17 +1470,18 @@ def customer_stats_page(request):
         'areas': areas
     })
 
+
 @login_required
 @permission_required('customer_view')
 def calculate_customer_stats(request):
     """
-    客户统计接口（优化版）
+    客户统计接口（修复版：统一 Decimal 类型）
     默认：最近30天（轻量级）
     支持：时间筛选/地区筛选/状态筛选
     """
     try:
-        # 筛选参数 (🔥 默认改为 30days)
-        time_range = request.GET.get('time_range', '30days')  # today/month/year/30days/custom
+        # 筛选参数
+        time_range = request.GET.get('time_range', '30days')
         start_date = request.GET.get('start_date', '')
         end_date = request.GET.get('end_date', '')
         area_id = request.GET.get('area_id', '')
@@ -1481,10 +1496,9 @@ def calculate_customer_stats(request):
         )
         base_customers = Customer.all_objects.all().select_related('area')
 
-        # 1. 时间筛选 (🔥 新增最近30天逻辑)
+        # 1. 时间筛选
         today = timezone.now().date()
         if time_range == '30days':
-            # 默认：最近30天
             thirty_days_ago = today - timezone.timedelta(days=30)
             base_orders = base_orders.filter(create_time__date__gte=thirty_days_ago)
         elif time_range == 'today':
@@ -1495,7 +1509,6 @@ def calculate_customer_stats(request):
             base_orders = base_orders.filter(create_time__year=today.year)
         elif time_range == 'custom' and start_date and end_date:
             base_orders = base_orders.filter(create_time__date__gte=start_date, create_time__date__lte=end_date)
-        # 注意：移除了 'all' 的全量加载，防止误操作拖慢数据库
 
         # 2. 地区筛选
         if area_id and area_id.isdigit():
@@ -1508,9 +1521,20 @@ def calculate_customer_stats(request):
         elif status == 'disabled':
             base_customers = base_customers.filter(is_active=False)
 
-        # 4. 预计算：所有客户的统计数据
-        customer_ids = base_customers.values_list('id', flat=True)
-        order_stats = base_orders.filter(customer_id__in=customer_ids).values('customer_id').annotate(
+        # 🔥 优化1：先在数据库层面分页，仅处理当前页客户
+        paginator = Paginator(base_customers, page_size)
+        try:
+            customer_page = paginator.page(page)
+        except PageNotAnInteger:
+            customer_page = paginator.page(1)
+        except EmptyPage:
+            customer_page = paginator.page(paginator.num_pages)
+
+        # 提取当前页客户ID
+        current_page_customer_ids = [c.id for c in customer_page]
+
+        # 🔥 优化2：仅查询当前页客户的订单统计
+        order_stats = base_orders.filter(customer_id__in=current_page_customer_ids).values('customer_id').annotate(
             total_consume=Sum('total_amount'),
             total_order=Count('id'),
             finished_order=Count('id', filter=Q(is_settled=True)),
@@ -1519,20 +1543,28 @@ def calculate_customer_stats(request):
         )
         order_dict = {item['customer_id']: item for item in order_stats}
 
-        # 还款统计
-        repay_stats = RepaymentRecord.objects.filter(customer_id__in=customer_ids).values('customer_id').annotate(
+        # 仅查询当前页客户的还款统计（🔥 修复1：默认值改为 Decimal('0')）
+        repay_stats = RepaymentRecord.objects.filter(customer_id__in=current_page_customer_ids).values(
+            'customer_id').annotate(
             total_repay=Sum('repayment_amount')
         )
-        repay_dict = {item['customer_id']: item['total_repay'] or 0 for item in repay_stats}
+        repay_dict = {item['customer_id']: item['total_repay'] or Decimal('0') for item in repay_stats}
 
-        # 5. 组装客户数据
+        # 组装当前页客户数据
         customer_list = []
-        for customer in base_customers:
+        for customer in customer_page:
+            # 🔥 修复2：total_consume 默认值改为 Decimal('0')
             stats = order_dict.get(customer.id, {
-                'total_consume': 0, 'total_order': 0, 'finished_order': 0, 'unsettled_order': 0, 'last_consume_time': None
+                'total_consume': Decimal('0'),
+                'total_order': 0,
+                'finished_order': 0,
+                'unsettled_order': 0,
+                'last_consume_time': None
             })
-            total_repay = repay_dict.get(customer.id, 0)
-            total_debt = max(float(stats.get('total_consume', 0)) - total_repay, 0)
+            total_repay = repay_dict.get(customer.id, Decimal('0'))
+
+            # 🔥 修复3：全程使用 Decimal 计算，最后转 float
+            total_debt = max(stats['total_consume'] - total_repay, Decimal('0'))
 
             customer_list.append({
                 'id': customer.id,
@@ -1540,32 +1572,35 @@ def calculate_customer_stats(request):
                 'area_name': customer.area.name if customer.area else '无区域',
                 'phone': customer.phone,
                 'is_active': customer.is_active,
-                'total_consume': float(stats.get('total_consume', 0)),
-                'total_debt': total_debt,
+                'total_consume': float(stats['total_consume']),  # 仅在返回时转 float
+                'total_debt': float(total_debt),  # 仅在返回时转 float
                 'total_order': stats.get('total_order', 0),
                 'finished_order': stats.get('finished_order', 0),
                 'unsettled_order': stats.get('unsettled_order', 0),
-                'last_consume_time': stats.get('last_consume_time').strftime('%Y-%m-%d %H:%M') if stats.get('last_consume_time') else '无消费'
+                'last_consume_time': stats.get('last_consume_time').strftime('%Y-%m-%d %H:%M') if stats.get(
+                    'last_consume_time') else '无消费'
             })
 
-        # 6. 分页
-        paginator = Paginator(customer_list, page_size)
-        current_page = paginator.get_page(page)
-
-        # 7. 全局统计卡片
-        total_consume_all = sum([item['total_consume'] for item in customer_list])
-        total_debt_all = sum([item['total_debt'] for item in customer_list])
-        total_order_all = sum([item['total_order'] for item in customer_list])
+        # 🔥 优化3：全局统计单独聚合（🔥 修复4：全局统计也统一 Decimal）
+        # 全局总消费
+        global_total_consume = base_orders.aggregate(total=Sum('total_amount'))['total'] or Decimal('0')
+        # 全局总欠款 = 总消费 - 总还款
+        global_total_repay = RepaymentRecord.objects.filter(
+            customer_id__in=base_customers.values_list('id', flat=True)
+        ).aggregate(total=Sum('repayment_amount'))['total'] or Decimal('0')
+        global_total_debt = max(global_total_consume - global_total_repay, Decimal('0'))
+        # 全局总订单数
+        global_total_order = base_orders.count()
 
         return JsonResponse({
             'code': 1,
             'global_stats': {
-                'total_consume': round(total_consume_all, 2),
-                'total_debt': round(total_debt_all, 2),
-                'total_order': total_order_all
+                'total_consume': round(float(global_total_consume), 2),
+                'total_debt': round(float(global_total_debt), 2),
+                'total_order': global_total_order
             },
-            'customers': current_page.object_list,
-            'page': current_page.number,
+            'customers': customer_list,
+            'page': customer_page.number,
             'total_pages': paginator.num_pages,
             'total_count': paginator.count
         })

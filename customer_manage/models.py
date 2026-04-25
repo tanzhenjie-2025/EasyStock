@@ -46,6 +46,8 @@ class Customer(models.Model):
         indexes = [
             models.Index(fields=['area']),
             models.Index(fields=['area', 'name']),  # 按区域搜客户，性能翻倍
+            # 🔥 新增：联合索引（优化区域+状态同时筛选）
+            models.Index(fields=['area', 'is_active']),
         ]
 
 # ========== 专属价格软删除管理器 ==========
@@ -122,4 +124,6 @@ class RepaymentRecord(models.Model):
         ordering = ['-repayment_time']
         indexes = [
             models.Index(fields=['customer', 'repayment_time']),
+            # 🔥 新增：覆盖索引（优化批量聚合还款总额）
+            models.Index(fields=['customer', 'repayment_amount']),
         ]
