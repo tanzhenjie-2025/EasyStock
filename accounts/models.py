@@ -304,9 +304,15 @@ class User(AbstractUser):
         verbose_name_plural = '系统用户管理'
         ordering = ['-date_joined']
         indexes = [
-            models.Index(fields=['user_code', 'username', 'phone', 'first_name', 'last_name', 'is_active']),
-            models.Index(fields=['user_code']),
+            # ✅ 优化1：针对列表页排序的专用索引（消除文件排序）
+            models.Index(fields=['-date_joined']),
+            # ✅ 优化2：针对手机号查询的索引
             models.Index(fields=['phone']),
+            # ✅ 优化3：针对状态筛选的索引
+            models.Index(fields=['is_active']),
+            # ✅ 优化4：针对用户编号+状态组合查询的索引
+            models.Index(fields=['user_code', 'is_active']),
+            # 注意：user_code有unique=True，自动创建唯一索引，无需重复添加
         ]
 
     def __str__(self):

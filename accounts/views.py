@@ -1,6 +1,5 @@
 from django.db.models import Q, Sum, Count, Value
 from django.db.models.functions import Coalesce
-from django.db.models.signals import post_migrate
 from django.shortcuts import render, redirect, get_object_or_404, resolve_url
 from django.contrib.auth import authenticate, login, logout
 
@@ -20,8 +19,6 @@ from operation_log.models import OperationLog
 from django.db.models import DecimalField
 from decimal import Decimal
 
-import json
-import openpyxl
 from django.db.models import Q
 from django.http import JsonResponse, HttpResponse
 from django.shortcuts import get_object_or_404
