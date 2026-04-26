@@ -83,6 +83,23 @@
         color: white;
         border-color: #dc3545;
     }
+    /* 🔥 新增：已结清/未结清 Tab 样式 */
+    .status-tab.settled-tab {
+        color: #198754;
+    }
+    .status-tab.settled-tab.active {
+        background-color: #198754;
+        color: white;
+        border-color: #198754;
+    }
+    .status-tab.unsettled-tab {
+        color: #ffc107;
+    }
+    .status-tab.unsettled-tab.active {
+        background-color: #ffc107;
+        color: #212529;
+        border-color: #ffc107;
+    }
 
     /* ================ 核心修改：行交互样式（整行浅灰色高亮） ================ */
     .order-row {
@@ -272,13 +289,7 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
                 <div class="col-auto">
                     <input type="text" id="customerNameInput" name="customer_name" class="form-control form-control-sm" placeholder="客户名称" value="{{ customer_name }}">
                 </div>
-                <div class="col-auto">
-                    <select name="settled_status" class="form-select form-select-sm">
-                        <option value="" {% if settled_status == "" %}selected{% endif %}>所有状态</option>
-                        <option value="settled" {% if settled_status == "settled" %}selected{% endif %}>已结清</option>
-                        <option value="unsettled" {% if settled_status == "unsettled" %}selected{% endif %}>未结清</option>
-                    </select>
-                </div>
+                <!-- 🔥 移除了下拉框，因为已集成到顶部 Tab -->
                 <div class="col-auto">
                     <select name="amount_operator" class="form-select form-select-sm">
                         <option value="" {% if amount_operator == "" %}selected{% endif %}>金额</option>
@@ -351,35 +362,45 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
     </div>
 </div>
 
-<!-- 批量操作按钮（仅在非作废Tab显示） -->
-{% if status != 'cancelled' %}
+
+
 <div class="mb-3">
     <button class="btn btn-sm btn-success" id="batchSettleBtn" disabled>批量结清选中订单</button>
 </div>
-{% endif %}
-<!-- 🔥 新增：核心Tab切换栏 -->
+
+
+<!-- 🔥 新增：核心Tab切换栏（包含已结清/未结清及统计数字） -->
 <div class="mb-4">
-    <div class="d-flex align-items-center">
+    <div class="d-flex align-items-center flex-wrap">
         <span class="me-3 text-muted">订单状态：</span>
-        <a href="?{% if request.GET.urlencode %}{{ request.GET.urlencode|cut:'&status='|cut:'status=all'|cut:'status=normal'|cut:'status=cancelled' }}{% endif %}&status=all" 
+        <a href="?{% if request.GET.urlencode %}{{ request.GET.urlencode|cut:'&status='|cut:'status=all'|cut:'status=normal'|cut:'status=cancelled'|cut:'status=settled'|cut:'status=unsettled' }}{% endif %}&status=all" 
            class="status-tab {% if status == 'all' %}active{% endif %}">
             全部 ({{ count_all }})
         </a>
-        <a href="?{% if request.GET.urlencode %}{{ request.GET.urlencode|cut:'&status='|cut:'status=all'|cut:'status=normal'|cut:'status=cancelled' }}{% endif %}&status=normal" 
+        <a href="?{% if request.GET.urlencode %}{{ request.GET.urlencode|cut:'&status='|cut:'status=all'|cut:'status=normal'|cut:'status=cancelled'|cut:'status=settled'|cut:'status=unsettled' }}{% endif %}&status=normal" 
            class="status-tab {% if status == 'normal' %}active{% endif %}">
             正常 ({{ count_normal }})
         </a>
-        <a href="?{% if request.GET.urlencode %}{{ request.GET.urlencode|cut:'&status='|cut:'status=all'|cut:'status=normal'|cut:'status=cancelled' }}{% endif %}&status=cancelled" 
+        <a href="?{% if request.GET.urlencode %}{{ request.GET.urlencode|cut:'&status='|cut:'status=all'|cut:'status=normal'|cut:'status=cancelled'|cut:'status=settled'|cut:'status=unsettled' }}{% endif %}&status=settled" 
+           class="status-tab settled-tab {% if status == 'settled' %}active{% endif %}">
+            已结清 ({{ count_settled }})
+        </a>
+        <a href="?{% if request.GET.urlencode %}{{ request.GET.urlencode|cut:'&status='|cut:'status=all'|cut:'status=normal'|cut:'status=cancelled'|cut:'status=settled'|cut:'status=unsettled' }}{% endif %}&status=unsettled" 
+           class="status-tab unsettled-tab {% if status == 'unsettled' %}active{% endif %}">
+            未结清 ({{ count_unsettled }})
+        </a>
+        <a href="?{% if request.GET.urlencode %}{{ request.GET.urlencode|cut:'&status='|cut:'status=all'|cut:'status=normal'|cut:'status=cancelled'|cut:'status=settled'|cut:'status=unsettled' }}{% endif %}&status=cancelled" 
            class="status-tab cancelled-tab {% if status == 'cancelled' %}active{% endif %}">
             已作废 ({{ count_cancelled }})
         </a>
     </div>
 </div>
+
 <!-- 订单表格 -->
 <table class="table table-striped table-bordered table-fixed">
     <thead>
         <tr>
-            <th class="col-select"><input type="checkbox" id="selectAll" {% if status == 'cancelled' %}disabled{% endif %}></th>
+            <th class="col-select"><input type="checkbox" id="selectAll" {% if status == 'cancelled' or status == 'settled' %}disabled{% endif %}></th>
             <th class="col-order-no">订单编号</th>
             <th class="col-create-time">开单时间</th>
             <th class="col-creator">开单人</th>
@@ -510,7 +531,7 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
     <ul class="pagination justify-content-center">
         {% if page_orders.has_previous %}
         <li class="page-item">
-            <a class="page-link" href="?page={{ page_orders.previous_page_number }}&order_no={{ order_no }}&date_from={{ date_from }}&date_to={{ date_to }}&area_id={{ area_id }}&customer_name={{ customer_name }}&settled_status={{ settled_status }}&amount_operator={{ amount_operator }}&amount_value={{ amount_value }}&status={{ status }}">上一页</a>
+            <a class="page-link" href="?page={{ page_orders.previous_page_number }}&order_no={{ order_no }}&date_from={{ date_from }}&date_to={{ date_to }}&area_id={{ area_id }}&customer_name={{ customer_name }}&amount_operator={{ amount_operator }}&amount_value={{ amount_value }}&status={{ status }}">上一页</a>
         </li>
         {% else %}
         <li class="page-item disabled"><a class="page-link">上一页</a></li>
@@ -521,14 +542,14 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
             <li class="page-item active"><a class="page-link">{{ num }}</a></li>
             {% else %}
             <li class="page-item">
-                <a class="page-link" href="?page={{ num }}&order_no={{ order_no }}&date_from={{ date_from }}&date_to={{ date_to }}&area_id={{ area_id }}&customer_name={{ customer_name }}&settled_status={{ settled_status }}&amount_operator={{ amount_operator }}&amount_value={{ amount_value }}&status={{ status }}">{{ num }}</a>
+                <a class="page-link" href="?page={{ num }}&order_no={{ order_no }}&date_from={{ date_from }}&date_to={{ date_to }}&area_id={{ area_id }}&customer_name={{ customer_name }}&amount_operator={{ amount_operator }}&amount_value={{ amount_value }}&status={{ status }}">{{ num }}</a>
             </li>
             {% endif %}
         {% endfor %}
 
         {% if page_orders.has_next %}
         <li class="page-item">
-            <a class="page-link" href="?page={{ page_orders.next_page_number }}&order_no={{ order_no }}&date_from={{ date_from }}&date_to={{ date_to }}&area_id={{ area_id }}&customer_name={{ customer_name }}&settled_status={{ settled_status }}&amount_operator={{ amount_operator }}&amount_value={{ amount_value }}&status={{ status }}">下一页</a>
+            <a class="page-link" href="?page={{ page_orders.next_page_number }}&order_no={{ order_no }}&date_from={{ date_from }}&date_to={{ date_to }}&area_id={{ area_id }}&customer_name={{ customer_name }}&amount_operator={{ amount_operator }}&amount_value={{ amount_value }}&status={{ status }}">下一页</a>
         </li>
         {% else %}
         <li class="page-item disabled"><a class="page-link">下一页</a></li>
@@ -585,7 +606,7 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
     </div>
 </div>
 
-{% if is_boss %}
+{% if is_super_admin %}
 <div class="modal fade" id="unsettleModal" tabindex="-1" aria-labelledby="unsettleModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">

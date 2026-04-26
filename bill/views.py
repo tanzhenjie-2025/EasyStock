@@ -355,14 +355,13 @@ def order_list(request):
     date_to = request.GET.get('date_to', '')
     area_id = request.GET.get('area_id', '')
     customer_name = request.GET.get('customer_name', '').strip()
-    settled_status = request.GET.get('settled_status', '')
     amount_operator = request.GET.get('amount_operator', '')
     amount_value = request.GET.get('amount_value', '').strip()
     status = request.GET.get('status', 'all')  # 🔥 新增：状态筛选参数
     page = request.GET.get('page', 1)
 
     # 🔥 手动缓存 Key：新增 status 参数
-    cache_key = f"{CACHE_PREFIX_ORDER_LIST}{request.user.id}_{order_no}_{date_from}_{date_to}_{area_id}_{customer_name}_{settled_status}_{amount_operator}_{amount_value}_{status}_{page}"
+    cache_key = f"{CACHE_PREFIX_ORDER_LIST}{request.user.id}_{order_no}_{date_from}_{date_to}_{area_id}_{customer_name}_{amount_operator}_{amount_value}_{status}_{page}"
     cached_data = cache.get(cache_key)
 
     if cached_data:
@@ -380,31 +379,37 @@ def order_list(request):
     is_admin = request.user.role and request.user.role.code == ROLE_ADMIN
     is_operator = request.user.role and request.user.role.code == ROLE_OPERATOR
 
-    # 🔥 新增：状态筛选（核心Tab逻辑）
+    # 🔥 新增：状态筛选（核心Tab逻辑，包含已结清/未结清）
     base_orders = orders  # 保存基础查询集用于统计
     if status == 'normal':
         orders = orders.filter(status__in=ORDER_STATUS_VALID)
     elif status == 'cancelled':
         orders = orders.filter(status='cancelled')
+    elif status == 'settled':
+        # 🔥 已结清：只看有效订单且 is_settled=True
+        orders = orders.filter(is_settled=True, status__in=ORDER_STATUS_VALID)
+    elif status == 'unsettled':
+        # 🔥 未结清：只看有效订单且 is_settled=False
+        orders = orders.filter(is_settled=False, status__in=ORDER_STATUS_VALID)
 
     # 🔥 优化：Tab数量统计（一次聚合查询替代三次count查询）
     counts = base_orders.aggregate(
         count_all=Count('id'),
         count_normal=Count(Case(When(status__in=ORDER_STATUS_VALID, then='id'))),
-        count_cancelled=Count(Case(When(status='cancelled', then='id')))
+        count_cancelled=Count(Case(When(status='cancelled', then='id'))),
+        # 🔥 新增：统计已结清/未结清数量（仅统计有效订单）
+        count_settled=Count(Case(When(status__in=ORDER_STATUS_VALID, is_settled=True, then='id'))),
+        count_unsettled=Count(Case(When(status__in=ORDER_STATUS_VALID, is_settled=False, then='id')))
     )
     count_all = counts['count_all']
     count_normal = counts['count_normal']
     count_cancelled = counts['count_cancelled']
+    count_settled = counts['count_settled']  # 🔥 新增
+    count_unsettled = counts['count_unsettled']  # 🔥 新增
 
-    # 原有筛选逻辑（保留，注意移除了原来强制的 status__in=ORDER_STATUS_VALID）
+    # 原有筛选逻辑
     if order_no:
         orders = orders.filter(order_no__startswith=order_no)
-
-    if settled_status == 'settled':
-        orders = orders.filter(is_settled=True)
-    elif settled_status == 'unsettled':
-        orders = orders.filter(is_settled=False)
 
     if area_id and area_id.isdigit():
         orders = orders.filter(area_id=int(area_id))
@@ -495,7 +500,6 @@ def order_list(request):
         'date_to': date_to,
         'area_id': area_id,
         'customer_name': customer_name,
-        'settled_status': settled_status,
         'amount_operator': amount_operator,
         'amount_value': amount_value,
         'is_super_admin': is_super_admin,
@@ -511,6 +515,8 @@ def order_list(request):
         'count_all': count_all,
         'count_normal': count_normal,
         'count_cancelled': count_cancelled,
+        'count_settled': count_settled,  # 🔥 新增
+        'count_unsettled': count_unsettled,  # 🔥 新增
     }
 
     response = render(request, 'bill/order_list.html', context)
