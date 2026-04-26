@@ -140,7 +140,7 @@ LOGIN_REDIRECT_URL = '/bill/'  # ✅ 正确：登录成功默认跳转
 LOGOUT_REDIRECT_URL = '/accounts/login/'  # ✅ 正确：登出后跳转
 
 # 新增：会话超时配置（开发环境设为1小时，避免长期登录）
-SESSION_COOKIE_AGE = 3600  # 单位：秒
+SESSION_COOKIE_AGE = 3600 * 12 # 单位：秒
 SESSION_EXPIRE_AT_BROWSER_CLOSE = True  # 关闭浏览器即过期
 
 # 新增：消息存储（确保登录错误提示能正常显示）
