@@ -11,12 +11,22 @@
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         text-align: center;
         margin-bottom: 20px;
+        transition: all 0.2s;
+    }
+    /* 🔥 新增：可点击卡片样式 */
+    .stats-card.clickable {
+        cursor: pointer;
+    }
+    .stats-card.clickable:hover {
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        transform: translateY(-2px);
     }
     .stats-card .value {
         font-size: 28px;
         font-weight: bold;
         color: #333;
         margin: 10px 0;
+        min-height: 34px; /* 占位高度，防止布局跳动 */
     }
     .stats-card .label { color: #666; font-size: 14px; }
     
@@ -82,10 +92,10 @@
         </div>
     </div>
 
-    <!-- 统计结果区域（初始隐藏） -->
-    <div id="stats-result" style="display: none;">
-        <!-- 统计时间提示 -->
-        <div class="alert alert-info mb-4" role="alert" id="stats-info">
+    <!-- 🔥 修改：统计结果区域（默认显示框架） -->
+    <div id="stats-result">
+        <!-- 统计时间提示（初始隐藏，统计后显示） -->
+        <div class="alert alert-info mb-4" role="alert" id="stats-info" style="display: none;">
             <i class="bi bi-info-circle"></i> 
             <span id="stats-time-text"></span>
         </div>
@@ -96,25 +106,26 @@
             <div class="col-md-3">
                 <div class="stats-card">
                     <div class="label">销售总金额</div>
-                    <div class="value sales-color" id="val-total-sales">¥0.00</div>
+                    <div class="value sales-color" id="val-total-sales">¥--</div>
                 </div>
             </div>
             <div class="col-md-3">
-                <div class="stats-card">
+                <!-- 🔥 新增：可点击跳转有效订单 -->
+                <div class="stats-card clickable" onclick="window.location.href='{% url 'bill:order_list' %}?status=normal'">
                     <div class="label">有效订单数</div>
-                    <div class="value" id="val-total-orders">0</div>
+                    <div class="value" id="val-total-orders">--</div>
                 </div>
             </div>
             <div class="col-md-3">
                 <div class="stats-card">
                     <div class="label">平均客单价</div>
-                    <div class="value info-color" id="val-avg-order">¥0.00</div>
+                    <div class="value info-color" id="val-avg-order">¥--</div>
                 </div>
             </div>
             <div class="col-md-3">
                 <div class="stats-card">
                     <div class="label">活跃客户数</div>
-                    <div class="value" id="val-active-customers">0</div>
+                    <div class="value" id="val-active-customers">--</div>
                 </div>
             </div>
         </div>
@@ -125,25 +136,26 @@
             <div class="col-md-3">
                 <div class="stats-card">
                     <div class="label">已结清回款</div>
-                    <div class="value sales-color" id="val-settled">¥0.00</div>
+                    <div class="value sales-color" id="val-settled">¥--</div>
                 </div>
             </div>
             <div class="col-md-3">
-                <div class="stats-card">
+                <!-- 🔥 新增：可点击跳转欠款订单 -->
+                <div class="stats-card clickable" onclick="window.location.href='{% url 'bill:order_list' %}?status=unsettled'">
                     <div class="label">总欠款</div>
-                    <div class="value debt-color" id="val-total-debt">¥0.00</div>
+                    <div class="value debt-color" id="val-total-debt">¥--</div>
                 </div>
             </div>
             <div class="col-md-3">
                 <div class="stats-card">
                     <div class="label">回款率</div>
-                    <div class="value" id="val-repayment-rate">0.00%</div>
+                    <div class="value" id="val-repayment-rate">--%</div>
                 </div>
             </div>
             <div class="col-md-3">
                 <div class="stats-card">
                     <div class="label">欠款订单数</div>
-                    <div class="value debt-color" id="val-debt-orders">0</div>
+                    <div class="value debt-color" id="val-debt-orders">--</div>
                 </div>
             </div>
         </div>
@@ -152,15 +164,16 @@
         <div class="section-title">⚠️ 风险预警</div>
         <div class="row">
             <div class="col-md-6">
-                <div class="stats-card">
+                <!-- 🔥 新增：可点击跳转作废订单 -->
+                <div class="stats-card clickable" onclick="window.location.href='{% url 'bill:order_list' %}?status=cancelled'">
                     <div class="label">作废订单数</div>
-                    <div class="value warning-color" id="val-cancelled">0</div>
+                    <div class="value warning-color" id="val-cancelled">--</div>
                 </div>
             </div>
             <div class="col-md-6">
                 <div class="stats-card">
                     <div class="label">重开订单数</div>
-                    <div class="value" id="val-reopened">0</div>
+                    <div class="value" id="val-reopened">--</div>
                 </div>
             </div>
         </div>
@@ -242,15 +255,13 @@
             $('#val-cancelled').text(d.cancelled_count);
             $('#val-reopened').text(d.reopened_count);
 
-            // 4. 更新统计时间
+            // 4. 更新统计时间并显示
             $('#stats-time-text').html(
                 `统计周期：<strong>${d.date_range.start}</strong> 至 <strong>${d.date_range.end}</strong> | 计算时间：${d.calculated_at}`
             );
-
-            // 5. 显示结果区域
-            $('#stats-result').show();
+            $('#stats-info').show();
             
-            // 6. 更新按钮状态
+            // 5. 更新按钮状态
             hasCalculated = true;
             $btn.prop('disabled', false).removeClass('btn-primary').addClass('btn-success').html('<i class="bi bi-check-circle"></i> 统计完成 (点击重算)');
 
