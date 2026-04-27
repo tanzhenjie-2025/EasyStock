@@ -35,13 +35,13 @@
         </div>
     </div>
 
-    <!-- 统计汇总区域 -->
-    <div id="statsArea" class="row g-3 mb-4" style="display: none;">
+    <!-- 统计汇总区域 - 初始显示框架和占位符 -->
+    <div id="statsArea" class="row g-3 mb-4">
         <div class="col-md-4">
             <div class="card stats-card">
                 <div class="card-body">
                     <h6 class="text-muted">核算订单数</h6>
-                    <h2 id="statChecked" class="mb-0">0</h2>
+                    <h2 id="statChecked" class="mb-0">--</h2>
                 </div>
             </div>
         </div>
@@ -49,7 +49,7 @@
             <div class="card stats-card danger">
                 <div class="card-body">
                     <h6 class="text-muted">异常订单数</h6>
-                    <h2 id="statAbnormal" class="mb-0 text-danger">0</h2>
+                    <h2 id="statAbnormal" class="mb-0 text-danger">--</h2>
                 </div>
             </div>
         </div>
@@ -57,16 +57,18 @@
             <div class="card stats-card">
                 <div class="card-body">
                     <h6 class="text-muted">潜在损失 (低报总额)</h6>
-                    <h2 id="statLoss" class="mb-0 text-warning">¥0.00</h2>
+                    <h2 id="statLoss" class="mb-0 text-warning">¥--</h2>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- 结果列表区域 -->
-    <div id="resultArea" style="display: none;">
+    <!-- 结果列表区域 - 初始显示框架和提示 -->
+    <div id="resultArea">
         <div class="accordion" id="orderAccordion">
-            <!-- JS 会在这里插入内容 -->
+            <div class="text-center text-muted py-4" id="resultPlaceholder">
+                请选择日期后点击「开始核算」查看结果
+            </div>
         </div>
     </div>
     
@@ -111,7 +113,6 @@ $(document).ready(function() {
 });
 
 function renderStats(stats) {
-    $('#statsArea').show();
     $('#statChecked').text(stats.checked);
     $('#statAbnormal').text(stats.abnormal);
     $('#statLoss').text('¥' + parseFloat(stats.loss).toFixed(2));
@@ -119,7 +120,7 @@ function renderStats(stats) {
 
 function renderResults(orders) {
     const container = $('#orderAccordion');
-    container.empty();
+    container.empty(); // 清空占位符或旧内容
 
     if(orders.length === 0) {
         $('#resultArea').hide();
