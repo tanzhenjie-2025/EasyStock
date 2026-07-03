@@ -5,8 +5,8 @@ from django.core.cache import cache
 
 from accounts.models import ROLE_SUPER_ADMIN, PERM_LOG_VIEW_ALL
 from bill.models import OrderItem, Order
-from product.models import Product,ProductAlias
-from customer_manage.models import Customer,CustomerPrice,RepaymentRecord
+from product.models import Product, ProductAlias
+from customer_manage.models import Customer, CustomerPrice, RepaymentRecord
 from area_manage.models import Area
 
 import datetime
@@ -26,6 +26,7 @@ import openpyxl
 
 from django.db import transaction, models
 from django.db.models import F, Sum
+from decimal import Decimal
 
 # ========== 缓存时长常量配置 ==========
 CACHE_HIGH_PRIORITY = 300  # 复杂聚合查询 5分钟
@@ -43,7 +44,17 @@ CACHE_PREFIX_SEARCH_PRODUCT_FOR_PRICE = "search_product_for_price_"
 CACHE_PREFIX_CUSTOMER_SALES_RANK = "customer_sales_rank_"
 
 import logging
+
 logger = logging.getLogger(__name__)
+
+
+# ========== 统一时间格式化工具函数 ==========
+def format_datetime(dt, fmt='%Y-%m-%d %H:%M:%S'):
+    """统一时间格式化 - 先转为上海本地时区再格式化"""
+    if not dt:
+        return ''
+    return timezone.localtime(dt).strftime(fmt)
+
 
 # ========== 统一缓存清理函数 ==========
 def clear_customer_cache(customer_id: int = None):
@@ -62,6 +73,7 @@ def clear_customer_cache(customer_id: int = None):
 
     logger.info(f"已清理客户缓存: {customer_id if customer_id else '全列表'}")
 
+
 def clear_customer_price_cache():
     """
     清理客户专属价格相关缓存（含列表、商品/客户搜索）
@@ -75,6 +87,7 @@ def clear_customer_price_cache():
     cache.delete_pattern(f"{CACHE_PREFIX_SEARCH_PRODUCT_FOR_PRICE}*")
 
     logger.info(f"已清理客户专属价格全量缓存")
+
 
 def full_to_half(s):
     """将全角字符转换为半角"""
@@ -90,8 +103,8 @@ def full_to_half(s):
         result.append(chr(code_point))
     return ''.join(result)
 
+
 # ========== 客户列表（手动缓存） ==========
-# ========== 客户列表（修改：增加 with_debt 参数支持） ==========
 @login_required
 @permission_required('customer_view')
 def customer_list(request):
@@ -143,7 +156,7 @@ def customer_list(request):
         except EmptyPage:
             customer_page = paginator.page(paginator.num_pages)
 
-        # 🔥 优化：批量计算欠款（仅需2次查询，替代N*2次）
+        # 批量计算欠款（仅需2次查询，替代N*2次）
         unpaid_dict = {}
         paid_dict = {}
         if with_debt:
@@ -203,8 +216,7 @@ def customer_list(request):
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'})
 
 
-
-# ========== 新增：启用客户 ==========
+# ========== 启用客户 ==========
 @login_required
 @permission_required('customer_delete')  # 复用删除权限
 def customer_enable(request, pk):
@@ -231,6 +243,7 @@ def customer_enable(request, pk):
         return JsonResponse({'code': 1, 'msg': '启用客户成功'}, content_type='application/json')
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'启用失败：{str(e)}'}, content_type='application/json')
+
 
 # ========== 客户详情（手动缓存） ==========
 @login_required
@@ -284,13 +297,15 @@ def customer_detail(request, pk):
         for order in order_page:
             order_list.append({
                 'order_no': order.order_no or '',
-                'create_time': order.create_time.strftime('%Y-%m-%d %H:%M') if order.create_time else '',
+                # ✅ 修复：转为上海本地时区再格式化
+                'create_time': format_datetime(order.create_time, '%Y-%m-%d %H:%M'),
                 'total_amount': float(order.total_amount) if order.total_amount else 0.0,
                 'is_settled': order.is_settled,
                 'status': order.status,
                 'status_text': dict(Order.ORDER_STATUS).get(order.status, '未知'),
                 'overdue_days': order.get_overdue_days(),
-                'order_date': order.create_time.strftime('%Y-%m-%d') if order.create_time else '',
+                # ✅ 修复：转为上海本地时区再格式化日期
+                'order_date': format_datetime(order.create_time, '%Y-%m-%d'),
                 'creator_name': order.creator.username if order.creator else '未知',
                 'creator_role': order.creator.role.name if (order.creator and order.creator.role) else '未知'
             })
@@ -302,11 +317,13 @@ def customer_detail(request, pk):
             repayment_list.append({
                 'id': repay.id,
                 'repayment_amount': float(repay.repayment_amount) if repay.repayment_amount else 0.0,
-                'repayment_time': repay.repayment_time.strftime('%Y-%m-%d %H:%M') if repay.repayment_time else '',
+                # ✅ 修复：还款时间转为本地时区
+                'repayment_time': format_datetime(repay.repayment_time, '%Y-%m-%d %H:%M'),
                 'repayment_remark': repay.repayment_remark or '',
                 'operator': repay.operator.username if repay.operator else '未知',
                 'operator_role': repay.operator.role.name if (repay.operator and repay.operator.role) else '未知',
-                'create_time': repay.create_time.strftime('%Y-%m-%d %H:%M') if repay.create_time else ''
+                # ✅ 修复：记录创建时间转为本地时区
+                'create_time': format_datetime(repay.create_time, '%Y-%m-%d %H:%M')
             })
 
         product_stats = OrderItem.objects.filter(
@@ -322,7 +339,9 @@ def customer_detail(request, pk):
             'product_name': stat['product__name'],
             'total_quantity': stat['total_quantity'],
             'unit': stat['product__unit'],
-            'last_purchase_time': stat['last_purchase_time'].strftime('%Y-%m-%d') if stat['last_purchase_time'] else '无'
+            # ✅ 修复：最后购买时间转为本地时区
+            'last_purchase_time': format_datetime(stat['last_purchase_time'], '%Y-%m-%d') if stat[
+                'last_purchase_time'] else '无'
         } for stat in product_stats]
 
         response_data = {
@@ -351,11 +370,7 @@ def customer_detail(request, pk):
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'}, safe=False)
 
 
-# 记得在文件顶部确保有这个导入（如果没有请加上）
-from decimal import Decimal
-
-
-# ========== 还款登记（最终修复版：统一使用 Decimal） ==========
+# ========== 还款登记 ==========
 @login_required
 @permission_required('customer_repayment')
 def repayment_register(request):
@@ -369,7 +384,7 @@ def repayment_register(request):
             if not customer_id or not repayment_amount:
                 return JsonResponse({'code': 0, 'msg': '客户和还款金额不能为空'}, content_type='application/json')
 
-            # 🔥 修复1：直接转成 Decimal，不要用 float
+            # 统一使用 Decimal 计算，避免浮点精度问题
             try:
                 repayment_amount = Decimal(repayment_amount)
                 if repayment_amount <= 0:
@@ -379,7 +394,7 @@ def repayment_register(request):
 
             customer = get_object_or_404(Customer, id=customer_id)
 
-            # 时间解析保持不变
+            # 时间解析：前端传入本地时间，标记为上海时区后存入数据库
             if repayment_time:
                 try:
                     if 'T' in repayment_time:
@@ -402,7 +417,6 @@ def repayment_register(request):
                     operator=request.user if request.user.is_authenticated else None
                 )
 
-                # 🔥 修复2：现在 remaining_to_allocate 也是 Decimal 了
                 remaining_to_allocate = repayment_amount
 
                 unsettled_orders = Order.objects.filter(
@@ -415,7 +429,6 @@ def repayment_register(request):
                     if remaining_to_allocate <= 0:
                         break
 
-                    # 这里 order_unpaid 本身就是 Decimal，相减没问题
                     order_unpaid = order.total_amount - order.received_amount
                     if order_unpaid <= 0:
                         continue
@@ -426,9 +439,8 @@ def repayment_register(request):
                         order.settled_by = request.user
                         order.settled_time = timezone.now()
                         order.settled_remark = f"系统自动核销（还款ID:{repayment.id}）"
-                        remaining_to_allocate -= order_unpaid  # Decimal - Decimal，完美
+                        remaining_to_allocate -= order_unpaid
                     else:
-                        # 🔥 修复3：Decimal += Decimal，不再报错
                         order.received_amount += remaining_to_allocate
                         remaining_to_allocate = Decimal('0')
                     order.save()
@@ -449,21 +461,23 @@ def repayment_register(request):
             return JsonResponse({'code': 0, 'msg': f'登记失败：{str(e)}'}, content_type='application/json')
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
 
-# ========== 客户详情页面入口（不缓存） ==========
+
+# ========== 页面入口 ==========
 @login_required
 @permission_required('customer_view')
 def customer_detail_page(request, pk):
     """客户详情页面"""
     return render(request, 'customer_manage/customer_detail.html', {'customer_id': pk})
 
-# ========== 还款登记页面入口（不缓存） ==========
+
 @login_required
 @permission_required('customer_repayment')
 def repayment_page(request):
     """还款登记页面"""
     return render(request, 'customer_manage/repayment.html')
 
-# ========== 新增客户（写操作，清理缓存） ==========
+
+# ========== 新增客户 ==========
 @login_required
 @permission_required('customer_add')
 def customer_add(request):
@@ -510,7 +524,8 @@ def customer_add(request):
             return JsonResponse({'code': 0, 'msg': f'新增失败：{str(e)}'}, content_type='application/json')
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
 
-# ========== 编辑客户（写操作，清理缓存） ==========
+
+# ========== 编辑客户 ==========
 @login_required
 @permission_required('customer_edit')
 def customer_edit(request, pk):
@@ -558,7 +573,7 @@ def customer_edit(request, pk):
         return JsonResponse({'code': 0, 'msg': f'编辑失败：{str(e)}'}, content_type='application/json')
 
 
-# ========== 修改：禁用客户（原删除接口） ==========
+# ========== 禁用客户（软删除） ==========
 @login_required
 @permission_required('customer_delete')
 def customer_delete(request, pk):
@@ -574,7 +589,7 @@ def customer_delete(request, pk):
 
         create_operation_log(
             request=request,
-            op_type='disable',  # 操作类型改为 disable
+            op_type='disable',
             obj_type='customer',
             obj_id=pk,
             obj_name=customer_name,
@@ -585,8 +600,9 @@ def customer_delete(request, pk):
         return JsonResponse({'code': 1, 'msg': '禁用客户成功'}, content_type='application/json')
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'禁用失败：{str(e)}'}, content_type='application/json')
-    
-# ========== 区域列表（手动缓存，共用） ==========
+
+
+# ========== 区域列表（共用缓存） ==========
 @login_required
 @permission_required('customer_view')
 def area_list_for_customer(request):
@@ -608,15 +624,15 @@ def area_list_for_customer(request):
             content_type='application/json'
         )
 
-# ========== 客户管理页面入口（不缓存） ==========
+
 @login_required
 @permission_required('customer_view')
 def customer_page(request):
     """客户管理页面"""
     return render(request, 'customer_manage/customer.html')
 
-# ========== 客户专属价格列表（手动缓存） ==========
-# ========== 客户专属价格列表（手动缓存，支持状态筛选） ==========
+
+# ========== 客户专属价格列表 ==========
 @login_required
 @permission_required('customer_price_view')
 def customer_price_list(request):
@@ -626,10 +642,9 @@ def customer_price_list(request):
         min_price = request.GET.get('min_price', '').strip()
         max_price = request.GET.get('max_price', '').strip()
         area_id = request.GET.get('area_id', '').strip()
-        status = request.GET.get('status', 'all')  # 新增：状态参数 all/active/disabled
+        status = request.GET.get('status', 'all')
         page = request.GET.get('page', 1)
 
-        # 缓存Key包含status
         cache_key = f"{CACHE_PREFIX_CUSTOMER_PRICE}{request.user.id}_{keyword}_{min_price}_{max_price}_{area_id}_{status}_{page}"
         cached_data = cache.get(cache_key)
         if cached_data:
@@ -637,7 +652,6 @@ def customer_price_list(request):
             return JsonResponse(cached_data, safe=False, content_type='application/json')
 
         page_size = 15
-        # 使用 all_objects 获取包含禁用的所有专属价
         prices = CustomerPrice.all_objects.all() \
             .select_related('customer__area', 'product') \
             .prefetch_related('product__aliases')
@@ -689,9 +703,9 @@ def customer_price_list(request):
         if area_id and area_id.isdigit():
             prices = prices.filter(customer__area_id=int(area_id))
 
-        # 计算各状态数量（用于Tab显示）
+        # 计算各状态数量
         all_count = CustomerPrice.all_objects.count()
-        active_count = CustomerPrice.objects.count()  # 默认管理器只返回active
+        active_count = CustomerPrice.objects.count()
         disabled_count = all_count - active_count
 
         paginator = Paginator(prices, page_size)
@@ -716,14 +730,14 @@ def customer_price_list(request):
                 'custom_price': float(cp.custom_price),
                 'standard_price': float(cp.product.price),
                 'remark': cp.remark or '',
-                'is_active': cp.is_active,  # 新增：返回状态
+                'is_active': cp.is_active,
             })
 
         response_data = {
             'code': 1, 'msg': '查询成功', 'data': result, 'keyword': keyword,
             'page': int(page), 'total': paginator.count, 'total_pages': paginator.num_pages,
             'has_next': price_page.has_next(), 'has_previous': price_page.has_previous(),
-            'counts': {  # 新增：返回各状态数量
+            'counts': {
                 'all': all_count,
                 'active': active_count,
                 'disabled': disabled_count
@@ -741,9 +755,10 @@ def customer_price_list(request):
             safe=False, content_type='application/json'
         )
 
-# ========== 新增：启用客户专属价 ==========
+
+# ========== 启用客户专属价 ==========
 @login_required
-@permission_required('customer_price_delete')  # 复用删除权限
+@permission_required('customer_price_delete')
 def customer_price_enable(request, pk):
     """启用客户专属价格接口"""
     try:
@@ -754,7 +769,6 @@ def customer_price_enable(request, pk):
         product_standard_price = float(cp.product.price)
         remark = cp.remark if cp.remark else '无'
 
-        # 启用操作
         cp.is_active = True
         cp.disabled_time = None
         cp.save()
@@ -772,7 +786,8 @@ def customer_price_enable(request, pk):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'启用失败：{str(e)}'}, content_type='application/json')
 
-# ========== 新增客户价格（写操作，清理缓存） ==========
+
+# ========== 新增客户价格 ==========
 @login_required
 @permission_required('customer_price_add')
 def customer_price_add(request):
@@ -822,7 +837,8 @@ def customer_price_add(request):
             return JsonResponse({'code': 0, 'msg': f'新增失败：{str(e)}'}, content_type='application/json')
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
 
-# ========== 编辑客户价格（写操作，清理缓存） ==========
+
+# ========== 编辑客户价格 ==========
 @login_required
 @permission_required('customer_price_edit')
 def customer_price_edit(request, pk):
@@ -866,7 +882,8 @@ def customer_price_edit(request, pk):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'编辑失败：{str(e)}'}, content_type='application/json')
 
-# ========== 修改：禁用专属价（原删除接口） ==========
+
+# ========== 禁用专属价（软删除） ==========
 @login_required
 @permission_required('customer_price_delete')
 def customer_price_delete(request, pk):
@@ -879,14 +896,13 @@ def customer_price_delete(request, pk):
         product_standard_price = float(cp.product.price)
         remark = cp.remark if cp.remark else '无'
 
-        # 软删除操作
         cp.is_active = False
         cp.disabled_time = timezone.now()
         cp.save()
 
         create_operation_log(
             request=request,
-            op_type='disable',  # 操作类型改为 disable
+            op_type='disable',
             obj_type='customer_price',
             obj_id=pk,
             obj_name=f"{customer_name}-{product_name}",
@@ -897,14 +913,15 @@ def customer_price_delete(request, pk):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'禁用失败：{str(e)}'}, content_type='application/json')
 
-# ========== 客户专属价格管理页面入口（不缓存） ==========
+
 @login_required
 @permission_required('customer_price_view')
 def customer_price_page(request):
     """客户专属价格管理页面"""
     return render(request, 'customer_manage/customer_price.html')
 
-# ========== 价格页商品列表（手动缓存） ==========
+
+# ========== 价格页辅助接口 ==========
 @login_required
 @permission_required('customer_price_view')
 def product_list_for_price(request):
@@ -927,7 +944,7 @@ def product_list_for_price(request):
             content_type='application/json'
         )
 
-# ========== 价格页客户搜索（手动缓存） ==========
+
 @login_required
 @permission_required('customer_price_view')
 def search_customer_for_price(request):
@@ -960,7 +977,7 @@ def search_customer_for_price(request):
     cache.set(cache_key, {'code': 1, 'data': data}, CACHE_MID_PRIORITY)
     return JsonResponse({'code': 1, 'data': data}, content_type='application/json')
 
-# ========== 价格页商品搜索（手动缓存） ==========
+
 @login_required
 @permission_required('customer_price_view')
 def search_product_for_price(request):
@@ -997,7 +1014,7 @@ def search_product_for_price(request):
     cache.set(cache_key, {'code': 1, 'data': data}, CACHE_MID_PRIORITY)
     return JsonResponse({'code': 1, 'data': data}, content_type='application/json')
 
-# ========== 价格页区域列表（手动缓存，共用） ==========
+
 @login_required
 @permission_required('customer_price_view')
 def area_list_for_price(request):
@@ -1018,7 +1035,8 @@ def area_list_for_price(request):
             content_type='application/json'
         )
 
-# ========== 客户消费TOP30页面入口（不缓存） ==========
+
+# ========== 客户消费TOP30 ==========
 @login_required
 @permission_required('customer_sales_rank')
 def customer_sales_rank_page(request):
@@ -1029,16 +1047,12 @@ def customer_sales_rank_page(request):
         'is_super_admin': request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
     })
 
-# ========== 客户消费TOP30数据（手动缓存） ==========
+
 @login_required
 @permission_required('customer_sales_rank')
 def customer_sales_rank_data(request):
     """获取客户消费TOP30数据 - 手动缓存版"""
     try:
-        from django.db.models import Sum
-        import datetime
-        from django.utils import timezone
-
         area_id = request.GET.get('area_id', '').strip()
         time_range = request.GET.get('time_range', 'year').strip()
 
@@ -1053,7 +1067,8 @@ def customer_sales_rank_data(request):
             customer__isnull=False
         )
 
-        today = datetime.date.today()
+        # ✅ 修复：使用上海本地日期，避免UTC日期偏差1天
+        today = timezone.localdate()
         today_start = timezone.make_aware(datetime.datetime.combine(today, datetime.time.min))
         today_end = timezone.make_aware(datetime.datetime.combine(today, datetime.time.max))
 
@@ -1126,7 +1141,8 @@ def customer_sales_rank_data(request):
             'code': 0, 'msg': f'查询失败：{str(e)}', 'data': []
         }, content_type='application/json')
 
-# ========== Excel导出通用函数（保持不变） ==========
+
+# ========== Excel导出通用函数 ==========
 def export_to_excel(data, title, headers, selected_fields, custom_fields, file_name, total_row=None):
     from openpyxl import Workbook
     wb = Workbook()
@@ -1189,7 +1205,7 @@ def export_to_excel(data, title, headers, selected_fields, custom_fields, file_n
     response['Content-Disposition'] = f'attachment; filename="{file_name}.xlsx"'
     return response
 
-# ========== 客户导出（保持不变，导入后清理缓存已在原代码中） ==========
+# ========== 客户导出 ==========
 @login_required
 def customer_export(request):
     if request.method == 'POST':
@@ -1307,7 +1323,7 @@ def customer_import(request):
             return JsonResponse({'code': 0, 'msg': f'导入失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
-# ========== 客户专属价格导出/导入（保持不变，清理缓存已在原代码中） ==========
+# ========== 客户专属价格导出/导入 ==========
 @login_required
 def customer_price_export(request):
     if request.method == 'POST':
@@ -1458,9 +1474,7 @@ def customer_price_import(request):
             return JsonResponse({'code': 0, 'msg': f'导入系统异常：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
-# ==================== 客户统计功能（优化版） ====================
-from django.core.paginator import Paginator # 确保你导入了这个
-
+# ==================== 客户统计功能 ====================
 @login_required
 @permission_required('customer_view')
 def customer_stats_page(request):
@@ -1475,8 +1489,8 @@ def customer_stats_page(request):
 @permission_required('customer_view')
 def calculate_customer_stats(request):
     """
-    客户统计接口（修复版：统一 Decimal 类型）
-    默认：最近30天（轻量级）
+    客户统计接口
+    默认：最近30天
     支持：时间筛选/地区筛选/状态筛选
     """
     try:
@@ -1497,9 +1511,10 @@ def calculate_customer_stats(request):
         base_customers = Customer.all_objects.all().select_related('area')
 
         # 1. 时间筛选
-        today = timezone.now().date()
+        # ✅ 修复：使用上海本地日期作为基准，避免UTC日期偏差1天
+        today = timezone.localdate()
         if time_range == '30days':
-            thirty_days_ago = today - timezone.timedelta(days=30)
+            thirty_days_ago = today - datetime.timedelta(days=30)
             base_orders = base_orders.filter(create_time__date__gte=thirty_days_ago)
         elif time_range == 'today':
             base_orders = base_orders.filter(create_time__date=today)
@@ -1521,7 +1536,7 @@ def calculate_customer_stats(request):
         elif status == 'disabled':
             base_customers = base_customers.filter(is_active=False)
 
-        # 🔥 优化1：先在数据库层面分页，仅处理当前页客户
+        # 数据库层面分页，仅处理当前页客户
         paginator = Paginator(base_customers, page_size)
         try:
             customer_page = paginator.page(page)
@@ -1533,7 +1548,7 @@ def calculate_customer_stats(request):
         # 提取当前页客户ID
         current_page_customer_ids = [c.id for c in customer_page]
 
-        # 🔥 优化2：仅查询当前页客户的订单统计
+        # 仅查询当前页客户的订单统计
         order_stats = base_orders.filter(customer_id__in=current_page_customer_ids).values('customer_id').annotate(
             total_consume=Sum('total_amount'),
             total_order=Count('id'),
@@ -1543,7 +1558,7 @@ def calculate_customer_stats(request):
         )
         order_dict = {item['customer_id']: item for item in order_stats}
 
-        # 仅查询当前页客户的还款统计（🔥 修复1：默认值改为 Decimal('0')）
+        # 仅查询当前页客户的还款统计
         repay_stats = RepaymentRecord.objects.filter(customer_id__in=current_page_customer_ids).values(
             'customer_id').annotate(
             total_repay=Sum('repayment_amount')
@@ -1553,7 +1568,6 @@ def calculate_customer_stats(request):
         # 组装当前页客户数据
         customer_list = []
         for customer in customer_page:
-            # 🔥 修复2：total_consume 默认值改为 Decimal('0')
             stats = order_dict.get(customer.id, {
                 'total_consume': Decimal('0'),
                 'total_order': 0,
@@ -1563,7 +1577,6 @@ def calculate_customer_stats(request):
             })
             total_repay = repay_dict.get(customer.id, Decimal('0'))
 
-            # 🔥 修复3：全程使用 Decimal 计算，最后转 float
             total_debt = max(stats['total_consume'] - total_repay, Decimal('0'))
 
             customer_list.append({
@@ -1572,16 +1585,17 @@ def calculate_customer_stats(request):
                 'area_name': customer.area.name if customer.area else '无区域',
                 'phone': customer.phone,
                 'is_active': customer.is_active,
-                'total_consume': float(stats['total_consume']),  # 仅在返回时转 float
-                'total_debt': float(total_debt),  # 仅在返回时转 float
+                'total_consume': float(stats['total_consume']),
+                'total_debt': float(total_debt),
                 'total_order': stats.get('total_order', 0),
                 'finished_order': stats.get('finished_order', 0),
                 'unsettled_order': stats.get('unsettled_order', 0),
-                'last_consume_time': stats.get('last_consume_time').strftime('%Y-%m-%d %H:%M') if stats.get(
+                # ✅ 修复：最后消费时间转为上海本地时区再格式化
+                'last_consume_time': format_datetime(stats.get('last_consume_time'), '%Y-%m-%d %H:%M') if stats.get(
                     'last_consume_time') else '无消费'
             })
 
-        # 🔥 优化3：全局统计单独聚合（🔥 修复4：全局统计也统一 Decimal）
+        # 全局统计聚合
         # 全局总消费
         global_total_consume = base_orders.aggregate(total=Sum('total_amount'))['total'] or Decimal('0')
         # 全局总欠款 = 总消费 - 总还款
