@@ -422,11 +422,19 @@ def get_customer_order_source(request, customer_id):
 
         if not all([start_date, end_date]):
             return JsonResponse({'code': 0, 'msg': '缺少时间参数'}, status=400)
-        start, end = parse_datetime(start_date), parse_datetime(end_date)
+
+        start = parse_datetime(start_date)
+        end = parse_datetime(end_date)
         if not start or not end:
             return JsonResponse({'code': 0, 'msg': '时间格式错误'}, status=400)
 
-        # 🔥 匹配Order索引查询
+        # 将前端传入的本地时间标记为上海时区，再转为UTC用于数据库查询
+        if timezone.is_naive(start):
+            start = timezone.make_aware(start, timezone.get_current_timezone())
+        if timezone.is_naive(end):
+            end = timezone.make_aware(end, timezone.get_current_timezone())
+
+        # 匹配Order索引查询
         orders = Order.objects.filter(
             customer_id=customer_id,
             status__in=['pending', 'printed', 'reopened'],
@@ -442,7 +450,8 @@ def get_customer_order_source(request, customer_id):
 
         order_list = [{
             'order_no': order.order_no,
-            'create_time': order.create_time.strftime('%Y-%m-%d %H:%M:%S'),
+            # 核心修复：转为上海本地时区后再格式化
+            'create_time': timezone.localtime(order.create_time).strftime('%Y-%m-%d %H:%M:%S'),
             'total_amount': float(order.total_amount),
             'status': dict(order.ORDER_STATUS).get(order.status, '未知状态'),
             'items': [{
