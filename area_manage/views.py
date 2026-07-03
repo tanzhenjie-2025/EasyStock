@@ -24,8 +24,12 @@ logger = logging.getLogger(__name__)
 
 # ===================== 工具函数（统一优化）=====================
 def format_datetime(dt):
-    """统一时间格式化，消除循环中重复strftime，降低CPU消耗"""
-    return dt.strftime('%Y-%m-%d %H:%M:%S') if dt else ''
+    """统一时间格式化 - 先转为上海本地时区再格式化，消除8小时偏差"""
+    if not dt:
+        return ''
+    # 核心修复：转为当前配置的本地时区（Asia/Shanghai）后再格式化
+    local_dt = timezone.localtime(dt)
+    return local_dt.strftime('%Y-%m-%d %H:%M:%S')
 
 
 # ===================== 常量定义 =====================
@@ -167,7 +171,7 @@ def area_list(request):
             .values_list('area_id', 'count')
         )
 
-        # 🔧 优化：统一时间格式化，包含is_active
+        # 🔧 时间格式化已通过 format_datetime 统一转本地时区
         result = [
             {
                 'id': a.id,
@@ -175,7 +179,7 @@ def area_list(request):
                 'remark': a.remark or '',
                 'customer_count': customer_count_map.get(a.id, 0),
                 'create_time': format_datetime(a.create_time),
-                'is_active': a.is_active  # 新增：返回状态字段
+                'is_active': a.is_active
             }
             for a in areas_page
         ]
@@ -185,7 +189,7 @@ def area_list(request):
                 'total': total, 'page': page, 'page_size': AREA_PAGE_SIZE,
                 'total_pages': (total + AREA_PAGE_SIZE - 1) // AREA_PAGE_SIZE
             },
-            'counts': {  # 新增：返回各状态数量
+            'counts': {
                 'all': all_count,
                 'active': active_count,
                 'inactive': inactive_count
@@ -224,7 +228,7 @@ def area_detail_api(request, pk):
 
         customers = [{'id': c.id, 'name': c.name, 'phone': c.phone} for c in customers_page]
 
-        # 4. 组装数据
+        # 4. 组装数据 - 时间通过 format_datetime 统一转本地
         data = {
             'id': area.id,
             'name': area.name,
@@ -398,6 +402,7 @@ def group_list(request):
         end = start + page_size
         groups_page = groups[start:end]
 
+        # 时间通过 format_datetime 统一转本地时区
         result = [
             {
                 'id': g.id, 'name': g.name, 'remark': g.remark or '',
@@ -464,6 +469,7 @@ def group_detail_api(request, pk):
             } for a in areas_page
         ]
 
+        # 时间通过 format_datetime 统一转本地时区
         data = {
             'id': group.id,
             'name': group.name,
@@ -611,7 +617,7 @@ def area_detail_page(request, pk):
         'id': area.id, 'name': area.name, 'code': '', 'parent_name': '',
         'remark': area.remark or '', 'customer_count': customer_count,
         'create_time': format_datetime(area.create_time),
-        'update_time': update_time  # 🔧 修复：不再错误使用create_time
+        'update_time': update_time
     }
     return render(request, 'area_manage/area_detail.html', {'area': area_data, 'related_groups': related_groups})
 
@@ -628,7 +634,7 @@ def group_detail_page(request, pk):
         'area_names': [a.name for a in group.areas.all()],
         'remark': group.remark or '', 'customer_count': customer_count,
         'create_time': format_datetime(group.create_time),
-        'update_time': format_datetime(group.update_time)  # 🔧 修复：不再错误使用create_time
+        'update_time': format_datetime(group.update_time)
     }
     return render(request, 'area_manage/group_detail.html', {'group': group_data})
 
@@ -739,8 +745,8 @@ def area_export(request):
                 })
                 seq += 1
 
-            # 5. 生成文件名
-            date_str = timezone.now().strftime('%Y年%m月%d日')
+            # 5. 生成文件名 - 修复：使用本地日期
+            date_str = timezone.localdate().strftime('%Y年%m月%d日')
             file_name = f'{date_str}区域管理导出'
 
             # 6. 调用通用导出函数（不传 total_row 即无合计）
@@ -753,13 +759,6 @@ def area_export(request):
                 file_name=file_name,
                 total_row=None
             )
-
-            # 7. 记录日志
-            # 请确保你有 create_operation_log 函数，或者注释掉下面这一段
-            # create_operation_log(
-            #     request=request, op_type='export', obj_type='area',
-            #     obj_id=0, obj_name='批量导出', detail=f"导出区域数据共{len(data)}条"
-            # )
 
             return response
         else:
@@ -904,8 +903,8 @@ def group_export(request):
                 })
                 seq += 1
 
-            # 5. 生成文件名
-            date_str = timezone.now().strftime('%Y年%m月%d日')
+            # 5. 生成文件名 - 修复：使用本地日期
+            date_str = timezone.localdate().strftime('%Y年%m月%d日')
             file_name = f'{date_str}区域组管理导出'
 
             # 6. 调用通用导出函数
@@ -975,21 +974,20 @@ def area_statistics_api(request, pk):
                     'product_id': pid,
                     'product_name': pname,
                     'total_quantity': 0,
-                    'total_amount': 0.0  # 初始化为 float，方便后续处理
+                    'total_amount': 0.0
                 }
             product_summary[pid]['total_quantity'] += item.quantity or 0
-            # 安全累加 Decimal，转为 float
             product_summary[pid]['total_amount'] += float(item.amount) if item.amount else 0.0
 
         # 转换为列表并排序
         product_list = sorted(product_summary.values(), key=lambda x: -x['total_amount'])
 
-        # 5. 组装返回数据 (统一转为 float 以支持 JSON 序列化)
+        # 5. 组装返回数据 - 修复：计算时间转为本地时区
         data = {
             'total_order_amount': float(agg_result['total_order_amount']),
             'total_debt': float(agg_result['total_debt']),
             'product_summary': product_list,
-            'calculated_at': timezone.now().strftime('%Y-%m-%d %H:%M:%S')
+            'calculated_at': timezone.localtime(timezone.now()).strftime('%Y-%m-%d %H:%M:%S')
         }
 
         return JsonResponse({'code': 1, 'data': data})
@@ -1016,7 +1014,7 @@ def group_statistics_api(request, pk):
                 'total_order_amount': 0.0,
                 'total_debt': 0.0,
                 'product_summary': [],
-                'calculated_at': timezone.now().strftime('%Y-%m-%d %H:%M:%S')
+                'calculated_at': timezone.localtime(timezone.now()).strftime('%Y-%m-%d %H:%M:%S')
             }})
 
         # 2. 锁定订单范围 (利用索引: status, area)
@@ -1063,11 +1061,12 @@ def group_statistics_api(request, pk):
 
         product_list = sorted(product_summary.values(), key=lambda x: -x['total_amount'])
 
+        # 修复：计算时间转为本地时区
         data = {
             'total_order_amount': float(agg_result['total_order_amount']),
             'total_debt': float(agg_result['total_debt']),
             'product_summary': product_list,
-            'calculated_at': timezone.now().strftime('%Y-%m-%d %H:%M:%S')
+            'calculated_at': timezone.localtime(timezone.now()).strftime('%Y-%m-%d %H:%M:%S')
         }
         return JsonResponse({'code': 1, 'data': data})
 
@@ -1076,13 +1075,11 @@ def group_statistics_api(request, pk):
         return JsonResponse({'code': 0, 'msg': f'统计失败：{str(e)}'})
 
 
-
-
-
 # 工具函数：解析时间范围
 def parse_time_range(time_range, start_date_str, end_date_str):
     from datetime import datetime, timedelta
-    today = timezone.now().date()
+    # 修复：使用上海本地日期，避免UTC日期偏差1天
+    today = timezone.localdate()
 
     if time_range == 'today':
         return today, today
@@ -1155,14 +1152,19 @@ def calculate_area_stats(request):
             if total_sales_val > 0:
                 contribution = (float(item['sales']) / total_sales_val) * 100
 
+            # 修复：最后下单时间转为上海本地时区再格式化
+            last_order_str = ''
+            if item['last_order_time']:
+                last_order_local = timezone.localtime(item['last_order_time'])
+                last_order_str = last_order_local.strftime('%Y-%m-%d %H:%M')
+
             area_list.append({
                 'area_id': item['area_id'],
                 'area_name': item['area__name'] or '未分配区域',
                 'sales': float(item['sales']),
                 'order_count': item['order_count'],
                 'contribution': round(contribution, 2),
-                'last_order_time': item['last_order_time'].strftime('%Y-%m-%d %H:%M') if item[
-                    'last_order_time'] else '无'
+                'last_order_time': last_order_str if last_order_str else '无'
             })
 
         # 5. TOP 排行（直接复用 area_list 的排序结果）
@@ -1196,8 +1198,8 @@ def area_portrait_api(request, area_id):
     try:
         area = get_object_or_404(Area.objects.only('id', 'name', 'remark', 'create_time'), pk=area_id)
 
-        # 时间范围（默认最近30天）
-        end_date = timezone.now().date()
+        # 时间范围 - 修复：使用上海本地日期
+        end_date = timezone.localdate()
         start_date = end_date - timezone.timedelta(days=30)
 
         # 该区域订单基础数据
@@ -1238,13 +1240,14 @@ def area_portrait_api(request, area_id):
             } for item in customer_top
         ]
 
+        # 修复：区域创建时间转为本地时区再格式化
         return JsonResponse({
             'code': 1,
             'area_info': {
                 'id': area.id,
                 'name': area.name,
                 'remark': area.remark or '无',
-                'create_time': area.create_time.strftime('%Y-%m-%d')
+                'create_time': timezone.localtime(area.create_time).strftime('%Y-%m-%d')
             },
             'stats': {
                 'total_sales': float(area_stats['total_sales']),
@@ -1285,7 +1288,7 @@ def calculate_group_stats(request):
         for g in all_groups:
             group_area_map[g.id] = {
                 'name': g.name,
-                'area_ids': set(g.areas.values_list('id', flat=True))  # 用 set 提高查找效率
+                'area_ids': set(g.areas.values_list('id', flat=True))
             }
 
         # 2. 🔧 核心优化：先在数据库层按 Area 聚合订单数据，避免加载全量 Order
@@ -1293,7 +1296,7 @@ def calculate_group_stats(request):
             status__in=['pending', 'printed', 'reopened'],
             create_time__date__gte=start_dt,
             create_time__date__lte=end_dt,
-            area_id__isnull=False  # 排除无区域的订单
+            area_id__isnull=False
         ).values('area_id').annotate(
             sales=Coalesce(Sum('total_amount'), 0, output_field=DecimalField(max_digits=12, decimal_places=2)),
             order_count=Count('id'),
