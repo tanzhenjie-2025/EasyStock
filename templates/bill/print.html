@@ -6,24 +6,101 @@
     <style>
         /* 打印样式（适配三联单打印机） */
         @media print {
-            body { margin: 0; padding: 0; font-family: "SimSun", serif; }
-            .bill-print {
-                width: 210mm; height: 140mm; padding: 10mm; 
-                page-break-after: always; /* 自动分页 */
-                box-sizing: border-box;
+            @page {
+                size: 210mm 140mm;
+                margin: 0;
             }
+            
+            html, body { 
+                margin: 0; 
+                padding: 0; 
+                font-family: "SimSun", serif;
+                height: auto;
+            }
+            
+            .bill-print {
+                width: 210mm; 
+                height: auto; 
+                padding: 5mm; 
+                box-sizing: border-box;
+                page-break-inside: avoid;
+                border: none;
+            }
+            
             .no-print { display: none; }
         }
+        
         /* 屏幕预览样式 */
         .bill-print {
-            width: 210mm; height: 140mm; 
-            border: 1px solid #000; margin: 20px auto;
-            padding: 10mm; box-sizing: border-box;
+            width: 210mm; 
+            height: auto; 
+            border: none; 
+            margin: 20px auto;
+            padding: 5mm;
+            box-sizing: border-box;
         }
-        .bill-header { text-align: center; margin-bottom: 20px; }
-        .bill-table { width: 100%; border-collapse: collapse; }
-        .bill-table th, .bill-table td { border: 1px solid #000; padding: 8px; text-align: center; }
-        .bill-footer { margin-top: 20px; text-align: right; }
+
+        .bill-header { 
+            text-align: center; 
+            margin-bottom: 8px;
+        }
+        .bill-header h2 { 
+            margin: 0 0 4px 0; 
+            font-size: 20px;
+        }
+
+        /* 头部信息行：与表格同宽，整体居中 */
+        .bill-info-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            margin: 2px auto;
+            width: 90%; /* 内容区统一宽度，实现整体居中 */
+        }
+        .bill-info-row span {
+            white-space: nowrap;
+        }
+        .bill-info-row .info-group span + span {
+            margin-left: 20px;
+        }
+        
+        /* 表格：总宽收窄，列宽等比例缩小，字号不变，居中显示 */
+        .bill-table { 
+            width: 90%; 
+            margin: 0 auto;
+            border-collapse: collapse; 
+            table-layout: fixed;
+        }
+        .bill-table th, .bill-table td { 
+            border: 1px solid #000; 
+            padding: 4px;
+            text-align: center; 
+            font-size: 14px; /* 字号保持不变 */
+            word-break: break-all;
+        }
+
+        /* 列宽比例保持不变，随总宽自动缩小 */
+        .bill-table .col-index { width: 8%; }
+        .bill-table .col-name { width: 22%; }
+        .bill-table .col-qty { width: 12%; }
+        .bill-table .col-unit { width: 12%; }
+        .bill-table .col-price { width: 18%; }
+        .bill-table .col-total { width: 18%; }
+        
+        /* 底部：与表格同宽，整体居中 */
+        .bill-footer { 
+            margin-top: 8px; 
+            margin-left: auto;
+            margin-right: auto;
+            width: 90%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 14px;
+        }
+        .bill-footer span {
+            white-space: nowrap;
+        }
     </style>
 </head>
 <body>
@@ -33,56 +110,59 @@
         <a href="/bill/"><button>返回开单页</button></a>
     </div>
 
-    <!-- 三联单内容（适配打印） -->
+    <!-- 三联单内容 -->
     <div class="bill-print">
         <div class="bill-header">
             <h2>销售三联单</h2>
-            <p>订单编号：{{ order.order_no }} | 开单时间：{{ order.create_time|date:"Y-m-d H:i:s" }}</p>
-            <!-- 新增：客户名称和区域地址 -->
-            {% if order.customer %}
-                <p>客户名称：{{ order.customer.name }} | 区域地址：{{ order.area.name|default:"无" }}</p>
-            {% else %}
-                <p>客户名称：无 | 区域地址：无</p>
-            {% endif %}
+            <!-- 区域地址调整到最左侧 -->
+            <div class="bill-info-row">
+                <div class="info-group">
+                    <span>区域地址：{{ order.area.name|default:"无" }}</span>
+                    <span>客户名称：{% if order.customer %}{{ order.customer.name }}{% else %}无{% endif %}</span>
+                </div>
+                <div class="info-group">
+                    <span>订单编号：{{ order.order_no }}</span>
+                    <span>开单时间：{{ order.create_time|date:"Y-m-d H:i:s" }}</span>
+                </div>
+            </div>
         </div>
         <table class="bill-table">
             <thead>
                 <tr>
-                    <th>商品名称</th>
-                    <th>单位</th>
-                    <th>单价</th>
-                    <th>数量</th>
-                    <th>小计</th>
+                    <th class="col-index">序号</th>
+                    <th class="col-name">商品名称</th>
+                    <th class="col-qty">数量</th>
+                    <th class="col-unit">单位</th>
+                    <th class="col-price">单价</th>
+                    <th class="col-total">小计</th>
                 </tr>
             </thead>
             <tbody>
                 {% for item in items %}
                 <tr>
+                    <td>{{ forloop.counter }}</td>
                     <td>{{ item.product.name }}</td>
+                    <td>{{ item.quantity }}</td>
                     <td>{{ item.product.unit }}</td>
                     <td>¥{{ item.product.price }}</td>
-                    <td>{{ item.quantity }}</td>
                     <td>¥{{ item.amount }}</td>
                 </tr>
                 {% empty %}
-                <tr><td colspan="5">无商品明细</td></tr>
+                <tr><td colspan="6">无商品明细</td></tr>
                 {% endfor %}
             </tbody>
         </table>
         <div class="bill-footer">
-            <p>总金额：¥{{ order.total_amount }}</p>
-            <p>打印时间：{% now "Y-m-d H:i:s" %}</p>
+            <span>总金额：¥{{ order.total_amount }}</span>
+            <span>打印时间：{% now "Y-m-d H:i:s" %}</span>
         </div>
     </div>
 
-    <!-- 新增：按回车返回开单页 -->
     <script>
-        // 监听全局回车事件，返回开单页
         document.addEventListener('keydown', function(e) {
-            // 排除输入框内的回车（如果有输入框的话）
             if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && e.key === 'Enter') {
                 e.preventDefault();
-                window.location.href = '/bill/'; // 跳转到开单主页
+                window.location.href = '/bill/';
             }
         });
     </script>
