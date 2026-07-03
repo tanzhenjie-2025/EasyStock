@@ -11,7 +11,11 @@ https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 
 from pathlib import Path
+import os
+from dotenv import load_dotenv  # 新增导入
 
+# 加载 .env 文件（默认从当前目录查找，如果文件在项目根目录，会自动找到）
+load_dotenv()
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -20,13 +24,30 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-)29kg-7@a-s+%50d#zgs1o*dq$-$c7qub&v%bgrfzf51&@zkk-'
-
+SECRET_KEY = os.environ.get('SECRET_KEY','django-insecure-)29kg-7@a-s+%50d#zgs1o*dq$-$c7qub&v%bgrfzf51&@zkk-')
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DEBUG', 'false').lower() == 'true'
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [host.strip() for host in os.environ.get('ALLOWED_HOSTS', '').split(',') if host.strip()]
 
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': os.environ.get('MYSQL_DATABASE', 'db'),       # 数据库名
+        'USER': os.environ.get('MYSQL_USER', 'root'),     # 例如 root
+        'PASSWORD': os.environ.get('MYSQL_PASSWORD', 'mima'),
+        'HOST': '127.0.0.1',          # 本地数据库填 127.0.0.1
+        'PORT': '3306',               # MySQL 默认端口
+        'OPTIONS': {
+            'charset': 'utf8mb4',
+            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+        },
+        # 可选：开启长连接，减少频繁建连开销
+        'CONN_MAX_AGE': 60,
+        # 可选：开启连接健康检查
+        'CONN_HEALTH_CHECKS': True,
+    }
+}
 
 # Application definition
 
@@ -52,6 +73,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',  # 放在第二行
     'django.contrib.sessions.middleware.SessionMiddleware',  # ✅ 必须：会话中间件
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
