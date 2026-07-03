@@ -4,10 +4,11 @@
     <meta charset="UTF-8">
     <title>打印订单 - {{ order.order_no }}</title>
     <style>
-        /* 打印样式（适配三联单打印机） */
+        /* 打印样式（适配三联单打印机 竖向） */
         @media print {
             @page {
-                size: 210mm 140mm;
+                /* 宽高调换：140mm宽 × 210mm高，变为竖向 */
+                size: 140mm 210mm;
                 margin: 0;
             }
             
@@ -19,7 +20,8 @@
             }
             
             .bill-print {
-                width: 210mm; 
+                /* 内容宽度同步改为140mm，与纸张宽度一致 */
+                width: 140mm; 
                 height: auto; 
                 padding: 5mm; 
                 box-sizing: border-box;
@@ -32,7 +34,8 @@
         
         /* 屏幕预览样式 */
         .bill-print {
-            width: 210mm; 
+            /* 预览宽度同步改为140mm */
+            width: 140mm; 
             height: auto; 
             border: none; 
             margin: 20px auto;
@@ -55,7 +58,8 @@
             justify-content: space-between;
             font-size: 13px;
             margin: 2px auto;
-            width: 90%; /* 内容区统一宽度，实现整体居中 */
+            width: 90%;
+            flex-wrap: wrap; /* 宽度不足时自动换行，避免溢出 */
         }
         .bill-info-row span {
             white-space: nowrap;
@@ -75,7 +79,7 @@
             border: 1px solid #000; 
             padding: 4px;
             text-align: center; 
-            font-size: 14px; /* 字号保持不变 */
+            font-size: 14px;
             word-break: break-all;
         }
 
