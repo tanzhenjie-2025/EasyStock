@@ -33,11 +33,13 @@ CACHE_MID_PRIORITY = 600  # 静态数据 10分钟
 
 # ========== 通用优化函数 ==========
 def parse_datetime(date_str):
-    """通用时间解析函数 - 返回 Django aware datetime"""
+    """通用时间解析函数 - 返回 上海时区的 aware datetime
+    前端传入的本地时间字符串 → 标记为Asia/Shanghai时区 → ORM自动转UTC查询
+    """
     try:
         naive_dt = datetime.strptime(date_str.replace('T', ' '), '%Y-%m-%d %H:%M')
-        # 关键修改：将原生 datetime 转换为带时区信息的 aware datetime
-        return timezone.make_aware(naive_dt)
+        # 统一标记为当前配置时区（Asia/Shanghai），所有接口复用此逻辑
+        return timezone.make_aware(naive_dt, timezone.get_current_timezone())
     except ValueError:
         return None
 
@@ -85,7 +87,7 @@ def summary_by_group(request):
     area_ids = get_area_ids_by_group(group_id)
     group_name = '全部区域' if group_id == '0' else AreaGroup.objects.get(id=group_id).name
 
-    # 时间校验 (修改：统一使用 parse_datetime)
+    # 时间校验 (统一使用 parse_datetime，已带上海时区)
     start = parse_datetime(start_datetime)
     end = parse_datetime(end_datetime)
     if not start or not end:
@@ -128,10 +130,12 @@ def summary_by_group(request):
             'remark': ''
         })
 
+    # 日志时间统一格式化，避免带时区后缀
+    time_range_str = f"{start.strftime('%Y-%m-%d %H:%M')}至{end.strftime('%Y-%m-%d %H:%M')}"
     create_summary_operation_log(
         request=request, operation_type='query', object_type='product_summary',
         object_name=f'商品汇总-{group_name}',
-        operation_detail=f'查询{group_name} {start}至{end}，返回{len(data)}条数据'
+        operation_detail=f'查询{group_name} {time_range_str}，返回{len(data)}条数据'
     )
 
     return JsonResponse({'code': 1, 'data': data, 'total_amount': float(total_amount)})
@@ -170,7 +174,7 @@ def summary_customer_by_group(request):
     if not all([group_id, start_datetime, end_datetime]):
         return JsonResponse({'code': 0, 'msg': '请选择组和时间范围'})
 
-    # 时间校验 (修改：统一使用 parse_datetime)
+    # 时间校验 (统一使用 parse_datetime，已带上海时区)
     start = parse_datetime(start_datetime)
     end = parse_datetime(end_datetime)
     if not start or not end:
@@ -287,7 +291,7 @@ def export_product_summary(request):
             if not all([group_id, start_datetime, end_datetime, selected_fields]):
                 return JsonResponse({'code': 0, 'msg': '参数不完整'})
 
-            # 修改：统一使用 parse_datetime
+            # 统一使用 parse_datetime，已带上海时区
             start = parse_datetime(start_datetime)
             end = parse_datetime(end_datetime)
             if not start or not end:
@@ -319,7 +323,7 @@ def export_product_summary(request):
 
             create_summary_operation_log(request=request, operation_type='export', object_type='product_summary')
 
-            # 修改：使用 timezone.localdate() 替代 date.today()
+            # 已使用 timezone.localdate()，输出上海本地日期
             file_date_str = timezone.localdate().strftime("%Y%m%d")
 
             return export_to_excel(
@@ -349,7 +353,7 @@ def export_customer_summary(request):
             if not all([group_id, start_datetime, end_datetime, selected_fields]):
                 return JsonResponse({'code': 0, 'msg': '参数不完整'})
 
-            # 修改：统一使用 parse_datetime
+            # 统一使用 parse_datetime，已带上海时区
             start = parse_datetime(start_datetime)
             end = parse_datetime(end_datetime)
             if not start or not end:
@@ -377,7 +381,7 @@ def export_customer_summary(request):
 
             create_summary_operation_log(request=request, operation_type='export', object_type='customer_summary')
 
-            # 修改：使用 timezone.localdate() 替代 date.today()
+            # 已使用 timezone.localdate()，输出上海本地日期
             file_date_str = timezone.localdate().strftime("%Y%m%d")
 
             return export_to_excel(
@@ -423,16 +427,11 @@ def get_customer_order_source(request, customer_id):
         if not all([start_date, end_date]):
             return JsonResponse({'code': 0, 'msg': '缺少时间参数'}, status=400)
 
+        # parse_datetime 已返回上海时区的aware时间，无需二次转换
         start = parse_datetime(start_date)
         end = parse_datetime(end_date)
         if not start or not end:
             return JsonResponse({'code': 0, 'msg': '时间格式错误'}, status=400)
-
-        # 将前端传入的本地时间标记为上海时区，再转为UTC用于数据库查询
-        if timezone.is_naive(start):
-            start = timezone.make_aware(start, timezone.get_current_timezone())
-        if timezone.is_naive(end):
-            end = timezone.make_aware(end, timezone.get_current_timezone())
 
         # 匹配Order索引查询
         orders = Order.objects.filter(
@@ -450,7 +449,7 @@ def get_customer_order_source(request, customer_id):
 
         order_list = [{
             'order_no': order.order_no,
-            # 核心修复：转为上海本地时区后再格式化
+            # 转为上海本地时区后格式化
             'create_time': timezone.localtime(order.create_time).strftime('%Y-%m-%d %H:%M:%S'),
             'total_amount': float(order.total_amount),
             'status': dict(order.ORDER_STATUS).get(order.status, '未知状态'),
@@ -498,6 +497,7 @@ def get_product_order_source(request, product_id):
 
         if not all([start_date, end_date]):
             return JsonResponse({'code': 0, 'msg': '缺少时间参数'}, status=400)
+        # parse_datetime 已返回上海时区的aware时间
         start, end = parse_datetime(start_date), parse_datetime(end_date)
         if not start or not end:
             return JsonResponse({'code': 0, 'msg': '时间格式错误'}, status=400)
@@ -525,7 +525,8 @@ def get_product_order_source(request, product_id):
 
         order_list = [{
             'order_no': item.order.order_no,
-            'create_time': item.order.create_time.strftime('%Y-%m-%d %H:%M:%S'),
+            # ✅ 修复：转为上海本地时区后再格式化，解决慢8小时问题
+            'create_time': timezone.localtime(item.order.create_time).strftime('%Y-%m-%d %H:%M:%S'),
             'customer_name': item.order.customer.name if item.order.customer else '无客户',
             'area_name': item.order.area.name if item.order.area else '无区域',
             'quantity': item.quantity, 'unit': product.unit,
