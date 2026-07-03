@@ -2,6 +2,7 @@ from django.db import models, transaction
 from pypinyin import lazy_pinyin
 from django.utils import timezone
 from accounts.models import User
+from django.db.models import Q, UniqueConstraint
 
 # ====================== 新增：软删除管理器 ======================
 class SoftDeleteManager(models.Manager):
@@ -40,7 +41,8 @@ class ProductTag(models.Model):
 
 class Product(models.Model):
     """商品表（含拼音检索字段 + 双库存 + 标签）"""
-    name = models.CharField('商品名称', max_length=100, unique=True)
+    # 移除 unique=True，允许同名但不同单位
+    name = models.CharField('商品名称', max_length=100, db_index=True)
     pinyin_full = models.CharField('全拼', max_length=200, blank=True, db_index=True)
     pinyin_abbr = models.CharField('拼音首字母', max_length=50, blank=True, db_index=True)
     stock_system = models.IntegerField('系统库存', default=9999, db_index=True)
@@ -50,7 +52,6 @@ class Product(models.Model):
     create_time = models.DateTimeField(auto_now_add=True, db_index=True)
     is_active = models.BooleanField('是否启用', default=True, db_index=True)
 
-    # ====================== 核心：商品关联标签 ======================
     tags = models.ManyToManyField(ProductTag, blank=True, verbose_name='商品标签', related_name='products')
 
     objects = SoftDeleteManager()
@@ -66,15 +67,24 @@ class Product(models.Model):
         self.save(update_fields=['is_active'])
 
     def __str__(self):
-        return self.name
+        # 优化展示：后台和列表中直接显示单位，避免混淆
+        return f"{self.name}（{self.unit}）"
 
     class Meta:
         verbose_name = '商品'
         verbose_name_plural = '商品管理'
+        constraints = [
+            # 核心：仅启用状态下，名称+单位联合唯一
+            UniqueConstraint(
+                fields=['name', 'unit'],
+                condition=Q(is_active=True),
+                name='unique_active_product_name_unit'
+            )
+        ]
         indexes = [
             models.Index(fields=['pinyin_abbr', 'pinyin_full']),
-            # 新增：状态筛选+名称排序联合索引
             models.Index(fields=['is_active', 'name']),
+            models.Index(fields=['name', 'unit']),  # 新增联合索引，加速联合查询
             models.Index(fields=['name', 'id', 'price', 'unit', 'stock_system', 'stock_actual']),
             models.Index(fields=['is_active']),
         ]
