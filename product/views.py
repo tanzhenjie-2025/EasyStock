@@ -275,7 +275,18 @@ def product_add(request):
             clear_product_all_cache()
             return JsonResponse({'code': 1, 'msg': '商品新增成功'})
         except IntegrityError:
-            return JsonResponse({'code': 0, 'msg': '商品名称已存在'})
+            # 查询已存在的同名同单位启用商品
+            exist_product = Product.objects.filter(name=name, unit=unit).first()
+            if exist_product:
+                return JsonResponse({
+                    'code': 2,
+                    'msg': f'已存在同名同单位商品：{name}（{unit}）',
+                    'data': {
+                        'product_id': exist_product.id,
+                        'product_name': exist_product.name
+                    }
+                })
+            return JsonResponse({'code': 0, 'msg': '商品创建失败，存在唯一约束冲突'})
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'新增失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
@@ -297,8 +308,8 @@ def product_edit(request, pk):
                 return JsonResponse({'code': 0, 'msg': '商品名称不能为空'})
             if not price or float(price) < 0:
                 return JsonResponse({'code': 0, 'msg': '请输入有效的单价'})
-            if Product.objects.filter(name=name).exclude(id=pk).exists():
-                return JsonResponse({'code': 0, 'msg': '商品名称已存在'})
+            if Product.objects.filter(name=name, unit=unit).exclude(id=pk).exists():
+                return JsonResponse({'code': 0, 'msg': '已存在同名同单位的商品'})
 
             old_info = f"名称={product.name}，单价={product.price}，单位={product.unit}，系统库存={product.stock_system}"
 

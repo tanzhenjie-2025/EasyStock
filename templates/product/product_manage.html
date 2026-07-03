@@ -892,7 +892,7 @@ input:checked + .slider:before{transform:translateX(26px);}
 
 {% block extra_js %}
 <!-- 引入 Bootstrap JS -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.bootcdn.net/ajax/libs/bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script>
 let customFieldCount = 0;
@@ -1016,7 +1016,13 @@ $('#productForm').submit(function(e){
             showToast(res.msg, 'success');
             closeModal();
             setTimeout(()=>location.reload(), 1000);
-        }else{
+        } else if(res.code === 2){
+            // 商品已存在，询问是否跳转编辑
+            if(confirm(res.msg + '\n是否立即前往编辑该商品？')){
+                closeModal();
+                openModal(res.data.product_id);
+            }
+        } else {
             showToast(res.msg, 'error');
         }
     });
