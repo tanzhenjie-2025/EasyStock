@@ -49,6 +49,8 @@ DATABASES = {
     }
 }
 
+
+CSRF_TRUSTED_ORIGINS = [host.strip() for host in os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',') if host.strip()]
 # Application definition
 
 AUTH_USER_MODEL = 'accounts.User'  # ✅ 正确：指定自定义User模型
@@ -106,12 +108,12 @@ WSGI_APPLICATION = 'EasyStock.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
-}
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.sqlite3',
+#         'NAME': BASE_DIR / 'db.sqlite3',
+#     }
+# }
 
 
 # Password validation
@@ -168,13 +170,26 @@ SESSION_EXPIRE_AT_BROWSER_CLOSE = True  # 关闭浏览器即过期
 # 新增：消息存储（确保登录错误提示能正常显示）
 MESSAGE_STORAGE = 'django.contrib.messages.storage.session.SessionStorage'
 
+# CACHES = {
+#     'default': {
+#         'BACKEND': 'django_redis.cache.RedisCache',
+#         'LOCATION': 'redis://127.0.0.1:6379/1',
+#         'OPTIONS': {
+#             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+#         }
+#     }
+# }
+
 CACHES = {
     'default': {
         'BACKEND': 'django_redis.cache.RedisCache',
         'LOCATION': 'redis://127.0.0.1:6379/1',
         'OPTIONS': {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            # 关键：强制使用 RESP2 协议
+            'RESP2': True,
+            # 或者（某些版本用）
+            # 'protocol': 2,
         }
     }
 }
-
