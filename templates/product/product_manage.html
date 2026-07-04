@@ -643,6 +643,7 @@ input:checked + .slider:before{transform:translateX(26px);}
                     <th>商品名称</th>
                     <th>单价（元）</th>
                     <th>单位</th>
+                    <th>商品规格</th>
                     <th>系统库存</th>
                     <th>实际库存</th>
                     <th>商品标签</th>
@@ -663,6 +664,7 @@ input:checked + .slider:before{transform:translateX(26px);}
                     </td>
                     <td class="editable" data-field="price" data-value="{{ p.price }}">{{ p.price|floatformat:2 }}</td>
                     <td>{{ p.unit }}</td>
+                    <td>{{ p.specification|default:'-' }}</td>
                     <td class="editable" data-field="stock_system" data-value="{{ p.stock_system }}">{{ p.stock_system }}</td>
                     <td>{{ p.stock_actual }}</td>
                     <td>
@@ -823,6 +825,10 @@ input:checked + .slider:before{transform:translateX(26px);}
                 <input type="text" id="name" required>
             </div>
             <div class="form-item">
+    <label>商品规格</label>
+    <input type="text" id="specification" placeholder="如：1件×50斤">
+</div>
+            <div class="form-item">
                 <label>单价 *</label>
                 <input type="number" id="price" step="0.01" min="0" required>
             </div>
@@ -920,6 +926,10 @@ input:checked + .slider:before{transform:translateX(26px);}
                 <input type="checkbox" id="field_unit" name="export_fields" value="unit" checked>
                 <label for="field_unit">单位</label>
             </div>
+            <div class="field-checkbox">
+    <input type="checkbox" id="field_specification" name="export_fields" value="specification" checked>
+    <label for="field_specification">商品规格</label>
+</div>
             <div class="field-checkbox">
                 <input type="checkbox" id="field_stock_system" name="export_fields" value="stock_system" checked>
                 <label for="field_stock_system">系统库存</label>
@@ -1074,12 +1084,13 @@ function openModal(id=null){
 
     if(id){
         $.get('/product/edit/data/'+id+'/', function(res){
-            $('#editId').val(res.id);
-            $('#name').val(res.name);
-            $('#price').val(res.price);
-            $('#unit').val(res.unit);
-            $('#stock').val(res.stock);
-        });
+    $('#editId').val(res.id);
+    $('#name').val(res.name);
+    $('#price').val(res.price);
+    $('#unit').val(res.unit);
+    $('#specification').val(res.specification);  // 新增
+    $('#stock').val(res.stock);
+});
     }
 }
 function closeModal(){$('#productModal').removeClass('active');}
@@ -1093,6 +1104,7 @@ $('#productForm').submit(function(e){
         name: $('#name').val(),
         price: $('#price').val(),
         unit: $('#unit').val(),
+        specification: $('#specification').val(),  // 新增
         stock: $('#stock').val()
     }, function(res){
         if(res.code===1){

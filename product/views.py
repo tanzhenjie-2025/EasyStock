@@ -214,6 +214,7 @@ def product_manage(request):
                 'name': product.name,
                 'price': float(product.price),
                 'unit': product.unit,
+                'specification': product.specification,  # 新增：规格
                 'stock_system': product.stock_system,
                 'stock_actual': product.stock_actual,
                 'aliases': [{'id': a.id, 'alias_name': a.alias_name} for a in product.aliases.all()],
@@ -301,6 +302,7 @@ def product_add(request):
             price = request.POST.get('price', '0').strip()
             unit = request.POST.get('unit', '件').strip()
             stock = request.POST.get('stock', '77').strip()
+            specification = request.POST.get('specification', '').strip()  # 新增
 
             if not name:
                 return JsonResponse({'code': 0, 'msg': '商品名称不能为空'})
@@ -310,7 +312,8 @@ def product_add(request):
             product = Product.objects.create(
                 name=name, price=float(price), unit=unit,
                 stock_system=int(stock) if stock.isdigit() else 77,
-                stock_actual=int(stock) if stock.isdigit() else 77
+                stock_actual=int(stock) if stock.isdigit() else 77,
+                specification = specification  # 新增
             )
 
             create_operation_log(
@@ -348,6 +351,7 @@ def product_edit(request, pk):
             price = request.POST.get('price', '0').strip()
             unit = request.POST.get('unit', '件').strip()
             stock = request.POST.get('stock', '77').strip()
+            specification = request.POST.get('specification', '').strip()  # 新增
             # 可选：接收备注
             remark = request.POST.get('remark', '后台编辑').strip()
 
@@ -367,6 +371,7 @@ def product_edit(request, pk):
             product.name = name
             product.price = new_price_val
             product.unit = unit
+            product.specification = specification  # 新增
             product.stock_system = int(stock) if stock.isdigit() else 77
             product.save()
 
@@ -553,8 +558,12 @@ def alias_delete(request, pk):
 def product_edit_data(request, pk):
     product = get_object_or_404(Product.objects.prefetch_related('aliases'), pk=pk)
     return JsonResponse({
-        'id': product.id, 'name': product.name, 'price': float(product.price),
-        'unit': product.unit, 'stock': product.stock_system,
+        'id': product.id,
+        'name': product.name,
+        'price': float(product.price),
+        'unit': product.unit,
+        'specification': product.specification,  # 新增
+        'stock': product.stock_system,
         'aliases': [{'id': a.id, 'alias_name': a.alias_name} for a in product.aliases.all()]
     })
 
@@ -667,8 +676,8 @@ def product_export(request):
         custom_fields_json = request.POST.get('custom_fields', '[]')
 
         if not selected_fields:
-            selected_fields = ['serial', 'id', 'name', 'price', 'unit', 'stock_system', 'stock_actual', 'aliases',
-                               'status']
+            selected_fields = ['serial', 'id', 'name', 'price', 'unit', 'specification', 'stock_system', 'stock_actual',
+                               'aliases', 'status']
 
         try:
             custom_fields = json.loads(custom_fields_json)
@@ -696,6 +705,7 @@ def product_export(request):
             'name': {'header': '商品名称', 'width': 20},
             'price': {'header': '单价（元）', 'width': 12},
             'unit': {'header': '单位', 'width': 8},
+            'specification': {'header': '商品规格', 'width': 25},  # 新增
             'stock_system': {'header': '系统库存', 'width': 10},
             'stock_actual': {'header': '实际库存', 'width': 10},
             'aliases': {'header': '别名', 'width': 20},
@@ -743,6 +753,8 @@ def product_export(request):
                     ws.cell(row=row_num, column=col_num).number_format = '0.00'
                 elif field == 'unit':
                     value = product.unit
+                elif field == 'specification':  # 新增
+                    value = product.specification
                 elif field == 'stock_system':
                     value = product.stock_system
                 elif field == 'stock_actual':

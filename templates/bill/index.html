@@ -25,8 +25,22 @@
         .btn-add-row { padding: 8px 20px; font-size: 16px; cursor: pointer; background: #0066cc; color: #fff; border: none; border-radius: 4px; margin-bottom: 10px; }
         .btn-add-row:hover { background: #0055bb; }
 
-        .bill-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-        .bill-table th, .bill-table td { border: 1px solid #000; padding: 8px; text-align: center; position: relative; }
+        .bill-table { width: 100%; border-collapse: collapse; margin-bottom: 20px;table-layout: fixed; }
+        .bill-table th, .bill-table td { border: 1px solid #000; padding: 8px; text-align: center; position: relative; overflow: hidden;
+text-overflow: ellipsis;}
+        
+        /* ========== 列宽调整：主开单表格 ========== */
+.bill-table th:nth-child(1), .bill-table td:nth-child(1) { width: 50px; } /* 序号 */
+.bill-table th:nth-child(2), .bill-table td:nth-child(2) { width: 28%; text-align: left; } /* 商品名称：加宽 + 左对齐 */
+.bill-table th:nth-child(3), .bill-table td:nth-child(3) { width: 15%; } /* 商品规格 */
+.bill-table th:nth-child(4), .bill-table td:nth-child(4) { width: 80px; } /* 销售数量：收窄 */
+.bill-table th:nth-child(5), .bill-table td:nth-child(5) { width: 70px; } /* 销售单位：收窄 */
+.bill-table th:nth-child(6), .bill-table td:nth-child(6) { width: 100px; } /* 销售单价 */
+.bill-table th:nth-child(7), .bill-table td:nth-child(7) { width: 110px; } /* 销售金额 */
+.bill-table th:nth-child(8), .bill-table td:nth-child(8) { width: 60px; } /* 操作 */
+
+/* 名称列输入框左对齐 */
+.bill-table td:nth-child(2) input { text-align: left; }
         .bill-table th { background: #e9e9e9; font-weight: bold; }
         .bill-table input { 
             width: 95%; padding: 6px; text-align: center; border: 1px solid #ddd; border-radius: 3px; font-size: 14px; outline: none;
@@ -180,6 +194,7 @@
             width: 100%;
             border-collapse: collapse;
             margin: 0; /* 移除margin */
+            table-layout: fixed;
         }
         .recent-products-table th,
         .recent-products-table td,
@@ -190,7 +205,28 @@
             text-align: center;
             font-size: 14px;
             white-space: nowrap; /* 防止换行 */
+            overflow: hidden;
+text-overflow: ellipsis;
         }
+        
+        /* ========== 列宽调整：左侧商品列表 ========== */
+.recent-products-table th:nth-child(1), .recent-products-table td:nth-child(1) { width: 32%; text-align: left; } /* 商品名称：加宽 + 左对齐 */
+.recent-products-table th:nth-child(2), .recent-products-table td:nth-child(2) { width: 14%; } /* 规格 */
+.recent-products-table th:nth-child(3), .recent-products-table td:nth-child(3) { width: 90px; } /* 单价 */
+.recent-products-table th:nth-child(4), .recent-products-table td:nth-child(4) { width: 60px; } /* 单位：收窄 */
+.recent-products-table th:nth-child(5), .recent-products-table td:nth-child(5) { width: 90px; } /* 最后购买 */
+.recent-products-table th:nth-child(6), .recent-products-table td:nth-child(6) { width: 70px; } /* 上次数量：收窄 */
+.recent-products-table th:nth-child(7), .recent-products-table td:nth-child(7) { width: 60px; } /* 操作 */
+
+/* ========== 列宽调整：右侧购物车 ========== */
+.cart-table th:nth-child(1), .cart-table td:nth-child(1) { width: 40px; } /* 序号 */
+.cart-table th:nth-child(2), .cart-table td:nth-child(2) { width: 35%; text-align: left; } /* 商品名称：加宽 + 左对齐 */
+.cart-table th:nth-child(3), .cart-table td:nth-child(3) { width: 15%; } /* 规格 */
+.cart-table th:nth-child(4), .cart-table td:nth-child(4) { width: 70px; } /* 数量：收窄 */
+.cart-table th:nth-child(5), .cart-table td:nth-child(5) { width: 50px; } /* 单位：收窄 */
+.cart-table th:nth-child(6), .cart-table td:nth-child(6) { width: 90px; } /* 金额 */
+.cart-table th:nth-child(7), .cart-table td:nth-child(7) { width: 40px; } /* 删除 */
+        
         .recent-products-table th,
         .cart-table th {
             background: #f8f9fa;
@@ -265,7 +301,8 @@
         .recent-products-table tr:hover .btn-add-cart { background: #218838; }
         
         .cart-quantity-input {
-            width: 70px;
+            width: 100%;
+box-sizing: border-box;
             padding: 6px 4px;
             text-align: center;
             border: 1px solid #ddd;
@@ -355,7 +392,6 @@
 
         <div class="btn-group">
             <button class="btn-save" onclick="saveOrder()">保存并提交</button>
-            <button class="btn-print" onclick="printBill()">一键打印</button>
         </div>
     </div>
 
@@ -871,7 +907,7 @@ function handleUnitInputKey(e) {
                 else alert(d.msg);
             }catch(e){alert('保存失败：' + e.message)}
         }
-        function printBill(){window.print();}
+        
         function resetBill(){
             document.getElementById('bill-tbody').innerHTML='';
             rowIdCounter=0;
