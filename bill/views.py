@@ -17,6 +17,7 @@ from django.contrib.auth.decorators import login_required
 from functools import wraps
 import decimal
 
+
 from django.core.cache import cache
 
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
@@ -28,7 +29,7 @@ from accounts.views import (
     create_operation_log,  # 统一日志记录
     get_client_ip  # 获取客户端IP
 )
-
+from product.models import Unit
 # ========== 开单模块权限常量（和用户模块保持一致） ==========
 PERM_ORDER_CREATE = 'order_create'
 PERM_ORDER_VIEW = 'order_view'
@@ -207,7 +208,9 @@ def search_product(request):
                 'name': p.name,
                 'standard_price': float(p.price),
                 'unit': p.unit,
-                'stock_system': p.stock_system  # 修复：旧字段stock → stock_system
+                'stock_system': p.stock_system,
+                # 👇 新增规格字段
+                'specification': p.specification
             })
         cache.set(cache_key, cached_products, timeout=CACHE_PRODUCT_SEARCH)
         logger.info(f"设置商品搜索缓存: {cache_key}")
@@ -233,7 +236,6 @@ def search_product(request):
         })
 
     return JsonResponse({'code': 1, 'data': data})
-
 
 @login_required
 @permission_required(PERM_ORDER_CREATE)
@@ -265,11 +267,12 @@ def save_order(request):
                 qty = item.get('qty', 0)
                 price = item.get('price', 0)  # 前端传来的单价
 
+
                 if not pid or not isinstance(qty, int) or qty <= 0:
                     return JsonResponse({'code': 0, 'msg': f'商品{item.get("name", "未知")}数量无效'})
 
                 product_ids.append(pid)
-                item_map[pid] = {'qty': qty, 'price': decimal.Decimal(str(price))}
+                item_map[pid] = {'qty': qty, 'price': decimal.Decimal(str(price)),'spec': item.get('spec', '')}
 
             # 2. 批量查询商品
             products = Product.objects.filter(id__in=product_ids).in_bulk()
@@ -317,9 +320,11 @@ def save_order(request):
                     product=product,
                     quantity=qty,
                     amount=amount,
-                    actual_unit_price=input_price,  # 【新增】保存实际单价
-                    snapshot_standard_price=snap_standard,  # 【新增】保存标准价快照
-                    snapshot_customer_price=snap_customer  # 【新增】保存客户价快照
+                    actual_unit_price=input_price,
+                    snapshot_standard_price=snap_standard,
+                    snapshot_customer_price=snap_customer,
+                    # 👇 新增规格快照保存
+                    specification=item_map[pid]['spec']
                 ))
 
             order.total_amount = total_amount
@@ -816,7 +821,8 @@ def reopen_order_edit(request, order_no):
                 'qty': item.quantity,
                 'unit': item.product.unit if item.product else '',
                 'price': float(item.product.price) if item.product else 0,
-                'amt': float(item.amount) if item.amount else 0
+                'amt': float(item.amount) if item.amount else 0,
+                'spec': item.specification
             }
             for item in items
         ]
@@ -1075,7 +1081,8 @@ def get_customer_recent_products(request):
                 'standard_price': float(product.price),
                 'unit': product.unit,
                 'last_purchase_time': item.order.create_time.strftime('%Y-%m-%d %H:%M'),
-                'last_quantity': item.quantity
+                'last_quantity': item.quantity,
+                'specification': product.specification
             }
 
         # 转换为列表（Python 3.7+ 字典保持插入顺序，即最后购买时间倒序）

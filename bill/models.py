@@ -165,7 +165,9 @@ class OrderItem(models.Model):
     snapshot_customer_price = models.DecimalField('客户价快照', max_digits=10, decimal_places=2, null=True, blank=True)
     # 【新增】开单时实际录入的单价 (方便后续核对)
     actual_unit_price = models.DecimalField('实际单价', max_digits=10, decimal_places=2, null=True, blank=True)
-
+    # 👇 新增商品规格快照字段
+    specification = models.CharField('商品规格快照', max_length=100, blank=True, default='',
+                                     help_text='开单时录入的商品规格')
     def save(self, *args, **kwargs):
         # 注意：这里的逻辑后续会移到视图层，以保证快照准确
         super().save(*args, **kwargs)

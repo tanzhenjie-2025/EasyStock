@@ -335,6 +335,7 @@
                 <tr>
                     <th>序号</th>
                     <th>商品名称</th>
+                    <th>商品规格</th>
                     <th>销售数量</th>
                     <th>销售单位</th>
                     <th>销售单价（¥）</th>
@@ -345,7 +346,7 @@
             <tbody id="bill-tbody"></tbody>
             <tfoot>
                 <tr class="total-row">
-                    <td colspan="5" align="right">订单总计：</td>
+                    <td colspan="6" align="right">订单总计：</td>
                     <td id="total-amount">¥0.00</td>
                     <td></td>
                 </tr>
@@ -388,6 +389,7 @@
                             <thead>
                                 <tr>
                                     <th>商品名称</th>
+                                    <th>规格</th>
                                     <th>单价</th>
                                     <th>单位</th>
                                     <th>最后购买</th>
@@ -410,6 +412,7 @@
                                     <tr>
                                         <th style="width: 40px;">序</th>
                                         <th>商品名称</th>
+                                        <th>规格</th>
                                         <th style="width: 100px;">数量</th>
                                         <th style="width: 50px;">单位</th>
                                         <th>金额</th>
@@ -445,7 +448,7 @@
     <script>
         // ========== 全局配置 ==========
         let rowIdCounter = 0;
-        const inputColsCount = 4;
+        const inputColsCount = 5;
         let currentSearchInput = null;
         let currentSuggestList = [];
         let suggestBox = null;
@@ -545,17 +548,19 @@ const debouncedUnitSearch = debounce(onUnitInput, 500);
             suggestBox.style.display = 'block';
         }
         function selectItem(index) {
-            const item = currentSuggestList[index];
-            if (!item || !currentSearchInput) return;
-            const tr = currentSearchInput.closest('tr');
-            const nameInput = tr.querySelector('.name-input');
-            nameInput.value = item.name;
-            nameInput.dataset.productId = item.id;
-            tr.querySelector('.price-input').value = item.price;
-            tr.querySelector('.unit-input').value = item.unit;
-            calcRowAmount(tr.querySelector('.price-input'));
-            hideSuggest();
-        }
+    const item = currentSuggestList[index];
+    if (!item || !currentSearchInput) return;
+    const tr = currentSearchInput.closest('tr');
+    const nameInput = tr.querySelector('.name-input');
+    nameInput.value = item.name;
+    nameInput.dataset.productId = item.id;
+    // 👇 新增规格回填
+    tr.querySelector('.spec-input').value = item.specification || '';
+    tr.querySelector('.price-input').value = item.price;
+    tr.querySelector('.unit-input').value = item.unit;
+    calcRowAmount(tr.querySelector('.price-input'));
+    hideSuggest();
+}
         function handleProductInputKey(e) {
             if (!currentSuggestList.length) return;
             if (e.key === ' ') { e.preventDefault(); selectItem(0); }
@@ -787,24 +792,29 @@ function handleUnitInputKey(e) {
             });
         }
         function addBlankRow(returnRow=false) {
-            rowIdCounter++;
-            const tbody = document.getElementById('bill-tbody');
-            const tr = document.createElement('tr');
-            tr.dataset.rowId = rowIdCounter;
-            tr.innerHTML = `
-                <td class="serial-cell">${tbody.children.length+1}</td>
-                <td></td><td></td><td></td><td></td>
-                <td class="amount-cell">¥0.00</td>
-                <td><button class="btn-del" onclick="deleteRow(this)">删除</button></td>`;
-            tr.cells[1].appendChild(createInputElement('text','name-input','商品名称/拼音'));
-            tr.cells[2].appendChild(createInputElement('number','quantity-input','数量',1));
-            tr.cells[3].appendChild(createInputElement('text','unit-input','单位'));
-            tr.cells[4].appendChild(createInputElement('number','price-input','单价'));
-            tbody.appendChild(tr);
-            updateRowNumbers();
-            calcTotalAmount();
-            if (returnRow) return tr;
-        }
+    rowIdCounter++;
+    const tbody = document.getElementById('bill-tbody');
+    const tr = document.createElement('tr');
+    tr.dataset.rowId = rowIdCounter;
+    tr.innerHTML = `
+        <td class="serial-cell">${tbody.children.length+1}</td>
+        <!-- 5个输入列单元格 + 金额 + 操作 -->
+        <td></td><td></td><td></td><td></td><td></td>
+        <td class="amount-cell">¥0.00</td>
+        <td><button class="btn-del" onclick="deleteRow(this)">删除</button></td>`;
+    
+    tr.cells[1].appendChild(createInputElement('text','name-input','商品名称/拼音'));
+    // 👇 新增规格输入框
+    tr.cells[2].appendChild(createInputElement('text','spec-input','商品规格'));
+    tr.cells[3].appendChild(createInputElement('number','quantity-input','数量',1));
+    tr.cells[4].appendChild(createInputElement('text','unit-input','单位'));
+    tr.cells[5].appendChild(createInputElement('number','price-input','单价'));
+    
+    tbody.appendChild(tr);
+    updateRowNumbers();
+    calcTotalAmount();
+    if (returnRow) return tr;
+}
         function deleteRow(btn) {
             const tr = btn.closest('tr');
             const tbody = document.getElementById('bill-tbody');
@@ -830,17 +840,20 @@ function handleUnitInputKey(e) {
         async function saveOrder() {
             const items = [];
             document.querySelectorAll('#bill-tbody tr').forEach(tr=>{
-                const nameInput = tr.querySelector('.name-input');
-                const name = nameInput.value.trim();
-                const qty = parseInt(tr.querySelector('.quantity-input').value)||0;
-                const unit = tr.querySelector('.unit-input').value.trim();
-                const price = parseFloat(tr.querySelector('.price-input').value)||0;
-                const amt = parseFloat(tr.querySelector('.amount-cell').textContent.replace('¥',''))||0;
-                const productId = nameInput.dataset.productId || '';
-                if(name&&qty&&price>=0) items.push({
-                    id: productId, name, qty, unit, price, amt
-                });
-            });
+    const nameInput = tr.querySelector('.name-input');
+    const name = nameInput.value.trim();
+    const qty = parseInt(tr.querySelector('.quantity-input').value)||0;
+    const unit = tr.querySelector('.unit-input').value.trim();
+    const price = parseFloat(tr.querySelector('.price-input').value)||0;
+    const amt = parseFloat(tr.querySelector('.amount-cell').textContent.replace('¥',''))||0;
+    const productId = nameInput.dataset.productId || '';
+    // 👇 新增规格读取
+    const spec = tr.querySelector('.spec-input').value.trim();
+    
+    if(name&&qty&&price>=0) items.push({
+        id: productId, name, spec, qty, unit, price, amt
+    });
+});
             if(!items.length){alert('请填写商品');return;}
             const total = items.reduce((s,i)=>s+parseFloat(i.amt),0).toFixed(2);
             const customerInput = document.getElementById('customerInput');
@@ -928,19 +941,21 @@ function handleUnitInputKey(e) {
             products.forEach(product => {
                 const isAdded = addedProductIds.includes(product.id);
                 html += `
-                    <tr class="${isAdded ? 'added' : ''}" data-product-id="${product.id}">
-                        <td style="text-align: left; font-weight: 500;">${product.name}</td>
-                        <td style="color: #d63384; font-weight: bold;">¥${product.price.toFixed(2)}</td>
-                        <td>${product.unit}</td>
-                        <td style="color: #666; font-size: 12px;">${product.last_purchase_time}</td>
-                        <td style="color: #666;">${product.last_quantity}</td>
-                        <td>
-                            <button class="btn-add-cart" onclick="addToCart(${product.id}, event)">
-                                ${isAdded ? '再加' : '加购'}
-                            </button>
-                        </td>
-                    </tr>
-                `;
+    <tr class="${isAdded ? 'added' : ''}" data-product-id="${product.id}">
+        <td style="text-align: left; font-weight: 500;">${product.name}</td>
+        <!-- 👇 新增规格显示 -->
+        <td style="font-size: 12px; color: #666;">${product.specification || '-'}</td>
+        <td style="color: #d63384; font-weight: bold;">¥${product.price.toFixed(2)}</td>
+        <td>${product.unit}</td>
+        <td style="color: #666; font-size: 12px;">${product.last_purchase_time}</td>
+        <td style="color: #666;">${product.last_quantity}</td>
+        <td>
+            <button class="btn-add-cart" onclick="addToCart(${product.id}, event)">
+                ${isAdded ? '再加' : '加购'}
+            </button>
+        </td>
+    </tr>
+`;
             });
             tbody.innerHTML = html;
 
@@ -985,6 +1000,7 @@ function handleUnitInputKey(e) {
                     id: cartIdCounter,
                     productId: product.id,
                     name: product.name,
+                    spec: product.specification || '',
                     quantity: 1,
                     unit: product.unit,
                     price: product.price,
@@ -1018,26 +1034,28 @@ function handleUnitInputKey(e) {
             cartItems.forEach((item, index) => {
                 total += parseFloat(item.amount);
                 html += `
-                    <tr data-item-id="${item.id}">
-                        <td>${index + 1}</td>
-                        <td style="text-align: left; font-size: 13px;">${item.name}</td>
-                        <td>
-                            <input 
-                                type="number" 
-                                class="cart-quantity-input"
-                                value="${item.quantity}"
-                                min="1"
-                                onfocus="this.select()"
-                                oninput="updateCartItemQuantity(${item.id}, this)"
-                            >
-                        </td>
-                        <td>${item.unit}</td>
-                        <td style="font-weight: bold; color: #495057;">¥${item.amount}</td>
-                        <td>
-                            <button class="cart-del-btn" onclick="deleteCartItem(${item.id})">×</button>
-                        </td>
-                    </tr>
-                `;
+    <tr data-item-id="${item.id}">
+        <td>${index + 1}</td>
+        <td style="text-align: left; font-size: 13px;">${item.name}</td>
+        <!-- 👇 新增规格显示 -->
+        <td style="font-size: 12px; color: #666;">${item.spec || '-'}</td>
+        <td>
+            <input 
+                type="number" 
+                class="cart-quantity-input"
+                value="${item.quantity}"
+                min="1"
+                onfocus="this.select()"
+                oninput="updateCartItemQuantity(${item.id}, this)"
+            >
+        </td>
+        <td>${item.unit}</td>
+        <td style="font-weight: bold; color: #495057;">¥${item.amount}</td>
+        <td>
+            <button class="cart-del-btn" onclick="deleteCartItem(${item.id})">×</button>
+        </td>
+    </tr>
+`;
             });
 
             tbody.innerHTML = html;
@@ -1104,17 +1122,19 @@ function handleUnitInputKey(e) {
                     existingRow.classList.add('highlight-row');
                     setTimeout(() => existingRow.classList.remove('highlight-row'), 1000);
                 } else {
-                    const newRow = addBlankRow(true);
-                    const nameInput = newRow.querySelector('.name-input');
-                    nameInput.value = item.name;
-                    nameInput.dataset.productId = item.productId;
-                    newRow.querySelector('.quantity-input').value = item.quantity;
-                    newRow.querySelector('.unit-input').value = item.unit;
-                    newRow.querySelector('.price-input').value = item.price;
-                    calcRowAmount(newRow.querySelector('.price-input'));
-                    newRow.classList.add('highlight-row');
-                    setTimeout(() => newRow.classList.remove('highlight-row'), 1000);
-                }
+    const newRow = addBlankRow(true);
+    const nameInput = newRow.querySelector('.name-input');
+    nameInput.value = item.name;
+    nameInput.dataset.productId = item.productId;
+    // 👇 新增规格赋值
+    newRow.querySelector('.spec-input').value = item.spec || '';
+    newRow.querySelector('.quantity-input').value = item.quantity;
+    newRow.querySelector('.unit-input').value = item.unit;
+    newRow.querySelector('.price-input').value = item.price;
+    calcRowAmount(newRow.querySelector('.price-input'));
+    newRow.classList.add('highlight-row');
+    setTimeout(() => newRow.classList.remove('highlight-row'), 1000);
+}
             });
 
             // 清空模态框数据
@@ -1145,15 +1165,17 @@ function handleUnitInputKey(e) {
                 
                 const reopenItems = {{ reopen_order_data.items|safe }};
                 reopenItems.forEach(item => {
-                    const tr = addBlankRow(true);
-                    const nameInput = tr.querySelector('.name-input');
-                    nameInput.value = item.name;
-                    nameInput.dataset.productId = item.id;
-                    tr.querySelector('.quantity-input').value = item.qty;
-                    tr.querySelector('.unit-input').value = item.unit;
-                    tr.querySelector('.price-input').value = item.price;
-                    calcRowAmount(tr.querySelector('.price-input'));
-                });
+    const tr = addBlankRow(true);
+    const nameInput = tr.querySelector('.name-input');
+    nameInput.value = item.name;
+    nameInput.dataset.productId = item.id;
+    // 👇 新增规格回显
+    tr.querySelector('.spec-input').value = item.spec || '';
+    tr.querySelector('.quantity-input').value = item.qty;
+    tr.querySelector('.unit-input').value = item.unit;
+    tr.querySelector('.price-input').value = item.price;
+    calcRowAmount(tr.querySelector('.price-input'));
+});
                 
                 if (reopenItems.length === 0) addBlankRow();
                 const firstProductInput = document.querySelector('#bill-tbody .name-input');

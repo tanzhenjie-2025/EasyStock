@@ -49,6 +49,9 @@ class Product(models.Model):
     stock_actual = models.IntegerField('实际库存', default=0, db_index=True)
     price = models.DecimalField('单价', max_digits=10, decimal_places=2, db_index=True)
     unit = models.CharField('单位', max_length=20, default='件')
+    # 👇 新增商品规格字段
+    specification = models.CharField('商品规格', max_length=100, blank=True, default='',
+                                     help_text='格式示例：1件×50斤=420元')
     create_time = models.DateTimeField(auto_now_add=True, db_index=True)
     is_active = models.BooleanField('是否启用', default=True, db_index=True)
 
