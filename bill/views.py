@@ -232,7 +232,8 @@ def search_product(request):
             'price': final_price,
             'standard_price': item['standard_price'],
             'unit': item['unit'],
-            'stock_system': item['stock_system']
+            'stock_system': item['stock_system'],
+            'specification': item['specification']
         })
 
     return JsonResponse({'code': 1, 'data': data})
