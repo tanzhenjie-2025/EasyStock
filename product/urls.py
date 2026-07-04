@@ -57,4 +57,9 @@ urlpatterns = [
     # 🔥 全部商品统计页面和API (已移除PK)
     path('statistics/', views.product_statistics_detail, name='product_statistics_detail'),
     path('statistics/api/', views.product_statistics_api, name='product_statistics_api'),
+
+    path('search-unit/', views.search_unit, name='search_unit'),
+    path('unit/add/', views.unit_add, name='unit_add'),
+    path('unit/edit/', views.unit_edit, name='unit_edit'),
+    path('unit/toggle-status/', views.unit_toggle_status, name='unit_toggle_status'),
 ]

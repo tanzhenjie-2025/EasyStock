@@ -33,6 +33,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from .models import Unit
+
 # ========== RBAC权限组件 ==========
 from accounts.views import permission_required, create_operation_log
 from accounts.models import (
@@ -77,6 +79,24 @@ def clear_product_all_cache():
     for key in cache.keys(f"{CACHE_PREFIX_PRODUCT_COUNT}*"):
         cache.delete(key)
 
+
+
+@login_required
+def search_unit(request):
+    """单位模糊搜索（开单页使用，仅返回启用单位，支持拼音检索）"""
+    keyword = request.GET.get('keyword', '').strip()
+    if not keyword:
+        return JsonResponse({'code': 0, 'data': []})
+
+    # 同时匹配：名称模糊、全拼模糊、拼音首字母模糊
+    units = Unit.objects.filter(
+        Q(name__icontains=keyword) |
+        Q(pinyin_full__icontains=keyword) |
+        Q(pinyin_abbr__icontains=keyword)
+    )[:10]
+
+    data = [{'id': unit.id, 'name': unit.name} for unit in units]
+    return JsonResponse({'code': 1, 'data': data})
 
 @permission_required(PERM_PRODUCT_VIEW)
 def product_manage(request):
@@ -219,13 +239,31 @@ def product_manage(request):
             'count_stats': count_stats
         }, CACHE_COMMON)
 
+    # ========== 新增：单位管理相关 ==========
+    unit_keyword = request.GET.get('unit_keyword', '').strip()
+    unit_status = request.GET.get('unit_status', 'all')
+
+    # 全量统计
+    count_unit_all = Unit.all_objects.count()
+    count_unit_active = Unit.all_objects.filter(is_active=True).count()
+    count_unit_inactive = Unit.all_objects.filter(is_active=False).count()
+
+    # 带过滤的列表
+    unit_list_qs = Unit.all_objects.all().order_by('sort_order', 'id')
+
+    if unit_keyword:
+        unit_list_qs = unit_list_qs.filter(name__icontains=unit_keyword)
+    if unit_status == 'active':
+        unit_list_qs = unit_list_qs.filter(is_active=True)
+    elif unit_status == 'inactive':
+        unit_list_qs = unit_list_qs.filter(is_active=False)
     # 区域缓存
     areas = cache.get(KEY_AREA)
     if not areas:
         areas = list(Area.objects.only('id', 'name'))
         cache.set(KEY_AREA, areas, CACHE_AREA)
 
-    return render(request, 'product/product_manage.html', {
+    context = {
         'products': product_list_data,
         'paginator_data': paginator_data,  # 前端需适配分页器数据结构
         'keyword': keyword,
@@ -241,8 +279,17 @@ def product_manage(request):
         'can_edit_product': request.user.has_permission(PERM_PRODUCT_EDIT),
         'can_delete_product': request.user.has_permission(PERM_PRODUCT_DELETE),
         'can_import_product': request.user.has_permission(PERM_PRODUCT_IMPORT),
-        'can_stock_operation': request.user.has_permission(PERM_PRODUCT_STOCK_OP)
-    })
+        'can_stock_operation': request.user.has_permission(PERM_PRODUCT_STOCK_OP),
+
+        'all_units': unit_list_qs,
+        'unit_keyword': unit_keyword,
+        'unit_status': unit_status,
+        'count_unit_all': count_unit_all,
+        'count_unit_active': count_unit_active,
+        'count_unit_inactive': count_unit_inactive,
+    }
+
+    return render(request, 'product/product_manage.html', context)
 
 
 # ====================== 商品CRUD ======================
@@ -1186,3 +1233,72 @@ def product_statistics_api(request):
             'rank_items': list(rank_items),
         }
     })
+
+
+from django.db import IntegrityError  # 可选，捕获唯一键冲突
+
+
+@login_required
+@permission_required('product.edit_product')  # 替换为你实际的权限标识
+def unit_add(request):
+    """新增单位"""
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+
+    name = request.POST.get('name', '').strip()
+    sort_order = int(request.POST.get('sort_order', 0))
+
+    if not name:
+        return JsonResponse({'code': 0, 'msg': '单位名称不能为空'})
+
+    try:
+        Unit.objects.create(name=name, sort_order=sort_order)
+        return JsonResponse({'code': 1, 'msg': '新增成功'})
+    except IntegrityError:
+        return JsonResponse({'code': 0, 'msg': '该单位已存在'})
+
+
+@login_required
+@permission_required('product.edit_product')
+def unit_edit(request):
+    """编辑单位"""
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+
+    unit_id = int(request.POST.get('id', 0))
+    name = request.POST.get('name', '').strip()
+    sort_order = int(request.POST.get('sort_order', 0))
+
+    if not name or not unit_id:
+        return JsonResponse({'code': 0, 'msg': '参数错误'})
+
+    try:
+        unit = Unit.all_objects.get(id=unit_id)
+    except Unit.DoesNotExist:
+        return JsonResponse({'code': 0, 'msg': '单位不存在'})
+
+    if Unit.all_objects.filter(name=name).exclude(id=unit_id).exists():
+        return JsonResponse({'code': 0, 'msg': '单位名称已存在'})
+
+    unit.name = name
+    unit.sort_order = sort_order
+    unit.save(update_fields=['name', 'sort_order'])
+    return JsonResponse({'code': 1, 'msg': '修改成功'})
+
+
+@login_required
+@permission_required('product.edit_product')
+def unit_toggle_status(request):
+    """切换单位启用/禁用（软删除=禁用）"""
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+
+    unit_id = int(request.POST.get('id', 0))
+    try:
+        unit = Unit.all_objects.get(id=unit_id)
+    except Unit.DoesNotExist:
+        return JsonResponse({'code': 0, 'msg': '单位不存在'})
+
+    unit.is_active = not unit.is_active
+    unit.save(update_fields=['is_active'])
+    return JsonResponse({'code': 1, 'msg': '状态已更新'})

@@ -359,6 +359,12 @@ input:checked + .slider:before{transform:translateX(26px);}
                 🏷️ 标签操作
             </button>
         </li>
+        
+        <li class="nav-item" role="presentation">
+    <button class="nav-link {% if active_tab == 'unit' %}active{% endif %}" id="tab-unit" data-bs-toggle="tab" data-bs-target="#panel-unit" type="button" role="tab">
+        📏 单位管理
+    </button>
+</li>
         <li class="nav-item" role="presentation">
             <button class="nav-link {% if active_tab == 'alias' %}active{% endif %}" id="tab-alias" data-bs-toggle="tab" data-bs-target="#panel-alias" type="button" role="tab">
                 🏷️ 商品别名
@@ -382,7 +388,7 @@ input:checked + .slider:before{transform:translateX(26px);}
 
     <!-- ==================== Tab 内容区 (切换部分) ==================== -->
     <div class="tab-content" id="myTabContent">
-        
+
         <!-- -------------------- Tab 1: 核心操作 (默认页) -------------------- -->
         <div class="tab-pane fade {% if active_tab == 'list' or not active_tab %}show active{% endif %}" id="panel-list" role="tabpanel">
             <!-- 搜索栏 + 功能按钮 (已移除标签相关) -->
@@ -413,7 +419,7 @@ input:checked + .slider:before{transform:translateX(26px);}
         <form method="get" class="search-form" id="tagSearchForm">
             <input type="hidden" name="active_tab" value="tag">
             <input type="hidden" name="status" value="{{ status }}">
-            
+
             <!-- 需求2：使用 tag-select-wrapper 包裹防止跳动 -->
             <div class="tag-select-wrapper">
                 <div class="tag-search-wrapper">
@@ -425,9 +431,9 @@ input:checked + .slider:before{transform:translateX(26px);}
                 </button>
                 <div class="tag-container" id="tagContainer">
                     {% for tag in all_tags %}
-                    <div class="tag-item" 
-                         data-id="{{ tag.id }}" 
-                         data-name="{{ tag.name }}" 
+                    <div class="tag-item"
+                         data-id="{{ tag.id }}"
+                         data-name="{{ tag.name }}"
                          data-color="{{ tag.color }}"
                          style="background-color: {{ tag.color }};"
                          {% if tag.id in tag_ids %}data-selected="true"{% endif %}>
@@ -453,7 +459,7 @@ input:checked + .slider:before{transform:translateX(26px);}
         <button class="btn btn-danger" onclick="openTagRemoveModal()">移除标签</button>
         <button class="btn btn-success" onclick="showAddTagModal()">新建标签</button>
     </div>
-    
+
     <!-- 现有标签预览 -->
     <div class="card" style="padding: 15px; background: #fff; border: 1px solid #e9ecef; border-radius: 4px; margin-top: 15px;">
         <h6 style="margin-bottom: 10px;">现有标签总览</h6>
@@ -469,6 +475,60 @@ input:checked + .slider:before{transform:translateX(26px);}
     </div>
 </div>
 
+<!-- -------------------- Tab: 单位管理 -------------------- -->
+<div class="tab-pane fade {% if active_tab == 'unit' %}show active{% endif %}" id="panel-unit" role="tabpanel">
+    <div class="search-bar-wrapper" style="margin-top: 10px;">
+        <form method="get" class="search-form">
+            <input type="hidden" name="active_tab" value="unit">
+            <input type="text" name="unit_keyword" class="search-input" placeholder="搜索单位" value="{{ unit_keyword }}">
+            <button class="btn btn-primary" type="submit">搜索</button>
+            <button class="btn btn-default" type="button" onclick="location.href='{% url 'product:product_manage' %}?active_tab=unit'">重置</button>
+        </form>
+        <button class="btn btn-success" onclick="openUnitModal()">➕ 新增单位</button>
+    </div>
+
+    <!-- 状态筛选 -->
+    <div class="status-filter">
+        <a href="?active_tab=unit&unit_status=all&unit_keyword={{ unit_keyword }}" class="btn {% if unit_status == 'all' %}btn-primary{% else %}btn-default{% endif %}">全部({{ count_unit_all }})</a>
+        <a href="?active_tab=unit&unit_status=active&unit_keyword={{ unit_keyword }}" class="btn {% if unit_status == 'active' %}btn-primary{% else %}btn-default{% endif %}">启用({{ count_unit_active }})</a>
+        <a href="?active_tab=unit&unit_status=inactive&unit_keyword={{ unit_keyword }}" class="btn {% if unit_status == 'inactive' %}btn-primary{% else %}btn-default{% endif %}">禁用({{ count_unit_inactive }})</a>
+    </div>
+
+    <!-- 单位列表 -->
+    <table class="product-table">
+        <thead>
+            <tr>
+                <th style="width: 80px;">ID</th>
+                <th>单位名称</th>
+                <th style="width: 100px;">排序</th>
+                <th style="width: 100px;">状态</th>
+                <th style="width: 180px;">操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for unit in all_units %}
+            <tr data-id="{{ unit.id }}" class="{% if not unit.is_active %}disabled-row{% endif %}">
+                <td>{{ unit.id }}</td>
+                <td style="font-weight: 500;">{{ unit.name }}</td>
+                <td>{{ unit.sort_order }}</td>
+                <td>
+                    <label class="switch">
+                        <input type="checkbox" class="unit-status-switch" data-id="{{ unit.id }}" {% if unit.is_active %}checked{% endif %}>
+                        <span class="slider"></span>
+                    </label>
+                </td>
+                <td>
+                    <button class="btn btn-primary btn-sm" onclick="editUnit({{ unit.id }}, '{{ unit.name|escapejs }}', {{ unit.sort_order }})">编辑</button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteUnit({{ unit.id }})">删除</button>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" align="center" style="padding: 20px; color: #999;">暂无单位数据</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
         <!-- -------------------- Tab 3: 商品别名管理 -------------------- -->
         <div class="tab-pane fade {% if active_tab == 'alias' %}show active{% endif %}" id="panel-alias" role="tabpanel">
             <div class="search-bar-wrapper" style="margin-top: 10px;">
@@ -480,7 +540,7 @@ input:checked + .slider:before{transform:translateX(26px);}
                     <button class="btn btn-default" type="button" onclick="location.href='{% url 'product:product_manage' %}?active_tab=alias'">重置</button>
                 </form>
             </div>
-            
+
             <!-- 别名管理列表 -->
             <div style="margin-top: 20px;">
                 <table class="product-table">
@@ -522,7 +582,7 @@ input:checked + .slider:before{transform:translateX(26px);}
                         {% endfor %}
                     </tbody>
                 </table>
-                
+
                 <!-- 别名列表分页 -->
                 {% if paginator_data.num_pages > 1 %}
                 <div style="text-align:center; margin:15px 0;">
@@ -888,6 +948,29 @@ input:checked + .slider:before{transform:translateX(26px);}
         </div>
     </div>
 </div>
+
+<!-- 单位编辑弹窗 -->
+<div class="modal" id="unitModal">
+    <div class="modal-content" style="width:400px;">
+        <div class="modal-header">
+            <h3 id="unitModalTitle">新增单位</h3>
+            <button class="btn btn-default" onclick="closeUnitModal()">关闭</button>
+        </div>
+        <form id="unitForm" method="post" class="modal-form">
+            {% csrf_token %}
+            <input type="hidden" id="unit_edit_id" value="">
+            <div class="form-item">
+                <label>单位名称 *</label>
+                <input type="text" id="unit_name" placeholder="如：件、箱、公斤、个" required>
+            </div>
+            <div class="form-item">
+                <label>排序（数字越小越靠前）</label>
+                <input type="number" id="unit_sort_order" value="0" min="0">
+            </div>
+            <button type="submit" class="btn btn-primary">保存</button>
+        </form>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -1217,12 +1300,13 @@ function editProduct(id){openModal(id);}
 $(document).ready(function(){
     if(currentActiveTab) {
         var tabMap = {
-            'list': '#tab-list',
-            'tag': '#tab-tag',
-            'alias': '#tab-alias',
-            'stock': '#tab-stock',
-            'tool': '#tab-tool'
-        };
+    'list': '#tab-list',
+    'tag': '#tab-tag',
+    'unit': '#tab-unit', // 新增
+    'alias': '#tab-alias',
+    'stock': '#tab-stock',
+    'tool': '#tab-tool'
+};
         var tabId = tabMap[currentActiveTab];
         if(tabId && $(tabId).length) {
             var tab = new bootstrap.Tab($(tabId)[0]);
@@ -1231,17 +1315,18 @@ $(document).ready(function(){
     }
 
     $('button[data-bs-toggle="tab"]').on('shown.bs.tab', function (e) {
-        const targetPanel = $(e.target).data('bs-target');
-        if (targetPanel === '#panel-alias') {
-            $('#fixedProductArea').hide();
-        } else {
-            $('#fixedProductArea').show();
-        }
-    });
-
-    if(currentActiveTab === 'alias') {
+    const targetPanel = $(e.target).data('bs-target');
+    // 修改此行，增加 unit 判断
+    if (targetPanel === '#panel-alias' || targetPanel === '#panel-unit') {
         $('#fixedProductArea').hide();
+    } else {
+        $('#fixedProductArea').show();
     }
+});
+
+    if(currentActiveTab === 'alias' || currentActiveTab === 'unit') {
+    $('#fixedProductArea').hide();
+}
 });
 
 // ====================== 标签管理美化 JS ======================
@@ -1304,7 +1389,7 @@ function initTagManager(){
         selectedIds.forEach(id => {
             const $tag = $tagItems.filter(`[data-id="${id}"]`);
             if($tag.length === 0) return;
-            
+
             const name = $tag.data('name');
             const color = $tag.data('color');
             const $previewTag = $(`
@@ -1327,5 +1412,77 @@ function initTagManager(){
         $idsInput.val(Array.from(selectedIds).join(','));
     }
 }
+
+// ====================== 单位管理 JS ======================
+function openUnitModal(id = null, name = '', sort = 0) {
+    $('#unitModalTitle').text(id ? '编辑单位' : '新增单位');
+    $('#unit_edit_id').val(id || '');
+    $('#unit_name').val(name);
+    $('#unit_sort_order').val(sort);
+    $('#unitModal').addClass('active');
+}
+
+function closeUnitModal() {
+    $('#unitModal').removeClass('active');
+}
+
+function editUnit(id, name, sort) {
+    openUnitModal(id, name, sort);
+}
+
+function deleteUnit(id) {
+    if (!confirm('确定要删除（禁用）该单位吗？\n禁用后将不再出现在开单搜索结果中，可重新启用。')) return;
+    $.post('{% url "product:unit_toggle_status" %}', {
+        csrfmiddlewaretoken: csrf,
+        id: id
+    }, function(res) {
+        if (res.code === 1) {
+            showToast('操作成功', 'success');
+            setTimeout(() => location.reload(), 800);
+        } else {
+            showToast(res.msg, 'error');
+        }
+    });
+}
+
+$('#unitForm').submit(function(e) {
+    e.preventDefault();
+    const id = $('#unit_edit_id').val();
+    const url = id ? '{% url "product:unit_edit" %}' : '{% url "product:unit_add" %}';
+    const data = {
+        csrfmiddlewaretoken: csrf,
+        name: $('#unit_name').val().trim(),
+        sort_order: $('#unit_sort_order').val()
+    };
+    if (id) data.id = id;
+
+    $.post(url, data, function(res) {
+        if (res.code === 1) {
+            showToast(res.msg, 'success');
+            closeUnitModal();
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            showToast(res.msg, 'error');
+        }
+    });
+});
+
+// 单位状态开关切换
+$(document).on('change', '.unit-status-switch', function() {
+    const id = $(this).data('id');
+    const $input = $(this);
+    $.post('{% url "product:unit_toggle_status" %}', {
+        csrfmiddlewaretoken: csrf,
+        id: id
+    }, function(res) {
+        if (res.code !== 1) {
+            $input.prop('checked', !$input.prop('checked'));
+            showToast(res.msg, 'error');
+        } else {
+            showToast('状态已更新', 'success');
+            setTimeout(() => location.reload(), 800);
+        }
+    });
+});
 </script>
 {% endblock %}

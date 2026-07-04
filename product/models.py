@@ -132,7 +132,46 @@ class ProductAlias(models.Model):
             models.Index(fields=['is_active']),
         ]
 
+# ====================== 新增：商品单位模型 ======================
+# ====================== 新增：商品单位模型 ======================
+class Unit(models.Model):
+    """商品单位字典（软删除，支持拼音模糊搜索）"""
+    name = models.CharField('单位名称', max_length=20, unique=True)
+    # 新增：拼音检索字段
+    pinyin_full = models.CharField('全拼', max_length=50, blank=True, db_index=True)
+    pinyin_abbr = models.CharField('拼音首字母', max_length=20, blank=True, db_index=True)
 
+    sort_order = models.IntegerField('排序', default=0)
+    is_active = models.BooleanField('是否启用', default=True, db_index=True)
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+
+    # 软删除管理器：默认只查询启用数据
+    objects = SoftDeleteManager()
+    all_objects = models.Manager()
+
+    class Meta:
+        verbose_name = '商品单位'
+        verbose_name_plural = '商品单位管理'
+        ordering = ['sort_order', 'id']
+        indexes = [
+            # 新增：拼音联合索引，加速拼音检索
+            models.Index(fields=['pinyin_abbr', 'pinyin_full']),
+            models.Index(fields=['is_active']),
+        ]
+
+    def __str__(self):
+        return self.name
+
+    def save(self, *args, **kwargs):
+        # 自动生成单位名称的全拼和首字母
+        self.pinyin_full = ''.join(lazy_pinyin(self.name, style=0))
+        self.pinyin_abbr = ''.join([p[0] for p in lazy_pinyin(self.name, style=0)])
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        """软删除：仅标记禁用，不物理删除"""
+        self.is_active = False
+        self.save(update_fields=['is_active'])
 
 # ===================== 入库单模型 =====================
 class StockIn(models.Model):
