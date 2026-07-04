@@ -7,7 +7,7 @@ from django.contrib import messages
 from django.db import IntegrityError
 import logging
 from bill.models import Order, Area
-
+from django.views.decorators.csrf import ensure_csrf_cookie
 
 from django.core.cache import cache
 from django.core.paginator import Paginator, PageNotAnInteger, EmptyPage
@@ -206,7 +206,9 @@ def permission_required(permission_code):
 
     return decorator
 
-# ========== 认证视图（无性能问题，保留原样） ==========
+
+
+@ensure_csrf_cookie
 def login_view(request):
     if request.user.is_authenticated:
         if request.user.force_password_change:
