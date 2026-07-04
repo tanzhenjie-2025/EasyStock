@@ -458,6 +458,11 @@
         let cartItems = [];
         let cartIdCounter = 0;
         let addedProductIds = [];
+        
+        // 单位搜索相关
+let currentUnitInput = null;
+let currentUnitList = [];
+const debouncedUnitSearch = debounce(onUnitInput, 500);
 
         // ========== 初始化 ==========
         initSuggestBox();
@@ -486,11 +491,12 @@
             currentCustomerList = [];
         }
         function hideAllSuggest(e) {
-            if (e && e.target.closest('.suggest-dropdown')) return;
-            if (e && e.target.classList.contains('name-input')) return;
-            if (e && e.target.id === 'customerInput') return;
-            hideSuggest();
-        }
+    if (e && e.target.closest('.suggest-dropdown')) return;
+    if (e && e.target.classList.contains('name-input')) return;
+    if (e && e.target.id === 'customerInput') return;
+    if (e && e.target.classList.contains('unit-input')) return; // 新增此行
+    hideSuggest();
+}
 
         // ========== 防抖函数 ==========
         function debounce(func, delay = 500) {
@@ -574,6 +580,54 @@
                 } else { hideSuggest(); }
             } catch (e) { hideSuggest(); }
         }
+        
+        // ========== 单位模糊搜索逻辑 ==========
+async function onUnitInput(input) {
+    const keyword = input.value.trim();
+    if (!keyword) { hideSuggest(); return; }
+    currentUnitInput = input;
+    try {
+        const res = await fetch(`/product/search-unit/?keyword=${encodeURIComponent(keyword)}`);
+        const data = await res.json();
+        if (data.code === 1 && data.data.length > 0) {
+            currentUnitList = data.data;
+            showUnitSuggest(input, data.data);
+        } else { hideSuggest(); }
+    } catch (e) { hideSuggest(); }
+}
+
+function showUnitSuggest(input, list) {
+    const rect = input.getBoundingClientRect();
+    suggestBox.style.left = rect.left + 'px';
+    suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
+    suggestBox.innerHTML = '';
+    list.slice(0, 8).forEach((item, idx) => {
+        const div = document.createElement('div');
+        div.textContent = `${idx+1} ${item.name}`;
+        div.dataset.index = idx;
+        div.onclick = () => selectUnitItem(idx);
+        suggestBox.appendChild(div);
+    });
+    suggestBox.style.display = 'block';
+}
+
+function selectUnitItem(index) {
+    const item = currentUnitList[index];
+    if (!item || !currentUnitInput) return;
+    currentUnitInput.value = item.name;
+    hideSuggest();
+}
+
+function handleUnitInputKey(e) {
+    if (!currentUnitList.length) return;
+    if (e.key === ' ') { e.preventDefault(); selectUnitItem(0); }
+    const num = parseInt(e.key);
+    if (!isNaN(num) && num >= 1 && num <= currentUnitList.length) {
+        e.preventDefault(); selectUnitItem(num - 1);
+    }
+    if (e.key === 'Escape') hideSuggest();
+}
+
         function showCustomerSuggest(input, list) {
             const rect = input.getBoundingClientRect();
             suggestBox.style.left = rect.left + 'px';
@@ -637,6 +691,11 @@
                 input.addEventListener('input', () => debouncedProductSearch(input));
                 input.addEventListener('keydown', handleProductInputKey);
             }
+            // ========== 新增：单位输入框事件绑定 ==========
+    if (className === 'unit-input') {
+        input.addEventListener('input', () => debouncedUnitSearch(input));
+        input.addEventListener('keydown', handleUnitInputKey);
+    }
             bindInputKeyboardEvents(input);
             return input;
         }
