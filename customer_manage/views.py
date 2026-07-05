@@ -6,7 +6,7 @@ from django.core.cache import cache
 from accounts.models import ROLE_SUPER_ADMIN, PERM_LOG_VIEW_ALL
 from bill.models import OrderItem, Order
 from product.models import Product, ProductAlias
-from customer_manage.models import Customer, CustomerPrice, RepaymentRecord
+from customer_manage.models import Customer, CustomerPrice, RepaymentRecord, CustomerPhone
 from area_manage.models import Area
 
 import datetime
@@ -121,8 +121,8 @@ def customer_list(request):
         if cached_data:
             return JsonResponse(cached_data, safe=False)
 
-        # 仅查询基本信息 + 关联区域
-        customers = Customer.all_objects.all().select_related('area')
+        # ✅ 修改：预加载电话关联，避免N+1查询
+        customers = Customer.all_objects.all().select_related('area').prefetch_related('phones')
 
         # 状态筛选
         if status == 'active':
@@ -135,12 +135,13 @@ def customer_list(request):
             id_q = Q()
             if keyword.isdigit():
                 id_q = Q(id=int(keyword))
+            # ✅ 修改：电话筛选改为关联子表查询 + 去重
             customers = customers.filter(
                 Q(name__icontains=keyword) |
-                Q(phone__icontains=keyword) |
+                Q(phones__phone__icontains=keyword) |
                 id_q |
                 Q(area__name__icontains=keyword)
-            )
+            ).distinct()
 
         # 统计数量
         all_count = Customer.all_objects.count()
@@ -188,7 +189,8 @@ def customer_list(request):
                 'name': c.name,
                 'area_id': c.area.id if c.area else '',
                 'area_name': c.area.name if c.area else '',
-                'phone': c.phone,
+                # ✅ 修改：使用主号码属性替代原 phone 字段
+                'phone': c.primary_phone,
                 'remark': c.remark or '',
                 'is_active': c.is_active,
                 'page': int(page),
@@ -213,6 +215,7 @@ def customer_list(request):
         cache.set(cache_key, result, CACHE_HIGH_PRIORITY if not with_debt else 10)
         return JsonResponse(result, safe=False)
     except Exception as e:
+        logger.error(f"客户列表查询失败: {str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'})
 
 
@@ -297,14 +300,12 @@ def customer_detail(request, pk):
         for order in order_page:
             order_list.append({
                 'order_no': order.order_no or '',
-                # ✅ 修复：转为上海本地时区再格式化
                 'create_time': format_datetime(order.create_time, '%Y-%m-%d %H:%M'),
                 'total_amount': float(order.total_amount) if order.total_amount else 0.0,
                 'is_settled': order.is_settled,
                 'status': order.status,
                 'status_text': dict(Order.ORDER_STATUS).get(order.status, '未知'),
                 'overdue_days': order.get_overdue_days(),
-                # ✅ 修复：转为上海本地时区再格式化日期
                 'order_date': format_datetime(order.create_time, '%Y-%m-%d'),
                 'creator_name': order.creator.username if order.creator else '未知',
                 'creator_role': order.creator.role.name if (order.creator and order.creator.role) else '未知'
@@ -317,12 +318,10 @@ def customer_detail(request, pk):
             repayment_list.append({
                 'id': repay.id,
                 'repayment_amount': float(repay.repayment_amount) if repay.repayment_amount else 0.0,
-                # ✅ 修复：还款时间转为本地时区
                 'repayment_time': format_datetime(repay.repayment_time, '%Y-%m-%d %H:%M'),
                 'repayment_remark': repay.repayment_remark or '',
                 'operator': repay.operator.username if repay.operator else '未知',
                 'operator_role': repay.operator.role.name if (repay.operator and repay.operator.role) else '未知',
-                # ✅ 修复：记录创建时间转为本地时区
                 'create_time': format_datetime(repay.create_time, '%Y-%m-%d %H:%M')
             })
 
@@ -339,7 +338,6 @@ def customer_detail(request, pk):
             'product_name': stat['product__name'],
             'total_quantity': stat['total_quantity'],
             'unit': stat['product__unit'],
-            # ✅ 修复：最后购买时间转为本地时区
             'last_purchase_time': format_datetime(stat['last_purchase_time'], '%Y-%m-%d') if stat[
                 'last_purchase_time'] else '无'
         } for stat in product_stats]
@@ -349,7 +347,9 @@ def customer_detail(request, pk):
             'customer_info': {
                 'id': customer.id, 'name': customer.name,
                 'area_name': customer.area.name if customer.area else '',
-                'phone': customer.phone, 'remark': customer.remark or ''
+                # ✅ 修改：使用主号码
+                'phone': customer.primary_phone,
+                'remark': customer.remark or ''
             },
             'debt_info': {
                 'total_debt': total_debt, 'unpaid_order_count': unpaid_order_count,
@@ -367,6 +367,7 @@ def customer_detail(request, pk):
         return JsonResponse(response_data, safe=False)
 
     except Exception as e:
+        logger.error(f"客户详情查询失败: {str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'}, safe=False)
 
 
@@ -498,15 +499,21 @@ def customer_add(request):
 
             if Customer.objects.filter(name=name).exists():
                 return JsonResponse({'code': 0, 'msg': '客户名称已存在'}, content_type='application/json')
-            if Customer.objects.filter(phone=phone).exists():
-                return JsonResponse({'code': 0, 'msg': '联系电话已存在'}, content_type='application/json')
+            # ✅ 修改：移除电话全局唯一校验（业务上允许同电话多门店）
 
             area = get_object_or_404(Area, id=area_id)
+
+            # ✅ 修改：创建客户时不传phone字段，创建后单独写入电话表
             customer = Customer.objects.create(
                 name=name,
                 area=area,
-                phone=phone,
                 remark=remark
+            )
+            # 自动创建主号码
+            CustomerPhone.objects.create(
+                customer=customer,
+                phone=phone.strip(),
+                is_primary=True
             )
 
             create_operation_log(
@@ -515,23 +522,25 @@ def customer_add(request):
                 obj_type='customer',
                 obj_id=customer.id,
                 obj_name=customer.name,
-                detail=f"新增客户：名称={customer.name}"
+                detail=f"新增客户：名称={customer.name}，主电话={phone}"
             )
 
             clear_customer_cache()
             return JsonResponse({'code': 1, 'msg': '新增客户成功'}, content_type='application/json')
         except Exception as e:
+            logger.error(f"新增客户失败: {str(e)}", exc_info=True)
             return JsonResponse({'code': 0, 'msg': f'新增失败：{str(e)}'}, content_type='application/json')
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
 
 
+# ========== 编辑客户 ==========
 # ========== 编辑客户 ==========
 @login_required
 @permission_required('customer_edit')
 def customer_edit(request, pk):
     """编辑客户接口"""
     try:
-        customer = get_object_or_404(Customer, pk=pk)
+        customer = get_object_or_404(Customer.all_objects, pk=pk)
         if request.method == 'POST':
             name = request.POST.get('name', '').strip()
             area_id = request.POST.get('area_id', '').strip()
@@ -547,15 +556,25 @@ def customer_edit(request, pk):
 
             if Customer.objects.filter(name=name).exclude(pk=pk).exists():
                 return JsonResponse({'code': 0, 'msg': '客户名称已存在'}, content_type='application/json')
-            if Customer.objects.filter(phone=phone).exclude(pk=pk).exists():
-                return JsonResponse({'code': 0, 'msg': '联系电话已存在'}, content_type='application/json')
+            # ✅ 修改：移除电话全局唯一校验
 
             area = get_object_or_404(Area, id=area_id)
             customer.name = name
             customer.area = area
-            customer.phone = phone
             customer.remark = remark
             customer.save()
+
+            # ✅ 修改：更新主号码（有则修改，无则创建）
+            primary_phone = customer.phones.filter(is_primary=True).first()
+            if primary_phone:
+                primary_phone.phone = phone.strip()
+                primary_phone.save()
+            else:
+                CustomerPhone.objects.create(
+                    customer=customer,
+                    phone=phone.strip(),
+                    is_primary=True
+                )
 
             create_operation_log(
                 request=request,
@@ -563,13 +582,14 @@ def customer_edit(request, pk):
                 obj_type='customer',
                 obj_id=customer.id,
                 obj_name=customer.name,
-                detail=f"编辑客户"
+                detail=f"编辑客户信息，主电话更新为：{phone}"
             )
 
             clear_customer_cache(customer_id=pk)
             return JsonResponse({'code': 1, 'msg': '编辑客户成功'}, content_type='application/json')
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, content_type='application/json')
     except Exception as e:
+        logger.error(f"编辑客户失败: {str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'编辑失败：{str(e)}'}, content_type='application/json')
 
 
@@ -948,7 +968,7 @@ def product_list_for_price(request):
 @login_required
 @permission_required('customer_price_view')
 def search_customer_for_price(request):
-    """客户搜索：匹配名称/区域 - 手动缓存版"""
+    """客户搜索：匹配名称/区域/电话 - 手动缓存版"""
     keyword = request.GET.get('keyword', '').strip()
     if not keyword:
         return JsonResponse({'code': 0, 'data': []})
@@ -958,9 +978,11 @@ def search_customer_for_price(request):
     if cached_data:
         return JsonResponse(cached_data, safe=False, content_type='application/json')
 
-    customer_matches = Customer.objects.select_related('area').filter(
+    # ✅ 修改：支持按电话搜索，加去重
+    customer_matches = Customer.objects.select_related('area').prefetch_related('phones').filter(
         Q(name__icontains=keyword) |
-        Q(area__name__icontains=keyword)
+        Q(area__name__icontains=keyword) |
+        Q(phones__phone__icontains=keyword)
     ).distinct()[:8]
 
     data = []
@@ -976,7 +998,6 @@ def search_customer_for_price(request):
 
     cache.set(cache_key, {'code': 1, 'data': data}, CACHE_MID_PRIORITY)
     return JsonResponse({'code': 1, 'data': data}, content_type='application/json')
-
 
 @login_required
 @permission_required('customer_price_view')
@@ -1226,7 +1247,8 @@ def customer_export(request):
                 'remark': '备注'
             }
 
-            customers = Customer.objects.select_related('area').order_by('-create_time')
+            # ✅ 修改：预加载电话
+            customers = Customer.objects.select_related('area').prefetch_related('phones').order_by('-create_time')
             export_data = []
             for idx, customer in enumerate(customers, 1):
                 export_data.append({
@@ -1234,7 +1256,8 @@ def customer_export(request):
                     'id': customer.id,
                     'name': customer.name,
                     'area_name': customer.area.name if customer.area else '无',
-                    'phone': customer.phone,
+                    # ✅ 修改：使用主号码
+                    'phone': customer.primary_phone,
                     'remark': customer.remark or ''
                 })
 
@@ -1289,8 +1312,8 @@ def customer_import(request):
                     error_list.append(f"第{row_idx}行：客户名称或电话为空，跳过")
                     continue
 
-                exists = Customer.objects.filter(name=name).exists() or Customer.objects.filter(phone=phone).exists()
-                if exists:
+                # ✅ 修改：仅按名称判断重复，电话不做全局唯一校验
+                if Customer.objects.filter(name=name).exists():
                     skip_count += 1
                     continue
 
@@ -1299,11 +1322,16 @@ def customer_import(request):
                     area_obj = area_map[area_name]
 
                 try:
-                    Customer.objects.create(
+                    # ✅ 修改：创建客户+主号码
+                    customer = Customer.objects.create(
                         name=name,
                         area=area_obj,
-                        phone=phone,
                         remark=remark
+                    )
+                    CustomerPhone.objects.create(
+                        customer=customer,
+                        phone=phone.strip(),
+                        is_primary=True
                     )
                     new_count += 1
                 except Exception as e:
@@ -1508,10 +1536,10 @@ def calculate_customer_stats(request):
             status__in=['pending', 'printed', 'reopened'],
             customer__isnull=False
         )
-        base_customers = Customer.all_objects.all().select_related('area')
+        # ✅ 修改：预加载电话
+        base_customers = Customer.all_objects.all().select_related('area').prefetch_related('phones')
 
         # 1. 时间筛选
-        # ✅ 修复：使用上海本地日期作为基准，避免UTC日期偏差1天
         today = timezone.localdate()
         if time_range == '30days':
             thirty_days_ago = today - datetime.timedelta(days=30)
@@ -1583,27 +1611,24 @@ def calculate_customer_stats(request):
                 'id': customer.id,
                 'name': customer.name,
                 'area_name': customer.area.name if customer.area else '无区域',
-                'phone': customer.phone,
+                # ✅ 修改：使用主号码
+                'phone': customer.primary_phone,
                 'is_active': customer.is_active,
                 'total_consume': float(stats['total_consume']),
                 'total_debt': float(total_debt),
                 'total_order': stats.get('total_order', 0),
                 'finished_order': stats.get('finished_order', 0),
                 'unsettled_order': stats.get('unsettled_order', 0),
-                # ✅ 修复：最后消费时间转为上海本地时区再格式化
                 'last_consume_time': format_datetime(stats.get('last_consume_time'), '%Y-%m-%d %H:%M') if stats.get(
                     'last_consume_time') else '无消费'
             })
 
         # 全局统计聚合
-        # 全局总消费
         global_total_consume = base_orders.aggregate(total=Sum('total_amount'))['total'] or Decimal('0')
-        # 全局总欠款 = 总消费 - 总还款
         global_total_repay = RepaymentRecord.objects.filter(
             customer_id__in=base_customers.values_list('id', flat=True)
         ).aggregate(total=Sum('repayment_amount'))['total'] or Decimal('0')
         global_total_debt = max(global_total_consume - global_total_repay, Decimal('0'))
-        # 全局总订单数
         global_total_order = base_orders.count()
 
         return JsonResponse({
