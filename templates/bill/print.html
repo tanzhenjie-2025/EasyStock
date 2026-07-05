@@ -83,14 +83,14 @@
             word-break: break-all;
         }
 
-        /* 原列宽替换为以下内容 */
-.bill-table .col-index { width: 8%; }
-.bill-table .col-name { width: 18%; }
-.bill-table .col-spec { width: 24%; }  /* 新增规格列 */
-.bill-table .col-qty { width: 10%; }
-.bill-table .col-unit { width: 10%; }
-.bill-table .col-price { width: 15%; }
-.bill-table .col-total { width: 15%; }
+        /* 调整后列宽：规格缩小，商品名称放大 */
+        .bill-table .col-index { width: 6%; }
+        .bill-table .col-spec { width: 18%; }
+        .bill-table .col-name { width: 34%; }
+        .bill-table .col-qty { width: 6%; }
+        .bill-table .col-unit { width: 6%; }
+        .bill-table .col-price { width: 15%; }
+        .bill-table .col-total { width: 15%; }
         
         /* 底部：与表格同宽，整体居中 */
         .bill-footer { 
@@ -135,8 +135,8 @@
             <thead>
                 <tr>
                     <th class="col-index">序号</th>
-                    <th class="col-name">商品名称</th>
                     <th class="col-spec">规格</th>
+                    <th class="col-name">商品名称</th>
                     <th class="col-qty">数量</th>
                     <th class="col-unit">单位</th>
                     <th class="col-price">单价</th>
@@ -147,15 +147,15 @@
                 {% for item in items %}
                 <tr>
                     <td>{{ forloop.counter }}</td>
-                    <td>{{ item.product.name }}</td>
                     <td>{{ item.specification|default:"-" }}</td>
+                    <td>{{ item.product.name }}</td>
                     <td>{{ item.quantity }}</td>
                     <td>{{ item.product.unit }}</td>
                     <td>¥{{ item.product.price }}</td>
                     <td>¥{{ item.amount }}</td>
                 </tr>
                 {% empty %}
-                <tr><td colspan="6">无商品明细</td></tr>
+                <tr><td colspan="7">无商品明细</td></tr>
                 {% endfor %}
             </tbody>
         </table>
