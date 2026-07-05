@@ -32,6 +32,12 @@ from openpyxl.styles import Font, Alignment, PatternFill
 from io import BytesIO
 import json
 
+from django.shortcuts import redirect, reverse, render
+from django.contrib.auth import authenticate, login
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.contrib import messages
+from django.utils.http import url_has_allowed_host_and_scheme
+
 logger = logging.getLogger(__name__)
 
 # ========== 缓存常量 ==========
@@ -207,13 +213,26 @@ def permission_required(permission_code):
     return decorator
 
 
-
 @ensure_csrf_cookie
 def login_view(request):
+    # 封装安全跳转工具函数，避免重复代码
+    def safe_redirect(default='/bill/'):
+        # 优先POST，再GET
+        next_url = request.POST.get('next') or request.GET.get('next')
+        # 校验URL是否为本站安全地址
+        if next_url and url_has_allowed_host_and_scheme(
+                url=next_url,
+                allowed_hosts={request.get_host()},
+                require_https=request.is_secure()
+        ):
+            return next_url
+        return default
+
     if request.user.is_authenticated:
         if request.user.force_password_change:
-            return redirect('/accounts/force-change-password/')
-        return redirect(request.GET.get('next', '/bill/'))
+            # 携带next参数，改密后可继续跳转
+            return redirect(f"{reverse('accounts:force_change_password')}?next={safe_redirect()}")
+        return redirect(safe_redirect())
 
     if request.method == 'POST':
         username = request.POST.get('username', '').strip()
@@ -234,11 +253,16 @@ def login_view(request):
                 detail=f"用户登录：编号={user.user_code}，用户名={user.username}"
             )
             if user.force_password_change:
-                return redirect('/accounts/force-change-password/')
-            return redirect(request.POST.get('next', request.GET.get('next', '/bill/')))
+                # 同样携带next参数
+                return redirect(f"{reverse('accounts:force_change_password')}?next={safe_redirect()}")
+            return redirect(safe_redirect())
         else:
             messages.error(request, '用户名/密码错误或账户已禁用')
-    return render(request, 'accounts/login.html', {'next': request.GET.get('next', '')})
+
+    # 模板中保持next值传递，前端表单用隐藏域携带
+    return render(request, 'accounts/login.html', {
+        'next': request.GET.get('next', '')
+    })
 
 @login_required
 def force_change_password(request):
