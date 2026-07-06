@@ -23,7 +23,8 @@
                 /* 内容宽度同步改为140mm，与纸张宽度一致 */
                 width: 140mm; 
                 height: auto; 
-                padding: 5mm; 
+                /* 顶部内边距增加2mm，实现整体内容下移一点点 */
+                padding: 7mm 5mm 5mm 5mm; 
                 box-sizing: border-box;
                 page-break-inside: avoid;
                 border: none;
@@ -39,7 +40,8 @@
             height: auto; 
             border: none; 
             margin: 20px auto;
-            padding: 5mm;
+            /* 和打印样式保持一致，顶部内边距增加2mm */
+            padding: 7mm 5mm 5mm 5mm;
             box-sizing: border-box;
         }
 
