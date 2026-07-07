@@ -501,9 +501,9 @@
                 </select>
             </div>
             <div class="form-group">
-                <label for="customerPhone">联系电话 <span style="color:red">*</span></label>
-                <input type="text" id="customerPhone" placeholder="请输入联系电话" required>
-            </div>
+    <label for="customerPhone">联系电话 <span style="color:#999; font-weight:normal;">（选填）</span></label>
+    <input type="text" id="customerPhone" placeholder="请输入联系电话（可不填）">
+</div>
             <div class="form-group">
                 <label for="customerRemark">备注</label>
                 <input type="text" id="customerRemark" placeholder="请输入备注（选填）">
@@ -740,7 +740,8 @@
                 
                 res.forEach(customer => {
                     let name = highlightKeyword(customer.name, keyword);
-                    let phone = highlightKeyword(customer.phone, keyword);
+                    let phoneText = customer.phone || '暂无电话';
+                    let phone = highlightKeyword(phoneText, keyword);
                     let areaName = highlightKeyword(customer.area_name || '无', keyword);
                     let id = highlightKeyword(customer.id.toString(), keyword);
                     
@@ -863,7 +864,7 @@
 
         if (!name) { alert('客户名称不能为空！'); return; }
         if (!areaId) { alert('所属区域不能为空！'); return; }
-        if (!phone) { alert('联系电话不能为空！'); return; }
+        
 
         const data = { name: name, area_id: areaId, phone: phone, remark: remark };
         let url = '/customer-manage/customer/add/';

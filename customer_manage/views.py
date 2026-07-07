@@ -482,7 +482,7 @@ def repayment_page(request):
 @login_required
 @permission_required('customer_add')
 def customer_add(request):
-    """新增客户接口"""
+    """新增客户接口（电话选填）"""
     if request.method == 'POST':
         try:
             name = request.POST.get('name', '').strip()
@@ -494,27 +494,25 @@ def customer_add(request):
                 return JsonResponse({'code': 0, 'msg': '客户名称不能为空'}, content_type='application/json')
             if not area_id:
                 return JsonResponse({'code': 0, 'msg': '所属区域不能为空'}, content_type='application/json')
-            if not phone:
-                return JsonResponse({'code': 0, 'msg': '联系电话不能为空'}, content_type='application/json')
+            # ✅ 移除：电话必填校验，改为选填
 
             if Customer.objects.filter(name=name).exists():
                 return JsonResponse({'code': 0, 'msg': '客户名称已存在'}, content_type='application/json')
-            # ✅ 修改：移除电话全局唯一校验（业务上允许同电话多门店）
 
             area = get_object_or_404(Area, id=area_id)
-
-            # ✅ 修改：创建客户时不传phone字段，创建后单独写入电话表
             customer = Customer.objects.create(
                 name=name,
                 area=area,
                 remark=remark
             )
-            # 自动创建主号码
-            CustomerPhone.objects.create(
-                customer=customer,
-                phone=phone.strip(),
-                is_primary=True
-            )
+
+            # ✅ 修改：仅当电话非空时，才创建主号码记录
+            if phone:
+                CustomerPhone.objects.create(
+                    customer=customer,
+                    phone=phone.strip(),
+                    is_primary=True
+                )
 
             create_operation_log(
                 request=request,
@@ -522,7 +520,7 @@ def customer_add(request):
                 obj_type='customer',
                 obj_id=customer.id,
                 obj_name=customer.name,
-                detail=f"新增客户：名称={customer.name}，主电话={phone}"
+                detail=f"新增客户：名称={customer.name}，主电话={phone if phone else '无'}"
             )
 
             clear_customer_cache()
@@ -534,11 +532,10 @@ def customer_add(request):
 
 
 # ========== 编辑客户 ==========
-# ========== 编辑客户 ==========
 @login_required
 @permission_required('customer_edit')
 def customer_edit(request, pk):
-    """编辑客户接口"""
+    """编辑客户接口（支持清空电话）"""
     try:
         customer = get_object_or_404(Customer.all_objects, pk=pk)
         if request.method == 'POST':
@@ -551,12 +548,10 @@ def customer_edit(request, pk):
                 return JsonResponse({'code': 0, 'msg': '客户名称不能为空'}, content_type='application/json')
             if not area_id:
                 return JsonResponse({'code': 0, 'msg': '所属区域不能为空'}, content_type='application/json')
-            if not phone:
-                return JsonResponse({'code': 0, 'msg': '联系电话不能为空'}, content_type='application/json')
+            # ✅ 移除：电话必填校验，改为选填
 
             if Customer.objects.filter(name=name).exclude(pk=pk).exists():
                 return JsonResponse({'code': 0, 'msg': '客户名称已存在'}, content_type='application/json')
-            # ✅ 修改：移除电话全局唯一校验
 
             area = get_object_or_404(Area, id=area_id)
             customer.name = name
@@ -564,17 +559,24 @@ def customer_edit(request, pk):
             customer.remark = remark
             customer.save()
 
-            # ✅ 修改：更新主号码（有则修改，无则创建）
+            # ✅ 修改：处理主号码，支持清空
             primary_phone = customer.phones.filter(is_primary=True).first()
-            if primary_phone:
-                primary_phone.phone = phone.strip()
-                primary_phone.save()
+            if phone:
+                # 有新电话：更新或创建主号码
+                if primary_phone:
+                    primary_phone.phone = phone.strip()
+                    primary_phone.is_active = True
+                    primary_phone.save()
+                else:
+                    CustomerPhone.objects.create(
+                        customer=customer,
+                        phone=phone.strip(),
+                        is_primary=True
+                    )
             else:
-                CustomerPhone.objects.create(
-                    customer=customer,
-                    phone=phone.strip(),
-                    is_primary=True
-                )
+                # 电话为空：删除原主号码（物理删除，避免冗余数据）
+                if primary_phone:
+                    primary_phone.delete()
 
             create_operation_log(
                 request=request,
@@ -582,7 +584,7 @@ def customer_edit(request, pk):
                 obj_type='customer',
                 obj_id=customer.id,
                 obj_name=customer.name,
-                detail=f"编辑客户信息，主电话更新为：{phone}"
+                detail=f"编辑客户信息，主电话更新为：{phone if phone else '无'}"
             )
 
             clear_customer_cache(customer_id=pk)
@@ -1308,11 +1310,11 @@ def customer_import(request):
                     if len(cells) > 4:
                         remark = cells[4]
 
-                if not name or not phone:
-                    error_list.append(f"第{row_idx}行：客户名称或电话为空，跳过")
+                # ✅ 修改：仅校验名称必填，电话可为空
+                if not name:
+                    error_list.append(f"第{row_idx}行：客户名称为空，跳过")
                     continue
 
-                # ✅ 修改：仅按名称判断重复，电话不做全局唯一校验
                 if Customer.objects.filter(name=name).exists():
                     skip_count += 1
                     continue
@@ -1322,17 +1324,18 @@ def customer_import(request):
                     area_obj = area_map[area_name]
 
                 try:
-                    # ✅ 修改：创建客户+主号码
                     customer = Customer.objects.create(
                         name=name,
                         area=area_obj,
                         remark=remark
                     )
-                    CustomerPhone.objects.create(
-                        customer=customer,
-                        phone=phone.strip(),
-                        is_primary=True
-                    )
+                    # ✅ 修改：仅电话非空时创建主号码
+                    if phone:
+                        CustomerPhone.objects.create(
+                            customer=customer,
+                            phone=phone.strip(),
+                            is_primary=True
+                        )
                     new_count += 1
                 except Exception as e:
                     error_list.append(f"第{row_idx}行：保存失败（{str(e)}）")
