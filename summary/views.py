@@ -75,10 +75,13 @@ def summary_page(request):
 @permission_required(PERM_ORDER_SUMMARY)
 @cache_page(CACHE_HIGH_PRIORITY)
 def summary_by_group(request):
-    """商品汇总接口 - 严格匹配 OrderItem 统一索引 [product, order, quantity, amount]"""
+    """商品汇总接口 - 严格匹配 OrderItem 统一索引 [product, order, quantity, amount]
+       支持按商品标签多选筛选（tag_ids 逗号分隔，空或全选时不传）
+    """
     group_id = request.GET.get('group_id')
     start_datetime = request.GET.get('start_date')
     end_datetime = request.GET.get('end_date')
+    tag_ids_str = request.GET.get('tag_ids', '')  # 逗号分隔的标签ID
 
     if not all([group_id, start_datetime, end_datetime]):
         return JsonResponse({'code': 0, 'msg': '请选择组和时间范围'})
@@ -87,38 +90,42 @@ def summary_by_group(request):
     area_ids = get_area_ids_by_group(group_id)
     group_name = '全部区域' if group_id == '0' else AreaGroup.objects.get(id=group_id).name
 
-    # 时间校验 (统一使用 parse_datetime，已带上海时区)
+    # 时间校验
     start = parse_datetime(start_datetime)
     end = parse_datetime(end_datetime)
     if not start or not end:
         return JsonResponse({'code': 0, 'msg': '时间格式错误'})
 
+    # ---------- 构建过滤条件（支持标签） ----------
+    filters = {
+        'product__isnull': False,
+        'order__area_id__in': area_ids,
+        'order__create_time__gte': start,
+        'order__create_time__lte': end,
+        'order__status__in': ['pending', 'printed', 'reopened']
+    }
+    if tag_ids_str:
+        tag_ids = [int(x) for x in tag_ids_str.split(',') if x]
+        if tag_ids:
+            filters['product__tags__id__in'] = tag_ids
+
     # 🔥 核心优化：查询顺序匹配索引前缀，100%命中索引
-    items = OrderItem.objects.filter(
-        product__isnull=False,  # 索引第一位：product
-        order__area_id__in=area_ids,
-        order__create_time__gte=start,
-        order__create_time__lte=end,
-        order__status__in=['pending', 'printed', 'reopened']  # 排除作废，匹配Order索引
-    ).select_related('product').values(
-        'product__id', 'product__name', 'product__unit', 'product__price'
-    ).annotate(
-        total_qty=Sum('quantity'),
-        total_amt=Sum('amount')
-    ).order_by('-total_qty')  # 索引包含quantity，直接索引排序
+    items = OrderItem.objects.filter(**filters) \
+        .select_related('product') \
+        .values('product__id', 'product__name', 'product__unit', 'product__price') \
+        .annotate(
+            total_qty=Sum('quantity'),
+            total_amt=Sum('amount')
+        ) \
+        .order_by('-total_qty')
 
     # 在 Python 中组装数据并同时计算总和
     data = []
-    total_amount = Decimal('0.00')  # 初始化累加器
+    total_amount = Decimal('0.00')
 
     for idx, item in enumerate(items, 1):
-        # 确保金额不为 None
         item_total_amt = item['total_amt'] or Decimal('0.00')
-
-        # 累加
         total_amount += item_total_amt
-
-        # 组装字典
         data.append({
             'serial': idx,
             'pid': item['product__id'],
@@ -130,7 +137,7 @@ def summary_by_group(request):
             'remark': ''
         })
 
-    # 日志时间统一格式化，避免带时区后缀
+    # 日志
     time_range_str = f"{start.strftime('%Y-%m-%d %H:%M')}至{end.strftime('%Y-%m-%d %H:%M')}"
     create_summary_operation_log(
         request=request, operation_type='query', object_type='product_summary',
@@ -278,7 +285,7 @@ def export_to_excel(data, title, headers, selected_fields, custom_fields, file_n
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
 def export_product_summary(request):
-    """商品导出 - 命中OrderItem统一索引"""
+    """商品导出 - 命中OrderItem统一索引，支持标签筛选"""
     if request.method == 'POST':
         try:
             data = request.POST
@@ -287,11 +294,11 @@ def export_product_summary(request):
             end_datetime = data.get('end_date')
             selected_fields = data.getlist('fields[]')
             custom_fields = json.loads(data.get('custom_fields', '[]'))
+            tag_ids_str = data.get('tag_ids', '')  # 获取标签参数
 
             if not all([group_id, start_datetime, end_datetime, selected_fields]):
                 return JsonResponse({'code': 0, 'msg': '参数不完整'})
 
-            # 统一使用 parse_datetime，已带上海时区
             start = parse_datetime(start_datetime)
             end = parse_datetime(end_datetime)
             if not start or not end:
@@ -300,38 +307,55 @@ def export_product_summary(request):
             area_ids = get_area_ids_by_group(group_id)
             group_name = '全部区域' if group_id == '0' else AreaGroup.objects.get(id=group_id).name
 
+            # ---------- 构建过滤条件（支持标签） ----------
+            filters = {
+                'product__isnull': False,
+                'order__area_id__in': area_ids,
+                'order__create_time__gte': start,
+                'order__create_time__lte': end,
+                'order__status__in': ['pending', 'printed', 'reopened']
+            }
+            if tag_ids_str:
+                tag_ids = [int(x) for x in tag_ids_str.split(',') if x]
+                if tag_ids:
+                    filters['product__tags__id__in'] = tag_ids
+
             # 🔥 索引匹配查询
-            items = OrderItem.objects.filter(
-                product__isnull=False,
-                order__area_id__in=area_ids,
-                order__create_time__gte=start,
-                order__create_time__lte=end,
-                order__status__in=['pending', 'printed', 'reopened']
-            ).select_related('product').values(
-                'product__name', 'product__unit', 'product__price'
-            ).annotate(
-                total_qty=Sum('quantity'),
-                total_amt=Sum('amount')
-            ).order_by('-total_qty')
+            items = OrderItem.objects.filter(**filters) \
+                .select_related('product') \
+                .values('product__name', 'product__unit', 'product__price') \
+                .annotate(
+                    total_qty=Sum('quantity'),
+                    total_amt=Sum('amount')
+                ) \
+                .order_by('-total_qty')
 
             total_amount = items.aggregate(total=Coalesce(Sum('total_amt'), 0, output_field=DecimalField()))['total']
             export_data = [{
-                'serial': idx, 'name': item['product__name'], 'unit': item['product__unit'],
-                'price': float(item['product__price']), 'total_qty': item['total_qty'] or 0,
-                'total_amt': float(item['total_amt'] or 0), 'remark': ''
+                'serial': idx,
+                'name': item['product__name'],
+                'unit': item['product__unit'],
+                'price': float(item['product__price']),
+                'total_qty': item['total_qty'] or 0,
+                'total_amt': float(item['total_amt'] or 0),
+                'remark': ''
             } for idx, item in enumerate(items, 1)]
 
             create_summary_operation_log(request=request, operation_type='export', object_type='product_summary')
 
-            # 已使用 timezone.localdate()，输出上海本地日期
             file_date_str = timezone.localdate().strftime("%Y%m%d")
 
             return export_to_excel(
-                data=export_data, title='商品汇总', headers={
+                data=export_data,
+                title='商品汇总',
+                headers={
                     'serial': '序号', 'name': '商品名称', 'unit': '单位', 'price': '单价',
                     'total_qty': '数量', 'total_amt': '总金额', 'remark': '备注'
-                }, selected_fields=selected_fields, custom_fields=custom_fields,
-                file_name=f'{file_date_str}商品汇总_{group_name}', total_row={'total_amt': total_amount}
+                },
+                selected_fields=selected_fields,
+                custom_fields=custom_fields,
+                file_name=f'{file_date_str}商品汇总_{group_name}',
+                total_row={'total_amt': total_amount}
             )
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'}, status=500)
@@ -542,3 +566,14 @@ def get_product_order_source(request, product_id):
         })
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'}, status=500)
+
+from product.models import ProductTag
+
+@login_required
+@permission_required(PERM_ORDER_SUMMARY)
+@cache_page(CACHE_MID_PRIORITY)
+def tag_list(request):
+    """获取所有启用的标签，供前端选择"""
+    tags = ProductTag.objects.filter(is_active=True).order_by('sort_order', 'id')
+    data = [{'id': t.id, 'name': t.name, 'color': t.color} for t in tags]
+    return JsonResponse(data, safe=False)

@@ -767,14 +767,13 @@ def area_export(request):
         logger.error(f"导出区域失败：{str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': '导出失败'})
 
-# ===================== 区域组管理：导入导出新增代码 =====================
 @login_required
 @permission_required('area_add')
 def group_import(request):
     """
-    区域组批量导入：
-    读取Excel，格式：[序号, 组名, 包含区域(逗号分隔), 备注]
-    组名重复则跳过
+    区域组批量导入（支持覆盖更新）：
+    读取Excel，格式：[序号, 组名, 包含区域(逗号/中文逗号/空格分隔), 备注]
+    组名存在则更新区域列表，不存在则新建；区域名不存在则自动创建。
     """
     if request.method == 'POST':
         try:
@@ -785,10 +784,12 @@ def group_import(request):
             wb = openpyxl.load_workbook(file)
             ws = wb.active
 
-            imported_count = 0
-            skipped_count = 0
+            created_count = 0      # 新增组数
+            updated_count = 0      # 更新组数
+            skipped_count = 0      # 跳过行数（无效数据）
+            created_area_count = 0 # 新建区域数
 
-            # 预加载所有区域到内存，加速匹配
+            # 预加载所有区域（包括禁用的），便于匹配和新建
             area_map = {a.name: a for a in Area.objects.only('id', 'name')}
 
             # 从第2行开始遍历
@@ -796,7 +797,6 @@ def group_import(request):
                 if len(row) < 2:
                     continue
 
-                # 提取数据
                 group_name = str(row[1]).strip() if row[1] else ''
                 area_names_str = str(row[2]).strip() if len(row) > 2 and row[2] else ''
                 remark = str(row[3]).strip() if len(row) > 3 and row[3] else ''
@@ -804,46 +804,69 @@ def group_import(request):
                 if not group_name:
                     continue
 
-                # 检查组名是否已存在
-                if AreaGroup.objects.filter(name=group_name).exists():
-                    skipped_count += 1
-                    continue
-
-                # 解析包含区域
-                valid_areas = []
+                # 处理分隔符：支持中文逗号、英文逗号、空格（多个空格合并）
+                # 先将中文逗号替换为英文逗号，再按英文逗号分割，最后按空格分割并过滤空字符串
                 if area_names_str:
-                    area_names = [n.strip() for n in area_names_str.split(',')]
-                    for name in area_names:
-                        if name in area_map:
-                            valid_areas.append(area_map[name])
+                    # 统一替换中文逗号为英文逗号
+                    area_names_str = area_names_str.replace('，', ',').replace('、', ',')
+                    # 按英文逗号分割，再按空格分割，最后过滤空字符串
+                    raw_names = []
+                    for part in area_names_str.split(','):
+                        for sub in part.split():
+                            if sub.strip():
+                                raw_names.append(sub.strip())
+                    area_names = raw_names
+                else:
+                    area_names = []
+
+                # 解析区域对象
+                valid_areas = []
+                for name in area_names:
+                    if name in area_map:
+                        valid_areas.append(area_map[name])
+                    else:
+                        # 区域不存在，创建新区域（默认启用）
+                        new_area = Area.objects.create(name=name, remark='')
+                        area_map[name] = new_area
+                        valid_areas.append(new_area)
+                        created_area_count += 1
 
                 if not valid_areas:
                     skipped_count += 1
                     continue
 
-                # 创建区域组
-                g = AreaGroup.objects.create(name=group_name, remark=remark)
-                g.areas.set(valid_areas)
-                imported_count += 1
+                # 查找或创建区域组
+                group, created = AreaGroup.objects.get_or_create(name=group_name, defaults={'remark': remark})
+                if created:
+                    created_count += 1
+                else:
+                    # 更新备注（若Excel有提供新备注，可覆盖；否则保留原备注）
+                    if remark:
+                        group.remark = remark
+                        group.save()
+                    updated_count += 1
+
+                # 更新区域关联（先清空再设置）
+                group.areas.set(valid_areas)
 
             # 清理缓存
             clear_group_cache()
 
-            # 记录日志
+            # 记录操作日志
             create_operation_log(
                 request=request, op_type='import', obj_type='area_group',
                 obj_id=0, obj_name='批量导入',
-                detail=f"导入成功：新增{imported_count}条，跳过{skipped_count}条"
+                detail=f"导入完成：新增 {created_count} 组，更新 {updated_count} 组，跳过 {skipped_count} 行（无有效区域），新建区域 {created_area_count} 个"
             )
 
             return JsonResponse({
                 'code': 1,
-                'msg': f'导入完成！新增 {imported_count} 条，跳过 {skipped_count} 条'
+                'msg': f'导入完成！新增 {created_count} 组，更新 {updated_count} 组，跳过 {skipped_count} 行，新建区域 {created_area_count} 个'
             })
 
         except Exception as e:
             logger.error(f"导入区域组失败：{str(e)}", exc_info=True)
-            return JsonResponse({'code': 0, 'msg': f'导入失败：文件格式错误或数据异常'})
+            return JsonResponse({'code': 0, 'msg': f'导入失败：{e}'})
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
 

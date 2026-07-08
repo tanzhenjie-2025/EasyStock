@@ -115,6 +115,19 @@
         <label class="form-label-sm mb-0">结束时间</label>
         <input type="datetime-local" id="e" class="form-control form-control-sm" placeholder="结束时间">
     </div>
+    
+</div>
+<div class="form-group" style="flex: 1; min-width: 200px;">
+    <label class="form-label-sm mb-0">商品标签</label>
+    <div id="tagContainer" style="display: flex; flex-wrap: wrap; gap: 8px;
+         max-height: 100px; overflow-y: auto; border: 1px solid #ced4da;
+         padding: 6px; border-radius: 4px; background: #fff;">
+        <!-- 动态由 JavaScript 加载 -->
+    </div>
+    <div style="margin-top: 4px;">
+        <a href="javascript:void(0)" onclick="selectAllTags(true)">全选</a> |
+        <a href="javascript:void(0)" onclick="selectAllTags(false)">全不选</a>
+    </div>
     <div class="form-group">
         <!-- 修改：添加按钮组样式，保证两个按钮垂直对齐 -->
         <div class="btn-group-query">
@@ -212,6 +225,69 @@ let queryParams = {};
 let customFieldCount = 0;
 // 定义存储键名（统一管理）
 const STORAGE_KEY = 'product_summary_data';
+let allTags = [];  // 存储所有标签 {id, name, color}
+
+// 加载标签
+function loadTags() {
+    $.get('/summary/tag-list/', function(res) {
+        if (Array.isArray(res)) {
+            allTags = res;
+            renderTags(res);
+            // 恢复之前选中的标签（如果有）
+            restoreTagSelection();
+        }
+    }).fail(function() {
+        console.warn('加载标签失败，可能没有标签');
+        $('#tagContainer').html('<span class="text-muted">暂无标签</span>');
+    });
+}
+
+// 渲染复选框
+function renderTags(tags) {
+    let html = '';
+    tags.forEach(t => {
+        html += `<label style="display: inline-flex; align-items: center; margin-right: 6px;">
+            <input type="checkbox" class="tag-checkbox" value="${t.id}" checked style="margin-right: 4px;">
+            <span style="color: ${t.color};">${t.name}</span>
+        </label>`;
+    });
+    $('#tagContainer').html(html);
+}
+
+// 全选/全不选
+function selectAllTags(select) {
+    $('.tag-checkbox').prop('checked', select);
+}
+
+// 获取选中的标签ID列表（逗号分隔）
+function getSelectedTagIds() {
+    let ids = [];
+    $('.tag-checkbox:checked').each(function() {
+        ids.push($(this).val());
+    });
+    return ids.join(',');
+}
+
+// 恢复标签选择（从存储中）
+function restoreTagSelection() {
+    const stored = sessionStorage.getItem(STORAGE_KEY);
+    if (stored) {
+        const { params } = JSON.parse(stored);
+        if (params && params.tag_ids) {
+            const selected = params.tag_ids.split(',').map(Number);
+            $('.tag-checkbox').prop('checked', false);
+            selected.forEach(id => {
+                $(`.tag-checkbox[value="${id}"]`).prop('checked', true);
+            });
+        } else {
+            // 默认全选
+            $('.tag-checkbox').prop('checked', true);
+        }
+    } else {
+        // 默认全选
+        $('.tag-checkbox').prop('checked', true);
+    }
+}
 
 // 1. 加载区域组列表（原有逻辑不变，仅补充注释）
 function loadGroup(){
@@ -334,11 +410,17 @@ function query(){
     }
     if (start > end) return alert('开始时间不能晚于结束时间');
 
-    // 保存查询参数
+    // 获取标签参数
+    let selectedIds = getSelectedTagIds();
+    let totalTags = allTags.length;
+    // 若全选，则不传 tag_ids（后端视为无筛选）
+    let tagParam = (selectedIds.split(',').length === totalTags) ? '' : selectedIds;
+
     queryParams = {
         group_id: group_id,
         start_date: start_time,
-        end_date: end_time
+        end_date: end_time,
+        tag_ids: tagParam   // 可能为空字符串
     };
 
     // 发起查询
@@ -352,10 +434,7 @@ function query(){
         }
 
         // 成功查询后，保存参数和结果到会话存储
-        const saveData = {
-            params: queryParams,
-            result: res
-        };
+        const saveData = { params: queryParams, result: res };
         sessionStorage.setItem(STORAGE_KEY, JSON.stringify(saveData));
 
         if (res.data.length === 0) {
@@ -477,6 +556,7 @@ function exportExcel() {
     formData.append('start_date', queryParams.start_date);
     formData.append('end_date', queryParams.end_date);
     formData.append('custom_fields', JSON.stringify(customFields));
+    formData.append('tag_ids', getSelectedTagIds());
 
     selectedFields.forEach(field => {
         formData.append('fields[]', field);
@@ -540,6 +620,8 @@ $(function(){
     const defaultTime = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
     $('#s').val(defaultTime);
     $('#e').val(defaultTime);
+
+    loadTags();  // 加载标签
 
     // 页面加载时尝试恢复数据（区域组加载完成后会再次调用，确保兼容性）
     restoreSummaryData();
