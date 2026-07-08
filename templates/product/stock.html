@@ -192,36 +192,55 @@
         </table>
 
         {% if page_products.has_other_pages %}
-        <nav>
-            <ul class="pagination">
-                {% if page_products.has_previous %}
-                <li class="page-item">
-                    <a class="page-link" href="?page={{ page_products.previous_page_number }}&keyword={{ keyword }}">上一页</a>
-                </li>
-                {% else %}
-                <li class="page-item disabled"><span class="page-link">上一页</span></li>
-                {% endif %}
+<nav>
+    <ul class="pagination">
+        {% with current=page_products.number total=paginator.num_pages %}
+            <!-- 上一页 -->
+            {% if page_products.has_previous %}
+            <li class="page-item">
+                <a class="page-link" href="?page={{ page_products.previous_page_number }}&keyword={{ keyword }}">上一页</a>
+            </li>
+            {% else %}
+            <li class="page-item disabled"><span class="page-link">上一页</span></li>
+            {% endif %}
 
-                {% for num in paginator.page_range %}
-                    {% if page_products.number == num %}
+            <!-- 页码列表（带省略号） -->
+            {% for num in paginator.page_range %}
+                {% if num == 1 or num == total or num >= current|add:'-2' and num <= current|add:'2' %}
+                    {% if num == current %}
                     <li class="page-item active"><span class="page-link">{{ num }}</span></li>
                     {% else %}
                     <li class="page-item">
                         <a class="page-link" href="?page={{ num }}&keyword={{ keyword }}">{{ num }}</a>
                     </li>
                     {% endif %}
-                {% endfor %}
-
-                {% if page_products.has_next %}
-                <li class="page-item">
-                    <a class="page-link" href="?page={{ page_products.next_page_number }}&keyword={{ keyword }}">下一页</a>
-                </li>
-                {% else %}
-                <li class="page-item disabled"><span class="page-link">下一页</span></li>
+                {% elif num == current|add:'-3' or num == current|add:'3' %}
+                    <li class="page-item disabled"><span class="page-link">…</span></li>
                 {% endif %}
-            </ul>
-        </nav>
-        {% endif %}
+            {% endfor %}
+
+            <!-- 下一页 -->
+            {% if page_products.has_next %}
+            <li class="page-item">
+                <a class="page-link" href="?page={{ page_products.next_page_number }}&keyword={{ keyword }}">下一页</a>
+            </li>
+            {% else %}
+            <li class="page-item disabled"><span class="page-link">下一页</span></li>
+            {% endif %}
+
+            <!-- 页码跳转 -->
+            <li class="page-item" style="margin-left: 10px;">
+                <form method="get" style="display: flex; align-items: center; gap: 4px;">
+                    <input type="hidden" name="keyword" value="{{ keyword }}">
+                    <input type="number" name="page" min="1" max="{{ total }}" value="{{ current }}" 
+                           style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 4px; text-align: center;">
+                    <button type="submit" class="btn btn-sm btn-primary">跳转</button>
+                </form>
+            </li>
+        {% endwith %}
+    </ul>
+</nav>
+{% endif %}
     </div>
 {% endblock %}
 
