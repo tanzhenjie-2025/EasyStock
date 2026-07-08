@@ -17,7 +17,7 @@ from django.contrib.auth.decorators import login_required
 from functools import wraps
 import decimal
 
-
+from django.conf import settings
 from django.core.cache import cache
 
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
@@ -781,7 +781,9 @@ def print_order(request, order_no):
     context = {
         'order': order,
         'items': items,
-        'is_super_admin': is_super_admin
+        'is_super_admin': is_super_admin,
+        'phone_numbers': settings.PHONE_NUMBERS,
+        'complaint_phone': settings.COMPLAINT_PHONE,
     }
 
     response = render(request, 'bill/print.html', context)

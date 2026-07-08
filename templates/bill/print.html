@@ -120,7 +120,7 @@
     <!-- 三联单内容 -->
     <div class="bill-print">
         <div class="bill-header">
-            <h2>销售三联单</h2>
+            <h2>谭记奶茶原料批发部</h2>
             <!-- 区域地址调整到最左侧 -->
             <div class="bill-info-row">
                 <div class="info-group">
@@ -161,10 +161,32 @@
                 {% endfor %}
             </tbody>
         </table>
-        <div class="bill-footer">
-            <span>总金额：¥{{ order.total_amount }}</span>
-            <span>打印时间：{% now "Y-m-d H:i:s" %}</span>
+        <!-- 原有的 bill-footer -->
+<div class="bill-footer">
+    <span>总金额：¥{{ order.total_amount }}</span>
+    <span>打印时间：{% now "Y-m-d H:i:s" %}</span>
+</div>
+
+<!-- ====== 新增内容 ====== -->
+<div class="bill-bottom" style="margin-top: 10px; width: 90%; margin-left: auto; margin-right: auto; font-size: 13px;">
+    <!-- 联系电话和投诉电话 -->
+    <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+        <span><strong>联系电话：</strong>{{ phone_numbers }}</span>
+        <span><strong>投诉电话/微信号：</strong>{{ complaint_phone }}</span>
+    </div>
+    <!-- 收款备注 和 拣货人员 -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+        <div style="display: flex; align-items: center;">
+            <strong>收款备注：</strong>
+            <span style="display: inline-block; width: 120px; border-bottom: 1px solid #000; margin-left: 4px;">&nbsp;</span>
         </div>
+        <div style="display: flex; align-items: center;">
+            <strong>拣货人员：</strong>
+            <span style="display: inline-block; width: 100px; border-bottom: 1px solid #000; margin-left: 4px;">&nbsp;</span>
+        </div>
+    </div>
+</div>
+<!-- ====== 新增结束 ====== -->
     </div>
 
     <script>

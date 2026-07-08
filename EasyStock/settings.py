@@ -193,3 +193,8 @@ CACHES = {
         }
     }
 }
+
+
+# 读取环境变量
+PHONE_NUMBERS = os.getenv('PHONE_NUMBERS', '')
+COMPLAINT_PHONE = os.getenv('COMPLAINT_PHONE', '')
