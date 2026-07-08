@@ -385,6 +385,17 @@
     .custom-field-item input { flex: 1; }
     .custom-field-item select { width: 120px; }
     .btn-add-custom { margin-top: 10px; margin-bottom: 15px; }
+
+    /* 分页控件样式 */
+    .pagination-container {
+        margin-top: 20px;
+    }
+    .pagination .page-link {
+        cursor: pointer;
+    }
+    .pagination .page-item.disabled .page-link {
+        cursor: not-allowed;
+    }
 </style>
 {% endblock %}
 
@@ -436,10 +447,10 @@
                     <input type="text" class="search-input" id="searchInput" 
                            placeholder="搜索客户名称 / 手机号 / 区域 / 编号" 
                            oninput="handleSearchInput()" 
-                           onkeydown="if(event.keyCode===13) searchCustomers()">
+                           onkeydown="if(event.keyCode===13) searchCustomers(1)">
                     <button class="clear-btn" id="clearBtn" onclick="clearSearch()">×</button>
                 </div>
-                <button class="search-btn" onclick="searchCustomers()">搜索</button>
+                <button class="search-btn" onclick="searchCustomers(1)">搜索</button>
             </div>
 
             <!-- 状态Tab切换 -->
@@ -480,6 +491,15 @@
                 <!-- 客户列表由JS动态填充 -->
             </tbody>
         </table>
+    </div>
+
+    <!-- 4. 分页控件 -->
+    <div class="pagination-container d-flex justify-content-center">
+        <nav aria-label="客户列表分页">
+            <ul class="pagination" id="paginationControls">
+                <!-- 由JS动态生成 -->
+            </ul>
+        </nav>
     </div>
 </div>
 
@@ -648,7 +668,9 @@
     let customerSuggestList = []; // 还款登记的客户搜索列表
     let searchTimer = null;      // 实时搜索防抖定时器
     let currentKeyword = '';     // 当前搜索关键词
-    let currentStatus = 'all';   // 新增：当前状态筛选
+    let currentStatus = 'all';   // 当前状态筛选
+    let currentPage = 1;         // 当前页码
+    const PAGE_SIZE = 10;        // 每页数量（与后端保持一致）
     let customFieldCount = 0;    // 导出用：自定义字段计数器
 
     // 页面加载初始化
@@ -658,17 +680,18 @@
         loadRecentSearches(); // 加载最近搜索记录
     });
 
-    // ========== 新增：状态切换函数 ==========
+    // ========== 状态切换函数 ==========
     function switchStatus(status) {
         currentStatus = status;
+        currentPage = 1;  // 重置页码
         // 更新Tab样式
         $('.status-tab').removeClass('active');
         $(`.status-tab[data-status="${status}"]`).addClass('active');
         // 重新加载列表
-        loadCustomerList();
+        searchCustomers(1);
     }
 
-    // ========== 新增：更新Tab数量 ==========
+    // ========== 更新Tab数量 ==========
     function updateTabCounts(counts) {
         if (!counts) return;
         $('#tabAllCount').text(`(${counts.all || 0})`);
@@ -676,7 +699,7 @@
         $('#tabDisabledCount').text(`(${counts.disabled || 0})`);
     }
 
-    // ========== 新增：搜索相关核心函数 ==========
+    // ========== 搜索相关核心函数 ==========
     function loadRecentSearches() {
         const recent = localStorage.getItem('customerRecentSearches') || '[]';
         const recentList = JSON.parse(recent);
@@ -710,18 +733,21 @@
         currentKeyword = keyword;
         if (keyword) $('#clearBtn').show(); else $('#clearBtn').hide();
         clearTimeout(searchTimer);
-        searchTimer = setTimeout(() => { searchCustomers(); }, 300);
+        searchTimer = setTimeout(() => { searchCustomers(1); }, 300);  // 重置到第1页
     }
 
     function clearSearch() {
         $('#searchInput').val('');
         $('#clearBtn').hide();
         currentKeyword = '';
-        loadCustomerList();
+        currentPage = 1;
+        searchCustomers(1);
         $('#searchInput').focus();
     }
 
-    function searchCustomers() {
+    function searchCustomers(page) {
+        if (page === undefined) page = currentPage;
+        else currentPage = page;
         const keyword = $('#searchInput').val().trim();
         currentKeyword = keyword;
         if (keyword) saveRecentSearch(keyword);
@@ -730,13 +756,17 @@
         let params = [];
         if (keyword) params.push(`keyword=${encodeURIComponent(keyword)}`);
         if (currentStatus) params.push(`status=${currentStatus}`);
+        if (page) params.push(`page=${page}`);
         if (params.length > 0) url += '?' + params.join('&');
         
         $.get(url, function(res) {
             let html = '';
+            let pageInfo = { page: 1, total: 0 };
             if (Array.isArray(res) && res.length > 0) {
                 // 更新Tab数量
                 if (res[0].counts) updateTabCounts(res[0].counts);
+                pageInfo.page = parseInt(res[0].page) || 1;
+                pageInfo.total = parseInt(res[0].total) || 0;
                 
                 res.forEach(customer => {
                     let name = highlightKeyword(customer.name, keyword);
@@ -766,7 +796,6 @@
                         `;
                     }
                     
-                    // 🔥 已删除总消费、总欠款列
                     html += `<tr class="${rowClass}" onclick="openCustomerDetail(${customer.id})">
                         <td>${id}</td>
                         <td>${name}</td>
@@ -779,8 +808,10 @@
                 });
             } else {
                 html = '<tr><td colspan="7" class="no-result">暂无匹配的客户，请更换关键词重试</td></tr>';
+                // 空数据时，也尝试从缓存中获取计数（可能没有，但保留）
             }
             $('#customerList').html(html);
+            renderPagination(pageInfo.page, pageInfo.total);
             $('#searchInput').focus();
         }, 'json').fail(function(xhr, status, error) {
             console.error('搜索客户失败：', xhr.responseText);
@@ -798,8 +829,79 @@
     function searchByRecent(keyword) {
         $('#searchInput').val(keyword);
         $('#clearBtn').show();
-        searchCustomers();
+        currentPage = 1;
+        searchCustomers(1);
         $('#searchInput').focus();
+    }
+
+    // ========== 分页渲染 ==========
+        // ========== 分页渲染（带省略号 + 页码跳转） ==========
+    function renderPagination(currentPage, total) {
+        const totalPages = Math.ceil(total / PAGE_SIZE);
+        const container = $('#paginationControls');
+        if (totalPages <= 1) {
+            container.html('');
+            return;
+        }
+        // 存储总页数供跳转使用
+        container.data('totalPages', totalPages);
+
+        let html = '';
+        // 上一页
+        if (currentPage > 1) {
+            html += `<li class="page-item"><a class="page-link" href="#" onclick="searchCustomers(${currentPage - 1}); return false;">上一页</a></li>`;
+        } else {
+            html += `<li class="page-item disabled"><span class="page-link">上一页</span></li>`;
+        }
+
+        // 生成页码列表（显示首尾、当前页前后各2页，用省略号连接）
+        const delta = 2;
+        let pages = [];
+        for (let i = 1; i <= totalPages; i++) {
+            if (i === 1 || i === totalPages || (i >= currentPage - delta && i <= currentPage + delta)) {
+                pages.push(i);
+            }
+        }
+        let last = 0;
+        pages.forEach(p => {
+            if (last && p - last > 1) {
+                html += `<li class="page-item disabled"><span class="page-link">…</span></li>`;
+            }
+            if (p === currentPage) {
+                html += `<li class="page-item active"><span class="page-link">${p}</span></li>`;
+            } else {
+                html += `<li class="page-item"><a class="page-link" href="#" onclick="searchCustomers(${p}); return false;">${p}</a></li>`;
+            }
+            last = p;
+        });
+
+        // 下一页
+        if (currentPage < totalPages) {
+            html += `<li class="page-item"><a class="page-link" href="#" onclick="searchCustomers(${currentPage + 1}); return false;">下一页</a></li>`;
+        } else {
+            html += `<li class="page-item disabled"><span class="page-link">下一页</span></li>`;
+        }
+
+        // 页码跳转输入框 + 按钮
+        html += `<li class="page-item" style="margin-left: 10px;">
+                    <input type="number" id="pageJumpInput" min="1" max="${totalPages}" value="${currentPage}" 
+                           style="width: 60px; padding: 4px; border: 1px solid #ddd; border-radius: 4px; text-align: center;">
+                    <button class="btn btn-sm btn-primary" onclick="jumpToPage()" style="margin-left: 4px;">跳转</button>
+                </li>`;
+        container.html(html);
+    }
+
+    // ========== 页码跳转函数 ==========
+    function jumpToPage() {
+        const input = document.getElementById('pageJumpInput');
+        if (!input) return;
+        const page = parseInt(input.value);
+        const totalPages = parseInt($('#paginationControls').data('totalPages')) || 1;
+        if (isNaN(page) || page < 1 || page > totalPages) {
+            alert(`请输入 1 到 ${totalPages} 之间的页码`);
+            return;
+        }
+        searchCustomers(page);
     }
 
     // ========== 原有业务函数 ==========
@@ -821,7 +923,8 @@
     }
 
     function loadCustomerList() {
-        searchCustomers();
+        currentPage = 1;
+        searchCustomers(1);
     }
 
     function openAddModal() {
@@ -904,7 +1007,7 @@
         });
     }
 
-    // ========== 新增：启用客户函数 ==========
+    // ========== 启用客户函数 ==========
     function enableCustomer(id) {
         if (!confirm('确定要启用该客户吗？')) return;
         
@@ -925,10 +1028,8 @@
     }
 
     // ===================== 还款登记相关功能 =====================
-    // 1. 打开弹窗时的初始化保持不变，但搜索逻辑要改
     function openRepaymentModal() {
         const now = new Date();
-        // 生成符合 datetime-local 的格式 (YYYY-MM-DDTHH:MM)
         const year = now.getFullYear();
         const month = String(now.getMonth() + 1).padStart(2, '0');
         const day = String(now.getDate()).padStart(2, '0');
@@ -940,36 +1041,30 @@
         $('#repaymentForm')[0].reset();
         $('#repayCustomerId').val('');
         $('#customerSuggest').hide();
-        // 手动把时间填回去，因为 reset 会清空
         $('#repaymentTime').val(datetimeStr);
         $('#repaymentModal').css('display', 'flex');
     }
-
 
     function closeRepaymentModal() {
         $('#repaymentModal').css('display', 'none');
         $('#customerSuggest').hide();
     }
 
-    // 2. 🔥 核心修复：搜索客户函数
     function searchCustomer(keyword) {
         if (!keyword || keyword.trim() === '') { 
             $('#customerSuggest').hide(); 
             return; 
         }
         
-        // 🔥 注意：URL 增加 with_debt=1 参数
         let url = '/customer-manage/customer/list/?keyword=' + encodeURIComponent(keyword) + '&with_debt=1';
         
         $.get(url, function(res) {
-            // res 现在是数组
             const filtered = Array.isArray(res) ? res : [];
             customerSuggestList = filtered;
             
             let html = '';
             if (filtered.length > 0) {
                 filtered.forEach(item => {
-                    // 🔥 修复：确保 total_debt 是数字并保留两位小数
                     const debt = parseFloat(item.total_debt || 0).toFixed(2);
                     html += `<div style="padding: 8px 12px; cursor: pointer; border-bottom: 1px solid #eee;" 
                                 onmouseover="this.style.backgroundColor='#f8f9fa'" 
@@ -991,7 +1086,6 @@
             }
         }, 'json').fail(function(xhr, status, error) {
             console.error('搜索客户失败：', xhr.responseText);
-            // 即使失败也不要弹窗打扰用户，只是不显示提示
             $('#customerSuggest').hide();
         });
     }
@@ -1000,13 +1094,7 @@
         $('#repayCustomer').val(customerName);
         $('#repayCustomerId').val(customerId);
         $('#customerSuggest').hide();
-        
-        // 可选：如果有欠款，可以自动把欠款金额填到还款输入框作为建议
-        if(debt && debt > 0) {
-            // $('#repaymentAmount').val(debt); // 如果你想自动填充，取消这行注释
-        }
     }
-
 
     function addRemark(remarkText) {
         const currentRemark = $('#repaymentRemark').val();
@@ -1014,11 +1102,9 @@
         else $('#repaymentRemark').val(remarkText);
     }
 
-    // 4. 保存还款函数保持不变，主要靠后端兼容时间格式
     function saveRepayment() {
         const customerId = $('#repayCustomerId').val().trim();
         const amount = parseFloat($('#repaymentAmount').val().trim());
-        // 🔥 获取时间字符串，直接传给后端，后端会处理 'T'
         const repaymentTime = $('#repaymentTime').val().trim(); 
         const remark = $('#repaymentRemark').val().trim();
 
@@ -1029,7 +1115,7 @@
         const data = {
             customer_id: customerId, 
             repayment_amount: amount,
-            repayment_time: repaymentTime, // 直接传，格式如 "2026-04-13T15:30"
+            repayment_time: repaymentTime,
             repayment_remark: remark
         };
 
@@ -1043,7 +1129,7 @@
                 alert(res.msg);
                 if (res.code === 1) { 
                     closeRepaymentModal(); 
-                    loadCustomerList(); // 刷新列表
+                    loadCustomerList();
                 }
             },
             error: function(xhr, status, error) {
@@ -1066,9 +1152,7 @@
         return '';
     }
 
-    // ===================== 🔥 新增：导入导出相关JS =====================
-    
-    // 1. 显示导出模态框
+    // ===================== 导入导出相关JS =====================
     function showExportModal() {
         customFieldCount = 0;
         $('#customFieldsContainer').empty();
@@ -1076,12 +1160,10 @@
         modal.show();
     }
 
-    // 2. 全选/取消全选
     function selectAllFields(isSelect) {
         $('input[name="export_fields"]').prop('checked', isSelect);
     }
 
-    // 3. 添加自定义字段
     function addCustomField() {
         customFieldCount++;
         let targetFieldsHtml = '';
@@ -1107,12 +1189,10 @@
         $('#customFieldsContainer').append(customFieldHtml);
     }
 
-    // 4. 移除自定义字段
     function removeCustomField(index) {
         $(`.custom-field-item[data-index="${index}"]`).remove();
     }
 
-    // 5. 执行导出
     function exportExcel() {
         let selectedFields = [];
         $('input[name="export_fields"]:checked').each(function() {
@@ -1169,14 +1249,12 @@
         });
     }
 
-    // 6. 显示导入模态框
     function showImportModal() {
-        $('#import-file-input').val(''); // 清空文件选择
+        $('#import-file-input').val('');
         const modal = new bootstrap.Modal(document.getElementById('importModal'));
         modal.show();
     }
 
-    // 7. 执行导入
     function importExcel() {
         const fileInput = document.getElementById('import-file-input');
         if (!fileInput.files || fileInput.files.length === 0) {
@@ -1202,7 +1280,7 @@
                 if(res.code === 1) {
                     const modal = bootstrap.Modal.getInstance(document.getElementById('importModal'));
                     modal.hide();
-                    loadCustomerList(); // 刷新列表
+                    loadCustomerList();
                 }
             },
             error: function(){
