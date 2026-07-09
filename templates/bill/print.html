@@ -24,21 +24,21 @@
                 width: 140mm; 
                 height: auto; 
                 /* 顶部内边距增加2mm，实现整体内容下移一点点 */
-                padding: 7mm 5mm 5mm 5mm; 
+                padding: 7mm 5mm 5mm 5mm;
                 box-sizing: border-box;
                 page-break-inside: avoid;
                 border: none;
             }
-            
+
             .no-print { display: none; }
         }
-        
+
         /* 屏幕预览样式 */
         .bill-print {
             /* 预览宽度同步改为140mm */
-            width: 140mm; 
-            height: auto; 
-            border: none; 
+            width: 140mm;
+            height: auto;
+            border: none;
             margin: 20px auto;
             /* 和打印样式保持一致，顶部内边距增加2mm */
             padding: 7mm 5mm 5mm 5mm;
@@ -93,10 +93,10 @@
         .bill-table .col-unit { width: 6%; }
         .bill-table .col-price { width: 15%; }
         .bill-table .col-total { width: 15%; }
-        
+
         /* 底部：与表格同宽，整体居中 */
-        .bill-footer { 
-            margin-top: 8px; 
+        .bill-footer {
+            margin-top: 8px;
             margin-left: auto;
             margin-right: auto;
             width: 90%;
@@ -148,14 +148,17 @@
             <tbody>
                 {% for item in items %}
                 <tr>
-                    <td>{{ forloop.counter }}</td>
-                    <td>{{ item.specification|default:"-" }}</td>
-                    <td>{{ item.product.name }}</td>
-                    <td>{{ item.quantity }}</td>
-                    <td>{{ item.product.unit }}</td>
-                    <td>¥{{ item.product.price }}</td>
-                    <td>¥{{ item.amount }}</td>
-                </tr>
+        <td>{{ forloop.counter }}</td>
+        <td>{{ item.specification|default:"-" }}</td>
+        <!-- ✅ 直接显示 product_name，它已经有值 -->
+        <td>{{ item.product_name }}</td>
+        <td>{{ item.quantity }}</td>
+        <!-- ✅ 用 OrderItem 的 unit 字段 -->
+        <td>{{ item.unit }}</td>
+        <!-- ✅ 用实际录入单价，而不是 product.price -->
+        <td>¥{{ item.actual_unit_price }}</td>
+        <td>¥{{ item.amount }}</td>
+    </tr>
                 {% empty %}
                 <tr><td colspan="7">无商品明细</td></tr>
                 {% endfor %}

@@ -238,10 +238,10 @@ def search_product(request):
 
     return JsonResponse({'code': 1, 'data': data})
 
+
 @login_required
 @permission_required(PERM_ORDER_CREATE)
 def save_order(request):
-    """保存订单（含价格快照保存）"""
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
@@ -255,39 +255,60 @@ def save_order(request):
             if not items:
                 return JsonResponse({'code': 0, 'msg': '无订单明细'})
 
-            # 1. 基础数据校验
-            product_ids = []
-            item_map = {}  # 存储前端传来的详细数据
+            # ---------- 1. 分离有效商品ID和临时商品 ----------
+            valid_product_ids = []  # 需要校验、扣库存的商品ID
+            item_data_list = []  # 存储每个明细的详细数据
+
             for item in items:
-                pid = item.get('id')
-                try:
-                    pid = int(pid)
-                except (ValueError, TypeError):
-                    return JsonResponse({'code': 0, 'msg': f'商品{item.get("name", "未知")}ID格式错误'})
-
+                pid = item.get('id', '').strip()  # 前端可能传空字符串
+                name = item.get('name', '').strip()
+                spec = item.get('spec', '').strip()
+                unit = item.get('unit', '').strip()
                 qty = item.get('qty', 0)
-                price = item.get('price', 0)  # 前端传来的单价
+                price = item.get('price', 0)
 
+                if not name:
+                    return JsonResponse({'code': 0, 'msg': '商品名称不能为空'})
+                if not isinstance(qty, int) or qty <= 0:
+                    return JsonResponse({'code': 0, 'msg': f'商品{name}数量无效'})
 
-                if not pid or not isinstance(qty, int) or qty <= 0:
-                    return JsonResponse({'code': 0, 'msg': f'商品{item.get("name", "未知")}数量无效'})
+                product = None
+                product_id_int = None
 
-                product_ids.append(pid)
-                item_map[pid] = {'qty': qty, 'price': decimal.Decimal(str(price)),'spec': item.get('spec', '')}
+                # 处理有效ID
+                if pid:
+                    try:
+                        product_id_int = int(pid)
+                        valid_product_ids.append(product_id_int)
+                    except (ValueError, TypeError):
+                        return JsonResponse({'code': 0, 'msg': f'商品{name}ID格式错误'})
 
-            # 2. 批量查询商品
-            products = Product.objects.filter(id__in=product_ids).in_bulk()
-            for pid in product_ids:
-                if pid not in products:
-                    return JsonResponse({'code': 0, 'msg': f'商品ID {pid} 不存在'})
+                item_data_list.append({
+                    'pid': product_id_int,
+                    'name': name,
+                    'spec': spec,
+                    'unit': unit,
+                    'qty': qty,
+                    'price': decimal.Decimal(str(price)),
+                })
 
-            # 3. 查询客户专属价 (用于快照)
+            # ---------- 2. 批量查询有效商品 ----------
+            products_map = {}
+            if valid_product_ids:
+                products_map = Product.objects.filter(id__in=valid_product_ids).in_bulk()
+                for pid in valid_product_ids:
+                    if pid not in products_map:
+                        return JsonResponse({'code': 0, 'msg': f'商品ID {pid} 不存在'})
+
+            # ---------- 3. 查询客户专属价（仅对有效商品） ----------
             customer_prices_dict = {}
-            if customer_id:
-                cp_list = CustomerPrice.objects.filter(customer_id=customer_id, product_id__in=product_ids)
+            if customer_id and valid_product_ids:
+                cp_list = CustomerPrice.objects.filter(
+                    customer_id=customer_id, product_id__in=valid_product_ids
+                )
                 customer_prices_dict = {cp.product_id: cp.custom_price for cp in cp_list}
 
-            # 4. 创建订单主表
+            # ---------- 4. 创建订单主表 ----------
             order = Order()
             order.creator = request.user
             if customer_id:
@@ -304,43 +325,68 @@ def save_order(request):
 
             total_amount = 0
             order_items = []
+            # 需要更新库存的商品列表（仅有效商品）
+            update_stock_products = []
 
-            for pid in product_ids:
-                product = products[pid]
-                qty = item_map[pid]['qty']
-                input_price = item_map[pid]['price']  # 开单员录入的单价
+            for item_data in item_data_list:
+                pid = item_data['pid']
+                name = item_data['name']
+                spec = item_data['spec']
+                qty = item_data['qty']
+                input_price = item_data['price']
                 amount = input_price * qty
                 total_amount += amount
 
-                # 获取快照价格
-                snap_standard = product.price
-                snap_customer = customer_prices_dict.get(pid, None)
+                if pid is not None:
+                    # ---- 关联商品 ----
+                    product = products_map[pid]
+                    # 价格快照
+                    snap_standard = product.price
+                    snap_customer = customer_prices_dict.get(pid, None)
+                    # 库存扣减准备
+                    product.stock_system -= qty
+                    update_stock_products.append(product)
+                    # 创建明细
+                    order_items.append(OrderItem(
+                        order=order,
+                        product=product,
+                        product_name=product.name,  # 同步保存名称，方便统一处理
+                        unit=item_data['unit'],
+                        specification=spec,
+                        quantity=qty,
+                        amount=amount,
+                        actual_unit_price=input_price,
+                        snapshot_standard_price=snap_standard,
+                        snapshot_customer_price=snap_customer,
+                    ))
+                else:
+                    # ---- 临时商品（自由开单） ----
+                    order_items.append(OrderItem(
+                        order=order,
+                        product=None,  # 不关联任何 Product
+                        product_name=name,  # 保存手动输入的名称
+                        unit=item_data['unit'],
+                        specification=spec,
+                        quantity=qty,
+                        amount=amount,
+                        actual_unit_price=input_price,
+                        snapshot_standard_price=None,
+                        snapshot_customer_price=None,
+                    ))
 
-                order_items.append(OrderItem(
-                    order=order,
-                    product=product,
-                    quantity=qty,
-                    amount=amount,
-                    actual_unit_price=input_price,
-                    snapshot_standard_price=snap_standard,
-                    snapshot_customer_price=snap_customer,
-                    # 👇 新增规格快照保存
-                    specification=item_map[pid]['spec']
-                ))
-
+            # ---------- 5. 保存订单和明细 ----------
             order.total_amount = total_amount
             order.save()
 
-            # 5. 批量创建明细
             OrderItem.objects.bulk_create(order_items)
 
-            # 6. 批量更新库存
-            for pid in product_ids:
-                products[pid].stock_system -= item_map[pid]['qty']
-            Product.objects.bulk_update(products.values(), ['stock_system'])
+            # ---------- 6. 批量更新库存（仅有效商品） ----------
+            if update_stock_products:
+                Product.objects.bulk_update(update_stock_products, ['stock_system'])
 
-            # 7. 日志与缓存清理
-            create_operation_log(request, 'create_order', 'order', str(order.id), f"订单-{order.order_no}", f"创建订单")
+            # ---------- 7. 日志与缓存清理 ----------
+            create_operation_log(request, 'create_order', 'order', str(order.id),
+                                 f"订单-{order.order_no}", "创建订单")
             clear_stock_cache()
             clear_order_cache()
             if customer_id:
@@ -818,17 +864,17 @@ def reopen_order_edit(request, order_no):
         'customer_name': f"{original_order.area.name} | {original_order.customer.name}" if (
                 original_order.customer and original_order.area) else '',
         'items': [
-            {
-                'id': item.product_id if item.product else '',
-                'name': item.product.name if item.product else '',
-                'qty': item.quantity,
-                'unit': item.product.unit if item.product else '',
-                'price': float(item.product.price) if item.product else 0,
-                'amt': float(item.amount) if item.amount else 0,
-                'spec': item.specification
-            }
-            for item in items
-        ]
+    {
+        'id': item.product_id if item.product else '',
+        'name': item.product_name or (item.product.name if item.product else ''),  # ✅
+        'qty': item.quantity,
+        'unit': item.unit,           # ✅ 直接取快照
+        'price': float(item.actual_unit_price) if item.actual_unit_price else 0,   # ✅
+        'amt': float(item.amount) if item.amount else 0,
+        'spec': item.specification
+    }
+    for item in items
+]
     }
 
     # 仅传递前端必需参数：客户信息前端自动回显+搜索，无需全量列表

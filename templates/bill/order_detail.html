@@ -173,9 +173,9 @@
             {% for item in items %}
             <tr>
                 <td>{{ forloop.counter }}</td>
-                <td>{{ item.product.name|default:"未知商品" }}</td>
+                <td>{{ item.product_name }}</td>
                 <td>{{ item.quantity }}</td>
-                <td>{{ item.product.unit|default:"件" }}</td>
+                <td>{{ item.unit }}</td>
                 <td>¥{{ item.amount|default:"0.00" }}</td>
             </tr>
             {% empty %}

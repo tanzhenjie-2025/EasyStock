@@ -147,6 +147,9 @@ class Order(models.Model):
 
 class OrderItem(models.Model):
     """订单明细表（三联单明细）"""
+    product_name = models.CharField('商品名称', max_length=200, blank=True, default='')
+    # ✅ 新增单位字段
+    unit = models.CharField('单位', max_length=50, blank=True, default='', help_text='开单时的商品单位')
     order = models.ForeignKey(Order, on_delete=models.CASCADE, verbose_name='关联订单', related_name='items')
     product = models.ForeignKey(
         Product,
