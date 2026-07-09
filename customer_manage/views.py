@@ -940,7 +940,11 @@ def customer_price_delete(request, pk):
 @permission_required('customer_price_view')
 def customer_price_page(request):
     """客户专属价格管理页面"""
-    return render(request, 'customer_manage/customer_price.html')
+    return render(request, 'customer_manage/customer_price.html', {
+        'can_add_price': request.user.has_permission('customer_price_add'),
+        'can_edit_price': request.user.has_permission('customer_price_edit'),
+        'can_delete_price': request.user.has_permission('customer_price_delete'),
+    })
 
 
 # ========== 价格页辅助接口 ==========

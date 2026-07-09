@@ -354,10 +354,6 @@
 <div class="content-container">
     <h3>客户专属价格管理</h3>
 
-    
-
-    
-
     <!-- 高级筛选面板 -->
     <div class="advanced-filter-panel" id="advancedFilterPanel">
         <div class="filter-row">
@@ -373,27 +369,30 @@
                 <label>客户所属区域</label>
                 <select id="areaSelect">
                     <option value="">全部区域</option>
-                    <!-- 动态填充 -->
                 </select>
             </div>
             <button class="reset-filter-btn" id="resetFilterBtn">重置筛选</button>
         </div>
     </div>
 
-    <!-- 🔥 修改：按钮组，新增导入导出 -->
+    <!-- 🔥 按钮组：根据权限显示 -->
     <div class="my-3 btn-group-action">
-        <button class="btn btn-sm btn-primary" onclick="openAddModal()">新增专属价</button>
+        {% if can_add_price %}
+            <button class="btn btn-sm btn-primary" onclick="openAddModal()">新增专属价</button>
+        {% endif %}
         <button class="btn btn-sm btn-info ms-2" onclick="showExportModal()">📥 导出数据</button>
-        <button class="btn btn-sm btn-warning ms-2" onclick="showImportModal()">📤 导入数据</button>
+        {% if can_add_price %}
+            <button class="btn btn-sm btn-warning ms-2" onclick="showImportModal()">📤 导入数据</button>
+        {% endif %}
     </div>
-    
-    <!-- ========== 新增：搜索区域 ========== -->
+
+    <!-- 搜索区域 -->
     <div class="search-container">
         <div class="search-input-wrapper">
-            <input 
-                type="text" 
-                class="search-input" 
-                id="searchInput" 
+            <input
+                type="text"
+                class="search-input"
+                id="searchInput"
                 placeholder="搜索客户名称 / 商品名称 / 商品别名 / 客户编号"
                 autocomplete="off"
             >
@@ -406,10 +405,9 @@
     <!-- 最近搜索记录 -->
     <div class="search-history" id="searchHistory">
         <span class="history-label">最近搜索：</span>
-        <!-- 动态填充 -->
     </div>
-    
-    <!-- ========== 新增：状态Tab切换 ========== -->
+
+    <!-- 状态Tab切换 -->
     <div class="status-tabs" id="statusTabs">
         <button class="status-tab active" data-status="all">全部 <span class="tab-count" id="tabCountAll">0</span></button>
         <button class="status-tab" data-status="active">正常 <span class="tab-count" id="tabCountActive">0</span></button>
@@ -425,7 +423,7 @@
                 <th>商品名称</th>
                 <th>商品标准价</th>
                 <th>客户专属价</th>
-                <th>状态</th> <!-- 新增：状态列 -->
+                <th>状态</th>
                 <th>备注</th>
                 <th>操作</th>
             </tr>
@@ -435,42 +433,28 @@
         </tbody>
     </table>
 
-    <!-- 🔥 新增：分页控件 -->
+    <!-- 分页控件 -->
     <div id="pagination" class="mt-3 d-flex justify-content-center align-items-center gap-2">
     </div>
 </div>
 
-<!-- 新增/编辑专属价弹窗 -->
+<!-- 新增/编辑弹窗（仅对有权限者渲染，但弹窗本身保留方便结构，开单人即使打开也无法提交） -->
 <div class="modal-overlay" id="priceModal">
     <div class="modal-content">
         <h4 id="modalTitle">新增客户专属价</h4>
         <form id="priceForm">
             <input type="hidden" id="priceId" value="">
-            
-            <!-- 替换客户下拉框为输入法式输入框 -->
             <div class="form-group">
                 <label for="customerInput">客户名称 <span style="color:red">*</span></label>
                 <div class="input-container">
-                    <input 
-                        type="text" 
-                        id="customerInput" 
-                        placeholder="输入区域/客户名（按1-8选择，空格选第一个）" 
-                        required
-                    >
+                    <input type="text" id="customerInput" placeholder="输入区域/客户名（按1-8选择，空格选第一个）" required>
                 </div>
                 <input type="hidden" id="customerId" value="">
             </div>
-            
-            <!-- 替换商品下拉框为输入法式输入框 -->
             <div class="form-group">
                 <label for="productInput">商品名称 <span style="color:red">*</span></label>
                 <div class="input-container">
-                    <input 
-                        type="text" 
-                        id="productInput" 
-                        placeholder="输入商品名/拼音（按1-8选择，空格选第一个）" 
-                        required
-                    >
+                    <input type="text" id="productInput" placeholder="输入商品名/拼音（按1-8选择，空格选第一个）" required>
                 </div>
                 <input type="hidden" id="productId" value="">
                 <input type="hidden" id="productStandardPrice" value="">
@@ -478,7 +462,6 @@
                     商品标准价：<span id="productPriceText">¥0.00</span>
                 </div>
             </div>
-            
             <div class="form-group">
                 <label for="customPrice">客户专属价（¥）<span style="color:red">*</span></label>
                 <input type="number" id="customPrice" step="0.01" min="0" placeholder="请输入专属价格" required>
@@ -562,7 +545,7 @@
         </div>
     </div>
 </div>
-
+{% if can_add_price %}
 <!-- 🔥 新增：导入模态框 -->
 <div class="modal fade" id="importModal" tabindex="-1" aria-labelledby="importModalLabel" aria-hidden="true">
     <div class="modal-dialog">
@@ -587,10 +570,16 @@
         </div>
     </div>
 </div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
 <script>
+// ========== 从后端注入的权限标志 ==========
+    var canAddPrice = {{ can_add_price|yesno:"true,false" }};
+    var canEditPrice = {{ can_edit_price|yesno:"true,false" }};
+    var canDeletePrice = {{ can_delete_price|yesno:"true,false" }};
+    
     let currentPriceId = '';
     let customerList = [];
     let productList = [];
@@ -909,17 +898,21 @@
                     let statusBadge = item.is_active 
                         ? '<span class="status-badge status-badge-active">正常</span>' 
                         : '<span class="status-badge status-badge-disabled">已停用</span>';
+                    // 🔥 根据权限生成操作按钮
                     let actionBtns = '';
                     if (item.is_active) {
-                        actionBtns = `
-                            <button class="btn btn-sm btn-warning me-1" onclick="openEditModal(${item.id}); event.stopPropagation();">编辑</button>
-                            <button class="btn btn-sm btn-danger" onclick="deletePrice(${item.id}); event.stopPropagation();">停用</button>
-                        `;
+                        if (canEditPrice) {
+                            actionBtns += `<button class="btn btn-sm btn-warning me-1" onclick="openEditModal(${item.id}); event.stopPropagation();">编辑</button>`;
+                        }
+                        if (canDeletePrice) {
+                            actionBtns += `<button class="btn btn-sm btn-danger" onclick="deletePrice(${item.id}); event.stopPropagation();">停用</button>`;
+                        }
                     } else {
-                        actionBtns = `
-                            <button class="btn btn-sm btn-success" onclick="enablePrice(${item.id}); event.stopPropagation();">启用</button>
-                        `;
+                        if (canDeletePrice) {
+                            actionBtns += `<button class="btn btn-sm btn-success" onclick="enablePrice(${item.id}); event.stopPropagation();">启用</button>`;
+                        }
                     }
+                    // 如果没有任何操作权限，操作列留空
                     
                     html += `<tr class="${rowClass}" onclick="openEditModal(${item.id})">
                         <td>${item.id}</td>
@@ -933,7 +926,6 @@
                         <td>${actionBtns}</td>
                     </tr>`;
                 });
-                // 🔥 渲染分页按钮（保留status）
                 renderPagination(res, keyword, minPrice, maxPrice, areaId, status);
             } else {
                 html = renderNoResultHtml(keyword);
@@ -1209,8 +1201,12 @@
         $('#searchInput').focus();
     }
 
-    // 打开新增弹窗（重置输入框）
     function openAddModal() {
+        // 如果没有权限，直接返回（双重保险）
+        if (!canAddPrice) {
+            alert('您没有新增权限');
+            return;
+        }
         $('#modalTitle').text('新增客户专属价');
         $('#priceForm')[0].reset();
         $('#priceId').val('');
@@ -1220,28 +1216,28 @@
         $('#productPriceText').text('¥0.00');
         currentPriceId = '';
         $('#priceModal').css('display', 'flex');
-        // 聚焦到客户输入框
         setTimeout(() => {
             document.getElementById('customerInput').focus();
         }, 100);
     }
 
-    // 打开编辑弹窗（适配新输入框）
     function openEditModal(id) {
+        // 编辑按钮已隐藏，但行点击仍可触发，若用户无意间触发，做权限拦截
+        if (!canEditPrice) {
+            alert('您没有编辑权限');
+            return;
+        }
         currentPriceId = id;
         $.get('/customer-manage/price/list/', { status: currentStatus }, function(res) {
-            const item = res.data.find(p => p.id === id);  // 修改：res.data
+            const item = res.data.find(p => p.id === id);
             if (!item) {
                 alert('专属价记录不存在！');
                 return;
             }
-            // 填充表单
             $('#modalTitle').text('编辑客户专属价');
             $('#priceId').val(item.id);
             
-            // 填充客户信息
             $('#customerId').val(item.customer_id);
-            // 异步获取客户全称
             $.get(`/customer-manage/customer/list/`, function(customers) {
                 const customer = customers.find(c => c.id === item.customer_id);
                 if (customer) {
@@ -1249,11 +1245,9 @@
                 }
             }, 'json');
             
-            // 填充商品信息
             $('#productId').val(item.product_id);
             $('#productStandardPrice').val(item.standard_price);
             $('#productPriceText').text(`¥${item.standard_price.toFixed(2)}`);
-            // 异步获取商品名称
             $.get(`/customer-manage/product/list/`, function(products) {
                 const product = products.find(p => p.id === item.product_id);
                 if (product) {
@@ -1289,15 +1283,13 @@
         const customPrice = $('#customPrice').val().trim();
         const remark = $('#priceRemark').val().trim();
 
-        // 校验
-        if (!customerId && !currentPriceId) { alert('请选择客户！'); return; } // 编辑时不校验
-        if (!productId && !currentPriceId) { alert('请选择商品！'); return; } // 编辑时不校验
+        if (!customerId && !currentPriceId) { alert('请选择客户！'); return; }
+        if (!productId && !currentPriceId) { alert('请选择商品！'); return; }
         if (!customPrice || isNaN(customPrice) || parseFloat(customPrice) < 0) {
             alert('请输入有效的专属价格！');
             return;
         }
 
-        // ========== 核心修复：将 const 改为 let，允许重新赋值 ==========
         let data = {
             customer_id: customerId,
             product_id: productId,
@@ -1305,15 +1297,12 @@
             remark: remark
         };
 
-        // 请求URL
         let url = '/customer-manage/price/add/';
         if (currentPriceId) {
             url = `/customer-manage/price/edit/${currentPriceId}/`;
-            // 编辑时只传价格和备注（客户/商品不可改）
             data = { custom_price: customPrice, remark: remark };
         }
 
-        // 发送请求
         $.ajax({
             url: url,
             type: 'POST',
@@ -1324,7 +1313,7 @@
                 alert(res.msg);
                 if (res.code === 1) {
                     closeModal();
-                    loadPriceList();  // 保存成功后重新加载列表
+                    loadPriceList();
                 }
             },
             error: function(err) {
@@ -1336,7 +1325,10 @@
 
     // 删除专属价（原有逻辑不变，文案调整）
     function deletePrice(id) {
-        // 修改确认文案
+        if (!canDeletePrice) {
+            alert('您没有操作权限');
+            return;
+        }
         if (!confirm('确定要禁用该专属价吗？禁用后开单将不再享受此优惠，但历史数据保留。')) return;
         
         $.ajax({
@@ -1345,7 +1337,7 @@
             headers: {'X-CSRFToken': getCsrfToken()},
             dataType: 'json',
             success: function(res) {
-                alert(res.msg); // 后端返回“禁用成功”
+                alert(res.msg);
                 if (res.code === 1) loadPriceList();
             },
             error: function(xhr, status, error) {
@@ -1357,6 +1349,10 @@
 
     // ========== 🔥 新增：启用专属价 ==========
     function enablePrice(id) {
+        if (!canDeletePrice) {
+            alert('您没有操作权限');
+            return;
+        }
         if (!confirm('确定要启用该专属价吗？启用后开单将恢复此优惠。')) return;
         
         $.ajax({
@@ -1374,6 +1370,7 @@
             }
         });
     }
+
 
     // CSRF Token获取函数
     function getCsrfToken() {
@@ -1496,7 +1493,11 @@
 
     // 6. 显示导入模态框
     function showImportModal() {
-        $('#import-file-input').val(''); // 清空文件选择
+        if (!canAddPrice) {
+            alert('您没有导入权限');
+            return;
+        }
+        $('#import-file-input').val('');
         const modal = new bootstrap.Modal(document.getElementById('importModal'));
         modal.show();
     }
