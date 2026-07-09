@@ -88,7 +88,7 @@ def init_accounts_data(sender, **kwargs):
         role_data = [
             (ROLE_SUPER_ADMIN, '超级管理员', '拥有系统所有权限，无需手动配置'),
             (ROLE_ADMIN, '管理员', '拥有订单、商品、用户管理等核心权限'),
-            (ROLE_OPERATOR, '开单人', '仅拥有开单、查看订单等基础权限'),
+            (ROLE_OPERATOR, '开单人员', '仅拥有开单、查看订单等基础权限'),
         ]
         for code, name, desc in role_data:
             Role.objects.get_or_create(

@@ -407,7 +407,7 @@
     <div class="page-header">
         <h3 class="page-title">客户管理</h3>
         <div class="d-flex gap-2">
-            <!-- 🔥 新增：客户统计入口 -->
+            <!-- 客户统计入口（所有角色可见，因为都有customer_view权限） -->
             <a href="{% url 'customer_manage:customer_stats_page' %}" class="btn btn-success">
                 📊 客户统计
             </a>
@@ -421,21 +421,31 @@
 
     <!-- 2. 控制面板 (操作按钮 + 筛选) -->
     <div class="control-panel">
-        <!-- 上排：操作按钮 -->
         <div class="action-row">
             <div class="btn-group-action">
+                <!-- 🔥 新增客户：仅非开单人可见（开单人无 customer_add 权限） -->
+                {% if request.user.role and request.user.role.code != 'operator' %}
                 <button class="btn btn-primary" onclick="openAddModal()">
                     新增客户
                 </button>
+                {% endif %}
+                
+                <!-- 🔥 还款登记：开单人有 customer_repayment 权限，故保留 -->
                 <button class="btn btn-success" onclick="openRepaymentModal()">
                     还款登记
                 </button>
+                
+                <!-- 🔥 导出数据：所有角色保留 -->
                 <button class="btn btn-info" onclick="showExportModal()">
                     📥 导出数据
                 </button>
+                
+                <!-- 🔥 导入数据：仅非开单人可见（开单人隐藏导入） -->
+                {% if request.user.role and request.user.role.code != 'operator' %}
                 <button class="btn btn-warning" onclick="showImportModal()">
                     📤 导入数据
                 </button>
+                {% endif %}
             </div>
         </div>
 
@@ -473,7 +483,7 @@
         </div>
     </div>
 
-    <!-- 3. 数据表格（已删除总消费/总欠款，仅保留基础信息 + 均匀列宽） -->
+     <!-- 3. 数据表格 -->
     <div class="table-container">
         <table class="table table-sm table-bordered table-hover table-fixed">
             <thead class="table-light">
@@ -488,7 +498,7 @@
                 </tr>
             </thead>
             <tbody id="customerList">
-                <!-- 客户列表由JS动态填充 -->
+                <!-- JS 动态填充 -->
             </tbody>
         </table>
     </div>
@@ -660,18 +670,20 @@
 </div>
 {% endblock %}
 
-<!-- 页面专属JS -->
 {% block extra_js %}
 <script>
-    let currentCustomerId = '';  // 当前编辑的客户ID
-    let areaList = [];           // 区域列表缓存
-    let customerSuggestList = []; // 还款登记的客户搜索列表
-    let searchTimer = null;      // 实时搜索防抖定时器
-    let currentKeyword = '';     // 当前搜索关键词
-    let currentStatus = 'all';   // 当前状态筛选
-    let currentPage = 1;         // 当前页码
-    const PAGE_SIZE = 10;        // 每页数量（与后端保持一致）
-    let customFieldCount = 0;    // 导出用：自定义字段计数器
+    // 🔥 新增：从后端注入当前用户角色编码（开单人 = 'operator'）
+    var userRoleCode = "{{ request.user.role.code|default:'' }}";
+    
+    let currentCustomerId = '';
+    let areaList = [];
+    let customerSuggestList = [];
+    let searchTimer = null;
+    let currentKeyword = '';
+    let currentStatus = 'all';
+    let currentPage = 1;
+    const PAGE_SIZE = 10;
+    let customFieldCount = 0;
 
     // 页面加载初始化
     $(document).ready(function() {
@@ -746,79 +758,88 @@
     }
 
     function searchCustomers(page) {
-        if (page === undefined) page = currentPage;
-        else currentPage = page;
-        const keyword = $('#searchInput').val().trim();
-        currentKeyword = keyword;
-        if (keyword) saveRecentSearch(keyword);
-        
-        let url = '/customer-manage/customer/list/';
-        let params = [];
-        if (keyword) params.push(`keyword=${encodeURIComponent(keyword)}`);
-        if (currentStatus) params.push(`status=${currentStatus}`);
-        if (page) params.push(`page=${page}`);
-        if (params.length > 0) url += '?' + params.join('&');
-        
-        $.get(url, function(res) {
-            let html = '';
-            let pageInfo = { page: 1, total: 0 };
-            if (Array.isArray(res) && res.length > 0) {
-                // 更新Tab数量
-                if (res[0].counts) updateTabCounts(res[0].counts);
-                pageInfo.page = parseInt(res[0].page) || 1;
-                pageInfo.total = parseInt(res[0].total) || 0;
+    if (page === undefined) page = currentPage;
+    else currentPage = page;
+    const keyword = $('#searchInput').val().trim();
+    currentKeyword = keyword;
+    if (keyword) saveRecentSearch(keyword);
+    
+    let url = '/customer-manage/customer/list/';
+    let params = [];
+    if (keyword) params.push(`keyword=${encodeURIComponent(keyword)}`);
+    if (currentStatus) params.push(`status=${currentStatus}`);
+    if (page) params.push(`page=${page}`);
+    if (params.length > 0) url += '?' + params.join('&');
+    
+    $.get(url, function(res) {
+        let html = '';
+        let pageInfo = { page: 1, total: 0 };
+        if (Array.isArray(res) && res.length > 0) {
+            // 更新Tab数量
+            if (res[0].counts) updateTabCounts(res[0].counts);
+            pageInfo.page = parseInt(res[0].page) || 1;
+            pageInfo.total = parseInt(res[0].total) || 0;
+            
+            // 🔥 从全局变量判断当前是否为开单人
+            const isOperator = (userRoleCode === 'operator');
+            
+            res.forEach(customer => {
+                let name = highlightKeyword(customer.name, keyword);
+                let phoneText = customer.phone || '暂无电话';
+                let phone = highlightKeyword(phoneText, keyword);
+                let areaName = highlightKeyword(customer.area_name || '无', keyword);
+                let id = highlightKeyword(customer.id.toString(), keyword);
                 
-                res.forEach(customer => {
-                    let name = highlightKeyword(customer.name, keyword);
-                    let phoneText = customer.phone || '暂无电话';
-                    let phone = highlightKeyword(phoneText, keyword);
-                    let areaName = highlightKeyword(customer.area_name || '无', keyword);
-                    let id = highlightKeyword(customer.id.toString(), keyword);
-                    
-                    // 状态相关
-                    const isActive = customer.is_active;
-                    const rowClass = isActive ? '' : 'disabled-row';
-                    const statusBadge = isActive 
-                        ? '<span class="status-badge active">正常</span>' 
-                        : '<span class="status-badge disabled">已停用</span>';
-                    
-                    // 操作列按钮
-                    let actionBtns = '';
-                    if (isActive) {
-                        actionBtns = `
-                            <button class="btn btn-sm btn-info me-1" onclick="openCustomerDetail(${customer.id}); event.stopPropagation();">详情</button>
+                // 状态相关
+                const isActive = customer.is_active;
+                const rowClass = isActive ? '' : 'disabled-row';
+                const statusBadge = isActive 
+                    ? '<span class="status-badge active">正常</span>' 
+                    : '<span class="status-badge disabled">已停用</span>';
+                
+                // 🔥 操作列按钮 —— 按角色与状态组合控制
+                let actionBtns = '';
+                if (isActive) {
+                    // 详情按钮：所有人可见
+                    actionBtns = `<button class="btn btn-sm btn-info me-1" onclick="openCustomerDetail(${customer.id}); event.stopPropagation();">详情</button>`;
+                    // 编辑、停用按钮：仅非开单人可见
+                    if (!isOperator) {
+                        actionBtns += `
                             <button class="btn btn-sm btn-warning me-1" onclick="openEditModal(${customer.id}); event.stopPropagation();">编辑</button>
                             <button class="btn btn-sm btn-danger" onclick="deleteCustomer(${customer.id}); event.stopPropagation();">停用</button>
                         `;
-                    } else {
-                        actionBtns = `
-                            <button class="btn btn-sm btn-success" onclick="enableCustomer(${customer.id}); event.stopPropagation();">启用</button>
-                        `;
                     }
-                    
-                    html += `<tr class="${rowClass}" onclick="openCustomerDetail(${customer.id})">
-                        <td>${id}</td>
-                        <td>${name}</td>
-                        <td>${areaName}</td>
-                        <td>${phone}</td>
-                        <td>${statusBadge}</td>
-                        <td>${customer.remark || '无'}</td>
-                        <td>${actionBtns}</td>
-                    </tr>`;
-                });
-            } else {
-                html = '<tr><td colspan="7" class="no-result">暂无匹配的客户，请更换关键词重试</td></tr>';
-                // 空数据时，也尝试从缓存中获取计数（可能没有，但保留）
-            }
-            $('#customerList').html(html);
-            renderPagination(pageInfo.page, pageInfo.total);
-            $('#searchInput').focus();
-        }, 'json').fail(function(xhr, status, error) {
-            console.error('搜索客户失败：', xhr.responseText);
-            alert('搜索客户失败！\n' + error);
-            $('#searchInput').focus();
-        });
-    }
+                } else {
+                    // 启用按钮：仅非开单人可见，开单人显示灰色提示
+                    if (!isOperator) {
+                        actionBtns = `<button class="btn btn-sm btn-success" onclick="enableCustomer(${customer.id}); event.stopPropagation();">启用</button>`;
+                    } else {
+                        actionBtns = '<span class="text-muted">已停用</span>';
+                    }
+                }
+                
+                html += `<tr class="${rowClass}" onclick="openCustomerDetail(${customer.id})">
+                    <td>${id}</td>
+                    <td>${name}</td>
+                    <td>${areaName}</td>
+                    <td>${phone}</td>
+                    <td>${statusBadge}</td>
+                    <td>${customer.remark || '无'}</td>
+                    <td>${actionBtns}</td>
+                </tr>`;
+            });
+        } else {
+            html = '<tr><td colspan="7" class="no-result">暂无匹配的客户，请更换关键词重试</td></tr>';
+        }
+        $('#customerList').html(html);
+        renderPagination(pageInfo.page, pageInfo.total);
+        $('#searchInput').focus();
+    }, 'json').fail(function(xhr, status, error) {
+        console.error('搜索客户失败：', xhr.responseText);
+        alert('搜索客户失败！\n' + error);
+        $('#searchInput').focus();
+    });
+}
 
     function highlightKeyword(text, keyword) {
         if (!keyword || !text) return text;
