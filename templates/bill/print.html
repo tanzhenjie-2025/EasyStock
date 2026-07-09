@@ -178,7 +178,10 @@
     <span>总金额：¥{{ order.total_amount }}</span>
     <span>打印时间：{% now "Y-m-d H:i:s" %}</span>
 </div>
-
+<!-- 开单人员信息 -->
+<div style="width: 90%; margin: 6px auto 0 auto; font-size: 14px;">
+    <span>开单人员：{{ order.creator.name|default:"未知" }}</span>
+</div>
 <!-- ====== 新增内容 ====== -->
 <div class="bill-bottom" style="margin-top: 10px; width: 90%; margin-left: auto; margin-right: auto; font-size: 13px;">
     <!-- 联系电话和投诉电话 -->
