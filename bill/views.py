@@ -199,7 +199,7 @@ def search_product(request):
         ).values_list('product_id', flat=True)
         alias_products = Product.objects.filter(id__in=alias_matches)
 
-        all_products = (product_matches | alias_products).distinct()[:8]
+        all_products = (product_matches | alias_products).distinct()[:200]
 
         cached_products = []
         for p in all_products:
