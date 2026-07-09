@@ -126,15 +126,15 @@
                 <div class="info-group">
                     <span>区域地址：{{ order.area.name|default:"无" }}</span>
                     <span>
-    客户名称：
-    {% if order.customer_name_snapshot %}
-        {{ order.customer_name_snapshot }}
-    {% elif order.customer %}
-        {{ order.customer.name }}
-    {% else %}
-        无
-    {% endif %}
-</span>
+                        客户名称：
+                        {% if order.customer_name_snapshot %}
+                            {{ order.customer_name_snapshot }}
+                        {% elif order.customer %}
+                            {{ order.customer.name }}
+                        {% else %}
+                            无
+                        {% endif %}
+                    </span>
                 </div>
                 <div class="info-group">
                     <span>订单编号：{{ order.order_no }}</span>

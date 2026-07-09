@@ -135,7 +135,13 @@
                     {% endif %}
                 </div>
                 <div class="col-md-6">
-                    <p><strong>客户名称：</strong> {{ order.customer.name|default:"无" }}</p>
+                    <p><strong>客户名称：</strong>  {% if order.customer_name_snapshot %}
+                            {{ order.customer_name_snapshot }}
+                        {% elif order.customer %}
+                            {{ order.customer.name }}
+                        {% else %}
+                            无
+                        {% endif %}</p>
                     <p><strong>所属区域：</strong> {{ area.name|default:"无" }}</p>
                     <p><strong>订单状态：</strong> 
                         {% if order.status == 'pending' %}

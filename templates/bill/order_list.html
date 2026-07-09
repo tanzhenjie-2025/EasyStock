@@ -435,7 +435,13 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
             </td>
             <td class="col-create-time">{{ order.create_time|date:"Y-m-d H:i" }}</td>
             <td class="col-creator">{% if order.creator %}{{ order.creator.name }} ({{ order.creator.user_code }}){% else %}未知{% endif %}</td>
-            <td class="col-customer">{{ order.customer.name|default:"无" }}</td>
+            <td class="col-customer"> {% if order.customer_name_snapshot %}
+                            {{ order.customer_name_snapshot }}
+                        {% elif order.customer %}
+                            {{ order.customer.name }}
+                        {% else %}
+                            无
+                        {% endif %}</td>
             <td class="col-area">{{ order.area.name|default:"无" }}</td>
             
             <!-- 🔥 核心修改：财务进度列 -->
