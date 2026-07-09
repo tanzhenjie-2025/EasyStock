@@ -605,9 +605,17 @@ def area_page(request):
 
 
 @login_required
-@cache_page(CACHE_GROUP_PAGE)
+# 移除 @cache_page(CACHE_GROUP_PAGE)   <-- 必须去掉，否则权限控制失效
 def group_page(request):
-    return render(request, 'area_manage/group.html')
+    """区域组管理页面"""
+    can_add = request.user.has_permission('area_add')      # 控制新增、导入
+    can_edit = request.user.has_permission('area_edit')    # 控制编辑、启用
+    can_delete = request.user.has_permission('area_delete')# 控制禁用
+    return render(request, 'area_manage/group.html', {
+        'can_add': can_add,
+        'can_edit': can_edit,
+        'can_delete': can_delete,
+    })
 
 
 @login_required
