@@ -832,6 +832,7 @@ def print_order(request, order_no):
         'is_super_admin': is_super_admin,
         'phone_numbers': settings.PHONE_NUMBERS,
         'complaint_phone': settings.COMPLAINT_PHONE,
+        'bill_title': settings.BILL_TITLE,
     }
 
     response = render(request, 'bill/print.html', context)

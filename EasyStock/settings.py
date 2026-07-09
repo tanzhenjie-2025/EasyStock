@@ -198,3 +198,4 @@ CACHES = {
 # 读取环境变量
 PHONE_NUMBERS = os.getenv('PHONE_NUMBERS', '')
 COMPLAINT_PHONE = os.getenv('COMPLAINT_PHONE', '')
+BILL_TITLE = os.getenv('BILL_TITLE', '销售三联单')
