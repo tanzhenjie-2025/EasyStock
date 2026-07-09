@@ -393,16 +393,20 @@ input:checked + .slider:before{transform:translateX(26px);}
         <div class="tab-pane fade {% if active_tab == 'list' or not active_tab %}show active{% endif %}" id="panel-list" role="tabpanel">
             <!-- 搜索栏 + 功能按钮 (已移除标签相关) -->
             <div class="search-bar-wrapper">
-                <form method="get" class="search-form">
-                    <input type="hidden" name="active_tab" value="list">
-                    <input type="text" name="keyword" class="search-input" placeholder="搜索商品/别名" value="{{ keyword }}">
-                    <input type="hidden" name="status" value="{{ status }}">
-                    <button class="btn btn-primary" type="submit">搜索</button>
-                    <button class="btn btn-default" type="button" onclick="location.href='{% url 'product:product_manage' %}'">重置</button>
-                </form>
-                <button class="btn btn-success" onclick="openModal()">➕ 新增</button>
-                <button class="btn btn-warning" onclick="openBatchModal()">批量操作</button>
-            </div>
+    <form method="get" class="search-form">
+        <input type="hidden" name="active_tab" value="list">
+        <input type="text" name="keyword" class="search-input" placeholder="搜索商品/别名" value="{{ keyword }}">
+        <input type="hidden" name="status" value="{{ status }}">
+        <button class="btn btn-primary" type="submit">搜索</button>
+        <button class="btn btn-default" type="button" onclick="location.href='{% url 'product:product_manage' %}'">重置</button>
+    </form>
+    {% if can_add_product %}
+    <button class="btn btn-success" onclick="openModal()">➕ 新增</button>
+    {% endif %}
+    {% if can_edit_product %}
+    <button class="btn btn-warning" onclick="openBatchModal()">批量操作</button>
+    {% endif %}
+</div>
 
             <!-- 状态筛选 -->
             <div class="status-filter">
@@ -455,9 +459,13 @@ input:checked + .slider:before{transform:translateX(26px);}
         </form>
 
         <!-- 需求1：批量操作按钮放在同一行 -->
+        {% if can_edit_product %}
         <button class="btn btn-primary" onclick="openTagBatchModal()">批量打标</button>
         <button class="btn btn-danger" onclick="openTagRemoveModal()">移除标签</button>
+        {% endif %}
+{% if can_add_product %}
         <button class="btn btn-success" onclick="showAddTagModal()">新建标签</button>
+        {% endif %}
     </div>
 
     <!-- 现有标签预览 -->
@@ -484,7 +492,9 @@ input:checked + .slider:before{transform:translateX(26px);}
             <button class="btn btn-primary" type="submit">搜索</button>
             <button class="btn btn-default" type="button" onclick="location.href='{% url 'product:product_manage' %}?active_tab=unit'">重置</button>
         </form>
-        <button class="btn btn-success" onclick="openUnitModal()">➕ 新增单位</button>
+        {% if can_add_product %}
+<button class="btn btn-success" onclick="openUnitModal()">➕ 新增单位</button>
+{% endif %}
     </div>
 
     <!-- 状态筛选 -->
@@ -512,15 +522,23 @@ input:checked + .slider:before{transform:translateX(26px);}
                 <td style="font-weight: 500;">{{ unit.name }}</td>
                 <td>{{ unit.sort_order }}</td>
                 <td>
-                    <label class="switch">
-                        <input type="checkbox" class="unit-status-switch" data-id="{{ unit.id }}" {% if unit.is_active %}checked{% endif %}>
-                        <span class="slider"></span>
-                    </label>
-                </td>
+    {% if can_edit_product %}
+    <label class="switch">
+        <input type="checkbox" class="unit-status-switch" data-id="{{ unit.id }}" {% if unit.is_active %}checked{% endif %}>
+        <span class="slider"></span>
+    </label>
+    {% else %}
+    <span class="status-badge {% if unit.is_active %}status-active{% else %}status-inactive{% endif %}">
+        {{ unit.is_active|yesno:"启用,禁用" }}
+    </span>
+    {% endif %}
+</td>
                 <td>
-                    <button class="btn btn-primary btn-sm" onclick="editUnit({{ unit.id }}, '{{ unit.name|escapejs }}', {{ unit.sort_order }})">编辑</button>
-                    <button class="btn btn-danger btn-sm" onclick="deleteUnit({{ unit.id }})">删除</button>
-                </td>
+    {% if can_edit_product %}
+    <button class="btn btn-primary btn-sm" onclick="editUnit({{ unit.id }}, '{{ unit.name|escapejs }}', {{ unit.sort_order }})">编辑</button>
+    <button class="btn btn-danger btn-sm" onclick="deleteUnit({{ unit.id }})">删除</button>
+    {% endif %}
+</td>
             </tr>
             {% empty %}
             <tr><td colspan="5" align="center" style="padding: 20px; color: #999;">暂无单位数据</td></tr>
@@ -574,8 +592,10 @@ input:checked + .slider:before{transform:translateX(26px);}
                                 </div>
                             </td>
                             <td>
-                                <button class="btn btn-primary" onclick="openAddAliasModal({{ p.id }}, '{{ p.name|escapejs }}')">添加别名</button>
-                            </td>
+    {% if can_edit_product %}
+    <button class="btn btn-primary" onclick="openAddAliasModal({{ p.id }}, '{{ p.name|escapejs }}')">添加别名</button>
+    {% endif %}
+</td>
                         </tr>
                         {% empty %}
                         <tr><td colspan="4" align="center">暂无数据</tr>
@@ -612,23 +632,25 @@ input:checked + .slider:before{transform:translateX(26px);}
         <!-- -------------------- Tab 5: 数据工具 (需求3：卡片精简) -------------------- -->
         <div class="tab-pane fade {% if active_tab == 'tool' %}show active{% endif %}" id="panel-tool" role="tabpanel">
             <div class="row" style="margin-top: 10px; justify-content: flex-start;">
-                <div class="col-md-4" style="margin-bottom: 20px; max-width: 350px;">
-                    <div class="tool-card" onclick="showImportModal()" style="cursor: pointer;">
-                        <span class="tool-icon">📥</span>
-                        <h4>导入商品</h4>
-                        <p class="text-muted">从 Excel 批量导入</p>
-                        <button class="btn btn-primary mt-2">前往导入</button>
-                    </div>
-                </div>
-                <div class="col-md-4" style="margin-bottom: 20px; max-width: 350px;">
-                    <div class="tool-card" onclick="exportData()" style="cursor: pointer;">
-                        <span class="tool-icon">📤</span>
-                        <h4>导出商品</h4>
-                        <p class="text-muted">导出为 Excel</p>
-                        <button class="btn btn-success mt-2">前往导出</button>
-                    </div>
-                </div>
-            </div>
+    {% if can_import_product %}
+    <div class="col-md-4" style="margin-bottom: 20px; max-width: 350px;">
+        <div class="tool-card" onclick="showImportModal()" style="cursor: pointer;">
+            <span class="tool-icon">📥</span>
+            <h4>导入商品</h4>
+            <p class="text-muted">从 Excel 批量导入</p>
+            <button class="btn btn-primary mt-2">前往导入</button>
+        </div>
+    </div>
+    {% endif %}
+    <div class="col-md-4" style="margin-bottom: 20px; max-width: 350px;">
+        <div class="tool-card" onclick="exportData()" style="cursor: pointer;">
+            <span class="tool-icon">📤</span>
+            <h4>导出商品</h4>
+            <p class="text-muted">导出为 Excel</p>
+            <button class="btn btn-success mt-2">前往导出</button>
+        </div>
+    </div>
+</div>
         </div>
     </div>
 
@@ -684,15 +706,25 @@ input:checked + .slider:before{transform:translateX(26px);}
                         </div>
                     </td>
                     <td>
-                        <label class="switch">
-                            <input type="checkbox" class="status-switch" data-id="{{ p.id }}" {% if p.status == 1 %}checked{% endif %}>
-                            <span class="slider"></span>
-                        </label>
-                    </td>
+    {% if can_edit_product %}
+    <label class="switch">
+        <input type="checkbox" class="status-switch" data-id="{{ p.id }}" {% if p.status == 1 %}checked{% endif %}>
+        <span class="slider"></span>
+    </label>
+    {% else %}
+    <span class="status-badge {% if p.status == 1 %}status-active{% else %}status-inactive{% endif %}">
+        {{ p.status|yesno:"启用,停用" }}
+    </span>
+    {% endif %}
+</td>
                     <td>
-                        <button class="btn btn-primary" onclick="editProduct({{ p.id }})">编辑</button>
-                        <button class="btn btn-warning" onclick="openCalibrateModal({{ p.id }}, {{ p.stock_actual }})">校准</button>
-                    </td>
+    {% if can_edit_product %}
+    <button class="btn btn-primary" onclick="editProduct({{ p.id }})">编辑</button>
+    {% endif %}
+    {% if can_stock_operation %}
+    <button class="btn btn-warning" onclick="openCalibrateModal({{ p.id }}, {{ p.stock_actual }})">校准</button>
+    {% endif %}
+</td>
                 </tr>
                 {% empty %}
                 <tr><td colspan="11" align="center">暂无数据</tr>
