@@ -484,6 +484,7 @@ box-sizing: border-box;
 {% block extra_js %}
     <script>
         // ========== 全局配置 ==========
+        let allUnitsCache = null;   
         let rowIdCounter = 0;
         const inputColsCount = 5;
         let currentSearchInput = null;
@@ -726,7 +727,7 @@ function goToPage(delta) {
         // ========== 单位模糊搜索逻辑 ==========
 async function onUnitInput(input) {
     const keyword = input.value.trim();
-    if (!keyword) { hideSuggest(); return; }
+    // 不因为关键词为空而隐藏，而是请求对应的数据
     currentUnitInput = input;
     try {
         const res = await fetch(`/product/search-unit/?keyword=${encodeURIComponent(keyword)}`);
@@ -734,8 +735,36 @@ async function onUnitInput(input) {
         if (data.code === 1 && data.data.length > 0) {
             currentUnitList = data.data;
             showUnitSuggest(input, data.data);
-        } else { hideSuggest(); }
-    } catch (e) { hideSuggest(); }
+        } else {
+            hideSuggest();
+        }
+    } catch (e) {
+        hideSuggest();
+    }
+}
+
+async function loadAllUnitsWithCache(input) {
+    currentUnitInput = input;
+    // 如果还没有缓存，请求全部单位（keyword为空）
+    if (!allUnitsCache) {
+        try {
+            const res = await fetch(`/product/search-unit/?keyword=`);
+            const data = await res.json();
+            if (data.code === 1 && data.data.length > 0) {
+                allUnitsCache = data.data;
+            } else {
+                allUnitsCache = [];
+            }
+        } catch (e) {
+            allUnitsCache = [];
+        }
+    }
+    if (allUnitsCache.length > 0) {
+        currentUnitList = allUnitsCache;
+        showUnitSuggest(input, allUnitsCache);
+    } else {
+        hideSuggest();
+    }
 }
 
 function showUnitSuggest(input, list) {
@@ -819,28 +848,40 @@ function handleUnitInputKey(e) {
 
         // ========== 表格行操作 (保持原样) ==========
         function createInputElement(type, className, placeholder, value = '') {
-            const input = document.createElement('input');
-            input.type = type;
-            input.className = className;
-            input.placeholder = placeholder;
-            input.value = value;
-            if (type === 'number') {
-                input.min = className === 'quantity-input' ? 1 : 0;
-                input.step = className === 'price-input' ? 0.01 : 1;
-                input.addEventListener('input', () => calcRowAmount(input));
-            }
-            if (className === 'name-input') {
-                input.addEventListener('input', () => debouncedProductSearch(input));
-                input.addEventListener('keydown', handleProductInputKey);
-            }
-            // ========== 新增：单位输入框事件绑定 ==========
+    const input = document.createElement('input');
+    input.type = type;
+    input.className = className;
+    input.placeholder = placeholder;
+    input.value = value;
+
+    if (type === 'number') {
+        input.min = className === 'quantity-input' ? 1 : 0;
+        input.step = className === 'price-input' ? 0.01 : 1;
+        input.addEventListener('input', () => calcRowAmount(input));
+    }
+
+    // 商品名称：拼音搜索 + 快捷键
+    if (className === 'name-input') {
+        input.addEventListener('input', () => debouncedProductSearch(input));
+        input.addEventListener('keydown', handleProductInputKey);
+    }
+
+    // 单位：聚焦显示全部，输入防抖搜索
     if (className === 'unit-input') {
+        input.addEventListener('focus', () => {
+            if (input.value.trim()) {
+                onUnitInput(input);        // 有值时按值搜索
+            } else {
+                loadAllUnitsWithCache(input);  // 空值时展示全部单位
+            }
+        });
         input.addEventListener('input', () => debouncedUnitSearch(input));
         input.addEventListener('keydown', handleUnitInputKey);
     }
-            bindInputKeyboardEvents(input);
-            return input;
-        }
+
+    bindInputKeyboardEvents(input);  // 通用的 Enter / 方向键等
+    return input;
+}
         function bindInputKeyboardEvents(input) {
             input.addEventListener('keydown', e => {
                 if (e.shiftKey && e.key === 'Enter') { e.preventDefault();

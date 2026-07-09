@@ -83,19 +83,20 @@ def clear_product_all_cache():
 
 @login_required
 def search_unit(request):
-    """单位模糊搜索（开单页使用，仅返回启用单位，支持拼音检索）"""
+    """单位模糊搜索，keyword为空时返回所有启用的单位"""
     keyword = request.GET.get('keyword', '').strip()
-    if not keyword:
-        return JsonResponse({'code': 0, 'data': []})
+    if keyword:
+        units = Unit.objects.filter(
+            Q(name__icontains=keyword) |
+            Q(pinyin_full__icontains=keyword) |
+            Q(pinyin_abbr__icontains=keyword),
+            is_active=True
+        )[:50]  # 搜索时最多返回50条
+    else:
+        # 返回全部启用单位，按排序字段
+        units = Unit.objects.filter(is_active=True).order_by('sort_order', 'id')[:100]
 
-    # 同时匹配：名称模糊、全拼模糊、拼音首字母模糊
-    units = Unit.objects.filter(
-        Q(name__icontains=keyword) |
-        Q(pinyin_full__icontains=keyword) |
-        Q(pinyin_abbr__icontains=keyword)
-    )[:10]
-
-    data = [{'id': unit.id, 'name': unit.name} for unit in units]
+    data = [{'name': unit.name} for unit in units]
     return JsonResponse({'code': 1, 'data': data})
 
 @permission_required(PERM_PRODUCT_VIEW)
