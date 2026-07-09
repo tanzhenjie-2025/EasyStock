@@ -11,6 +11,10 @@ from customer_manage.models import Customer
 
 # ===================== 订单模型（核心修改） =====================
 class Order(models.Model):
+    customer_name_snapshot = models.CharField(
+        '客户名称快照', max_length=200, blank=True, default='',
+        help_text='开单时输入的客户名称（可自由填写，不关联客户表）'
+    )
     """订单表（三联单主表）- 新增作废/重开字段"""
     ORDER_STATUS = (
         ('pending', '未打印'),

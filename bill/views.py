@@ -266,6 +266,7 @@ def save_order(request):
                 unit = item.get('unit', '').strip()
                 qty = item.get('qty', 0)
                 price = item.get('price', 0)
+                customer_name = data.get('customer_name', '').strip()
 
                 if not name:
                     return JsonResponse({'code': 0, 'msg': '商品名称不能为空'})
@@ -311,6 +312,7 @@ def save_order(request):
             # ---------- 4. 创建订单主表 ----------
             order = Order()
             order.creator = request.user
+            order.customer_name_snapshot = customer_name
             if customer_id:
                 customer = get_object_or_404(Customer, id=customer_id)
                 order.customer = customer
@@ -861,8 +863,10 @@ def reopen_order_edit(request, order_no):
     order_data = {
         'order_no': original_order.order_no,
         'customer_id': original_order.customer_id if original_order.customer else '',
-        'customer_name': f"{original_order.area.name} | {original_order.customer.name}" if (
-                original_order.customer and original_order.area) else '',
+        'customer_name': original_order.customer_name_snapshot or (
+        f"{original_order.area.name} | {original_order.customer.name}"
+        if original_order.customer and original_order.area else ''
+    ),
         'items': [
     {
         'id': item.product_id if item.product else '',

@@ -837,7 +837,8 @@ function handleUnitInputKey(e) {
         }
         function bindInputKeyboardEvents(input) {
             input.addEventListener('keydown', e => {
-                if (e.shiftKey && e.key === 'Enter') { e.preventDefault(); saveOrder(); return; }
+                if (e.shiftKey && e.key === 'Enter') { e.preventDefault();
+                    saveOrder(); return; }
                 if (e.key === 'Enter') { e.preventDefault(); handleEnterKey(input); }
                 const dir = ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'];
                 if (dir.includes(e.key)) { e.preventDefault(); handleDirectionKeys(input,e.key); }
@@ -969,39 +970,61 @@ function handleUnitInputKey(e) {
 
         // ========== 保存/打印/重置 (保持原样) ==========
         async function saveOrder() {
-            const items = [];
-            document.querySelectorAll('#bill-tbody tr').forEach(tr=>{
-    const nameInput = tr.querySelector('.name-input');
-    const name = nameInput.value.trim();
-    const qty = parseInt(tr.querySelector('.quantity-input').value)||0;
-    const unit = tr.querySelector('.unit-input').value.trim();
-    const price = parseFloat(tr.querySelector('.price-input').value)||0;
-    const amt = parseFloat(tr.querySelector('.amount-cell').textContent.replace('¥',''))||0;
-    const productId = nameInput.dataset.productId || '';
-    // 👇 新增规格读取
-    const spec = tr.querySelector('.spec-input').value.trim();
+    const customerInput = document.getElementById('customerInput');
+    const customerId = customerInput.dataset.customerId || '';
+    const customerName = customerInput.value.trim();
 
-    if(name&&qty&&price>=0) items.push({
-        id: productId, name, spec, qty, unit, price, amt
-    });
-});
-            if(!items.length){alert('请填写商品');return;}
-            const total = items.reduce((s,i)=>s+parseFloat(i.amt),0).toFixed(2);
-            const customerInput = document.getElementById('customerInput');
-            const customerId = customerInput.dataset.customerId || '';
-            try{
-                const requestData = { items, total_amount:total, customer_id: customerId };
-                if (originalOrderNo) { requestData.original_order_no = originalOrderNo; }
-                const r = await fetch(`/bill/save-order/`,{
-                    method:'POST',
-                    headers:{'Content-Type':'application/json', 'X-CSRFToken':getCsrfToken()},
-                    body:JSON.stringify(requestData)
-                });
-                const d=await r.json();
-                if(d.code===1){alert('开单成功：'+d.order_no); window.open(`/bill/print/${d.order_no}/`); resetBill();}
-                else alert(d.msg);
-            }catch(e){alert('保存失败：' + e.message)}
+    const items = [];
+    document.querySelectorAll('#bill-tbody tr').forEach(tr => {
+        const nameInput = tr.querySelector('.name-input');
+        const name = nameInput.value.trim();
+        const qty = parseInt(tr.querySelector('.quantity-input').value) || 0;
+        const unit = tr.querySelector('.unit-input').value.trim();
+        const price = parseFloat(tr.querySelector('.price-input').value) || 0;
+        const amt = parseFloat(tr.querySelector('.amount-cell').textContent.replace('¥','')) || 0;
+        const productId = nameInput.dataset.productId || '';
+        const spec = tr.querySelector('.spec-input').value.trim();
+
+        if (name && qty && price >= 0) {
+            items.push({
+                id: productId, name, spec, qty, unit, price, amt
+            });
         }
+    });
+
+    if (!items.length) { alert('请填写商品'); return; }
+    const total = items.reduce((s, i) => s + parseFloat(i.amt), 0).toFixed(2);
+
+    try {
+        const requestData = {
+            items,
+            total_amount: total,
+            customer_id: customerId,
+            customer_name: customerName
+        };
+        if (originalOrderNo) {
+            requestData.original_order_no = originalOrderNo;
+        }
+        const r = await fetch(`/bill/save-order/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken()
+            },
+            body: JSON.stringify(requestData)
+        });
+        const d = await r.json();
+        if (d.code === 1) {
+            alert('开单成功：' + d.order_no);
+            window.open(`/bill/print/${d.order_no}/`);
+            resetBill();
+        } else {
+            alert(d.msg);
+        }
+    } catch (e) {
+        alert('保存失败：' + e.message);
+    }
+}
 
         function resetBill(){
             document.getElementById('bill-tbody').innerHTML='';
@@ -1287,7 +1310,7 @@ function handleUnitInputKey(e) {
 
             {% if reopen_order_data %}
                 const customerInput = document.getElementById('customerInput');
-                customerInput.value = "{{ reopen_order_data.customer_name }}";
+                customerInput.value = "{{ reopen_order_data.customer_name }}";  // 改用快照名称
                 customerInput.dataset.customerId = "{{ reopen_order_data.customer_id }}";
                 customerInput.dispatchEvent(new Event('change'));
 
