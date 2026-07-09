@@ -658,36 +658,42 @@ function goToPage(delta) {
     }
 }
         function handleProductInputKey(e) {
+    // ===== 统一处理 Enter 键：直接跳转下一格，忽略建议 =====
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        hideSuggest();                // 关闭下拉框
+        handleEnterKey(e.target);    // 执行与普通输入框相同的跳转逻辑
+        return;
+    }
+
+    // 如果没有建议列表，则不处理其他按键，让默认的 bindInputKeyboardEvents 处理方向键等
     if (!currentSuggestList.length) return;
 
-    // 停止事件传播，避免被其他监听器影响
+    // 以下为有建议列表时，处理数字、空格、翻页等原有逻辑
     e.stopImmediatePropagation();
 
-    // ===== 翻页：同时检测 e.code 和 e.key（兼容各种键盘/输入法） =====
     const code = e.code;
     const key = e.key;
 
-    // 下翻：物理键 Equal 或字符 =/+
+    // 下翻
     if (code === 'Equal' || key === '=' || key === '+') {
         e.preventDefault();
         goToPage(1);
         return;
     }
-
-    // 上翻：物理键 Minus 或字符 -/_
+    // 上翻
     if (code === 'Minus' || key === '-' || key === '_') {
         e.preventDefault();
         goToPage(-1);
         return;
     }
-
     // 空格选择第一项
     if (key === ' ') {
         e.preventDefault();
         selectItem(suggestCurrentPage * SUGGEST_PAGE_SIZE);
         return;
     }
-
     // 数字 1-8 选择
     const num = parseInt(key);
     if (!isNaN(num) && num >= 1 && num <= SUGGEST_PAGE_SIZE) {
