@@ -592,9 +592,16 @@ from django.views.decorators.cache import cache_page
 
 
 @login_required
-@cache_page(CACHE_AREA_PAGE)
 def area_page(request):
-    return render(request, 'area_manage/area.html')
+    """根据当前用户权限传递控制变量，禁止缓存全页"""
+    can_add = request.user.has_permission('area_add')      # 新增、导入共用此权限
+    can_edit = request.user.has_permission('area_edit')    # 编辑、启用
+    can_delete = request.user.has_permission('area_delete')# 删除/禁用
+    return render(request, 'area_manage/area.html', {
+        'can_add': can_add,
+        'can_edit': can_edit,
+        'can_delete': can_delete,
+    })
 
 
 @login_required
