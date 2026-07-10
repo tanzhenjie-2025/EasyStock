@@ -27,7 +27,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.environ.get('SECRET_KEY','django-insecure-)29kg-7@a-s+%50d#zgs1o*dq$-$c7qub&v%bgrfzf51&@zkk-')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'false').lower() == 'true'
-DEBUG = True
+
 ALLOWED_HOSTS = [host.strip() for host in os.environ.get('ALLOWED_HOSTS', '').split(',') if host.strip()]
 
 DATABASES = {
@@ -70,6 +70,7 @@ INSTALLED_APPS = [
     "area_manage.apps.AreaManageConfig",
     "customer_manage.apps.CustomerManageConfig",
     "operation_log.apps.OperationLogConfig",
+'dbbackup',
 
 ]
 
@@ -82,7 +83,28 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',  # ✅ 必须：认证中间件
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+
 ]
+
+# settings.py (相关片段)
+
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+    "dbbackup": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+        "OPTIONS": {
+            "location": "D:/backup/directory",  # 备份文件存放目录
+        },
+    },
+}
+
+# 使用新式别名
+DBBACKUP_STORAGE_ALIAS = "dbbackup"
 
 ROOT_URLCONF = 'EasyStock.urls'
 
