@@ -834,7 +834,7 @@ def stock_list(request):
     # 获取搜索关键词
     keyword = request.GET.get('keyword', '')
     # 筛选商品数据
-    product_list = Product.objects.filter(name__icontains=keyword)
+    product_list = Product.objects.filter(name__icontains=keyword).order_by('id')
 
     # 分页配置：每页10条数据
     paginator = Paginator(product_list, 10)
