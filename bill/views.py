@@ -686,7 +686,7 @@ def search_customer(request):
         Q(area__name__icontains=keyword) |
         Q(pinyin_full__icontains=keyword) |
         Q(pinyin_abbr__icontains=keyword)
-    ).distinct()[:8]   # 控制返回数量
+    ).distinct()[:50]   # 控制返回数量
 
     data = []
     for c in customers:

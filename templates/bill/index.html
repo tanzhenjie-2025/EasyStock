@@ -509,6 +509,10 @@ box-sizing: border-box;
         // ========== 搜索建议翻页变量 ==========
         let suggestCurrentPage = 0;          // 当前页码（0-based）
         const SUGGEST_PAGE_SIZE = 8;         // 每页显示条数
+        
+        // ========== 客户搜索建议翻页变量 ==========
+let customerSuggestCurrentPage = 0;          // 当前页码（0-based）
+const CUSTOMER_SUGGEST_PAGE_SIZE = 8;        // 每页显示条数
 
         // ========== 初始化 ==========
         initSuggestBox();
@@ -711,18 +715,19 @@ function goToPage(delta) {
 
         // ========== 客户搜索逻辑 (保持原样) ==========
         async function onCustomerInput(input) {
-            const keyword = input.value.trim();
-            if (!keyword) { hideSuggest(); return; }
-            currentCustomerInput = input;
-            try {
-                const res = await fetch(`/bill/search-customer/?keyword=${encodeURIComponent(keyword)}`);
-                const data = await res.json();
-                if (data.code === 1 && data.data.length > 0) {
-                    currentCustomerList = data.data;
-                    showCustomerSuggest(input, data.data);
-                } else { hideSuggest(); }
-            } catch (e) { hideSuggest(); }
-        }
+    const keyword = input.value.trim();
+    if (!keyword) { hideSuggest(); return; }
+    currentCustomerInput = input;
+    customerSuggestCurrentPage = 0;   // 重置为第一页
+    try {
+        const res = await fetch(`/bill/search-customer/?keyword=${encodeURIComponent(keyword)}`);
+        const data = await res.json();
+        if (data.code === 1 && data.data.length > 0) {
+            currentCustomerList = data.data;
+            showCustomerSuggest(input, data.data);
+        } else { hideSuggest(); }
+    } catch (e) { hideSuggest(); }
+}
 
         // ========== 单位模糊搜索逻辑 ==========
 async function onUnitInput(input) {
@@ -800,43 +805,134 @@ function handleUnitInputKey(e) {
 }
 
         function showCustomerSuggest(input, list) {
-            const rect = input.getBoundingClientRect();
-            suggestBox.style.left = rect.left + 'px';
-            suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
-            suggestBox.innerHTML = '';
-            list.slice(0, 8).forEach((item, idx) => {
-                const div = document.createElement('div');
-                div.textContent = `${idx+1} ${item.full_name}`;
-                div.dataset.index = idx;
-                div.onclick = () => selectCustomerItem(idx);
-                suggestBox.appendChild(div);
-            });
-            suggestBox.style.display = 'block';
-        }
+    const rect = input.getBoundingClientRect();
+    suggestBox.style.left = rect.left + 'px';
+    suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
+    suggestBox.innerHTML = '';
+
+    const totalPages = Math.ceil(list.length / CUSTOMER_SUGGEST_PAGE_SIZE);
+    if (customerSuggestCurrentPage >= totalPages) {
+        customerSuggestCurrentPage = Math.max(0, totalPages - 1);
+    }
+
+    const start = customerSuggestCurrentPage * CUSTOMER_SUGGEST_PAGE_SIZE;
+    const end = Math.min(start + CUSTOMER_SUGGEST_PAGE_SIZE, list.length);
+
+    // 渲染当前页建议
+    for (let i = start; i < end; i++) {
+        const item = list[i];
+        const div = document.createElement('div');
+        // 显示页内序号 1~8
+        div.textContent = `${(i - start) + 1} ${item.full_name}`;
+        div.dataset.index = i;          // 全局索引，用于选择
+        div.onclick = () => selectCustomerItem(i);
+        suggestBox.appendChild(div);
+    }
+
+    // 翻页按钮 + 页码显示
+    if (totalPages > 1) {
+        const navDiv = document.createElement('div');
+        navDiv.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:4px 8px; font-size:12px; color:#666; background:#f8f9fa;';
+
+        const prevBtn = document.createElement('button');
+        prevBtn.textContent = '◀ 上页';
+        prevBtn.style.cssText = 'padding:2px 8px; font-size:12px; cursor:pointer; border:1px solid #ccc; background:#fff; border-radius:3px;';
+        prevBtn.onclick = (e) => { e.stopPropagation(); customerGoToPage(-1); };
+        if (customerSuggestCurrentPage === 0) prevBtn.disabled = true;
+        navDiv.appendChild(prevBtn);
+
+        const pageText = document.createElement('span');
+        pageText.textContent = `${customerSuggestCurrentPage+1}/${totalPages}`;
+        navDiv.appendChild(pageText);
+
+        const nextBtn = document.createElement('button');
+        nextBtn.textContent = '下页 ▶';
+        nextBtn.style.cssText = 'padding:2px 8px; font-size:12px; cursor:pointer; border:1px solid #ccc; background:#fff; border-radius:3px;';
+        nextBtn.onclick = (e) => { e.stopPropagation(); customerGoToPage(1); };
+        if (customerSuggestCurrentPage >= totalPages - 1) nextBtn.disabled = true;
+        navDiv.appendChild(nextBtn);
+
+        suggestBox.appendChild(navDiv);
+    }
+
+    suggestBox.style.display = 'block';
+}
+function customerGoToPage(delta) {
+    if (!currentCustomerList.length || !currentCustomerInput) return;
+    const totalPages = Math.ceil(currentCustomerList.length / CUSTOMER_SUGGEST_PAGE_SIZE);
+    const newPage = customerSuggestCurrentPage + delta;
+    if (newPage >= 0 && newPage < totalPages) {
+        customerSuggestCurrentPage = newPage;
+        showCustomerSuggest(currentCustomerInput, currentCustomerList);
+        currentCustomerInput.focus();
+    }
+}
         function selectCustomerItem(index) {
-            const item = currentCustomerList[index];
-            if (!item || !currentCustomerInput) return;
-            currentCustomerInput.value = item.full_name;
-            currentCustomerInput.dataset.customerId = item.id;
-            currentCustomerInput.dispatchEvent(new Event('change'));
-            hideSuggest();
-        }
+    const item = currentCustomerList[index];
+    if (!item || !currentCustomerInput) return;
+    currentCustomerInput.value = item.full_name;
+    currentCustomerInput.dataset.customerId = item.id;
+    currentCustomerInput.dispatchEvent(new Event('change'));
+    hideSuggest();
+}
         function handleCustomerInputKey(e) {
-            if (currentCustomerList.length) {
-                if (e.key === ' ') { e.preventDefault(); selectCustomerItem(0); }
-                const num = parseInt(e.key);
-                if (!isNaN(num) && num >= 1 && num <= currentCustomerList.length) {
-                    e.preventDefault(); selectCustomerItem(num - 1);
-                }
-                if (e.key === 'Escape') { hideSuggest(); return; }
-            }
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                const firstProductInput = document.querySelector('#bill-tbody .name-input');
-                if (firstProductInput) { firstProductInput.focus(); firstProductInput.select(); }
-            }
-            if (e.shiftKey && e.key === 'Enter') { e.preventDefault(); saveOrder(); }
+    // ===== 统一处理 Enter 键（保留原有跳转逻辑） =====
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        hideSuggest();                // 关闭下拉框
+        // 原有：跳转到第一个商品输入框
+        const firstProductInput = document.querySelector('#bill-tbody .name-input');
+        if (firstProductInput) { firstProductInput.focus(); firstProductInput.select(); }
+        return;
+    }
+
+    // Shift+Enter 保存（原有逻辑）
+    if (e.shiftKey && e.key === 'Enter') {
+        e.preventDefault();
+        saveOrder();
+        return;
+    }
+
+    // 如果没有建议列表，不处理其他按键（让 bindInputKeyboardEvents 处理方向键等）
+    if (!currentCustomerList.length) return;
+
+    // 以下为有建议列表时的专属快捷键处理
+    e.stopImmediatePropagation();
+
+    const code = e.code;
+    const key = e.key;
+
+    // 下翻（= 键）
+    if (code === 'Equal' || key === '=' || key === '+') {
+        e.preventDefault();
+        customerGoToPage(1);
+        return;
+    }
+    // 上翻（- 键）
+    if (code === 'Minus' || key === '-' || key === '_') {
+        e.preventDefault();
+        customerGoToPage(-1);
+        return;
+    }
+    // 空格选择第一项
+    if (key === ' ') {
+        e.preventDefault();
+        selectCustomerItem(customerSuggestCurrentPage * CUSTOMER_SUGGEST_PAGE_SIZE);
+        return;
+    }
+    // 数字 1-8 选择
+    const num = parseInt(key);
+    if (!isNaN(num) && num >= 1 && num <= CUSTOMER_SUGGEST_PAGE_SIZE) {
+        const absoluteIndex = customerSuggestCurrentPage * CUSTOMER_SUGGEST_PAGE_SIZE + (num - 1);
+        if (absoluteIndex < currentCustomerList.length) {
+            e.preventDefault();
+            selectCustomerItem(absoluteIndex);
         }
+        return;
+    }
+
+    if (key === 'Escape') hideSuggest();
+}
         function initCustomerInput() {
             const customerInput = document.getElementById('customerInput');
             if (customerInput) {
