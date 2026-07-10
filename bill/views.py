@@ -662,37 +662,46 @@ def order_detail(request, order_no):
 @login_required
 @permission_required(PERM_PRODUCT_SEARCH)
 def search_customer(request):
-    """客户搜索 + 手动缓存优化"""
+    """
+    客户搜索（支持名称/区域/拼音全拼/拼音首字母） + 手动缓存优化
+    性能优化点：
+    1. select_related('area') 避免N+1查询
+    2. distinct() 避免关联区域可能产生的重复行
+    3. 仅取前8条，降低传输和渲染开销
+    4. 手动缓存10秒，缓解数据库压力
+    """
     keyword = request.GET.get('keyword', '').strip()
     if not keyword:
         return JsonResponse({'code': 0, 'data': []})
 
-    # 🔥 手动缓存键
+    # 缓存命中直接返回
     cache_key = f"{CACHE_PREFIX_CUSTOMER_SEARCH}{keyword}"
     cached_data = cache.get(cache_key)
     if cached_data:
         return JsonResponse({'code': 1, 'data': cached_data})
 
-    customer_matches = Customer.objects.select_related('area').filter(
-        Q(name__icontains=keyword) | Q(area__name__icontains=keyword)
-    ).distinct()[:8]
+    # 组合模糊查询：客户名、区域名、全拼、首字母
+    customers = Customer.objects.select_related('area').filter(
+        Q(name__icontains=keyword) |
+        Q(area__name__icontains=keyword) |
+        Q(pinyin_full__icontains=keyword) |
+        Q(pinyin_abbr__icontains=keyword)
+    ).distinct()[:8]   # 控制返回数量
 
     data = []
-    for customer in customer_matches:
-        area_name = customer.area.name if customer.area else '无区域'
+    for c in customers:
+        area_name = c.area.name if c.area else '无区域'
         data.append({
-            'id': customer.id,
-            'name': customer.name,
-            'area_id': customer.area.id if customer.area else '',
-            'area_name': area_name,
-            'full_name': f"{area_name} | {customer.name}"
+            'id': c.id,
+            'full_name': f"{area_name} | {c.name}",
+            # 如需返回电话，可取消下面注释：
+            # 'phone': c.primary_phone,
         })
 
-    # 🔥 缓存10秒
+    # 写入缓存
     cache.set(cache_key, data, timeout=CACHE_CUSTOMER_SEARCH)
     logger.info(f"设置客户搜索缓存: {cache_key}")
     return JsonResponse({'code': 1, 'data': data})
-
 
 @login_required
 @permission_required(PERM_ORDER_CANCEL_OWN)
@@ -1407,3 +1416,4 @@ def calculate_order_stats(request):
     except Exception as e:
         logger.error(f"订单统计计算失败：{str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'统计失败：{str(e)}'})
+

@@ -3,7 +3,7 @@ from django.utils import timezone
 from accounts.models import User
 from area_manage.models import Area
 from product.models import Product
-
+from pypinyin import lazy_pinyin
 
 # ========== 客户软删除管理器 ==========
 class CustomerManager(models.Manager):
@@ -47,9 +47,12 @@ class CustomerPhone(models.Model):
 
 
 class Customer(models.Model):
-    """客户信息表"""
-    # 店名保持全局唯一：不同门店名称不同，对应不同送货地址
+    """客户信息表（增加拼音检索）"""
     name = models.CharField('客户名称', max_length=100, unique=True, db_index=True)
+    # 新增拼音字段
+    pinyin_full = models.CharField('全拼', max_length=200, blank=True, db_index=True)
+    pinyin_abbr = models.CharField('拼音首字母', max_length=50, blank=True, db_index=True)
+
     area = models.ForeignKey(
         Area,
         on_delete=models.SET_NULL,
@@ -57,7 +60,6 @@ class Customer(models.Model):
         blank=False,
         verbose_name='所属区域'
     )
-    # 原 phone 字段已移除，统一迁移至 CustomerPhone 表
     remark = models.CharField('备注', max_length=200, blank=True, default='')
     create_time = models.DateTimeField('创建时间', auto_now_add=True, db_index=True)
 
@@ -69,10 +71,9 @@ class Customer(models.Model):
     objects = CustomerManager()
     all_objects = models.Manager()
 
-    # ---------- 快捷属性：兼容原代码中 customer.phone 的调用习惯 ----------
+    # ---------- 快捷属性 ----------
     @property
     def primary_phone(self) -> str:
-        """获取客户主号码；无主号则返回第一个号码；无号码返回空字符串"""
         primary = self.phones.filter(is_primary=True, is_active=True).first()
         if primary:
             return primary.phone
@@ -81,8 +82,14 @@ class Customer(models.Model):
 
     @property
     def all_phones(self) -> list:
-        """获取客户所有有效电话列表"""
         return list(self.phones.filter(is_active=True).values_list('phone', flat=True))
+
+    def save(self, *args, **kwargs):
+        """自动生成拼音字段"""
+        if self.name:
+            self.pinyin_full = ''.join(lazy_pinyin(self.name, style=0))
+            self.pinyin_abbr = ''.join([p[0] for p in lazy_pinyin(self.name, style=0)])
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f'{self.name} ({self.primary_phone})'
@@ -95,6 +102,8 @@ class Customer(models.Model):
             models.Index(fields=['area']),
             models.Index(fields=['area', 'name']),
             models.Index(fields=['area', 'is_active']),
+            # 新增拼音联合索引，加速模糊查询
+            models.Index(fields=['pinyin_full', 'pinyin_abbr']),
         ]
 
 
