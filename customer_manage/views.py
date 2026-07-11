@@ -138,6 +138,8 @@ def customer_list(request):
             # ✅ 修改：电话筛选改为关联子表查询 + 去重
             customers = customers.filter(
                 Q(name__icontains=keyword) |
+                Q(pinyin_full__icontains=keyword) |  # 新增
+                Q(pinyin_abbr__icontains=keyword) |  # 新增
                 Q(phones__phone__icontains=keyword) |
                 id_q |
                 Q(area__name__icontains=keyword)
@@ -692,7 +694,9 @@ def customer_price_list(request):
             keywords = [k for k in keyword.split() if k]
             base_q = Q()
             for kw in keywords:
-                customer_q = Q(customer__name__icontains=kw)
+                customer_q = Q(customer__name__icontains=kw) | \
+                             Q(customer__pinyin_full__icontains=kw) | \
+                             Q(customer__pinyin_abbr__icontains=kw)
                 if kw.isdigit():
                     customer_q |= Q(customer__id=int(kw))
                 product_q = Q(product__name__icontains=kw)
@@ -987,6 +991,8 @@ def search_customer_for_price(request):
     # ✅ 修改：支持按电话搜索，加去重
     customer_matches = Customer.objects.select_related('area').prefetch_related('phones').filter(
         Q(name__icontains=keyword) |
+        Q(pinyin_full__icontains=keyword) |  # 新增
+        Q(pinyin_abbr__icontains=keyword) |  # 新增
         Q(area__name__icontains=keyword) |
         Q(phones__phone__icontains=keyword)
     ).distinct()[:8]
