@@ -1088,36 +1088,34 @@ def batch_settle_order(request):
 @login_required
 @permission_required(PERM_PRODUCT_SEARCH)
 def get_customer_recent_products(request):
-    """获取客户最近购买的商品（最近5单汇总版）"""
     customer_id = request.GET.get('customer_id', '').strip()
     if not customer_id:
         return JsonResponse({'code': 0, 'msg': '请选择客户', 'data': []})
 
-    # 🔥 手动缓存 Key
     cache_key = f"{CACHE_PREFIX_CUSTOMER_RECENT_PRODUCT}{customer_id}"
     cached_data = cache.get(cache_key)
     if cached_data:
         return JsonResponse({'code': 1, 'data': cached_data})
 
     try:
-        # ============== 🔥 第一步：获取最近 5 单的 ID ==============
-        # 利用索引 (status, is_settled, customer, create_time) 高效查询
-        recent_order_ids = Order.objects.filter(
-            customer_id=customer_id,
-            status__in=ORDER_STATUS_VALID,  # 只看有效订单
-            is_settled=False
-        ).order_by('-create_time').values_list('id', flat=True)[:5]  # 核心修改：只取最近 5 单
+        # 🔥 修复：强制转换为列表，避免 MySQL 不支持 LIMIT 子查询
+        recent_order_ids = list(
+            Order.objects.filter(
+                customer_id=customer_id,
+                status__in=ORDER_STATUS_VALID,
+                is_settled=False
+            )
+            .order_by('-create_time')
+            .values_list('id', flat=True)[:5]
+        )
 
         if not recent_order_ids:
-            # 没有历史订单，直接缓存空结果
             cache.set(cache_key, [], timeout=CACHE_CUSTOMER_RECENT_PRODUCT)
             return JsonResponse({'code': 1, 'data': []})
 
-        # ============== 🔥 第二步：获取这 5 单的所有商品明细 ==============
-        # select_related 优化查询，一次性把 Product 和 Order 信息查出来
         order_items = OrderItem.objects.filter(
             order_id__in=recent_order_ids
-        ).select_related('product', 'order').order_by('-order__create_time')  # 倒序排列：保证最后买的在最前面
+        ).select_related('product', 'order').order_by('-order__create_time')
 
         # ============== 🔥 第三步：查询客户专属价格 ==============
         customer_prices = {}
