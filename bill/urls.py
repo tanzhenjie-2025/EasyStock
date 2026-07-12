@@ -33,5 +33,8 @@ urlpatterns = [
     # 🔥 新增：订单统计数据 API（懒加载）
     path('api/orders/stats/calculate/', views.calculate_order_stats, name='calculate_order_stats'),
 
+path('orders/export/', views.export_orders, name='export_orders'),
+path('orders/import/', views.import_orders, name='import_orders'),
+
 
 ]

@@ -244,6 +244,16 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
     <a href="{% url 'bill:order_stats_page' %}" class="btn btn-sm btn-outline-info ms-2">
         <i class="bi bi-bar-chart"></i> 订单统计
     </a>
+<!-- 新增：导出订单按钮 -->
+<a href="{% url 'bill:export_orders' %}?{{ request.GET.urlencode }}" class="btn btn-sm btn-outline-success ms-2">
+    <i class="bi bi-download"></i> 导出订单
+</a>
+<!-- 新增：导入订单按钮（触发文件选择） -->
+<button type="button" class="btn btn-sm btn-outline-warning ms-2" id="importOrderBtn">
+    <i class="bi bi-upload"></i> 导入订单
+</button>
+<!-- 隐藏的文件上传 input -->
+<input type="file" id="importOrderFile" accept=".xlsx" style="display: none;" />
 </h3>
 
 <!-- 🔥 优化：统一的切换按钮 -->
@@ -1096,6 +1106,45 @@ $(document).ready(function() {
             customerInput.val(inputValue);
         }
     }
+});
+
+// 导入订单按钮点击 -> 触发隐藏的文件选择
+$('#importOrderBtn').click(function() {
+    $('#importOrderFile').click();
+});
+
+// 文件选择后自动上传
+$('#importOrderFile').change(function() {
+    var file = this.files[0];
+    if (!file) return;
+    var formData = new FormData();
+    formData.append('file', file);
+    formData.append('csrfmiddlewaretoken', getCsrfToken());  // 复用已有函数
+
+    // 显示加载提示（可自行美化）
+    var loadingMsg = '正在导入，请稍候...';
+    alert(loadingMsg);  // 简单提示，可改为模态框
+
+    fetch('{% url "bill:import_orders" %}', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+    .then(res => res.json())
+    .then(data => {
+        alert(data.msg);
+        if (data.code === 1) {
+            window.location.reload();  // 刷新列表
+        }
+    })
+    .catch(err => {
+        alert('导入失败：' + err.message);
+    });
+
+    // 清空 input，允许重复上传同一个文件
+    $(this).val('');
 });
 </script>
 {% endblock %}

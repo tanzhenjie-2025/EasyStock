@@ -1415,3 +1415,295 @@ def calculate_order_stats(request):
         logger.error(f"订单统计计算失败：{str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'统计失败：{str(e)}'})
 
+import io
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment
+from django.http import HttpResponse
+from django.db.models import Prefetch
+
+@login_required
+@permission_required(PERM_ORDER_VIEW)
+def export_orders(request):
+    """导出当前筛选条件下的订单 Excel（模板可复用）"""
+    # 复用 order_list 的查询逻辑，但跳过缓存和分页
+    # 下面代码提取与 order_list 相同的过滤条件（可根据实际封装公共函数）
+    order_no = request.GET.get('order_no', '').strip()
+    date_from = request.GET.get('date_from', '')
+    date_to = request.GET.get('date_to', '')
+    area_id = request.GET.get('area_id', '')
+    customer_name = request.GET.get('customer_name', '').strip()
+    amount_operator = request.GET.get('amount_operator', '')
+    amount_value = request.GET.get('amount_value', '').strip()
+    status = request.GET.get('status', 'all')
+
+    # 权限控制（与 order_list 一致）
+    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+    can_view_others = request.user.has_permission('order_view_others')
+    orders = Order.objects.select_related('area').order_by('-create_time')
+    if not is_super_admin and not can_view_others:
+        orders = orders.filter(creator=request.user)
+
+    # 应用状态筛选
+    if status == 'normal':
+        orders = orders.filter(status__in=ORDER_STATUS_VALID)
+    elif status == 'cancelled':
+        orders = orders.filter(status='cancelled')
+    elif status == 'settled':
+        orders = orders.filter(is_settled=True, status__in=ORDER_STATUS_VALID)
+    elif status == 'unsettled':
+        orders = orders.filter(is_settled=False, status__in=ORDER_STATUS_VALID)
+
+    # 应用其他筛选
+    if order_no:
+        orders = orders.filter(order_no__startswith=order_no)
+    if area_id and area_id.isdigit():
+        orders = orders.filter(area_id=int(area_id))
+    if customer_name:
+        orders = orders.filter(customer__name__istartswith=customer_name)
+    if date_from:
+        try:
+            start = timezone.make_aware(datetime.strptime(date_from, '%Y-%m-%d'))
+            orders = orders.filter(create_time__gte=start)
+        except:
+            pass
+    if date_to:
+        try:
+            end = datetime.strptime(date_to, '%Y-%m-%d').date()
+            end_dt = timezone.make_aware(datetime.combine(end + timedelta(days=1), datetime.min.time()))
+            orders = orders.filter(create_time__lt=end_dt)
+        except:
+            pass
+    if amount_operator in ['gt', 'lt'] and amount_value:
+        try:
+            amount = decimal.Decimal(amount_value)
+            if amount_operator == 'gt':
+                orders = orders.filter(total_amount__gt=amount)
+            else:
+                orders = orders.filter(total_amount__lt=amount)
+        except:
+            pass
+
+    # 预加载订单明细及关联商品，防止N+1
+    orders = orders.prefetch_related(
+        Prefetch('items', queryset=OrderItem.objects.select_related('product'))
+    )
+
+    # 创建 Excel 工作簿
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "订单数据"
+
+    # 表头
+    headers = ['订单编号', '客户名称', '区域', '商品名称', '规格', '单位', '数量', '单价', '小计金额']
+    header_font = Font(bold=True)
+    for col_num, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_num, value=header)
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center')
+
+    row = 2
+    for order in orders:
+        area_name = order.area.name if order.area else ''
+        customer_name_snap = order.customer_name_snapshot or ''
+        # 避免 Excel 将长数字转为科学计数法，订单编号强制存为文本
+        order_no_text = order.order_no
+        for item in order.items.all():
+            ws.cell(row=row, column=1, value=order_no_text)
+            ws.cell(row=row, column=2, value=customer_name_snap)
+            ws.cell(row=row, column=3, value=area_name)
+            ws.cell(row=row, column=4, value=item.product_name)
+            ws.cell(row=row, column=5, value=item.specification)
+            ws.cell(row=row, column=6, value=item.unit)
+            ws.cell(row=row, column=7, value=item.quantity)
+            # 单价取实际单价，若无则取0
+            price = float(item.actual_unit_price) if item.actual_unit_price else 0.0
+            ws.cell(row=row, column=8, value=price)
+            # 小计金额使用快照金额
+            amt = float(item.amount) if item.amount else 0.0
+            ws.cell(row=row, column=9, value=amt)
+            row += 1
+
+    # 设置响应为 Excel 下载
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    response['Content-Disposition'] = 'attachment; filename=orders_export.xlsx'
+    wb.save(response)
+    return response
+
+
+from openpyxl import load_workbook
+from collections import defaultdict
+from decimal import Decimal
+from django.db import transaction
+
+
+@login_required
+@permission_required(PERM_ORDER_CREATE)
+def import_orders(request):
+    """从 Excel 模板批量导入订单（高性能、无N+1，含自动创建客户）"""
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST'})
+
+    excel_file = request.FILES.get('file')
+    if not excel_file:
+        return JsonResponse({'code': 0, 'msg': '请上传文件'})
+
+    try:
+        wb = load_workbook(excel_file, read_only=True)
+        ws = wb.active
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': f'文件解析失败：{str(e)}'})
+
+    rows = list(ws.iter_rows(min_row=2, values_only=True))
+    if not rows:
+        return JsonResponse({'code': 0, 'msg': 'Excel 无数据'})
+
+    # 分组所需的数据结构
+    order_groups = defaultdict(list)   # key: (订单编号, 原始客户名, 区域名)
+    area_names = set()
+    product_names = set()
+    pure_customer_names = set()        # 🔧 改为存储纯客户名（去除了区域前缀）
+    pure_name_area = {}                # 🔧 纯客户名 -> 首次出现的区域名（用于创建客户时指定区域）
+
+    for row in rows:
+        if len(row) < 8:
+            continue
+        order_no = str(row[0]).strip() if row[0] else ''
+        raw_customer_name = str(row[1]).strip() if row[1] else ''  # 原始客户名称（可能带区域前缀）
+        area_name = str(row[2]).strip() if row[2] else ''
+        prod_name = str(row[3]).strip() if row[3] else ''
+        spec = str(row[4]).strip() if row[4] else ''
+        unit = str(row[5]).strip() if row[5] else ''
+        try:
+            qty = int(row[6])
+        except:
+            continue
+        try:
+            price = Decimal(str(row[7]))
+        except:
+            price = Decimal('0')
+
+        # 🔧 核心修复：从原始客户名称中提取纯客户名
+        # 例如 "上护 | 谭" → "谭"；"公平 | 谭振捷" → "谭振捷"
+        pure_customer_name = raw_customer_name
+        if area_name and raw_customer_name.startswith(area_name + " | "):
+            pure_customer_name = raw_customer_name[len(area_name) + 3:].strip()
+
+        order_key = (order_no, raw_customer_name, area_name)
+        order_groups[order_key].append({
+            'product_name': prod_name,
+            'spec': spec,
+            'unit': unit,
+            'qty': qty,
+            'price': price,
+            'pure_customer_name': pure_customer_name,   # 保存纯客户名，后续直接使用
+        })
+
+        area_names.add(area_name)
+        product_names.add(prod_name)
+        if pure_customer_name:                          # 🔧 收集纯客户名
+            pure_customer_names.add(pure_customer_name)
+            # 记录该纯客户名首次出现的区域（用于自动创建时归属区域）
+            if pure_customer_name not in pure_name_area:
+                pure_name_area[pure_customer_name] = area_name
+
+    # 批量查询区域、商品
+    area_map = {a.name: a for a in Area.objects.filter(name__in=area_names)} if area_names else {}
+    product_map = {}
+    if product_names:
+        for p in Product.objects.filter(name__in=product_names):
+            product_map[(p.name, p.specification)] = p
+            if p.name not in product_map:
+                product_map[p.name] = p
+
+    # 检查已存在订单编号
+    existing_orders = set(
+        Order.objects.filter(order_no__in=[k[0] for k in order_groups if k[0]])
+        .values_list('order_no', flat=True)
+    )
+
+    # ==================== 自动创建缺失的客户（基于纯客户名） ====================
+    customer_map = {}
+    if pure_customer_names:
+        existing_customers = Customer.objects.filter(name__in=pure_customer_names)
+        customer_map = {c.name: c for c in existing_customers}
+        missing_names = pure_customer_names - set(customer_map.keys())
+
+        if missing_names:
+            new_customers = []
+            for pure_name in missing_names:
+                area_name = pure_name_area.get(pure_name)
+                area = area_map.get(area_name) if area_name else None
+                if area:
+                    new_customers.append(Customer(name=pure_name, area=area))
+            if new_customers:
+                created = Customer.objects.bulk_create(new_customers)
+                # 重新查询获得带主键的对象
+                created_names = [c.name for c in created]
+                for c in Customer.objects.filter(name__in=created_names):
+                    customer_map[c.name] = c
+    # =================================================================
+
+    success_count = 0
+    skip_count = 0
+    error_msgs = []
+
+    with transaction.atomic():
+        for (order_no, raw_customer_name, area_name), items in order_groups.items():
+            if order_no and order_no in existing_orders:
+                skip_count += 1
+                continue
+
+            area = area_map.get(area_name) if area_name else None
+
+            # 🔧 使用已解析好的纯客户名从映射中取客户对象
+            pure_customer_name = items[0]['pure_customer_name']  # 同一订单内所有行相同
+            customer = customer_map.get(pure_customer_name) if pure_customer_name else None
+
+            order = Order(
+                order_no=order_no if order_no else '',
+                customer_name_snapshot=raw_customer_name,  # 保留原始字符串作为快照
+                area=area,
+                customer=customer,
+                creator=request.user,
+                total_amount=0,
+                status='pending',
+            )
+            order.save()
+
+            total = Decimal('0')
+            order_items = []
+            for item_data in items:
+                prod_name = item_data['product_name']
+                spec = item_data['spec']
+                product = product_map.get((prod_name, spec)) or product_map.get(prod_name)
+                price = item_data['price']
+                qty = item_data['qty']
+                amount = price * qty
+                total += amount
+
+                order_items.append(OrderItem(
+                    order=order,
+                    product=product,
+                    product_name=prod_name if not product else product.name,
+                    specification=spec,
+                    unit=item_data['unit'],
+                    quantity=qty,
+                    amount=amount,
+                    actual_unit_price=price,
+                    snapshot_standard_price=product.price if product else None,
+                    snapshot_customer_price=None,
+                ))
+
+            OrderItem.objects.bulk_create(order_items)
+            order.total_amount = total
+            order.save(update_fields=['total_amount'])
+            success_count += 1
+
+    msg = f'导入完成：成功 {success_count} 个订单'
+    if skip_count:
+        msg += f'，跳过 {skip_count} 个重复订单'
+    if error_msgs:
+        msg += f'，错误：{"；".join(error_msgs[:5])}'
+    return JsonResponse({'code': 1, 'msg': msg})
