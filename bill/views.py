@@ -1098,7 +1098,7 @@ def get_customer_recent_products(request):
         return JsonResponse({'code': 1, 'data': cached_data})
 
     try:
-        # 🔥 修复：强制转换为列表，避免 MySQL 不支持 LIMIT 子查询
+        # 获取最近5个有效订单ID
         recent_order_ids = list(
             Order.objects.filter(
                 customer_id=customer_id,
@@ -1117,44 +1117,70 @@ def get_customer_recent_products(request):
             order_id__in=recent_order_ids
         ).select_related('product', 'order').order_by('-order__create_time')
 
-        # ============== 🔥 第三步：查询客户专属价格 ==============
-        customer_prices = {}
-        price_qs = CustomerPrice.objects.filter(customer_id=customer_id).values('product_id', 'custom_price')
-        for item in price_qs:
-            customer_prices[item['product_id']] = float(item['custom_price'])
+        # 获取客户专属价格
+        customer_prices = {
+            item['product_id']: float(item['custom_price'])
+            for item in CustomerPrice.objects.filter(customer_id=customer_id).values('product_id', 'custom_price')
+        }
 
-        # ============== 🔥 第四步：汇总去重商品 ==============
-        product_dict = {}
+        # 分别处理有product的商品与自由开单商品
+        product_dict = {}          # key: product.id
+        free_product_dict = {}     # key: "free_产品名|规格|单位|价格"
+
         for item in order_items:
-            product = item.product
-            if not product:
-                continue
+            if item.product:
+                product = item.product
+                if product.id in product_dict:
+                    continue
+                final_price = customer_prices.get(product.id, float(product.price))
+                product_dict[product.id] = {
+                    'id': product.id,
+                    'name': product.name,
+                    'price': final_price,
+                    'standard_price': float(product.price),
+                    'unit': product.unit,
+                    'last_purchase_time': item.order.create_time.strftime('%Y-%m-%d %H:%M'),
+                    'last_quantity': item.quantity,
+                    'specification': product.specification or ''
+                }
+            else:
+                # 自由开单商品：用 (名称、规格、单位、价格) 去重
+                name = item.product_name or ''
+                spec = item.specification or ''
+                unit = item.unit or ''
+                price = float(item.actual_unit_price) if item.actual_unit_price else 0
+                free_key = f"free_{name}|{spec}|{unit}|{price}"
+                if free_key in free_product_dict:
+                    continue
+                free_product_dict[free_key] = {
+                    'id': None,  # 稍后分配负ID
+                    'name': name,
+                    'price': price,
+                    'standard_price': price,   # 与价格一致
+                    'unit': unit,
+                    'last_purchase_time': item.order.create_time.strftime('%Y-%m-%d %H:%M'),
+                    'last_quantity': item.quantity,
+                    'specification': spec
+                }
 
-            # 核心去重逻辑：如果商品已在字典中，说明已经记录过更近的一次购买了，直接跳过
-            if product.id in product_dict:
-                continue
-
-            final_price = customer_prices.get(product.id, float(product.price))
-            product_dict[product.id] = {
-                'id': product.id,
-                'name': product.name,
-                'price': final_price,
-                'standard_price': float(product.price),
-                'unit': product.unit,
-                'last_purchase_time': item.order.create_time.strftime('%Y-%m-%d %H:%M'),
-                'last_quantity': item.quantity,
-                'specification': product.specification
-            }
-
-        # 转换为列表（Python 3.7+ 字典保持插入顺序，即最后购买时间倒序）
+        # 组装结果列表
         recent_products = list(product_dict.values())
+        # 为自由商品分配唯一负ID，避免与正product.id冲突
+        free_offset = 0
+        for free_data in free_product_dict.values():
+            free_offset += 1
+            free_data['id'] = -100000 - free_offset
+            recent_products.append(free_data)
 
-        # 设置缓存
+        # 缓存
         cache.set(cache_key, recent_products, timeout=CACHE_CUSTOMER_RECENT_PRODUCT)
         logger.info(
-            f"设置客户最近商品缓存: {cache_key} (基于最近{len(recent_order_ids)}单, 共{len(recent_products)}个商品)")
+            f"设置客户最近商品缓存: {cache_key} "
+            f"(含{len(product_dict)}个系统商品, {len(free_product_dict)}个自由商品)"
+        )
 
         return JsonResponse({'code': 1, 'data': recent_products})
+
     except Exception as e:
         logger.error(f"获取客户最近商品失败: {str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'获取失败：{str(e)}', 'data': []})
