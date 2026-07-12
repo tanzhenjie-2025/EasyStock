@@ -33,6 +33,11 @@
             .no-print { display: none; }
         }
 
+        .bill-footer .total-amount {
+    font-size: 22px;      /* 按需调整，原为14px */
+    font-weight: bold;    /* 加粗更突出 */
+}
+
         /* 屏幕预览样式 */
         .bill-print {
             /* 预览宽度同步改为140mm */
@@ -51,14 +56,14 @@
         }
         .bill-header h2 { 
             margin: 0 0 4px 0; 
-            font-size: 20px;
+            font-size: 26px;
         }
 
         /* 头部信息行：与表格同宽，整体居中 */
         .bill-info-row {
             display: flex;
             justify-content: space-between;
-            font-size: 13px;
+            
             margin: 2px auto;
             width: 90%;
             flex-wrap: wrap; /* 宽度不足时自动换行，避免溢出 */
@@ -69,7 +74,12 @@
         .bill-info-row .info-group span + span {
             margin-left: 20px;
         }
-        
+        .bill-info-row .info-group:first-child {
+    font-size: 18px;
+}
+        .bill-info-row .info-group:last-child {
+    font-size: 13px;
+}
         /* 表格：总宽收窄，列宽等比例缩小，字号不变，居中显示 */
         .bill-table { 
             width: 90%; 
@@ -175,13 +185,14 @@
         </table>
         <!-- 原有的 bill-footer -->
 <div class="bill-footer">
-    
-    <span>打印时间：{% now "Y-m-d H:i:s" %}</span>
-    <span>总金额：¥{{ order.total_amount }}</span>
+    <span>开单人员：{{ order.creator.name|default:"未知" }}</span>
+{#    <span>打印时间：{% now "Y-m-d H:i:s" %}</span>#}
+    <span></span>
+    <span class="total-amount">总金额：¥{{ order.total_amount }}</span>
 </div>
 <!-- 开单人员信息 -->
 <div style="width: 90%; margin: 6px auto 0 auto; font-size: 14px;">
-    <span>开单人员：{{ order.creator.name|default:"未知" }}</span>
+
 </div>
 <!-- ====== 新增内容 ====== -->
 <div class="bill-bottom" style="margin-top: 10px; width: 90%; margin-left: auto; margin-right: auto; font-size: 13px;">
