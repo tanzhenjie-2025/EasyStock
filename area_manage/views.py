@@ -371,11 +371,12 @@ def group_list(request):
             area_id=OuterRef('areas__id')
         ).annotate(count=Count('id')).values('count')
 
-        base_groups = AreaGroup.objects.only('id', 'name', 'remark', 'create_time', 'update_time', 'is_active')
-        base_groups = base_groups.prefetch_related(
+        base_groups = AreaGroup.objects.only(
+            'id', 'name', 'remark', 'create_time', 'update_time', 'is_active'
+        ).prefetch_related(
             Prefetch('areas', queryset=Area.objects.only('id', 'name'))
         ).annotate(
-            customer_count=Coalesce(Sum(Subquery(customer_subquery)), 0),
+            customer_count=Count('areas__customer', distinct=True),
             area_count=Count('areas', distinct=True)
         )
 
