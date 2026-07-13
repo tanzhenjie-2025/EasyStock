@@ -829,8 +829,8 @@ def print_order(request, order_no):
 
     # ===== 核心：构建固定15行的商品列表 =====
     # 最多取前15个真实商品，剩余用 None 补齐
-    items_display = list(items[:20])
-    items_display.extend([None] * (20 - len(items_display)))
+    items_display = list(items[:18])
+    items_display.extend([None] * (18 - len(items_display)))
 
     # RBAC权限判断
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
