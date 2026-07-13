@@ -396,6 +396,50 @@
     .pagination .page-item.disabled .page-link {
         cursor: not-allowed;
     }
+
+    /* ===== 区域搜索选择器样式 ===== */
+    .area-search-container {
+        position: relative;
+    }
+    .area-search-container input {
+        width: 100%;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+    }
+    .area-options-list {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        max-height: 200px;
+        overflow-y: auto;
+        background: white;
+        border: 1px solid #ddd;
+        border-top: none;
+        border-radius: 0 0 4px 4px;
+        z-index: 999;
+        display: none;
+        list-style: none;
+        margin: 0;
+        padding: 0;
+    }
+    .area-options-list li {
+        padding: 8px 12px;
+        cursor: pointer;
+        border-bottom: 1px solid #f0f0f0;
+    }
+    .area-options-list li:hover {
+        background-color: #f0f5ff;
+    }
+    .area-options-list li.no-match {
+        color: #999;
+        cursor: default;
+        text-align: center;
+    }
+    .area-options-list li.no-match:hover {
+        background-color: transparent;
+    }
 </style>
 {% endblock %}
 
@@ -523,17 +567,20 @@
                 <label for="customerName">客户名称 <span style="color:red">*</span></label>
                 <input type="text" id="customerName" placeholder="请输入客户名称" required>
             </div>
+            <!-- ========== 区域：改为搜索选择组件 ========== -->
             <div class="form-group">
-                <label for="areaSelect">所属区域 <span style="color:red">*</span></label>
-                <select id="areaSelect" required>
-                    <option value="">请选择区域</option>
-                    <!-- 区域选项由JS动态填充 -->
-                </select>
+                <label for="areaSearchInput">所属区域 <span style="color:red">*</span></label>
+                <div class="area-search-container">
+                    <input type="text" id="areaSearchInput" placeholder="搜索并选择区域" autocomplete="off">
+                    <input type="hidden" id="areaId" value="">
+                    <ul class="area-options-list" id="areaOptionsList"></ul>
+                </div>
             </div>
+            <!-- ========== 区域结束 ========== -->
             <div class="form-group">
-    <label for="customerPhone">联系电话 <span style="color:#999; font-weight:normal;">（选填）</span></label>
-    <input type="text" id="customerPhone" placeholder="请输入联系电话（可不填）">
-</div>
+                <label for="customerPhone">联系电话 <span style="color:#999; font-weight:normal;">（选填）</span></label>
+                <input type="text" id="customerPhone" placeholder="请输入联系电话（可不填）">
+            </div>
             <div class="form-group">
                 <label for="customerRemark">备注</label>
                 <input type="text" id="customerRemark" placeholder="请输入备注（选填）">
@@ -676,7 +723,7 @@
     var userRoleCode = "{{ request.user.role.code|default:'' }}";
     
     let currentCustomerId = '';
-    let areaList = [];
+    let areaList = [];            // 区域原始数据
     let customerSuggestList = [];
     let searchTimer = null;
     let currentKeyword = '';
@@ -690,6 +737,7 @@
         loadAreaList();  // 加载区域下拉列表
         loadCustomerList();  // 加载客户列表
         loadRecentSearches(); // 加载最近搜索记录
+        initAreaSearch(); // 初始化区域搜索组件
     });
 
     // ========== 状态切换函数 ==========
@@ -925,24 +973,80 @@
         searchCustomers(page);
     }
 
-    // ========== 原有业务函数 ==========
+    // ========== 区域搜索选择器逻辑 ==========
     function loadAreaList() {
         $.get('/customer-manage/area/list/', function(res) {
             console.log('区域列表：', res);
-            areaList = res;
-            let html = '<option value="">请选择区域</option>';
-            if (Array.isArray(res)) {
-                res.forEach(area => {
-                    html += `<option value="${area.id}">${area.name}</option>`;
-                });
-            }
-            $('#areaSelect').html(html);
+            areaList = Array.isArray(res) ? res : [];
+            // 不再填充select，由搜索组件使用
         }, 'json').fail(function(xhr, status, error) {
             console.error('加载区域失败：', xhr.responseText);
             alert('加载区域列表失败！\n' + error);
         });
     }
 
+    function initAreaSearch() {
+        const $input = $('#areaSearchInput');
+        const $list = $('#areaOptionsList');
+        const $areaId = $('#areaId');
+
+        // 输入事件：过滤区域列表
+        $input.on('input', function() {
+            const keyword = $.trim($input.val());
+            if (!keyword) {
+                // 清空时，清除区域ID，隐藏列表
+                $areaId.val('');
+                $list.hide().empty();
+                return;
+            }
+            // 过滤
+            const filtered = areaList.filter(a => a.name.includes(keyword));
+            let html = '';
+            if (filtered.length > 0) {
+                filtered.forEach(a => {
+                    html += `<li data-id="${a.id}" data-name="${a.name}">${a.name}</li>`;
+                });
+            } else {
+                html = '<li class="no-match">无匹配区域</li>';
+            }
+            $list.html(html).show();
+        });
+
+        // 选项点击事件
+        $list.on('mousedown', 'li:not(.no-match)', function(e) {
+            e.preventDefault(); // 阻止失焦
+            const id = $(this).data('id');
+            const name = $(this).data('name');
+            $input.val(name);
+            $areaId.val(id);
+            $list.hide().empty();
+        });
+
+        // 失焦时隐藏列表（延迟，确保点击事件先执行）
+        $input.on('blur', function() {
+            setTimeout(() => {
+                $list.hide().empty();
+            }, 200);
+        });
+
+        // 获得焦点时，如果输入框有值但无选中项，重新显示列表
+        $input.on('focus', function() {
+            const keyword = $.trim($input.val());
+            if (keyword && !$areaId.val()) {
+                // 已有文字但未选中，触发过滤
+                $input.trigger('input');
+            }
+        });
+    }
+
+    function setAreaSelection(areaId, areaName) {
+        // 用于编辑时回显区域
+        $('#areaSearchInput').val(areaName || '');
+        $('#areaId').val(areaId || '');
+        $('#areaOptionsList').hide().empty();
+    }
+
+    // ========== 原有业务函数（修改与区域相关的地方） ==========
     function loadCustomerList() {
         currentPage = 1;
         searchCustomers(1);
@@ -953,6 +1057,8 @@
         $('#customerForm')[0].reset();
         $('#customerId').val('');
         currentCustomerId = '';
+        // 清空区域搜索组件
+        setAreaSelection('', '');
         $('#customerModal').css('display', 'flex');
     }
 
@@ -964,7 +1070,8 @@
             $('#modalTitle').text('编辑客户');
             $('#customerId').val(customer.id);
             $('#customerName').val(customer.name);
-            $('#areaSelect').val(customer.area_id);
+            // 设置区域搜索组件
+            setAreaSelection(customer.area_id, customer.area_name || '');
             $('#customerPhone').val(customer.phone);
             $('#customerRemark').val(customer.remark || '');
             $('#customerModal').css('display', 'flex');
@@ -977,17 +1084,19 @@
     function closeModal() {
         $('#customerModal').css('display', 'none');
         $('#customerForm')[0].reset();
+        setAreaSelection('', '');
         currentCustomerId = '';
     }
 
     function saveCustomer() {
         const name = $('#customerName').val().trim();
-        const areaId = $('#areaSelect').val().trim();
+        // 使用隐藏域中的区域ID
+        const areaId = $('#areaId').val().trim();
         const phone = $('#customerPhone').val().trim();
         const remark = $('#customerRemark').val().trim();
 
         if (!name) { alert('客户名称不能为空！'); return; }
-        if (!areaId) { alert('所属区域不能为空！'); return; }
+        if (!areaId) { alert('请搜索并选择一个区域！'); return; }
         
 
         const data = { name: name, area_id: areaId, phone: phone, remark: remark };
@@ -1009,6 +1118,7 @@
         });
     }
 
+    // 其余业务函数（deleteCustomer, enableCustomer, 还款等）保持不变
     function deleteCustomer(id) {
         if (!confirm('确定要禁用该客户吗？禁用后该客户将无法开单，但历史数据保留。')) return;
         
@@ -1028,7 +1138,6 @@
         });
     }
 
-    // ========== 启用客户函数 ==========
     function enableCustomer(id) {
         if (!confirm('确定要启用该客户吗？')) return;
         
