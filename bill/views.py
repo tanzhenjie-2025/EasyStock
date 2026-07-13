@@ -1593,9 +1593,9 @@ def import_orders(request):
     product_names = set()
     pure_customer_names = set()
     pure_name_area = {}
+    product_create_info = {}
 
     for row in rows:
-        # 至少需要9列（索引0~8），状态列（索引9）可选
         if len(row) < 9:
             continue
         order_no = str(row[0]).strip() if row[0] else ''
@@ -1612,7 +1612,6 @@ def import_orders(request):
             price = Decimal(str(row[7]))
         except:
             price = Decimal('0')
-        # 读取状态，默认 pending
         status = str(row[9]).strip() if len(row) > 9 and row[9] else 'pending'
 
         pure_customer_name = raw_customer_name
@@ -1631,22 +1630,49 @@ def import_orders(request):
         })
 
         area_names.add(area_name)
-        product_names.add(prod_name)
         if pure_customer_name:
             pure_customer_names.add(pure_customer_name)
             if pure_customer_name not in pure_name_area:
                 pure_name_area[pure_customer_name] = area_name
 
-    # ==================== 批量查询区域、商品、客户 ====================
+        # ✅ 关键修改：仅非作废订单的商品参与自动创建
+        if status != 'cancelled':
+            product_names.add(prod_name)
+            product_key = (prod_name, unit)
+            if product_key not in product_create_info:
+                product_create_info[product_key] = {
+                    'spec': spec,
+                    'price': price,
+                }
+
+    # 批量查询区域
     area_map = {a.name: a for a in Area.objects.filter(name__in=area_names)} if area_names else {}
 
-    product_map = {}
-    if product_names:
-        for p in Product.objects.filter(name__in=product_names):
-            product_map[(p.name, p.specification)] = p
-            if p.name not in product_map:
-                product_map[p.name] = p
+    # 批量查询现有商品（仅非作废订单涉及的商品名）
+    existing_products = Product.objects.filter(name__in=product_names) if product_names else []
+    product_map = {(p.name, p.unit): p for p in existing_products}
 
+    # 找出缺失的商品并创建（此时 product_create_info 仅包含非作废订单的商品）
+    missing_product_keys = set(product_create_info.keys()) - set(product_map.keys())
+
+    if missing_product_keys:
+        new_products = []
+        for pname, punit in missing_product_keys:
+            info = product_create_info[(pname, punit)]
+            new_products.append(Product(
+                name=pname,
+                unit=punit,
+                specification=info['spec'],
+                price=info['price'],
+                stock_system=0,
+                stock_actual=0,
+            ))
+        if new_products:
+            created = Product.objects.bulk_create(new_products)
+            for p in created:
+                product_map[(p.name, p.unit)] = p
+
+    # 批量查询现有客户、创建缺失客户（与之前一致）
     customer_map = {}
     if pure_customer_names:
         existing_customers = Customer.objects.filter(name__in=pure_customer_names)
@@ -1665,8 +1691,8 @@ def import_orders(request):
                 created_names = [c.name for c in created]
                 for c in Customer.objects.filter(name__in=created_names):
                     customer_map[c.name] = c
-    # =================================================================
 
+    # 已存在订单编号检查
     existing_orders = set(
         Order.objects.filter(order_no__in=[k[0] for k in order_groups if k[0]])
         .values_list('order_no', flat=True)
@@ -1674,6 +1700,7 @@ def import_orders(request):
 
     success_count = 0
     skip_count = 0
+
     with transaction.atomic():
         for (order_no, raw_customer_name, area_name), items in order_groups.items():
             if order_no and order_no in existing_orders:
@@ -1707,18 +1734,21 @@ def import_orders(request):
             for item_data in items:
                 prod_name = item_data['product_name']
                 spec = item_data['spec']
-                product = product_map.get((prod_name, spec)) or product_map.get(prod_name)
+                unit = item_data['unit']
                 price = item_data['price']
                 qty = item_data['qty']
                 amount = price * qty
                 total += amount
+
+                # 作废订单的商品可能不存在 product_map 中，product 可以为 None
+                product = product_map.get((prod_name, unit))
 
                 order_items.append(OrderItem(
                     order=order,
                     product=product,
                     product_name=prod_name if not product else product.name,
                     specification=spec,
-                    unit=item_data['unit'],
+                    unit=unit,
                     quantity=qty,
                     amount=amount,
                     actual_unit_price=price,
@@ -1731,7 +1761,6 @@ def import_orders(request):
             order.save(update_fields=['total_amount'])
             success_count += 1
 
-    # 清除列表缓存，确保新订单立即可见
     clear_order_cache()
 
     msg = f'导入完成：成功 {success_count} 个订单'
