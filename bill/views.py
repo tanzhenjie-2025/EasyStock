@@ -1106,7 +1106,7 @@ def get_customer_recent_products(request):
                 is_settled=False
             )
             .order_by('-create_time')
-            .values_list('id', flat=True)[:5]
+            .values_list('id', flat=True)[:10]
         )
 
         if not recent_order_ids:
