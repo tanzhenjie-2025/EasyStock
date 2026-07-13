@@ -974,6 +974,14 @@ function customerGoToPage(delta) {
         input.addEventListener('input', () => debouncedUnitSearch(input));
         input.addEventListener('keydown', handleUnitInputKey);
     }
+    if (className === 'name-input') {
+    input.addEventListener('input', () => {
+        // 用户一旦手动修改名称，清除绑定的 productId
+        input.dataset.productId = '';
+        debouncedProductSearch(input);
+    });
+    input.addEventListener('keydown', handleProductInputKey);
+}
 
     bindInputKeyboardEvents(input);  // 通用的 Enter / 方向键等
     return input;
