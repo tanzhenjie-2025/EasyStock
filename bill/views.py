@@ -814,30 +814,30 @@ def cancel_order(request, order_no):
 @permission_required(PERM_ORDER_PRINT)
 def print_order(request, order_no):
     """订单打印页面（手动缓存版）"""
-    # 🔥 手动缓存 Key
     cache_key = f"{CACHE_PREFIX_PRINT_ORDER}{order_no}"
     cached_data = cache.get(cache_key)
 
     if cached_data:
         return HttpResponse(cached_data)
 
-    # ===================== 核心优化1：预加载订单关联的所有外键 =====================
-    # 一次性加载 客户、区域、开单人，无额外查询
+    # 预加载订单及关联数据
     order = get_object_or_404(
         Order.objects.select_related('customer', 'area', 'creator'),
         order_no=order_no
     )
-
-    # ===================== 核心优化2：预加载订单项的商品，彻底消除N+1 =====================
-    # 1次查询获取所有订单项 + 关联商品，模板渲染无额外DB请求
     items = order.items.select_related('product')
 
-    # RBAC权限判断（保持原有逻辑不变）
+    # ===== 核心：构建固定15行的商品列表 =====
+    # 最多取前15个真实商品，剩余用 None 补齐
+    items_display = list(items[:15])
+    items_display.extend([None] * (15 - len(items_display)))
+
+    # RBAC权限判断
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
 
     context = {
         'order': order,
-        'items': items,
+        'items_display': items_display,   # 使用固定长度的列表
         'is_super_admin': is_super_admin,
         'phone_numbers': settings.PHONE_NUMBERS,
         'complaint_phone': settings.COMPLAINT_PHONE,

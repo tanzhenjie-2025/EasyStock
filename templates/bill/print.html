@@ -7,104 +7,113 @@
         /* 打印样式（适配三联单打印机 竖向） */
         @media print {
             @page {
-                /* 宽高调换：140mm宽 × 210mm高，变为竖向 */
                 size: 140mm 210mm;
                 margin: 0;
             }
-            
-            html, body { 
-                margin: 0; 
-                padding: 0; 
+
+            html,
+            body {
+                margin: 0;
+                padding: 0;
                 font-family: "SimSun", serif;
                 height: auto;
             }
-            
+
             .bill-print {
-                /* 内容宽度同步改为140mm，与纸张宽度一致 */
-                width: 140mm; 
-                height: auto; 
-                /* 顶部内边距增加2mm，实现整体内容下移一点点 */
+                width: 140mm;
+                height: auto;
                 padding: 7mm 5mm 5mm 5mm;
                 box-sizing: border-box;
                 page-break-inside: avoid;
                 border: none;
             }
 
-            .no-print { display: none; }
+            .no-print {
+                display: none;
+            }
         }
 
         .bill-footer .total-amount {
-    font-size: 22px;      /* 按需调整，原为14px */
-    font-weight: bold;    /* 加粗更突出 */
-}
+            font-size: 22px;
+            font-weight: bold;
+        }
 
         /* 屏幕预览样式 */
         .bill-print {
-            /* 预览宽度同步改为140mm */
             width: 140mm;
             height: auto;
             border: none;
             margin: 20px auto;
-            /* 和打印样式保持一致，顶部内边距增加2mm */
             padding: 7mm 5mm 5mm 5mm;
             box-sizing: border-box;
         }
 
-        .bill-header { 
-            text-align: center; 
+        .bill-header {
+            text-align: center;
             margin-bottom: 8px;
         }
-        .bill-header h2 { 
-            margin: 0 0 4px 0; 
+        .bill-header h2 {
+            margin: 0 0 4px 0;
             font-size: 26px;
         }
 
-        /* 头部信息行：与表格同宽，整体居中 */
         .bill-info-row {
             display: flex;
             justify-content: space-between;
-            
             margin: 2px auto;
             width: 90%;
-            flex-wrap: wrap; /* 宽度不足时自动换行，避免溢出 */
+            flex-wrap: wrap;
         }
         .bill-info-row span {
             white-space: nowrap;
         }
-        .bill-info-row .info-group span + span {
+        .bill-info-row .info-group span+span {
             margin-left: 20px;
         }
         .bill-info-row .info-group:first-child {
-    font-size: 18px;
-}
+            font-size: 18px;
+        }
         .bill-info-row .info-group:last-child {
-    font-size: 13px;
-}
-        /* 表格：总宽收窄，列宽等比例缩小，字号不变，居中显示 */
-        .bill-table { 
-            width: 90%; 
+            font-size: 13px;
+        }
+
+        .bill-table {
+            width: 90%;
             margin: 0 auto;
-            border-collapse: collapse; 
+            border-collapse: collapse;
             table-layout: fixed;
         }
-        .bill-table th, .bill-table td { 
-            border: 1px solid #000; 
+        .bill-table th,
+        .bill-table td {
+            border: 1px solid #000;
             padding: 4px;
-            text-align: center; 
+            text-align: center;
             font-size: 14px;
             word-break: break-all;
         }
 
-        /* 调整后列宽：规格缩小，商品名称放大 */
-        .bill-table .col-index { width: 6%; }
-        .bill-table .col-spec { width: 18%; }
-        .bill-table .col-name { width: 34%; }
-        .bill-table .col-qty { width: 6%; }
-        .bill-table .col-unit { width: 6%; }
-        .bill-table .col-price { width: 15%; }
-        .bill-table .col-total { width: 15%; }
+        .bill-table .col-index {
+            width: 6%;
+        }
+        .bill-table .col-spec {
+            width: 18%;
+        }
+        .bill-table .col-name {
+            width: 34%;
+        }
+        .bill-table .col-qty {
+            width: 6%;
+        }
+        .bill-table .col-unit {
+            width: 6%;
+        }
+        .bill-table .col-price {
+            width: 15%;
+        }
+        .bill-table .col-total {
+            width: 15%;
+        }
 
-        /* 底部：与表格同宽，整体居中 */
         .bill-footer {
             margin-top: 8px;
             margin-left: auto;
@@ -117,6 +126,47 @@
         }
         .bill-footer span {
             white-space: nowrap;
+        }
+
+        .bill-bottom {
+            margin-top: 16px;
+            width: 90%;
+            margin-left: auto;
+            margin-right: auto;
+            font-size: 13px;
+        }
+
+        .bill-bottom .bottom-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 12px;
+        }
+
+        .bill-bottom .bottom-row:first-child {
+            margin-top: 0;
+        }
+
+        .bill-bottom .bottom-row .field-group {
+            display: flex;
+            align-items: center;
+        }
+
+        .bill-bottom .bottom-row .field-group .underline {
+            display: inline-block;
+            width: 120px;
+            border-bottom: 1px solid #000;
+            margin-left: 4px;
+        }
+
+        .bill-bottom .bottom-row .field-group .underline-sm {
+            width: 100px;
+        }
+
+        .bill-bottom .bottom-row .field-group-right {
+            display: flex;
+            align-items: center;
+            margin-left: auto;
         }
     </style>
 </head>
@@ -131,18 +181,17 @@
     <div class="bill-print">
         <div class="bill-header">
             <h2>{{ bill_title }}</h2>
-            <!-- 区域地址调整到最左侧 -->
             <div class="bill-info-row">
                 <div class="info-group">
                     <span>区域地址：{{ order.area.name|default:"无" }}</span>
                     <span>
                         客户名称：
                         {% if order.customer_name_snapshot %}
-                            {{ order.customer_name_snapshot }}
+                        {{ order.customer_name_snapshot }}
                         {% elif order.customer %}
-                            {{ order.customer.name }}
+                        {{ order.customer.name }}
                         {% else %}
-                            无
+                        无
                         {% endif %}
                     </span>
                 </div>
@@ -152,90 +201,84 @@
                 </div>
             </div>
         </div>
-        <table class="bill-table">
-            <thead>
-                <tr>
-                    <th class="col-index">序号</th>
-                    <th class="col-spec">规格</th>
-                    <th class="col-name">商品名称</th>
-                    <th class="col-qty">数量</th>
-                    <th class="col-unit">单位</th>
-                    <th class="col-price">单价</th>
-                    <th class="col-total">小计</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for item in items %}
-                <tr>
-        <td>{{ forloop.counter }}</td>
-        <td>{{ item.specification|default:"-" }}</td>
-        <!-- ✅ 直接显示 product_name，它已经有值 -->
-        <td>{{ item.product_name }}</td>
-        <td>{{ item.quantity }}</td>
-        <!-- ✅ 用 OrderItem 的 unit 字段 -->
-        <td>{{ item.unit }}</td>
-        <!-- ✅ 用实际录入单价，而不是 product.price -->
-        <td>¥{{ item.actual_unit_price }}</td>
-        <td>¥{{ item.amount }}</td>
-    </tr>
-                {% empty %}
-                <tr><td colspan="7">无商品明细</td></tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        <!-- 原有的 bill-footer -->
-<div class="bill-footer">
-    <span>开单人员：{{ order.creator.name|default:"未知" }}</span>
-{#    <span>打印时间：{% now "Y-m-d H:i:s" %}</span>#}
-    <span></span>
-    <span class="total-amount">总金额：¥{{ order.total_amount }}</span>
-</div>
-<!-- 开单人员信息 -->
-<div style="width: 90%; margin: 6px auto 0 auto; font-size: 14px;">
 
-</div>
-<!-- ====== 新增内容 ====== -->
-<div class="bill-bottom" style="margin-top: 10px; width: 90%; margin-left: auto; margin-right: auto; font-size: 13px;">
-    <!-- 联系电话和投诉电话 -->
-    <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
-        <span><strong>联系电话：</strong>{{ phone_numbers }}</span>
-        <span><strong>投诉电话/微信号：</strong>{{ complaint_phone }}</span>
-    </div>
-    <!-- 收款备注 和 拣货人员 -->
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
-        <div style="display: flex; align-items: center;">
-            <strong>拣货人员：</strong>
-            <span style="display: inline-block; width: 120px; border-bottom: 1px solid #000; margin-left: 4px;">&nbsp;</span>
+        <table class="bill-table">
+    <thead>
+        <tr>
+            <th class="col-index">序号</th>
+            <th class="col-spec">规格</th>
+            <th class="col-name">商品名称</th>
+            <th class="col-qty">数量</th>
+            <th class="col-unit">单位</th>
+            <th class="col-price">单价</th>
+            <th class="col-total">小计</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in items_display %}
+        <tr>
+            <td>{{ forloop.counter }}</td>   <!-- 序号固定1~15 -->
+            {% if item %}
+            <td>{{ item.specification|default:"-" }}</td>
+            <td>{{ item.product_name }}</td>
+            <td>{{ item.quantity }}</td>
+            <td>{{ item.unit }}</td>
+            <td>¥{{ item.actual_unit_price }}</td>
+            <td>¥{{ item.amount }}</td>
+            {% else %}
+            <!-- 空白行，保留边框，无内容 -->
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            <td></td>
+            {% endif %}
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+        <!-- 底部信息 -->
+        <div class="bill-footer">
+            <span>开单人员：{{ order.creator.name|default:"未知" }}</span>
+            <span></span>
+            <span class="total-amount">总金额：¥{{ order.total_amount }}</span>
         </div>
-        <div style="display: flex; align-items: center;">
-            <strong>收款备注：</strong>
-            <span style="display: inline-block; width: 100px; border-bottom: 1px solid #000; margin-left: 4px;">&nbsp;</span>
+
+        <div class="bill-bottom">
+            <div class="bottom-row">
+                <span><strong>联系电话：</strong>{{ phone_numbers }}</span>
+                <span><strong>投诉电话/微信号：</strong>{{ complaint_phone }}</span>
+            </div>
+            <div class="bottom-row">
+                <div class="field-group">
+                    <strong>拣货人员：</strong>
+                    <span class="underline">&nbsp;</span>
+                </div>
+                <div class="field-group">
+                    <strong>收款备注：</strong>
+                    <span class="underline underline-sm">&nbsp;</span>
+                </div>
+            </div>
+            <div class="bottom-row">
+                <div class="field-group">
+                    <strong>件数备注：</strong>
+                    <span class="underline">&nbsp;</span>
+                </div>
+                <div class="field-group">
+                    <strong>收货签署：</strong>
+                    <span class="underline underline-sm">&nbsp;</span>
+                </div>
+            </div>
+            <div class="bottom-row">
+                <span></span>
+                <div class="field-group">
+                    <strong>制单工号：</strong>
+                    <span class="underline underline-sm">&nbsp;</span>
+                </div>
+            </div>
         </div>
-    </div>
-    <!-- 收款备注 和 拣货人员 -->
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
-        <div style="display: flex; align-items: center;">
-            <strong>件数备注：</strong>
-            <span style="display: inline-block; width: 120px; border-bottom: 1px solid #000; margin-left: 4px;">&nbsp;</span>
-        </div>
-        <div style="display: flex; align-items: center;">
-            <strong>收货签署：</strong>
-            <span style="display: inline-block; width: 100px; border-bottom: 1px solid #000; margin-left: 4px;">&nbsp;</span>
-        </div>
-    </div>
-    
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
-        <div style="display: flex; align-items: center;">
-{#            <strong></strong>#}
-{#            <span style="display: inline-block; width: 120px; border-bottom: 1px solid #000; margin-left: 4px;">&nbsp;</span>#}
-        </div>
-        <div style="display: flex; align-items: center;">
-            <strong>制单工号：</strong>
-            <span style="display: inline-block; width: 100px; border-bottom: 1px solid #000; margin-left: 4px;">&nbsp;</span>
-        </div>
-    </div>
-</div>
-<!-- ====== 新增结束 ====== -->
     </div>
 
     <script>
