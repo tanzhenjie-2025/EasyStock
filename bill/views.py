@@ -1520,7 +1520,7 @@ def export_orders(request):
     ws.title = "订单数据"
 
     # 表头
-    headers = ['订单编号', '客户名称', '区域', '商品名称', '规格', '单位', '数量', '单价', '小计金额']
+    headers = ['订单编号', '客户名称', '区域', '商品名称', '规格', '单位', '数量', '单价', '小计金额', '订单状态']
     header_font = Font(bold=True)
     for col_num, header in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col_num, value=header)
@@ -1547,6 +1547,7 @@ def export_orders(request):
             # 小计金额使用快照金额
             amt = float(item.amount) if item.amount else 0.0
             ws.cell(row=row, column=9, value=amt)
+            ws.cell(row=row, column=10, value=order.status)
             row += 1
 
     # 设置响应为 Excel 下载
@@ -1567,11 +1568,9 @@ from collections import defaultdict
 from decimal import Decimal
 from django.db import transaction
 
-
 @login_required
 @permission_required(PERM_ORDER_CREATE)
 def import_orders(request):
-    """从 Excel 模板批量导入订单（高性能、无N+1，含自动创建客户）"""
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST'})
 
@@ -1589,18 +1588,18 @@ def import_orders(request):
     if not rows:
         return JsonResponse({'code': 0, 'msg': 'Excel 无数据'})
 
-    # 分组所需的数据结构
-    order_groups = defaultdict(list)   # key: (订单编号, 原始客户名, 区域名)
+    order_groups = defaultdict(list)
     area_names = set()
     product_names = set()
-    pure_customer_names = set()        # 🔧 改为存储纯客户名（去除了区域前缀）
-    pure_name_area = {}                # 🔧 纯客户名 -> 首次出现的区域名（用于创建客户时指定区域）
+    pure_customer_names = set()
+    pure_name_area = {}
 
     for row in rows:
-        if len(row) < 8:
+        # 至少需要9列（索引0~8），状态列（索引9）可选
+        if len(row) < 9:
             continue
         order_no = str(row[0]).strip() if row[0] else ''
-        raw_customer_name = str(row[1]).strip() if row[1] else ''  # 原始客户名称（可能带区域前缀）
+        raw_customer_name = str(row[1]).strip() if row[1] else ''
         area_name = str(row[2]).strip() if row[2] else ''
         prod_name = str(row[3]).strip() if row[3] else ''
         spec = str(row[4]).strip() if row[4] else ''
@@ -1613,9 +1612,9 @@ def import_orders(request):
             price = Decimal(str(row[7]))
         except:
             price = Decimal('0')
+        # 读取状态，默认 pending
+        status = str(row[9]).strip() if len(row) > 9 and row[9] else 'pending'
 
-        # 🔧 核心修复：从原始客户名称中提取纯客户名
-        # 例如 "上护 | 谭" → "谭"；"公平 | 谭振捷" → "谭振捷"
         pure_customer_name = raw_customer_name
         if area_name and raw_customer_name.startswith(area_name + " | "):
             pure_customer_name = raw_customer_name[len(area_name) + 3:].strip()
@@ -1627,19 +1626,20 @@ def import_orders(request):
             'unit': unit,
             'qty': qty,
             'price': price,
-            'pure_customer_name': pure_customer_name,   # 保存纯客户名，后续直接使用
+            'status': status,
+            'pure_customer_name': pure_customer_name,
         })
 
         area_names.add(area_name)
         product_names.add(prod_name)
-        if pure_customer_name:                          # 🔧 收集纯客户名
+        if pure_customer_name:
             pure_customer_names.add(pure_customer_name)
-            # 记录该纯客户名首次出现的区域（用于自动创建时归属区域）
             if pure_customer_name not in pure_name_area:
                 pure_name_area[pure_customer_name] = area_name
 
-    # 批量查询区域、商品
+    # ==================== 批量查询区域、商品、客户 ====================
     area_map = {a.name: a for a in Area.objects.filter(name__in=area_names)} if area_names else {}
+
     product_map = {}
     if product_names:
         for p in Product.objects.filter(name__in=product_names):
@@ -1647,13 +1647,6 @@ def import_orders(request):
             if p.name not in product_map:
                 product_map[p.name] = p
 
-    # 检查已存在订单编号
-    existing_orders = set(
-        Order.objects.filter(order_no__in=[k[0] for k in order_groups if k[0]])
-        .values_list('order_no', flat=True)
-    )
-
-    # ==================== 自动创建缺失的客户（基于纯客户名） ====================
     customer_map = {}
     if pure_customer_names:
         existing_customers = Customer.objects.filter(name__in=pure_customer_names)
@@ -1669,16 +1662,18 @@ def import_orders(request):
                     new_customers.append(Customer(name=pure_name, area=area))
             if new_customers:
                 created = Customer.objects.bulk_create(new_customers)
-                # 重新查询获得带主键的对象
                 created_names = [c.name for c in created]
                 for c in Customer.objects.filter(name__in=created_names):
                     customer_map[c.name] = c
     # =================================================================
 
+    existing_orders = set(
+        Order.objects.filter(order_no__in=[k[0] for k in order_groups if k[0]])
+        .values_list('order_no', flat=True)
+    )
+
     success_count = 0
     skip_count = 0
-    error_msgs = []
-
     with transaction.atomic():
         for (order_no, raw_customer_name, area_name), items in order_groups.items():
             if order_no and order_no in existing_orders:
@@ -1686,21 +1681,26 @@ def import_orders(request):
                 continue
 
             area = area_map.get(area_name) if area_name else None
-
-            # 🔧 使用已解析好的纯客户名从映射中取客户对象
-            pure_customer_name = items[0]['pure_customer_name']  # 同一订单内所有行相同
+            pure_customer_name = items[0]['pure_customer_name']
             customer = customer_map.get(pure_customer_name) if pure_customer_name else None
+            status = items[0]['status']
 
             order = Order(
                 order_no=order_no if order_no else '',
-                customer_name_snapshot=raw_customer_name,  # 保留原始字符串作为快照
+                customer_name_snapshot=raw_customer_name,
                 area=area,
                 customer=customer,
                 creator=request.user,
                 total_amount=0,
-                status='pending',
+                status=status,
             )
             order.save()
+
+            if status == 'cancelled':
+                order.cancelled_by = request.user
+                order.cancelled_time = timezone.now()
+                order.cancelled_reason = '从 Excel 导入（原作废订单）'
+                order.save(update_fields=['cancelled_by', 'cancelled_time', 'cancelled_reason'])
 
             total = Decimal('0')
             order_items = []
@@ -1731,9 +1731,10 @@ def import_orders(request):
             order.save(update_fields=['total_amount'])
             success_count += 1
 
+    # 清除列表缓存，确保新订单立即可见
+    clear_order_cache()
+
     msg = f'导入完成：成功 {success_count} 个订单'
     if skip_count:
         msg += f'，跳过 {skip_count} 个重复订单'
-    if error_msgs:
-        msg += f'，错误：{"；".join(error_msgs[:5])}'
     return JsonResponse({'code': 1, 'msg': msg})
