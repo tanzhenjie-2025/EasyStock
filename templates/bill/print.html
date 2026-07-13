@@ -93,16 +93,16 @@
         }
 
         .bill-table .col-index {
-            width: 6%;
+            width: 5%;
         }
         .bill-table .col-spec {
             width: 18%;
         }
         .bill-table .col-name {
-            width: 34%;
+            width: 33%;
         }
         .bill-table .col-qty {
-            width: 6%;
+            width: 8%;
         }
         .bill-table .col-unit {
             width: 6%;
@@ -183,7 +183,7 @@
             <h2>{{ bill_title }}</h2>
             <div class="bill-info-row">
                 <div class="info-group">
-                    <span>区域地址：{{ order.area.name|default:"无" }}</span>
+                    
                     <span>
                         客户名称：
                         {% if order.customer_name_snapshot %}
@@ -249,6 +249,9 @@
         <div class="bill-bottom">
             <div class="bottom-row">
                 <span><strong>联系电话：</strong>{{ phone_numbers }}</span>
+                
+            </div>
+            <div class="bottom-row"> 
                 <span><strong>投诉电话/微信号：</strong>{{ complaint_phone }}</span>
             </div>
             <div class="bottom-row">
