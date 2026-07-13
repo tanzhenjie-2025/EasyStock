@@ -1446,7 +1446,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment
 from django.http import HttpResponse
 from django.db.models import Prefetch
-
+from urllib.parse import quote
 @login_required
 @permission_required(PERM_ORDER_VIEW)
 def export_orders(request):
@@ -1553,9 +1553,13 @@ def export_orders(request):
     response = HttpResponse(
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
-    response['Content-Disposition'] = 'attachment; filename=orders_export.xlsx'
+    # 生成带日期的中文文件名，例如：订单导出20260713.xlsx
+    now_str = timezone.now().strftime('%Y%m%d')
+    filename = f'订单导出{now_str}.xlsx'
+    response['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(filename)}"
     wb.save(response)
     return response
+
 
 
 from openpyxl import load_workbook
