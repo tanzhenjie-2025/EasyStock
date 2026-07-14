@@ -68,6 +68,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+
 # ========== 新增：统一缓存清理函数 ==========
 def clear_order_cache(order_no: str = None):
     """
@@ -158,13 +159,9 @@ def ajax_permission_required(permission_code):
 
     return decorator
 
-
-@login_required
-@permission_required(PERM_ORDER_CREATE)
-def index(request):
-    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
-
-    # ---------- 排序规则缓存 ----------
+def get_sort_context():
+    """返回包含排序规则和商品标签映射的 context 字典，带缓存"""
+    # 排序规则
     sort_stages_json = cache.get('sort_stages_json')
     if sort_stages_json is None:
         rules = SortRule.objects.select_related('tag').order_by('stage', 'priority')
@@ -184,9 +181,9 @@ def index(request):
             stages_dict[r.stage].append(item)
         stages = [{'stage': s, 'rules': stages_dict[s]} for s in sorted(stages_dict.keys())]
         sort_stages_json = json.dumps(stages)
-        cache.set('sort_stages_json', sort_stages_json, 3600)  # 缓存1小时
+        cache.set('sort_stages_json', sort_stages_json, 3600)
 
-    # ---------- 商品标签映射缓存 ----------
+    # 商品标签映射
     product_tags_map_json = cache.get('product_tags_map_json')
     if product_tags_map_json is None:
         products = Product.objects.filter(is_active=True).prefetch_related('tags')
@@ -198,11 +195,22 @@ def index(request):
         product_tags_map_json = json.dumps(tags_map)
         cache.set('product_tags_map_json', product_tags_map_json, 3600)
 
-    return render(request, 'bill/index.html', {
-        'is_super_admin': is_super_admin,
+    return {
         'sort_stages_json': sort_stages_json,
         'product_tags_map_json': product_tags_map_json,
-    })
+    }
+
+@login_required
+@permission_required(PERM_ORDER_CREATE)
+def index(request):
+    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+
+    context = {
+        'is_super_admin': is_super_admin,
+    }
+    context.update(get_sort_context())   # 注入排序数据
+
+    return render(request, 'bill/index.html', context)
 
 
 @login_required
@@ -989,49 +997,44 @@ def print_order(request, order_no):
 @login_required
 @permission_required(PERM_ORDER_REOPEN)
 def reopen_order_edit(request, order_no):
-    """重开订单编辑页面【终极性能版：删除无用全量查询】"""
-    # 预加载关联，消除N+1查询
     original_order = get_object_or_404(
         Order.objects.select_related('customer', 'area'),
         order_no=order_no
     )
-
-    # 非作废订单直接重定向
     if original_order.status != 'cancelled':
         return redirect('bill:order_detail', order_no=order_no)
 
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
-
-    # 订单商品明细（无N+1）
     items = OrderItem.objects.select_related('product').filter(order=original_order)
 
-    # 订单回显数据（核心业务，保留）
     order_data = {
         'order_no': original_order.order_no,
         'customer_id': original_order.customer_id if original_order.customer else '',
         'customer_name': original_order.customer_name_snapshot or (
-        f"{original_order.area.name} | {original_order.customer.name}"
-        if original_order.customer and original_order.area else ''
-    ),
+            f"{original_order.area.name} | {original_order.customer.name}"
+            if original_order.customer and original_order.area else ''
+        ),
         'items': [
-    {
-        'id': item.product_id if item.product else '',
-        'name': item.product_name or (item.product.name if item.product else ''),  # ✅
-        'qty': item.quantity,
-        'unit': item.unit,           # ✅ 直接取快照
-        'price': float(item.actual_unit_price) if item.actual_unit_price else 0,   # ✅
-        'amt': float(item.amount) if item.amount else 0,
-        'spec': item.specification
-    }
-    for item in items
-]
+            {
+                'id': item.product_id if item.product else '',
+                'name': item.product_name or (item.product.name if item.product else ''),
+                'qty': item.quantity,
+                'unit': item.unit,
+                'price': float(item.actual_unit_price) if item.actual_unit_price else 0,
+                'amt': float(item.amount) if item.amount else 0,
+                'spec': item.specification
+            }
+            for item in items
+        ]
     }
 
-    # 仅传递前端必需参数：客户信息前端自动回显+搜索，无需全量列表
-    return render(request, 'bill/index.html', {
+    context = {
         'is_super_admin': is_super_admin,
-        'reopen_order_data': order_data  # 仅保留订单回显数据
-    })
+        'reopen_order_data': order_data,
+    }
+    context.update(get_sort_context())   # 注入排序数据
+
+    return render(request, 'bill/index.html', context)
 
 
 # ========== 重构：结清相关视图（适配RBAC + 缓存清理） ==========

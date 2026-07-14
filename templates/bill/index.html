@@ -508,6 +508,21 @@ box-sizing: border-box;
         // ========== 客户搜索建议翻页变量 ==========
 let customerSuggestCurrentPage = 0;          // 当前页码（0-based）
 const CUSTOMER_SUGGEST_PAGE_SIZE = 8;        // 每页显示条数
+        
+               // ========== 排序相关（多阶段） ==========
+// 服务端直接注入排序规则和标签映射，无需异步加载
+let sortStagesCache = JSON.parse('{{ sort_stages_json|safe }}');
+window.productTagsMap = JSON.parse('{{ product_tags_map_json|safe }}');
+let isSortDataReady = true;   // 数据已就绪，可随时排序
+        
+        try {
+        sortStagesCache = JSON.parse('{{ sort_stages_json|safe }}');
+    } catch(e) { console.error('排序规则解析失败', e); }
+
+    window.productTagsMap = {};
+    try {
+        window.productTagsMap = JSON.parse('{{ product_tags_map_json|safe }}');
+    } catch(e) { console.error('标签映射解析失败', e); }
 
         // ========== 初始化 ==========
         initSuggestBox();
@@ -1485,26 +1500,11 @@ function customerGoToPage(delta) {
                 const customerInput = document.getElementById('customerInput');
                 if (customerInput) customerInput.focus();
             {% endif %}
-            try {
-    sortStagesCache = JSON.parse('{{ sort_stages_json|safe }}');
-} catch(e) {
-    console.error('排序规则 JSON 解析失败', e);
-    sortStagesCache = [];
-}
-try {
-    window.productTagsMap = JSON.parse('{{ product_tags_map_json|safe }}');
-} catch(e) {
-    console.error('标签映射 JSON 解析失败', e);
-    window.productTagsMap = {};
-}
+           
        
         };
 
-       // ========== 排序相关（多阶段） ==========
-// 服务端直接注入排序规则和标签映射，无需异步加载
-let sortStagesCache = JSON.parse('{{ sort_stages_json|safe }}');
-window.productTagsMap = JSON.parse('{{ product_tags_map_json|safe }}');
-let isSortDataReady = true;   // 数据已就绪，可随时排序
+
 
 
 
