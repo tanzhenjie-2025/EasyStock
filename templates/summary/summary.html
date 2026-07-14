@@ -115,7 +115,7 @@
         <label class="form-label-sm mb-0">结束时间</label>
         <input type="datetime-local" id="e" class="form-control form-control-sm" placeholder="结束时间">
     </div>
-    
+
 </div>
 <div class="form-group" style="flex: 1; min-width: 200px;">
     <label class="form-label-sm mb-0">商品标签</label>
@@ -133,6 +133,9 @@
         <div class="btn-group-query">
             <button class="btn btn-sm btn-primary" onclick="query()">查询汇总</button>
             <button class="btn btn-sm btn-success" onclick="showExportModal()">导出Excel</button>
+            <button class="btn btn-sm btn-outline-primary" onclick="sortProductSummary()" title="按规则排序">
+        📋 点击排序
+    </button>
         </div>
     </div>
 </div>
@@ -367,13 +370,15 @@ function restoreSummaryData() {
         let html = '';
         result.data.forEach(i => {
             const detailUrl = `/summary/product-detail/${i.pid}/?group_id=${params.group_id}&start_date=${params.start_date}&end_date=${params.end_date}`;
-            html += `<tr onclick="window.location.href='${detailUrl}'">
-                <td>${i.serial}</td>
-                <td>${i.name}</td>
-                <td>${i.unit}</td>
-                <td>${i.price.toFixed(2)}</td>
-                <td>${i.total_qty}</td>
-                <td>${i.total_amt.toFixed(2)}</td>
+            html += `<tr onclick="window.location.href='${detailUrl}'"
+    data-tags='${JSON.stringify(i.tags)}'
+    data-specification='${i.specification || ""}'>
+    <td>${i.serial}</td>
+    <td>${i.name}</td>
+    <td>${i.unit}</td>
+    <td>${i.price.toFixed(2)}</td>
+    <td>${i.total_qty}</td>
+    <td>${i.total_amt.toFixed(2)}</td>
                 <td class="operate-col"> <!-- 操作栏：详情按钮移到这里 -->
                     <button class="btn btn-sm btn-outline-primary btn-detail" onclick="event.stopPropagation(); window.location.href='${detailUrl}'">详情</button>
                 </td>
@@ -446,13 +451,15 @@ function query(){
         let html = '';
         res.data.forEach(i => {
             const detailUrl = `/summary/product-detail/${i.pid}/?group_id=${queryParams.group_id}&start_date=${queryParams.start_date}&end_date=${queryParams.end_date}`;
-            html += `<tr onclick="window.location.href='${detailUrl}'">
-                <td>${i.serial}</td>
-                <td>${i.name}</td>
-                <td>${i.unit}</td>
-                <td>${i.price.toFixed(2)}</td>
-                <td>${i.total_qty}</td>
-                <td>${i.total_amt.toFixed(2)}</td>
+            html += `<tr onclick="window.location.href='${detailUrl}'"
+    data-tags='${JSON.stringify(i.tags)}'
+    data-specification='${i.specification || ""}'>
+    <td>${i.serial}</td>
+    <td>${i.name}</td>
+    <td>${i.unit}</td>
+    <td>${i.price.toFixed(2)}</td>
+    <td>${i.total_qty}</td>
+    <td>${i.total_amt.toFixed(2)}</td>
                 <td class="operate-col"> <!-- 独立操作栏 -->
                     <button class="btn btn-sm btn-outline-primary btn-detail" onclick="event.stopPropagation(); window.location.href='${detailUrl}'">详情</button>
                 </td>
@@ -524,73 +531,65 @@ function removeCustomField(index) {
 
 // 7. 导出Excel（原有逻辑不变）
 function exportExcel() {
-    // 获取选中的字段
+    // 获取选中的字段和自定义字段（保持原有逻辑）
     let selectedFields = [];
     $('input[name="export_fields"]:checked').each(function() {
         selectedFields.push($(this).val());
     });
+    if (selectedFields.length === 0) return alert('请至少选择一个导出字段');
 
-    if (selectedFields.length === 0) {
-        return alert('请至少选择一个导出字段');
-    }
-
-    // 获取自定义字段配置
     let customFields = [];
     $('.custom-field-item').each(function() {
         const name = $(this).find('.custom-field-name').val().trim();
         const position = $(this).find('.custom-field-position').val();
         const target = $(this).find('.custom-field-target').val();
-
-        if (name) {
-            customFields.push({
-                name: name,
-                position: position,
-                target: target
-            });
-        }
+        if (name) customFields.push({ name: name, position: position, target: target });
     });
 
-    // 构建表单数据
+    // ★ 收集当前表格中所有排序后的数据行
+    let sortedData = [];
+    $('#data tr:not(.total-row)').each(function() {
+        const cells = $(this).find('td');
+        sortedData.push({
+            serial: cells.eq(0).text(),
+            name: cells.eq(1).text(),
+            unit: cells.eq(2).text(),
+            price: parseFloat(cells.eq(3).text()) || 0,
+            total_qty: parseInt(cells.eq(4).text()) || 0,
+            total_amt: parseFloat(cells.eq(5).text()) || 0,
+            remark: ''
+        });
+    });
+
     let formData = new FormData();
     formData.append('group_id', queryParams.group_id);
     formData.append('start_date', queryParams.start_date);
     formData.append('end_date', queryParams.end_date);
     formData.append('custom_fields', JSON.stringify(customFields));
     formData.append('tag_ids', getSelectedTagIds());
+    selectedFields.forEach(field => formData.append('fields[]', field));
+    // ★ 将排序后的数据以 JSON 字符串形式提交
+    formData.append('sorted_data', JSON.stringify(sortedData));
 
-    selectedFields.forEach(field => {
-        formData.append('fields[]', field);
-    });
-
-    // 发起导出请求
     $.ajax({
         url: '/summary/export-product/',
         type: 'POST',
         data: formData,
         processData: false,
         contentType: false,
-        xhrFields: {
-            responseType: 'blob'
-        },
+        xhrFields: { responseType: 'blob' },
         success: function(res, status, xhr) {
-            // 检查是否是错误响应
             const contentType = xhr.getResponseHeader('Content-Type');
             if (contentType.includes('application/json')) {
-                // 解析错误信息
                 const reader = new FileReader();
                 reader.onload = function() {
-                    const error = JSON.parse(this.result);
-                    alert('导出失败：' + error.msg);
+                    alert('导出失败：' + JSON.parse(this.result).msg);
                 };
                 reader.readAsText(res);
                 return;
             }
-
-            // 关闭模态框
             const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
             modal.hide();
-
-            // 生成下载链接
             const url = window.URL.createObjectURL(res);
             const a = document.createElement('a');
             a.href = url;
@@ -601,15 +600,102 @@ function exportExcel() {
             window.URL.revokeObjectURL(url);
         },
         error: function(xhr) {
-            let errorMsg = '导出失败，请重试';
-            if (xhr.responseJSON) {
-                errorMsg = xhr.responseJSON.msg || errorMsg;
-            }
-            alert(errorMsg);
+            let msg = '导出失败';
+            if (xhr.responseJSON) msg = xhr.responseJSON.msg || msg;
+            alert(msg);
         }
     });
 }
+// ---------- 排序相关 ----------
+let sortStagesCache = [];
+let isSortDataReady = false;
 
+// 加载排序规则（复用开单页接口）
+async function loadSortRules() {
+    try {
+        const res = await fetch('/bill/get-sort-rules/');
+        const data = await res.json();
+        if (data.code === 1) {
+            sortStagesCache = data.data;
+        }
+    } catch (e) {
+        console.error('获取排序规则失败:', e);
+    }
+}
+
+// 初始化排序数据
+async function initSortData() {
+    await loadSortRules();
+    isSortDataReady = true;
+}
+
+// 获取单行在某个阶段内的排序值
+function getStageOrderValue(tr, stageRules) {
+    const tagsStr = tr.getAttribute('data-tags');
+    let tagIds = [];
+    if (tagsStr) {
+        try { tagIds = JSON.parse(tagsStr); } catch(e) {}
+    }
+    const specification = tr.getAttribute('data-specification') || '';
+    const hasSpec = specification.trim() !== '';
+
+    for (let rule of stageRules) {
+        if (rule.type === 'tag') {
+            if (tagIds.includes(rule.tag_id)) {
+                return rule.priority;
+            }
+        } else if (rule.type === 'spec') {
+            if (rule.spec_condition === 'has_spec' && hasSpec) {
+                return rule.priority;
+            }
+            if (rule.spec_condition === 'no_spec' && !hasSpec) {
+                return rule.priority;
+            }
+        }
+    }
+    return 9999;
+}
+
+// 执行排序
+function sortProductSummary() {
+    if (!isSortDataReady) {
+        alert('排序数据正在加载，请稍后再试。');
+        return;
+    }
+    if (!sortStagesCache || sortStagesCache.length === 0) {
+        alert('暂无排序规则，请先设置排序规则。');
+        return;
+    }
+
+    const rows = $('#data tr:not(.total-row)').get();
+    const rowsWithKeys = rows.map(row => {
+        const sortKey = [];
+        for (let stage of sortStagesCache) {
+            sortKey.push(getStageOrderValue(row, stage.rules || []));
+        }
+        return { row, sortKey };
+    });
+
+    rowsWithKeys.sort((a, b) => {
+        for (let i = 0; i < Math.max(a.sortKey.length, b.sortKey.length); i++) {
+            let va = a.sortKey[i] !== undefined ? a.sortKey[i] : 9999;
+            let vb = b.sortKey[i] !== undefined ? b.sortKey[i] : 9999;
+            if (va !== vb) return va - vb;
+        }
+        return 0;
+    });
+
+    // 重新插入表格，保持总计行在最后
+    const tbody = document.getElementById('data');
+    const totalRow = $('#data tr.total-row').detach();
+    rowsWithKeys.forEach(({row}) => tbody.appendChild(row));
+    if (totalRow.length) tbody.appendChild(totalRow[0]);
+
+    // 更新序号
+    $('#data tr:not(.total-row)').each((index, row) => {
+        $(row).find('td:first').text(index + 1);
+    });
+}
 // 8. 页面初始化（修改：调用恢复函数）
 $(function(){
     // 加载区域组
@@ -625,6 +711,7 @@ $(function(){
 
     // 页面加载时尝试恢复数据（区域组加载完成后会再次调用，确保兼容性）
     restoreSummaryData();
+    initSortData();
 });
 </script>
 {% endblock %}
