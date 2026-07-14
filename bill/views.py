@@ -159,15 +159,49 @@ def ajax_permission_required(permission_code):
     return decorator
 
 
-# ========== 重构：视图函数（替换所有权限装饰器） ==========
 @login_required
 @permission_required(PERM_ORDER_CREATE)
 def index(request):
-    """开单主页面（三联单填写页）"""
-    # 🔥 优化：删除无用的全表查询，仅保留必要逻辑
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
+
+    # ---------- 排序规则缓存 ----------
+    sort_stages_json = cache.get('sort_stages_json')
+    if sort_stages_json is None:
+        rules = SortRule.objects.select_related('tag').order_by('stage', 'priority')
+        stages_dict = {}
+        for r in rules:
+            if r.stage not in stages_dict:
+                stages_dict[r.stage] = []
+            item = {
+                'type': r.rule_type,
+                'priority': r.priority,
+            }
+            if r.rule_type == 'tag':
+                item['tag_id'] = r.tag_id
+                item['tag_name'] = r.tag.name
+            else:
+                item['spec_condition'] = r.spec_condition
+            stages_dict[r.stage].append(item)
+        stages = [{'stage': s, 'rules': stages_dict[s]} for s in sorted(stages_dict.keys())]
+        sort_stages_json = json.dumps(stages)
+        cache.set('sort_stages_json', sort_stages_json, 3600)  # 缓存1小时
+
+    # ---------- 商品标签映射缓存 ----------
+    product_tags_map_json = cache.get('product_tags_map_json')
+    if product_tags_map_json is None:
+        products = Product.objects.filter(is_active=True).prefetch_related('tags')
+        tags_map = {}
+        for p in products:
+            tag_ids = list(p.tags.filter(is_active=True).values_list('id', flat=True))
+            if tag_ids:
+                tags_map[str(p.id)] = tag_ids
+        product_tags_map_json = json.dumps(tags_map)
+        cache.set('product_tags_map_json', product_tags_map_json, 3600)
+
     return render(request, 'bill/index.html', {
-        'is_super_admin': is_super_admin
+        'is_super_admin': is_super_admin,
+        'sort_stages_json': sort_stages_json,
+        'product_tags_map_json': product_tags_map_json,
     })
 
 
