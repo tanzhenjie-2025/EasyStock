@@ -6,7 +6,7 @@ from django.http import JsonResponse, HttpResponse
 
 from django.utils import timezone
 from .models import Order, OrderItem
-from product.models import Product, ProductAlias
+from product.models import Product, ProductAlias, ProductTag
 from customer_manage.models import Customer, CustomerPrice
 from area_manage.models import Area
 
@@ -399,6 +399,84 @@ def save_order(request):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'开单失败：{str(e)}'})
 
+# views.py 新增部分
+from django.shortcuts import render, redirect
+import json
+from django.shortcuts import render
+from django.contrib.auth.decorators import login_required, permission_required
+from django.http import JsonResponse
+from .models import SortRule, ProductTag
+
+@login_required
+@permission_required(PERM_ORDER_CREATE)
+def sort_rule_setting(request):
+    if request.method == 'POST':
+        try:
+            rules_data = json.loads(request.body).get('rules', [])
+            with transaction.atomic():
+                SortRule.objects.all().delete()
+                for item in rules_data:
+                    rule = SortRule(
+                        rule_type=item['type'],
+                        tag_id=item.get('tag_id') if item['type'] == 'tag' else None,
+                        spec_condition=item.get('spec_condition') if item['type'] == 'spec' else None,
+                        priority=item['priority']
+                    )
+                    rule.save()
+            return JsonResponse({'code': 1, 'msg': '规则保存成功'})
+        except Exception as e:
+            return JsonResponse({'code': 0, 'msg': f'保存失败：{str(e)}'})
+
+    # GET：提供 JSON 数据给前端渲染
+    rules_qs = SortRule.objects.select_related('tag').order_by('priority')
+    rules_data = []
+    for r in rules_qs:
+        item = {
+            'type': r.rule_type,
+            'priority': r.priority,
+            'tag_id': r.tag_id,
+            'spec_condition': r.spec_condition,
+        }
+        rules_data.append(item)
+    tags_data = [{'id': t.id, 'name': t.name} for t in ProductTag.objects.filter(is_active=True)]
+
+    return render(request, 'bill/sort_rule_setting.html', {
+        'rules_json': json.dumps(rules_data),
+        'tags_json': json.dumps(tags_data),
+    })
+
+
+# 获取排序规则 API（供开单页调用）
+@login_required
+@permission_required(PERM_ORDER_CREATE)
+def get_sort_rules(request):
+    rules = SortRule.objects.select_related('tag').order_by('priority')
+    data = []
+    for r in rules:
+        item = {
+            'type': r.rule_type,
+            'priority': r.priority,
+        }
+        if r.rule_type == 'tag':
+            item['tag_id'] = r.tag_id
+            item['tag_name'] = r.tag.name
+        else:
+            item['spec_condition'] = r.spec_condition  # 'has_spec' 或 'no_spec'
+        data.append(item)
+    return JsonResponse({'code': 1, 'data': data})
+
+# views.py
+@login_required
+@permission_required(PERM_PRODUCT_SEARCH)  # 或合适的权限
+def get_all_product_tags(request):
+    # 只返回启用且有标签的商品
+    products = Product.objects.filter(is_active=True).prefetch_related('tags')
+    data = {}
+    for p in products:
+        tag_ids = list(p.tags.filter(is_active=True).values_list('id', flat=True))
+        if tag_ids:
+            data[str(p.id)] = tag_ids
+    return JsonResponse({'code': 1, 'data': data})
 
 @login_required
 @permission_required(PERM_ORDER_VIEW)
