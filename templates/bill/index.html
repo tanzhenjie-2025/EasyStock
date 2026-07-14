@@ -336,45 +336,32 @@ box-sizing: border-box;
 <!-- 页面主体内容 -->
 {% block content %}
     <div class="content-container">
-        <h1>快速开单工具（表格版）</h1>
-        
-        <!-- 重开订单标识 -->
-        {% if reopen_order_data %}
-            <div class="reopen-tag">
-                🔄 重开订单：原作废单号 {{ reopen_order_data.order_no }}
-            </div>
-        {% endif %}
-
-        <!-- 客户输入框 + 最近购买按钮 -->
-        <div class="mb-3">
-            <label class="form-label me-2">选择客户：</label>
-            <input
-                type="text"
-                id="customerInput"
-                class="form-control form-control-sm"
-                style="width: 250px; display: inline-block;"
-                placeholder="输入区域/客户名（输入法式选择）"
-            >
-            <button 
-                id="btnRecentBuy" 
-                class="btn btn-sm btn-outline-secondary ms-2"
-                style="vertical-align: middle;"
-                onclick="openRecentBuyModal()"
-                disabled
-            >
-                用户最近购买
+    <!-- 标题行：左侧标题，右侧排序按钮 -->
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h1 class="mb-0">快速开单工具（表格版）</h1>
+        <div>
+            <button class="btn btn-sm btn-outline-primary" onclick="sortBillTable()" title="按规则排序">
+                📋 点击排序
+            </button>
+            <button class="btn btn-sm btn-outline-secondary ms-1" onclick="goToSortRules()" title="设置排序规则">
+                ⚙️ 排序规则
             </button>
         </div>
-
-        <button class="btn-add-row" onclick="addBlankRow()">新增空白行</button>
-    <div style="position: absolute; right: 0; top: 0; margin-top: 5px;">
-        <button class="btn btn-sm btn-outline-primary" onclick="sortBillTable()" title="按规则排序">
-            📋 点击排序
-        </button>
-        <button class="btn btn-sm btn-outline-secondary ms-1" onclick="window.open('/bill/sort-rules/', '_self')" title="设置排序规则">
-            ⚙️ 排序规则
-        </button>
     </div>
+
+    <!-- 重开订单标识 -->
+    {% if reopen_order_data %}
+        <div class="reopen-tag">🔄 重开订单：原作废单号 {{ reopen_order_data.order_no }}</div>
+    {% endif %}
+
+    <!-- 客户输入框 + 最近购买按钮 -->
+    <div class="mb-3">
+        <label class="form-label me-2">选择客户：</label>
+        <input type="text" id="customerInput" class="form-control form-control-sm" style="width: 250px; display: inline-block;" placeholder="输入区域/客户名（输入法式选择）">
+        <button id="btnRecentBuy" class="btn btn-sm btn-outline-secondary ms-2" style="vertical-align: middle;" onclick="openRecentBuyModal()" disabled>用户最近购买</button>
+    </div>
+
+    <button class="btn-add-row" onclick="addBlankRow()">新增空白行</button>
 
         <table class="bill-table" id="bill-table">
             <thead>
@@ -1601,5 +1588,11 @@ window.addEventListener('load', function() {
     loadSortRules();
     loadProductTagsMap();
 });
+    
+    function goToSortRules() {
+    if (confirm('确定要进入排序规则设置吗？当前开单内容可能不会保留。')) {
+        window.location.href = '/bill/sort-rules/';
+    }
+}
     </script>
 {% endblock %}

@@ -34,28 +34,65 @@
 </div>
 
 <script>
-    // 从后端渲染传递的规则列表和标签列表
-    let rules = JSON.parse('{{ rules_json|safe }}');
-    let tags = JSON.parse('{{ tags_json|safe }}');
+    // 安全解析 JSON，避免页面因数据格式错误完全不可用
+    let rules = [];
+    let tags = [];
+    try {
+        rules = JSON.parse('{{ rules_json|safe }}');
+        tags = JSON.parse('{{ tags_json|safe }}');
+    } catch (e) {
+        console.error('数据解析失败，请刷新页面', e);
+        alert('数据解析错误，请刷新页面');
+    }
+
+    // 确保 rules 是数组
+    if (!Array.isArray(rules)) rules = [];
 
     function renderRules() {
         let html = '';
-        rules.sort((a,b) => a.priority - b.priority);
+
+        // 如果没有任何规则，自动添加一条默认的空白规则，让用户立刻看到界面
+        if (rules.length === 0) {
+            rules.push({
+                type: 'tag',
+                priority: 1,
+                tag_id: tags.length > 0 ? tags[0].id : null,
+                spec_condition: null
+            });
+        }
+
+        // 按优先级排序
+        rules.sort((a, b) => (a.priority || 0) - (b.priority || 0));
+
         rules.forEach((rule, index) => {
+            // ① 确保优先级永远为数字
+            let priority = rule.priority;
+            if (priority === null || priority === undefined || isNaN(priority)) {
+                priority = 0;
+            }
+
+            // ② 生成具体内容列
             let typeHtml = '';
             if (rule.type === 'tag') {
-                typeHtml = `<select class="form-select tag-select" onchange="onRuleTypeChange(${index})">
-                    {% for tag in tags %}<option value="{{ tag.id }}" ${rule.tag_id == {{ tag.id }} ? 'selected' : ''}>{{ tag.name }}</option>{% endfor %}
-                </select>`;
-            } else {
+                if (tags.length === 0) {
+                    typeHtml = '<span class="text-danger">⚠️ 暂无可用标签，请先添加商品标签</span>';
+                } else {
+                    let options = tags.map(tag =>
+                        `<option value="${tag.id}" ${rule.tag_id == tag.id ? 'selected' : ''}>${tag.name}</option>`
+                    ).join('');
+                    typeHtml = `<select class="form-select tag-select" onchange="onRuleTypeChange(${index})">${options}</select>`;
+                }
+            } else { // 规格规则
                 typeHtml = `<select class="form-select spec-select" onchange="onSpecChange(${index})">
                     <option value="has_spec" ${rule.spec_condition === 'has_spec' ? 'selected' : ''}>有规格（整件）</option>
                     <option value="no_spec" ${rule.spec_condition === 'no_spec' ? 'selected' : ''}>无规格（散件）</option>
                 </select>`;
             }
+
+            // ③ 构建整行，优先级输入框明确使用数字变量
             html += `
             <tr>
-                <td><input type="number" class="form-control priority-input" value="${rule.priority}" min="0" onchange="updatePriority(${index}, this.value)"></td>
+                <td><input type="number" class="form-control priority-input" value="${priority}" min="0" onchange="updatePriority(${index}, this.value)"></td>
                 <td>
                     <select class="form-select" onchange="changeRuleType(${index}, this.value)">
                         <option value="tag" ${rule.type === 'tag' ? 'selected' : ''}>商品标签</option>
@@ -68,14 +105,16 @@
                 </td>
             </tr>`;
         });
+
         document.getElementById('ruleTbody').innerHTML = html;
     }
 
+    // 以下函数保持不变（仅列出一部分），完整保留您原有的 addRule、deleteRule 等即可
     function addRule() {
         let newRule = {
             type: 'tag',
             priority: rules.length + 1,
-            tag_id: tags[0] ? tags[0].id : null,
+            tag_id: tags.length > 0 ? tags[0].id : null,
             spec_condition: null
         };
         if (newRule.type === 'tag' && !newRule.tag_id) {
@@ -88,6 +127,7 @@
 
     function deleteRule(index) {
         rules.splice(index, 1);
+        // 如果删空了，renderRules 会自动补一行默认规则，保证界面一直可见
         renderRules();
     }
 
@@ -109,26 +149,26 @@
 
     function onRuleTypeChange(index) {
         const select = document.querySelectorAll('.tag-select')[index];
-        rules[index].tag_id = parseInt(select.value);
+        if (select) rules[index].tag_id = parseInt(select.value);
     }
 
     function onSpecChange(index) {
         const select = document.querySelectorAll('.spec-select')[index];
-        rules[index].spec_condition = select.value;
+        if (select) rules[index].spec_condition = select.value;
     }
-    
+
     function getCsrfToken() {
-    const name = 'csrftoken';
-    const cookies = document.cookie.split(';');
-    for (let c of cookies) {
-        c = c.trim();
-        if (c.startsWith(name + '=')) return decodeURIComponent(c.substring(name.length + 1));
+        const name = 'csrftoken';
+        const cookies = document.cookie.split(';');
+        for (let c of cookies) {
+            c = c.trim();
+            if (c.startsWith(name + '=')) return decodeURIComponent(c.substring(name.length + 1));
+        }
+        return '';
     }
-    return '';
-}
 
     async function saveRules() {
-        // 先同步优先级输入框的值
+        // 同步所有优先级输入框的值
         document.querySelectorAll('.priority-input').forEach((inp, idx) => {
             rules[idx].priority = parseInt(inp.value) || 0;
         });
@@ -138,7 +178,7 @@
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-CSRFToken': getCsrfToken() // 复用开单页已有的 csrf 函数
+                    'X-CSRFToken': getCsrfToken()
                 },
                 body: JSON.stringify({ rules })
             });
@@ -149,7 +189,7 @@
             } else {
                 alert('保存失败：' + data.msg);
             }
-        } catch(e) {
+        } catch (e) {
             alert('请求异常');
         }
     }

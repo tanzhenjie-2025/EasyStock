@@ -11,6 +11,7 @@ urlpatterns = [
     path('search-customer/', views.search_customer, name='search_customer'),  # 客户检索
     path('sort-rules/', views.sort_rule_setting, name='sort_rule_setting'),
     path('get-sort-rules/', views.get_sort_rules, name='get_sort_rules'),
+    path('get-all-product-tags/', views.get_all_product_tags, name='get_all_product_tags'),
     path('save-order/', views.save_order, name='save_order'),  # 保存订单
     path('print/<str:order_no>/', views.print_order, name='print_order'),  # 打印页面
 
