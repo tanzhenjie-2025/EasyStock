@@ -1567,6 +1567,7 @@ from openpyxl import load_workbook
 from collections import defaultdict
 from decimal import Decimal
 from django.db import transaction
+from django.db.models import Q
 
 @login_required
 @permission_required(PERM_ORDER_CREATE)
@@ -1635,7 +1636,7 @@ def import_orders(request):
             if pure_customer_name not in pure_name_area:
                 pure_name_area[pure_customer_name] = area_name
 
-        # ✅ 关键修改：仅非作废订单的商品参与自动创建
+        # 仅非作废订单的商品参与自动创建
         if status != 'cancelled':
             product_names.add(prod_name)
             product_key = (prod_name, unit)
@@ -1652,7 +1653,7 @@ def import_orders(request):
     existing_products = Product.objects.filter(name__in=product_names) if product_names else []
     product_map = {(p.name, p.unit): p for p in existing_products}
 
-    # 找出缺失的商品并创建（此时 product_create_info 仅包含非作废订单的商品）
+    # 找出缺失的商品并创建
     missing_product_keys = set(product_create_info.keys()) - set(product_map.keys())
 
     if missing_product_keys:
@@ -1669,10 +1670,16 @@ def import_orders(request):
             ))
         if new_products:
             created = Product.objects.bulk_create(new_products)
+            # ✅ 修复：重新查询获得带主键的商品对象，并更新映射
+            q_filter = Q()
             for p in created:
-                product_map[(p.name, p.unit)] = p
+                q_filter |= Q(name=p.name, unit=p.unit)
+            if q_filter:
+                fresh_products = Product.objects.filter(q_filter)
+                for p in fresh_products:
+                    product_map[(p.name, p.unit)] = p
 
-    # 批量查询现有客户、创建缺失客户（与之前一致）
+    # 批量查询现有客户、创建缺失客户
     customer_map = {}
     if pure_customer_names:
         existing_customers = Customer.objects.filter(name__in=pure_customer_names)
@@ -1740,7 +1747,6 @@ def import_orders(request):
                 amount = price * qty
                 total += amount
 
-                # 作废订单的商品可能不存在 product_map 中，product 可以为 None
                 product = product_map.get((prod_name, unit))
 
                 order_items.append(OrderItem(
