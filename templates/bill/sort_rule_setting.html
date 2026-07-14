@@ -4,116 +4,129 @@
 {% block content %}
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <h3>开单排序规则设置</h3>
+        <h3>开单排序规则设置（多阶段）</h3>
         <a href="/bill/" class="btn btn-outline-secondary">← 返回开单页</a>
     </div>
 
     <div class="alert alert-info">
-        规则按优先级排序（数字越小越靠前），执行排序时商品从上到下匹配第一个符合条件的规则。
+        <strong>排序说明：</strong>多个阶段按顺序执行，阶段1为最外层，阶段2在阶段1分组内排序，以此类推。<br>
+        同一阶段内的规则按优先级数字从小到大排列。未匹配任何规则的商品会排在当前阶段末尾。
     </div>
 
-    <form id="sortRuleForm">
-        <table class="table table-bordered">
-            <thead>
-                <tr>
-                    <th style="width:50px;">优先级</th>
-                    <th>规则类型</th>
-                    <th>具体内容</th>
-                    <th style="width:80px;">操作</th>
-                </tr>
-            </thead>
-            <tbody id="ruleTbody">
-                <!-- 动态生成 -->
-            </tbody>
-        </table>
-        <div class="mt-3">
-            <button type="button" class="btn btn-success" onclick="addRule()">+ 新增规则</button>
-            <button type="button" class="btn btn-primary ms-2" onclick="saveRules()">保存</button>
-        </div>
-    </form>
+    <div id="stageContainer">
+        <!-- 动态生成阶段卡片 -->
+    </div>
+
+    <div class="mt-3">
+        <button type="button" class="btn btn-success" onclick="addStage()">+ 新增阶段</button>
+        <button type="button" class="btn btn-primary ms-2" onclick="saveRules()">保存规则</button>
+    </div>
 </div>
 
 <script>
-    // 安全解析 JSON，避免页面因数据格式错误完全不可用
-    let rules = [];
+    let stages = [];     // [{stage:1, rules:[]}, ...]
     let tags = [];
+
     try {
-        rules = JSON.parse('{{ rules_json|safe }}');
+        stages = JSON.parse('{{ stages_json|safe }}');
         tags = JSON.parse('{{ tags_json|safe }}');
     } catch (e) {
-        console.error('数据解析失败，请刷新页面', e);
-        alert('数据解析错误，请刷新页面');
+        console.error('数据解析失败', e);
     }
 
-    // 确保 rules 是数组
-    if (!Array.isArray(rules)) rules = [];
-
-    function renderRules() {
+    // 渲染所有阶段
+    function renderAllStages() {
         let html = '';
+        stages.forEach((stage, stageIdx) => {
+            let rules = stage.rules || [];
+            html += `
+            <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <strong>阶段 ${stage.stage}</strong>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteStage(${stageIdx})">删除阶段</button>
+                </div>
+                <div class="card-body">
+                    <table class="table table-bordered table-sm">
+                        <thead>
+                            <tr>
+                                <th style="width:50px;">优先级</th>
+                                <th>规则类型</th>
+                                <th>具体内容</th>
+                                <th style="width:80px;">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="stage-${stageIdx}-tbody">
+                            ${renderRulesRows(stageIdx, rules)}
+                        </tbody>
+                    </table>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="addRule(${stageIdx})">+ 添加规则</button>
+                </div>
+            </div>`;
+        });
+        document.getElementById('stageContainer').innerHTML = html;
+    }
 
-        // 如果没有任何规则，自动添加一条默认的空白规则，让用户立刻看到界面
-        if (rules.length === 0) {
-            rules.push({
-                type: 'tag',
-                priority: 1,
-                tag_id: tags.length > 0 ? tags[0].id : null,
-                spec_condition: null
-            });
+    function renderRulesRows(stageIdx, rules) {
+        if (!rules.length) {
+            return `<tr><td colspan="4" class="text-muted">暂无规则，请添加</td></tr>`;
         }
-
         // 按优先级排序
         rules.sort((a, b) => (a.priority || 0) - (b.priority || 0));
-
-        rules.forEach((rule, index) => {
-            // ① 确保优先级永远为数字
-            let priority = rule.priority;
-            if (priority === null || priority === undefined || isNaN(priority)) {
-                priority = 0;
-            }
-
-            // ② 生成具体内容列
-            let typeHtml = '';
+        let rows = '';
+        rules.forEach((rule, ruleIdx) => {
+            let contentHtml = '';
             if (rule.type === 'tag') {
                 if (tags.length === 0) {
-                    typeHtml = '<span class="text-danger">⚠️ 暂无可用标签，请先添加商品标签</span>';
+                    contentHtml = '<span class="text-danger">⚠️ 无标签可用</span>';
                 } else {
                     let options = tags.map(tag =>
                         `<option value="${tag.id}" ${rule.tag_id == tag.id ? 'selected' : ''}>${tag.name}</option>`
                     ).join('');
-                    typeHtml = `<select class="form-select tag-select" onchange="onRuleTypeChange(${index})">${options}</select>`;
+                    contentHtml = `<select class="form-select form-select-sm tag-select" onchange="updateRuleTag(${stageIdx}, ${ruleIdx}, this.value)">${options}</select>`;
                 }
-            } else { // 规格规则
-                typeHtml = `<select class="form-select spec-select" onchange="onSpecChange(${index})">
+            } else {
+                contentHtml = `<select class="form-select form-select-sm spec-select" onchange="updateRuleSpec(${stageIdx}, ${ruleIdx}, this.value)">
                     <option value="has_spec" ${rule.spec_condition === 'has_spec' ? 'selected' : ''}>有规格（整件）</option>
                     <option value="no_spec" ${rule.spec_condition === 'no_spec' ? 'selected' : ''}>无规格（散件）</option>
                 </select>`;
             }
-
-            // ③ 构建整行，优先级输入框明确使用数字变量
-            html += `
+            rows += `
             <tr>
-                <td><input type="number" class="form-control priority-input" value="${priority}" min="0" onchange="updatePriority(${index}, this.value)"></td>
+                <td><input type="number" class="form-control form-control-sm priority-input" value="${rule.priority || 0}" min="0" onchange="updateRulePriority(${stageIdx}, ${ruleIdx}, this.value)"></td>
                 <td>
-                    <select class="form-select" onchange="changeRuleType(${index}, this.value)">
+                    <select class="form-select form-select-sm" onchange="changeRuleType(${stageIdx}, ${ruleIdx}, this.value)">
                         <option value="tag" ${rule.type === 'tag' ? 'selected' : ''}>商品标签</option>
                         <option value="spec" ${rule.type === 'spec' ? 'selected' : ''}>商品规格</option>
                     </select>
                 </td>
-                <td>${typeHtml}</td>
-                <td>
-                    <button type="button" class="btn btn-sm btn-danger" onclick="deleteRule(${index})">删除</button>
-                </td>
+                <td>${contentHtml}</td>
+                <td><button class="btn btn-sm btn-danger" onclick="deleteRule(${stageIdx}, ${ruleIdx})">删除</button></td>
             </tr>`;
         });
-
-        document.getElementById('ruleTbody').innerHTML = html;
+        return rows;
     }
 
-    // 以下函数保持不变（仅列出一部分），完整保留您原有的 addRule、deleteRule 等即可
-    function addRule() {
+    // 添加阶段
+    function addStage() {
+        let maxStage = stages.reduce((max, s) => Math.max(max, s.stage), 0);
+        stages.push({ stage: maxStage + 1, rules: [] });
+        renderAllStages();
+    }
+
+    // 删除阶段
+    function deleteStage(stageIdx) {
+        if (!confirm('确定删除这个阶段及其所有规则吗？')) return;
+        stages.splice(stageIdx, 1);
+        // 重新编号阶段
+        stages.forEach((s, i) => s.stage = i + 1);
+        renderAllStages();
+    }
+
+    // 添加规则
+    function addRule(stageIdx) {
         let newRule = {
             type: 'tag',
-            priority: rules.length + 1,
+            priority: (stages[stageIdx].rules.length || 0) + 1,
             tag_id: tags.length > 0 ? tags[0].id : null,
             spec_condition: null
         };
@@ -121,40 +134,40 @@
             newRule.type = 'spec';
             newRule.spec_condition = 'has_spec';
         }
-        rules.push(newRule);
-        renderRules();
+        stages[stageIdx].rules.push(newRule);
+        renderAllStages();
     }
 
-    function deleteRule(index) {
-        rules.splice(index, 1);
-        // 如果删空了，renderRules 会自动补一行默认规则，保证界面一直可见
-        renderRules();
+    // 删除规则
+    function deleteRule(stageIdx, ruleIdx) {
+        stages[stageIdx].rules.splice(ruleIdx, 1);
+        renderAllStages();
     }
 
-    function changeRuleType(index, newType) {
-        rules[index].type = newType;
+    // 修改规则类型
+    function changeRuleType(stageIdx, ruleIdx, newType) {
+        let rule = stages[stageIdx].rules[ruleIdx];
+        rule.type = newType;
         if (newType === 'tag') {
-            rules[index].tag_id = tags.length > 0 ? tags[0].id : null;
-            rules[index].spec_condition = null;
+            rule.tag_id = tags.length > 0 ? tags[0].id : null;
+            rule.spec_condition = null;
         } else {
-            rules[index].spec_condition = 'has_spec';
-            rules[index].tag_id = null;
+            rule.spec_condition = 'has_spec';
+            rule.tag_id = null;
         }
-        renderRules();
+        renderAllStages();
     }
 
-    function updatePriority(index, value) {
-        rules[index].priority = parseInt(value) || 0;
+    function updateRulePriority(stageIdx, ruleIdx, value) {
+        stages[stageIdx].rules[ruleIdx].priority = parseInt(value) || 0;
     }
 
-    function onRuleTypeChange(index) {
-        const select = document.querySelectorAll('.tag-select')[index];
-        if (select) rules[index].tag_id = parseInt(select.value);
+    function updateRuleTag(stageIdx, ruleIdx, tagId) {
+        stages[stageIdx].rules[ruleIdx].tag_id = parseInt(tagId);
     }
 
-    function onSpecChange(index) {
-        const select = document.querySelectorAll('.spec-select')[index];
-        if (select) rules[index].spec_condition = select.value;
+    function updateRuleSpec(stageIdx, ruleIdx, value) {
+        stages[stageIdx].rules[ruleIdx].spec_condition = value;
     }
 
     function getCsrfToken() {
@@ -168,11 +181,13 @@
     }
 
     async function saveRules() {
-        // 同步所有优先级输入框的值
-        document.querySelectorAll('.priority-input').forEach((inp, idx) => {
-            rules[idx].priority = parseInt(inp.value) || 0;
+        // 同步所有输入框
+        document.querySelectorAll('.priority-input').forEach(inp => {
+            // 用data属性定位，但简单起见我们不需要，因为每次render后重新绑定，此处直接遍历表单获取也可行
+            // 但为保险，我们已经通过onchange更新了stages变量，所以直接保存即可
         });
 
+        let payload = { stages };
         try {
             const res = await fetch('/bill/sort-rules/', {
                 method: 'POST',
@@ -180,7 +195,7 @@
                     'Content-Type': 'application/json',
                     'X-CSRFToken': getCsrfToken()
                 },
-                body: JSON.stringify({ rules })
+                body: JSON.stringify(payload)
             });
             const data = await res.json();
             if (data.code === 1) {
@@ -194,7 +209,7 @@
         }
     }
 
-    // 初始化渲染
-    renderRules();
+    // 初始渲染
+    renderAllStages();
 </script>
 {% endblock %}

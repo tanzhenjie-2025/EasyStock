@@ -1485,65 +1485,61 @@ function customerGoToPage(delta) {
                 const customerInput = document.getElementById('customerInput');
                 if (customerInput) customerInput.focus();
             {% endif %}
+        
+        loadSortRules();
+    loadProductTagsMap();
         };
         
-        // ========== 排序相关 ==========
-let sortRulesCache = null;  // 缓存的排序规则
+       // ========== 排序相关（多阶段） ==========
+let sortStagesCache = [];     // [{stage:1, rules:[...]}, ...]
 
-// 页面加载时获取排序规则
+// 加载排序规则
 async function loadSortRules() {
     try {
         const res = await fetch('/bill/get-sort-rules/');
         const data = await res.json();
         if (data.code === 1) {
-            sortRulesCache = data.data;
+            sortStagesCache = data.data;
         }
     } catch (e) {
         console.error('获取排序规则失败:', e);
     }
 }
 
-// 获取某行商品的优先级索引（越小越靠前）
-function getRowSortOrder(tr, rules) {
-    // 收集行的标签和规格信息
+// 获取某行商品在单个阶段内的排序值
+function getStageOrderValue(tr, stageRules) {
     const nameInput = tr.querySelector('.name-input');
     const productId = nameInput?.dataset?.productId;
     const specInput = tr.querySelector('.spec-input');
-    const hasSpec = specInput && specInput.value.trim() !== '';   // 有规格即为整件
+    const hasSpec = specInput && specInput.value.trim() !== '';
 
-    // 获取商品标签集合（需要额外数据：商品标签列表）
-    // 临时商品或未关联商品：无标签
     let tagIds = [];
-    if (productId) {
-        // 从商品数据中获取标签，但页面中没有直接存标签，需要另外加载。
-        // 简单方案：预加载所有商品标签映射，或通过行上 dataset 存储。
-        // 这里我们采用从后端直接返回标签列表给前端缓存。
-        const productTags = window.productTagsMap ? (window.productTagsMap[productId] || []) : [];
-        tagIds = productTags;
+    if (productId && window.productTagsMap && window.productTagsMap[productId]) {
+        tagIds = window.productTagsMap[productId];
     }
 
-    // 遍历规则，找到第一个匹配的优先级
-    for (let rule of rules) {
+    // 遍历当前阶段的规则（已按priority升序），返回第一个匹配的priority
+    for (let rule of stageRules) {
         if (rule.type === 'tag') {
             if (tagIds.includes(rule.tag_id)) {
-                return rule.priority * 1000; // 用优先级乘基数保证顺序
+                return rule.priority;
             }
         } else if (rule.type === 'spec') {
             if (rule.spec_condition === 'has_spec' && hasSpec) {
-                return rule.priority * 1000;
+                return rule.priority;
             }
             if (rule.spec_condition === 'no_spec' && !hasSpec) {
-                return rule.priority * 1000;
+                return rule.priority;
             }
         }
     }
-    // 无匹配规则，返回最大优先级 +1
-    return (rules.length + 1) * 1000;
+    // 未匹配：返回一个很大的值，保证排最后
+    return 9999;
 }
 
-// 执行排序
+// 执行多阶段排序
 function sortBillTable() {
-    if (!sortRulesCache || sortRulesCache.length === 0) {
+    if (!sortStagesCache || sortStagesCache.length === 0) {
         alert('暂无排序规则，请先设置排序规则。');
         return;
     }
@@ -1551,25 +1547,38 @@ function sortBillTable() {
     const tbody = document.getElementById('bill-tbody');
     const rows = Array.from(tbody.querySelectorAll('tr'));
 
-    // 为每行计算排序权重
-    const rowsWithOrder = rows.map(row => {
-        const order = getRowSortOrder(row, sortRulesCache);
-        return { row, order };
+    // 为每一行生成排序键数组
+    const rowsWithKeys = rows.map(row => {
+        const sortKey = [];
+        for (let stage of sortStagesCache) {
+            sortKey.push(getStageOrderValue(row, stage.rules || []));
+        }
+        return { row, sortKey };
     });
 
-    // 稳定排序
-    rowsWithOrder.sort((a, b) => a.order - b.order);
+    // 多级排序：依次比较每个阶段的值
+    rowsWithKeys.sort((a, b) => {
+        for (let i = 0; i < Math.max(a.sortKey.length, b.sortKey.length); i++) {
+            let va = a.sortKey[i] !== undefined ? a.sortKey[i] : 9999;
+            let vb = b.sortKey[i] !== undefined ? b.sortKey[i] : 9999;
+            if (va !== vb) return va - vb;
+        }
+        return 0;
+    });
 
     // 重新插入表格
     tbody.innerHTML = '';
-    rowsWithOrder.forEach(({ row }) => tbody.appendChild(row));
+    rowsWithKeys.forEach(({ row }) => tbody.appendChild(row));
 
-    // 更新序号
     updateRowNumbers();
     calcTotalAmount();
 }
 
-// 加载商品标签映射（所有启用商品 → 其标签ID列表）
+function goToSortRules() {
+    if (confirm('确定要进入排序规则设置吗？当前开单内容可能不会保留。')) {
+        window.location.href = '/bill/sort-rules/';
+    }
+}
 async function loadProductTagsMap() {
     try {
         const res = await fetch('/bill/get-all-product-tags/');
@@ -1579,19 +1588,6 @@ async function loadProductTagsMap() {
         }
     } catch (e) {
         console.error('加载商品标签映射失败:', e);
-    }
-}
-
-// 在页面初始化时调用
-window.addEventListener('load', function() {
-    // 原有初始化代码保留...
-    loadSortRules();
-    loadProductTagsMap();
-});
-    
-    function goToSortRules() {
-    if (confirm('确定要进入排序规则设置吗？当前开单内容可能不会保留。')) {
-        window.location.href = '/bill/sort-rules/';
     }
 }
     </script>

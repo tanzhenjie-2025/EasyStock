@@ -190,7 +190,7 @@ class OrderItem(models.Model):
 
 # models.py 新增
 class SortRule(models.Model):
-    """开单排序规则"""
+    """开单排序规则（支持多阶段）"""
     RULE_TYPE_CHOICES = (
         ('tag', '商品标签'),
         ('spec', '商品规格'),
@@ -200,6 +200,7 @@ class SortRule(models.Model):
         ('no_spec', '无规格（散件）'),
     )
 
+    stage = models.PositiveSmallIntegerField('排序阶段', default=1, help_text='第几层排序，1为最外层')
     rule_type = models.CharField('规则类型', max_length=10, choices=RULE_TYPE_CHOICES)
     tag = models.ForeignKey(
         ProductTag, on_delete=models.CASCADE, null=True, blank=True,
@@ -209,24 +210,20 @@ class SortRule(models.Model):
         '规格条件', max_length=20, choices=SPEC_CONDITION_CHOICES,
         null=True, blank=True, help_text='仅当类型为“商品规格”时有效'
     )
-    priority = models.IntegerField('优先级', default=0, help_text='数字越小优先级越高')
+    priority = models.IntegerField('优先级', default=0, help_text='同阶段内数字越小越靠前')
 
     is_active = models.BooleanField('启用', default=True, db_index=True)
 
     class Meta:
         verbose_name = '排序规则'
         verbose_name_plural = '排序规则'
-        ordering = ['priority', 'id']
+        ordering = ['stage', 'priority', 'id']
         indexes = [
-            models.Index(fields=['rule_type', 'priority']),
+            models.Index(fields=['stage', 'rule_type', 'priority']),
         ]
 
     def __str__(self):
-        if self.rule_type == 'tag' and self.tag:
-            return f'标签“{self.tag.name}” - 优先级{self.priority}'
-        elif self.rule_type == 'spec':
-            return f'规格“{self.get_spec_condition_display()}” - 优先级{self.priority}'
-        return f'未知规则 - 优先级{self.priority}'
+        return f'[阶段{self.stage}] {self.get_rule_type_display()} - 优先级{self.priority}'
 
     def clean(self):
         from django.core.exceptions import ValidationError
@@ -234,8 +231,3 @@ class SortRule(models.Model):
             raise ValidationError('标签类型规则必须选择标签')
         if self.rule_type == 'spec' and not self.spec_condition:
             raise ValidationError('规格类型规则必须选择规格条件')
-        if self.rule_type == 'tag' and self.spec_condition:
-            raise ValidationError('标签类型规则不能设置规格条件')
-        if self.rule_type == 'spec' and self.tag:
-            raise ValidationError('规格类型规则不能关联标签')
-

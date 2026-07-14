@@ -399,60 +399,77 @@ def save_order(request):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'开单失败：{str(e)}'})
 
-# views.py 新增部分
-from django.shortcuts import render, redirect
+from django.db import transaction
+from .models import SortRule, ProductTag
 import json
-from django.shortcuts import render
 from django.contrib.auth.decorators import login_required, permission_required
 from django.http import JsonResponse
-from .models import SortRule, ProductTag
+from django.shortcuts import render
 
 @login_required
 @permission_required(PERM_ORDER_CREATE)
 def sort_rule_setting(request):
     if request.method == 'POST':
         try:
-            rules_data = json.loads(request.body).get('rules', [])
+            data = json.loads(request.body)
+            stages = data.get('stages', [])   # [{stage:1, rules:[...]}, ...]
             with transaction.atomic():
                 SortRule.objects.all().delete()
-                for item in rules_data:
-                    rule = SortRule(
-                        rule_type=item['type'],
-                        tag_id=item.get('tag_id') if item['type'] == 'tag' else None,
-                        spec_condition=item.get('spec_condition') if item['type'] == 'spec' else None,
-                        priority=item['priority']
-                    )
-                    rule.save()
+                for stage_info in stages:
+                    stage_num = stage_info['stage']
+                    for rule in stage_info.get('rules', []):
+                        SortRule.objects.create(
+                            stage=stage_num,
+                            rule_type=rule['type'],
+                            tag_id=rule.get('tag_id') if rule['type'] == 'tag' else None,
+                            spec_condition=rule.get('spec_condition') if rule['type'] == 'spec' else None,
+                            priority=rule['priority']
+                        )
             return JsonResponse({'code': 1, 'msg': '规则保存成功'})
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'保存失败：{str(e)}'})
 
-    # GET：提供 JSON 数据给前端渲染
-    rules_qs = SortRule.objects.select_related('tag').order_by('priority')
-    rules_data = []
+    # GET：返回按阶段分组的数据
+    rules_qs = SortRule.objects.select_related('tag').order_by('stage', 'priority')
+    stages_dict = {}
     for r in rules_qs:
-        item = {
+        if r.stage not in stages_dict:
+            stages_dict[r.stage] = []
+        stages_dict[r.stage].append({
             'type': r.rule_type,
             'priority': r.priority,
             'tag_id': r.tag_id,
+            'tag_name': r.tag.name if r.tag else '',
             'spec_condition': r.spec_condition,
-        }
-        rules_data.append(item)
-    tags_data = [{'id': t.id, 'name': t.name} for t in ProductTag.objects.filter(is_active=True)]
+        })
 
+    stages_data = []
+    for stage_num in sorted(stages_dict.keys()):
+        stages_data.append({
+            'stage': stage_num,
+            'rules': stages_dict[stage_num]
+        })
+
+    # 如果没有阶段，给一个默认空阶段供界面展示
+    if not stages_data:
+        stages_data.append({'stage': 1, 'rules': []})
+
+    tags_data = [{'id': t.id, 'name': t.name} for t in ProductTag.objects.filter(is_active=True)]
     return render(request, 'bill/sort_rule_setting.html', {
-        'rules_json': json.dumps(rules_data),
+        'stages_json': json.dumps(stages_data),
         'tags_json': json.dumps(tags_data),
     })
 
 
-# 获取排序规则 API（供开单页调用）
 @login_required
 @permission_required(PERM_ORDER_CREATE)
 def get_sort_rules(request):
-    rules = SortRule.objects.select_related('tag').order_by('priority')
-    data = []
+    """供开单页调用的排序规则 API，返回阶段分组数组"""
+    rules = SortRule.objects.select_related('tag').order_by('stage', 'priority')
+    stages_dict = {}
     for r in rules:
+        if r.stage not in stages_dict:
+            stages_dict[r.stage] = []
         item = {
             'type': r.rule_type,
             'priority': r.priority,
@@ -461,9 +478,16 @@ def get_sort_rules(request):
             item['tag_id'] = r.tag_id
             item['tag_name'] = r.tag.name
         else:
-            item['spec_condition'] = r.spec_condition  # 'has_spec' 或 'no_spec'
-        data.append(item)
-    return JsonResponse({'code': 1, 'data': data})
+            item['spec_condition'] = r.spec_condition
+        stages_dict[r.stage].append(item)
+
+    stages = []
+    for stage_num in sorted(stages_dict.keys()):
+        stages.append({
+            'stage': stage_num,
+            'rules': stages_dict[stage_num]
+        })
+    return JsonResponse({'code': 1, 'data': stages})
 
 # views.py
 @login_required
