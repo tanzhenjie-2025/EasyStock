@@ -1707,6 +1707,7 @@ from collections import defaultdict
 from decimal import Decimal
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 
 @login_required
 @permission_required(PERM_ORDER_CREATE)
@@ -1729,11 +1730,40 @@ def import_orders(request):
         return JsonResponse({'code': 0, 'msg': 'Excel 无数据'})
 
     order_groups = defaultdict(list)
-    area_names = set()
+    area_names = set()               # 收集所有出现的区域名（用于批量查询/创建）
     product_names = set()
     pure_customer_names = set()
-    pure_name_area = {}
-    product_create_info = {}
+    pure_name_area = {}              # 记录纯客户名对应的最终区域名（用于创建客户）
+    product_create_info = {}         # 键为 (商品名称, 单位)
+
+    # 辅助函数：从客户名称中解析出区域和纯客户名
+    def parse_customer_name(raw_name, given_area):
+        """
+        返回 (解析出的区域名, 纯客户名)
+        规则：
+        - 如果 given_area 非空：则区域就是 given_area，直接从 raw_name 去掉前缀得到纯客户名
+        - 如果 given_area 为空：尝试从 raw_name 按 " | " 分割提取区域和客户名
+          - 若包含 " | "，则第一部分为区域，剩余为纯客户名
+          - 若不包含，则区域为空，纯客户名就是 raw_name
+        """
+        if given_area:
+            # 区域明确给出，客户名称前缀应当匹配
+            prefix = given_area + " | "
+            if raw_name.startswith(prefix):
+                pure = raw_name[len(prefix):].strip()
+            else:
+                pure = raw_name  # 容错：若不匹配，保留原样
+            return given_area, pure
+        else:
+            # 区域为空，尝试从客户名称解析
+            if " | " in raw_name:
+                parts = raw_name.split(" | ", 1)
+                extracted_area = parts[0].strip()
+                pure = parts[1].strip()
+                return extracted_area, pure
+            else:
+                # 无分隔符，无法提取区域
+                return "", raw_name
 
     for row in rows:
         if len(row) < 9:
@@ -1754,11 +1784,10 @@ def import_orders(request):
             price = Decimal('0')
         status = str(row[9]).strip() if len(row) > 9 and row[9] else 'pending'
 
-        pure_customer_name = raw_customer_name
-        if area_name and raw_customer_name.startswith(area_name + " | "):
-            pure_customer_name = raw_customer_name[len(area_name) + 3:].strip()
+        # 根据 Excel 区域列和客户名称解析最终的区域和纯客户名
+        final_area, pure_customer_name = parse_customer_name(raw_customer_name, area_name)
 
-        order_key = (order_no, raw_customer_name, area_name)
+        order_key = (order_no, raw_customer_name, area_name)  # 仍用原始值分组
         order_groups[order_key].append({
             'product_name': prod_name,
             'spec': spec,
@@ -1767,13 +1796,17 @@ def import_orders(request):
             'price': price,
             'status': status,
             'pure_customer_name': pure_customer_name,
+            'area_name': final_area,   # 传递解析后的区域名，方便后续创建订单
         })
 
-        area_names.add(area_name)
+        # 收集区域名（仅非空才加入集合，便于创建）
+        if final_area:
+            area_names.add(final_area)
         if pure_customer_name:
             pure_customer_names.add(pure_customer_name)
+            # 记录该纯客户名对应的区域（用于后续创建客户时关联区域）
             if pure_customer_name not in pure_name_area:
-                pure_name_area[pure_customer_name] = area_name
+                pure_name_area[pure_customer_name] = final_area
 
         # 仅非作废订单的商品参与自动创建
         if status != 'cancelled':
@@ -1785,16 +1818,25 @@ def import_orders(request):
                     'price': price,
                 }
 
-    # 批量查询区域
-    area_map = {a.name: a for a in Area.objects.filter(name__in=area_names)} if area_names else {}
+    # ========== 1. 批量查询现有区域，并创建缺失的区域 ==========
+    area_map = {}
+    if area_names:
+        existing_areas = Area.objects.filter(name__in=area_names)
+        area_map = {a.name: a for a in existing_areas}
+        missing_areas = area_names - set(area_map.keys())
+        if missing_areas:
+            new_areas = [Area(name=name) for name in missing_areas if name]  # 过滤空字符串
+            if new_areas:
+                created = Area.objects.bulk_create(new_areas)
+                # 将新创建的区域加入映射
+                for area in created:
+                    area_map[area.name] = area
 
-    # 批量查询现有商品（仅非作废订单涉及的商品名）
+    # ========== 2. 批量查询现有商品，并创建缺失的商品 ==========
     existing_products = Product.objects.filter(name__in=product_names) if product_names else []
     product_map = {(p.name, p.unit): p for p in existing_products}
 
-    # 找出缺失的商品并创建
     missing_product_keys = set(product_create_info.keys()) - set(product_map.keys())
-
     if missing_product_keys:
         new_products = []
         for pname, punit in missing_product_keys:
@@ -1809,7 +1851,6 @@ def import_orders(request):
             ))
         if new_products:
             created = Product.objects.bulk_create(new_products)
-            # ✅ 修复：重新查询获得带主键的商品对象，并更新映射
             q_filter = Q()
             for p in created:
                 q_filter |= Q(name=p.name, unit=p.unit)
@@ -1818,7 +1859,7 @@ def import_orders(request):
                 for p in fresh_products:
                     product_map[(p.name, p.unit)] = p
 
-    # 批量查询现有客户、创建缺失客户
+    # ========== 3. 批量查询现有客户，并创建缺失的客户 ==========
     customer_map = {}
     if pure_customer_names:
         existing_customers = Customer.objects.filter(name__in=pure_customer_names)
@@ -1828,17 +1869,17 @@ def import_orders(request):
         if missing_names:
             new_customers = []
             for pure_name in missing_names:
-                area_name = pure_name_area.get(pure_name)
-                area = area_map.get(area_name) if area_name else None
-                if area:
-                    new_customers.append(Customer(name=pure_name, area=area))
+                area_name_for_customer = pure_name_area.get(pure_name)
+                area = area_map.get(area_name_for_customer) if area_name_for_customer else None
+                # 只要名称存在就创建，区域可以为空
+                new_customers.append(Customer(name=pure_name, area=area))
             if new_customers:
                 created = Customer.objects.bulk_create(new_customers)
                 created_names = [c.name for c in created]
                 for c in Customer.objects.filter(name__in=created_names):
                     customer_map[c.name] = c
 
-    # 已存在订单编号检查
+    # ========== 4. 已存在订单编号检查 ==========
     existing_orders = set(
         Order.objects.filter(order_no__in=[k[0] for k in order_groups if k[0]])
         .values_list('order_no', flat=True)
@@ -1847,13 +1888,17 @@ def import_orders(request):
     success_count = 0
     skip_count = 0
 
+    # ========== 5. 事务中创建订单和订单明细 ==========
     with transaction.atomic():
         for (order_no, raw_customer_name, area_name), items in order_groups.items():
             if order_no and order_no in existing_orders:
                 skip_count += 1
                 continue
 
-            area = area_map.get(area_name) if area_name else None
+            # 从 items 的第一个元素获取解析后的区域名和纯客户名
+            final_area_name = items[0]['area_name']
+            area = area_map.get(final_area_name) if final_area_name else None
+
             pure_customer_name = items[0]['pure_customer_name']
             customer = customer_map.get(pure_customer_name) if pure_customer_name else None
             status = items[0]['status']
