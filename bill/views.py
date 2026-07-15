@@ -1887,6 +1887,7 @@ def import_orders(request):
                     product_map[(p.name, p.unit)] = p
 
     # ========== 3. 批量查询现有客户，并创建缺失的客户 ==========
+    # ========== 3. 批量查询现有客户，并创建缺失的客户 ==========
     customer_map = {}
     if pure_customer_names:
         existing_customers = Customer.objects.filter(name__in=pure_customer_names)
@@ -1898,13 +1899,20 @@ def import_orders(request):
             for pure_name in missing_names:
                 area_name_for_customer = pure_name_area.get(pure_name)
                 area = area_map.get(area_name_for_customer) if area_name_for_customer else None
-                # 只要名称存在就创建，区域可以为空
                 new_customers.append(Customer(name=pure_name, area=area))
-            if new_customers:
-                created = Customer.objects.bulk_create(new_customers)
-                created_names = [c.name for c in created]
-                for c in Customer.objects.filter(name__in=created_names):
+            try:
+                Customer.objects.bulk_create(new_customers, ignore_conflicts=True)  # 添加 ignore_conflicts
+                # 补全 customer_map
+                for c in Customer.objects.filter(name__in=missing_names):
                     customer_map[c.name] = c
+            except Exception:
+                # 降级为逐个创建（兼容低版本 Django）
+                for c_obj in new_customers:
+                    obj, created = Customer.objects.get_or_create(
+                        name=c_obj.name,
+                        defaults={'area': c_obj.area}
+                    )
+                    customer_map[obj.name] = obj
 
     # ========== 4. 已存在订单编号检查 ==========
     existing_orders = set(
