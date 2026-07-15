@@ -882,6 +882,7 @@ function customerGoToPage(delta) {
     if (!item || !currentCustomerInput) return;
     currentCustomerInput.value = item.full_name;
     currentCustomerInput.dataset.customerId = item.id;
+    currentCustomerInput.dataset.customerName = item.full_name;   // 👈 新增这一行
     currentCustomerInput.dispatchEvent(new Event('change'));
     hideSuggest();
 }
@@ -1132,8 +1133,14 @@ function customerGoToPage(delta) {
         // ========== 保存/打印/重置 (保持原样) ==========
         async function saveOrder() {
     const customerInput = document.getElementById('customerInput');
-    const customerId = customerInput.dataset.customerId || '';
+    let customerId = customerInput.dataset.customerId || '';
     const customerName = customerInput.value.trim();
+    
+    // 👇 关键修改：如果输入框文本与最初选中的名称不一致，丢弃 customerId
+    const savedCustomerName = customerInput.dataset.customerName || '';
+    if (customerName !== savedCustomerName) {
+        customerId = '';   // 视为自由输入的客户，不关联原ID
+    }
 
     const items = [];
     document.querySelectorAll('#bill-tbody tr').forEach(tr => {
@@ -1473,6 +1480,7 @@ function customerGoToPage(delta) {
                 const customerInput = document.getElementById('customerInput');
                 customerInput.value = "{{ reopen_order_data.customer_name }}";  // 改用快照名称
                 customerInput.dataset.customerId = "{{ reopen_order_data.customer_id }}";
+                customerInput.dataset.customerName = "{{ reopen_order_data.customer_name }}";
                 customerInput.dispatchEvent(new Event('change'));
 
                 document.getElementById('bill-tbody').innerHTML = '';
