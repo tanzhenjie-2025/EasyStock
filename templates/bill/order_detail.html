@@ -207,13 +207,18 @@
         <button class="btn btn-secondary" onclick="goBackSmartly()">返回</button>
         {% endif %}
 
+    <!-- 🔥 新增：打印按钮 -->
+    {% if order.status != 'cancelled' %}
+    <a href="{% url 'bill:print_order' order.order_no %}" class="btn btn-primary ms-2">打印</a>
+    {% endif %}
     
     {% if not order.is_settled and order.status != 'cancelled' %}
     <button class="btn btn-success ms-2" data-bs-toggle="modal" data-bs-target="#settleModal">
         标记结清
     </button>
     {% endif %}
-    
+
+
     {% if is_super_admin and order.is_settled %}
     <button class="btn btn-warning ms-2" data-bs-toggle="modal" data-bs-target="#unsettleModal">
         撤销结清
