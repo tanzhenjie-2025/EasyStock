@@ -101,6 +101,7 @@ def search_unit(request):
 
 @permission_required(PERM_PRODUCT_VIEW)
 def product_manage(request):
+    no_tag = request.GET.get('no_tag', '0').strip() == '1'
     page = request.GET.get('page', 1)
     keyword = request.GET.get('keyword', '').strip()
     status = request.GET.get('status', 'all')
@@ -147,8 +148,9 @@ def product_manage(request):
         product_count=Count('products')
     ).order_by('sort_order', '-id')
 
-    # ====================== 商品查询缓存 ======================
-    cache_key = f"{CACHE_PREFIX_PRODUCT_LIST}{keyword}:{page}:{status}:{','.join(tag_ids)}"
+    # 修改缓存 key，把 no_tag 也加进去
+    cache_key = f"{CACHE_PREFIX_PRODUCT_LIST}{keyword}:{page}:{status}:{','.join(tag_ids)}:{no_tag}"
+
     cached_data = cache.get(cache_key)
 
     if cached_data:
@@ -183,7 +185,13 @@ def product_manage(request):
         if tag_ids:
             products_query = products_query.filter(tags__id__in=tag_ids).distinct()
 
-        # 优化：合并商品状态统计为一次查询
+        # 新增：无标签筛选（使用子查询判断不存在关联标签）
+        if no_tag:
+            products_query = products_query.annotate(
+                tag_count=Count('tags')
+            ).filter(tag_count=0)
+
+        # 优化：合并商品状态统计为一次查询（不考虑 no_tag 的统计，仍统计全体）
         count_stats = Product.all_objects.aggregate(
             count_all=Count('id'),
             count_active=Count(Case(When(is_active=True, then=1))),
@@ -191,7 +199,7 @@ def product_manage(request):
         )
 
         # 分页总数缓存
-        count_cache_key = f"{CACHE_PREFIX_PRODUCT_COUNT}{keyword}:{status}:{','.join(tag_ids)}"
+        count_cache_key = f"{CACHE_PREFIX_PRODUCT_COUNT}{keyword}:{status}:{','.join(tag_ids)}:{no_tag}"
         total_count = cache.get(count_cache_key)
         if total_count is None:
             total_count = products_query.count()
@@ -207,7 +215,7 @@ def product_manage(request):
         except EmptyPage:
             page_products = paginator.page(paginator.num_pages)
 
-        # 序列化商品数据（仅缓存必要字段）
+        # 序列化商品数据
         product_list_data = []
         for product in page_products:
             product_list_data.append({
@@ -215,7 +223,7 @@ def product_manage(request):
                 'name': product.name,
                 'price': float(product.price),
                 'unit': product.unit,
-                'specification': product.specification,  # 新增：规格
+                'specification': product.specification,
                 'stock_system': product.stock_system,
                 'stock_actual': product.stock_actual,
                 'aliases': [{'id': a.id, 'alias_name': a.alias_name} for a in product.aliases.all()],
@@ -289,6 +297,7 @@ def product_manage(request):
         'count_unit_all': count_unit_all,
         'count_unit_active': count_unit_active,
         'count_unit_inactive': count_unit_inactive,
+        'no_tag': no_tag,
     }
 
     return render(request, 'product/product_manage.html', context)

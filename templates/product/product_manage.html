@@ -474,11 +474,12 @@ input:checked + .slider:before{transform:translateX(26px);}
 </div>
 
             <!-- 状态筛选 -->
-            <div class="status-filter">
-                <a href="?active_tab=list&status=all&keyword={{ keyword }}" class="btn {% if status == 'all' %}btn-primary{% else %}btn-default{% endif %}">全部({{ count_all }})</a>
-                <a href="?active_tab=list&status=active&keyword={{ keyword }}" class="btn {% if status == 'active' %}btn-primary{% else %}btn-default{% endif %}">启用({{ count_active }})</a>
-                <a href="?active_tab=list&status=inactive&keyword={{ keyword }}" class="btn {% if status == 'inactive' %}btn-primary{% else %}btn-default{% endif %}">停用({{ count_inactive }})</a>
-            </div>
+<div class="status-filter">
+    <a href="?active_tab=list&status=all&keyword={{ keyword }}" class="btn {% if status == 'all' and not no_tag %}btn-primary{% else %}btn-default{% endif %}">全部({{ count_all }})</a>
+    <a href="?active_tab=list&status=active&keyword={{ keyword }}" class="btn {% if status == 'active' and not no_tag %}btn-primary{% else %}btn-default{% endif %}">启用({{ count_active }})</a>
+    <a href="?active_tab=list&status=inactive&keyword={{ keyword }}" class="btn {% if status == 'inactive' and not no_tag %}btn-primary{% else %}btn-default{% endif %}">停用({{ count_inactive }})</a>
+   
+</div>
         </div>
 
         <!-- -------------------- Tab 2: 标签操作 (需求1 & 2 修改重点) -------------------- -->
@@ -531,6 +532,8 @@ input:checked + .slider:before{transform:translateX(26px);}
 {% if can_add_product %}
         <button class="btn btn-success" onclick="showAddTagModal()">新建标签</button>
         {% endif %}
+         <!-- 新增：无标签筛选 -->
+    <a href="?active_tab=list&status=all&keyword={{ keyword }}&no_tag=1" class="btn {% if no_tag %}btn-primary{% else %}btn-default{% endif %}">🏷️ 无标签</a>
     </div>
 
     <!-- 现有标签预览 -->
