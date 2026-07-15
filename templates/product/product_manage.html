@@ -340,6 +340,71 @@ input:checked + .slider:before{transform:translateX(26px);}
     flex-shrink: 0;
     min-height: 60px; /* 关键：预留最小高度 */
 }
+/* 可搜索标签选择器 */
+.searchable-select {
+    position: relative;
+    width: 100%;
+}
+.searchable-input-wrap {
+    position: relative;
+    cursor: pointer;
+}
+.searchable-input {
+    width: 100%;
+    padding: 7px 30px 7px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fff;
+    cursor: pointer;
+    box-sizing: border-box;
+}
+.searchable-arrow {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 12px;
+    color: #666;
+    pointer-events: none;
+}
+.searchable-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 9999;
+    background: #fff;
+    border: 1px solid #ddd;
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+.searchable-filter {
+    width: 100%;
+    padding: 8px;
+    border: none;
+    border-bottom: 1px solid #eee;
+    box-sizing: border-box;
+    outline: none;
+}
+.searchable-options {
+    max-height: 200px;
+    overflow-y: auto;
+}
+.searchable-option {
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 14px;
+    border-bottom: 1px solid #f4f4f4;
+    transition: background 0.2s;
+}
+.searchable-option:hover {
+    background: #e7f3ff;
+}
+.searchable-option.selected {
+    background: #cce5ff;
+    font-weight: 600;
+}
 </style>
 {% endblock %}
 
@@ -359,7 +424,7 @@ input:checked + .slider:before{transform:translateX(26px);}
                 🏷️ 标签操作
             </button>
         </li>
-        
+
         <li class="nav-item" role="presentation">
     <button class="nav-link {% if active_tab == 'unit' %}active{% endif %}" id="tab-unit" data-bs-toggle="tab" data-bs-target="#panel-unit" type="button" role="tab">
         📏 单位管理
@@ -808,12 +873,18 @@ input:checked + .slider:before{transform:translateX(26px);}
             <input type="hidden" name="action" value="batch_add_tag">
             <div class="form-item">
                 <label>选择标签 *</label>
-                <select name="target_tag_id" class="form-control" required>
-                    <option value="">请选择标签</option>
-                    {% for tag in all_tags %}{% if tag.is_active %}
-                    <option value="{{ tag.id }}">{{ tag.name }}</option>
-                    {% endif %}{% endfor %}
-                </select>
+                <!-- 可搜索选择器 -->
+                <div class="searchable-select" id="tagBatchSearchable">
+                    <div class="searchable-input-wrap" onclick="toggleSearchableDropdown('tagBatchSearchable')">
+                        <input type="text" class="searchable-input" placeholder="搜索或选择标签..." readonly autocomplete="off">
+                        <span class="searchable-arrow">▼</span>
+                    </div>
+                    <input type="hidden" name="target_tag_id" value="" required>
+                    <div class="searchable-dropdown" style="display:none;">
+                        <input type="text" class="searchable-filter" placeholder="输入关键词过滤..." autocomplete="off">
+                        <div class="searchable-options"></div>
+                    </div>
+                </div>
             </div>
             <button type="submit" class="btn btn-primary">确认添加</button>
         </form>
@@ -831,12 +902,18 @@ input:checked + .slider:before{transform:translateX(26px);}
             <input type="hidden" name="action" value="batch_remove_tag">
             <div class="form-item">
                 <label>选择要移除的标签 *</label>
-                <select name="target_tag_id" class="form-control" required>
-                    <option value="">请选择标签</option>
-                    {% for tag in all_tags %}
-                    <option value="{{ tag.id }}">{{ tag.name }}</option>
-                    {% endfor %}
-                </select>
+                <!-- 可搜索选择器 -->
+                <div class="searchable-select" id="tagRemoveSearchable">
+                    <div class="searchable-input-wrap" onclick="toggleSearchableDropdown('tagRemoveSearchable')">
+                        <input type="text" class="searchable-input" placeholder="搜索或选择标签..." readonly autocomplete="off">
+                        <span class="searchable-arrow">▼</span>
+                    </div>
+                    <input type="hidden" name="target_tag_id" value="" required>
+                    <div class="searchable-dropdown" style="display:none;">
+                        <input type="text" class="searchable-filter" placeholder="输入关键词过滤..." autocomplete="off">
+                        <div class="searchable-options"></div>
+                    </div>
+                </div>
             </div>
             <button type="submit" class="btn btn-danger">确认移除</button>
         </form>
@@ -1023,7 +1100,94 @@ input:checked + .slider:before{transform:translateX(26px);}
 let customFieldCount = 0;
 let csrf = $('input[name="csrfmiddlewaretoken"]').val();
 let currentActiveTab = '{{ active_tab|escapejs }}' || 'list';
+// 所有标签数据（由 Django 模板渲染）
+var allTagsData = [
+    {% for tag in all_tags %}
+    {id: {{ tag.id }}, name: "{{ tag.name|escapejs }}"}{% if not forloop.last %},{% endif %}
+    {% endfor %}
+];
+// 打开下拉并渲染选项
+function toggleSearchableDropdown(containerId) {
+    var $dropdown = $('#' + containerId + ' .searchable-dropdown');
+    var isVisible = $dropdown.is(':visible');
+    // 隐藏所有其他下拉
+    $('.searchable-dropdown').hide();
+    if (!isVisible) {
+        $dropdown.show();
+        // 清空过滤输入
+        $dropdown.find('.searchable-filter').val('');
+        renderSearchableOptions(containerId, '');
+        // 聚焦过滤输入框
+        $dropdown.find('.searchable-filter').focus();
+    }
+}
 
+// 渲染选项列表
+function renderSearchableOptions(containerId, keyword) {
+    var $optionsContainer = $('#' + containerId + ' .searchable-options');
+    $optionsContainer.empty();
+    keyword = keyword.toLowerCase().trim();
+    var $container = $('#' + containerId);
+    var currentVal = $container.find('input[type="hidden"]').val();
+
+    $.each(allTagsData, function(i, tag) {
+        if (keyword && tag.name.toLowerCase().indexOf(keyword) === -1) return;
+        var $option = $('<div class="searchable-option"></div>')
+            .text(tag.name)
+            .data('id', tag.id);
+        if (currentVal == tag.id) {
+            $option.addClass('selected');
+        }
+        $optionsContainer.append($option);
+    });
+}
+
+// 选择某个选项
+function selectSearchableOption(containerId, id, name) {
+    var $container = $('#' + containerId);
+    $container.find('.searchable-input').val(name);
+    $container.find('input[type="hidden"]').val(id);
+    $container.find('.searchable-dropdown').hide();
+    // 触发 change 事件以便验证（如果需要）
+    $container.find('input[type="hidden"]').trigger('change');
+}
+
+// 重置选择器状态
+function resetSearchableSelect(containerId) {
+    var $container = $('#' + containerId);
+    $container.find('.searchable-input').val('');
+    $container.find('input[type="hidden"]').val('');
+    $container.find('.searchable-dropdown').hide();
+    $container.find('.searchable-filter').val('');
+}
+
+// 事件绑定
+$(document).on('click', function(e) {
+    // 点击下拉外部关闭所有下拉
+    if (!$(e.target).closest('.searchable-select').length) {
+        $('.searchable-dropdown').hide();
+    }
+});
+
+$(document).on('click', '.searchable-option', function(e) {
+    e.stopPropagation();
+    var $option = $(this);
+    var id = $option.data('id');
+    var name = $option.text();
+    var containerId = $option.closest('.searchable-select').attr('id');
+    selectSearchableOption(containerId, id, name);
+});
+
+$(document).on('input', '.searchable-filter', function() {
+    var keyword = $(this).val();
+    var containerId = $(this).closest('.searchable-select').attr('id');
+    renderSearchableOptions(containerId, keyword);
+});
+
+// 阻止过滤输入框点击冒泡（避免关闭下拉）
+$(document).on('click', '.searchable-filter', function(e) {
+    e.stopPropagation();
+});
 // ====================== 新建标签弹窗 ======================
 function showAddTagModal(){$('#addTagModal').addClass('active');}
 function closeAddTagModal(){$('#addTagModal').removeClass('active');}
@@ -1079,6 +1243,10 @@ function openTagBatchModal(){
     let ids = [];
     $('.checkItem:checked').each(function(){ids.push($(this).val());});
     if(ids.length===0) return showToast('请先在下方商品列表中选择商品', 'error');
+    // 重置选择器
+    resetSearchableSelect('tagBatchSearchable');
+    // 确保下次打开时选项为全量
+    renderSearchableOptions('tagBatchSearchable', '');
     $('#tagBatchModal').addClass('active');
 }
 function closeTagBatchModal(){$('#tagBatchModal').removeClass('active');}
@@ -1087,6 +1255,8 @@ function openTagRemoveModal(){
     let ids = [];
     $('.checkItem:checked').each(function(){ids.push($(this).val());});
     if(ids.length===0) return showToast('请先在下方商品列表中选择商品', 'error');
+    resetSearchableSelect('tagRemoveSearchable');
+    renderSearchableOptions('tagRemoveSearchable', '');
     $('#tagRemoveModal').addClass('active');
 }
 function closeTagRemoveModal(){$('#tagRemoveModal').removeClass('active');}
@@ -1104,6 +1274,20 @@ $('#tagRemoveForm').submit(function(e){
     let ids = [];
     $('.checkItem:checked').each(function(){ids.push($(this).val());});
     $('<input>').attr({type:'hidden',name:'product_ids',value:ids}).appendTo(this);
+    this.submit();
+});
+
+$('#tagBatchForm, #tagRemoveForm').off('submit').on('submit', function(e) {
+    e.preventDefault();
+    var targetId = $(this).find('input[name="target_tag_id"]').val();
+    if (!targetId) {
+        showToast('请先选择一个标签', 'error');
+        return;
+    }
+    // 原有逻辑：添加选中的商品ID
+    let ids = [];
+    $('.checkItem:checked').each(function(){ids.push($(this).val());});
+    $('<input>').attr({type:'hidden', name:'product_ids', value:ids}).appendTo(this);
     this.submit();
 });
 
