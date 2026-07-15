@@ -716,7 +716,34 @@ def order_list(request):
         'count_settled': count_settled,  # 🔥 新增
         'count_unsettled': count_unsettled,  # 🔥 新增
     }
+    # 构建基础查询字符串（去掉 page 参数，保留其他筛选条件）
+    query_params = request.GET.copy()
+    if 'page' in query_params:
+        del query_params['page']
+    base_query_string = query_params.urlencode()
 
+    # 生成省略式页码范围
+    def get_page_range(page, num_pages, surrounding=2):
+        """返回包含省略号的页码列表"""
+        if num_pages <= 7:
+            return list(range(1, num_pages + 1))
+        pages = [1]
+        if page.number - surrounding > 2:
+            pages.append('...')
+        start = max(2, page.number - surrounding)
+        end = min(num_pages - 1, page.number + surrounding)
+        pages.extend(range(start, end + 1))
+        if page.number + surrounding < num_pages - 1:
+            pages.append('...')
+        pages.append(num_pages)
+        return pages
+
+    page_range_display = get_page_range(page_orders, paginator.num_pages)
+
+    context.update({
+        'base_query_string': base_query_string,
+        'page_range_display': page_range_display,
+    })
     response = render(request, 'bill/order_list.html', context)
     cache.set(cache_key, response.content, CACHE_ORDER_LIST)
 
