@@ -346,6 +346,10 @@ box-sizing: border-box;
             <button class="btn btn-sm btn-outline-secondary ms-1" onclick="goToSortRules()" title="设置排序规则">
                 ⚙️ 排序规则
             </button>
+            <!-- 新增：默认排序复选框 -->
+    <label class="ms-2" title="保存时自动排序（偏好会缓存在本地）">
+        <input type="checkbox" id="autoSortCheckbox" onchange="saveAutoSortSetting()"> 默认排序
+    </label>
         </div>
     </div>
 
@@ -1132,6 +1136,12 @@ function customerGoToPage(delta) {
 
         // ========== 保存/打印/重置 (保持原样) ==========
         async function saveOrder() {
+            // 如果用户开启了自动排序，先执行排序
+    const autoSortCheckbox = document.getElementById('autoSortCheckbox');
+    if (autoSortCheckbox && autoSortCheckbox.checked) {
+        sortBillTable();   // 排序逻辑内部已包含规则检查，无规则时会提示
+    }
+    
     const customerInput = document.getElementById('customerInput');
     let customerId = customerInput.dataset.customerId || '';
     const customerName = customerInput.value.trim();
@@ -1474,6 +1484,7 @@ function customerGoToPage(delta) {
 
         // ========== 页面加载初始化 ==========
         window.onload = function() {
+            restoreAutoSortSetting();
             initCustomerInput();
 
             {% if reopen_order_data %}
@@ -1591,6 +1602,19 @@ function goToSortRules() {
     }
 }
 
+// 保存复选框状态到 localStorage
+function saveAutoSortSetting() {
+    const checkbox = document.getElementById('autoSortCheckbox');
+    localStorage.setItem('bill_auto_sort_enabled', checkbox.checked ? 'true' : 'false');
+}
 
+// 页面加载时恢复上次的勾选状态
+function restoreAutoSortSetting() {
+    const checkbox = document.getElementById('autoSortCheckbox');
+    if (checkbox) {
+        const saved = localStorage.getItem('bill_auto_sort_enabled');
+        checkbox.checked = (saved === 'true');
+    }
+}
     </script>
 {% endblock %}
