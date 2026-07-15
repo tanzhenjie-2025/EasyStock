@@ -62,36 +62,43 @@
         margin-top: 10px;
         margin-bottom: 15px;
     }
-    /* 按钮组样式，保证两个按钮垂直对齐 */
     .btn-group-query {
         display: flex;
         gap: 8px;
     }
-    /* 总计行样式 */
     .total-row {
         background-color: #4472C4;
         color: white;
         font-weight: bold;
         text-align: center;
     }
-
-    /* 核心优化：行高亮样式 - 整行浅灰色，总计行不生效 */
     #data tr:not(.total-row) {
         transition: all 0.2s ease;
         cursor: pointer;
     }
     #data tr:not(.total-row):hover td {
-        background-color: #f1f1f1 !important; /* 统一浅灰色高亮 */
+        background-color: #f1f1f1 !important;
     }
-    /* 操作栏样式：固定宽度，居中对齐 */
     .operate-col {
         width: 80px;
         text-align: center;
     }
-    /* 详情按钮样式优化 */
     .btn-detail {
         padding: 2px 8px;
         font-size: 0.75rem;
+    }
+    /* 复选框样式微调，确保与按钮组对齐 */
+    .auto-sort-label {
+        font-size: 0.75rem;
+        user-select: none;
+        cursor: pointer;
+        margin-bottom: 0;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+    }
+    .auto-sort-label input {
+        margin-top: 0;
     }
 </style>
 {% endblock %}
@@ -99,7 +106,6 @@
 {% block content %}
 <h3>按区域组汇总订单（可精准到时分）</h3>
 
-<!-- 查询表单 -->
 <div class="query-form">
     <div class="form-group">
         <label class="form-label-sm mb-0">区域组</label>
@@ -115,32 +121,31 @@
         <label class="form-label-sm mb-0">结束时间</label>
         <input type="datetime-local" id="e" class="form-control form-control-sm" placeholder="结束时间">
     </div>
-
 </div>
+
 <div class="form-group" style="flex: 1; min-width: 200px;">
     <label class="form-label-sm mb-0">商品标签</label>
     <div id="tagContainer" style="display: flex; flex-wrap: wrap; gap: 8px;
          max-height: 100px; overflow-y: auto; border: 1px solid #ced4da;
          padding: 6px; border-radius: 4px; background: #fff;">
-        <!-- 动态由 JavaScript 加载 -->
     </div>
     <div style="margin-top: 4px;">
         <a href="javascript:void(0)" onclick="selectAllTags(true)">全选</a> |
         <a href="javascript:void(0)" onclick="selectAllTags(false)">全不选</a>
     </div>
     <div class="form-group">
-        <!-- 修改：添加按钮组样式，保证两个按钮垂直对齐 -->
         <div class="btn-group-query">
             <button class="btn btn-sm btn-primary" onclick="query()">查询汇总</button>
             <button class="btn btn-sm btn-success" onclick="showExportModal()">导出Excel</button>
-            <button class="btn btn-sm btn-outline-primary" onclick="sortProductSummary()" title="按规则排序">
-        📋 点击排序
-    </button>
+            <button class="btn btn-sm btn-outline-primary" onclick="sortProductSummary()" title="按规则排序">📋 点击排序</button>
+            <!-- 新增：默认排序复选框 -->
+            <label class="auto-sort-label ms-1">
+                <input type="checkbox" id="autoSortCheckbox"> 默认排序
+            </label>
         </div>
     </div>
 </div>
 
-<!-- 数据表格：新增操作列 -->
 <table class="table table-sm table-bordered">
     <thead>
         <tr>
@@ -150,13 +155,12 @@
             <th>单价</th>
             <th>总销量</th>
             <th>总金额</th>
-            <th class="operate-col">操作</th> <!-- 新增：独立操作栏 -->
+            <th class="operate-col">操作</th>
         </tr>
     </thead>
     <tbody id="data"></tbody>
 </table>
 
-<!-- 导出字段选择模态框 -->
 <div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -165,13 +169,10 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <!-- 全选/取消全选按钮 -->
                 <div class="select-all-btn">
                     <button type="button" class="btn btn-xs btn-outline-primary" onclick="selectAllFields(true)">全选</button>
                     <button type="button" class="btn btn-xs btn-outline-secondary ms-1" onclick="selectAllFields(false)">取消全选</button>
                 </div>
-
-                <!-- 商品汇总字段选项 -->
                 <div class="field-checkbox">
                     <input type="checkbox" id="field_serial" name="export_fields" value="serial" checked>
                     <label for="field_serial">序号</label>
@@ -200,13 +201,9 @@
                     <input type="checkbox" id="field_remark" name="export_fields" value="remark" checked>
                     <label for="field_remark">备注</label>
                 </div>
-
-                <!-- 自定义字段区域 -->
                 <div class="custom-fields-section">
                     <h6>自定义字段（用于手动填写）</h6>
-                    <div id="customFieldsContainer">
-                        <!-- 自定义字段项将动态添加到这里 -->
-                    </div>
+                    <div id="customFieldsContainer"></div>
                     <button type="button" class="btn btn-sm btn-outline-success btn-add-custom" onclick="addCustomField()">
                         + 添加自定义字段
                     </button>
@@ -223,29 +220,30 @@
 
 {% block extra_js %}
 <script>
-// 全局变量
 let queryParams = {};
 let customFieldCount = 0;
-// 定义存储键名（统一管理）
 const STORAGE_KEY = 'product_summary_data';
-let allTags = [];  // 存储所有标签 {id, name, color}
+let allTags = [];
 
-// 加载标签
+// 排序相关变量
+let sortStagesCache = [];
+let isSortDataReady = false;
+let pendingAutoSort = false;   // 标记是否需要等待排序规则就绪后自动排序
+
+// ---------- 加载标签 ----------
 function loadTags() {
     $.get('/summary/tag-list/', function(res) {
         if (Array.isArray(res)) {
             allTags = res;
             renderTags(res);
-            // 恢复之前选中的标签（如果有）
             restoreTagSelection();
         }
     }).fail(function() {
-        console.warn('加载标签失败，可能没有标签');
+        console.warn('加载标签失败');
         $('#tagContainer').html('<span class="text-muted">暂无标签</span>');
     });
 }
 
-// 渲染复选框
 function renderTags(tags) {
     let html = '';
     tags.forEach(t => {
@@ -257,12 +255,10 @@ function renderTags(tags) {
     $('#tagContainer').html(html);
 }
 
-// 全选/全不选
 function selectAllTags(select) {
     $('.tag-checkbox').prop('checked', select);
 }
 
-// 获取选中的标签ID列表（逗号分隔）
 function getSelectedTagIds() {
     let ids = [];
     $('.tag-checkbox:checked').each(function() {
@@ -271,7 +267,6 @@ function getSelectedTagIds() {
     return ids.join(',');
 }
 
-// 恢复标签选择（从存储中）
 function restoreTagSelection() {
     const stored = sessionStorage.getItem(STORAGE_KEY);
     if (stored) {
@@ -283,34 +278,21 @@ function restoreTagSelection() {
                 $(`.tag-checkbox[value="${id}"]`).prop('checked', true);
             });
         } else {
-            // 默认全选
             $('.tag-checkbox').prop('checked', true);
         }
     } else {
-        // 默认全选
         $('.tag-checkbox').prop('checked', true);
     }
 }
 
-// 1. 加载区域组列表（原有逻辑不变，仅补充注释）
+// ---------- 区域组加载 ----------
 function loadGroup(){
     $.ajax({
         url: '/summary/group/list/',
         type: 'GET',
         dataType: 'json',
         success: function(res) {
-            console.log('区域组接口响应：', res);
-
-            // 处理错误响应
-            if (res && res.code === 0) {
-                alert('加载区域组失败：' + res.msg);
-                return;
-            }
-
-            // 确保是数组
             let groupData = Array.isArray(res) ? res : [];
-
-            // 渲染下拉框（至少包含全部区域）
             let opt = '<option value="">请选择区域组</option>';
             if (groupData.length === 0) {
                 opt += '<option value="0">全部区域</option>';
@@ -320,49 +302,36 @@ function loadGroup(){
                 });
             }
             $('#group').html(opt);
-
-            // 初始化完成后，恢复之前的查询状态
             restoreSummaryData();
         },
-        error: function(xhr, status, error) {
-            console.error('区域组加载失败：', xhr, status, error);
-            alert(`加载区域组失败：${status}（状态码：${xhr.status}）`);
-            // 兜底显示全部区域
+        error: function() {
             let opt = '<option value="">请选择区域组</option>';
             opt += '<option value="0">全部区域</option>';
             $('#group').html(opt);
-
-            // 即使加载失败，也尝试恢复查询状态
             restoreSummaryData();
         }
     });
 }
 
-// 新增：恢复汇总数据（核心函数）
+// ---------- 恢复查询数据 ----------
 function restoreSummaryData() {
     try {
-        // 从会话存储中读取数据
         const storedData = sessionStorage.getItem(STORAGE_KEY);
         if (!storedData) return;
 
         const { params, result } = JSON.parse(storedData);
         if (!params || !result) return;
 
-        // 1. 恢复表单参数
         $('#group').val(params.group_id);
         $('#s').val(params.start_date);
         $('#e').val(params.end_date);
-
-        // 2. 恢复全局查询参数
         queryParams = params;
 
-        // 3. 渲染汇总结果（适配新增的操作列）
         if (result.code !== 1) {
             $('#data').html('');
             return;
         }
         if (result.data.length === 0) {
-            // 调整colspan为7（新增操作列）
             $('#data').html('<tr><td colspan="7" class="empty-data">该时间段内无销售数据</td></tr>');
             return;
         }
@@ -379,12 +348,11 @@ function restoreSummaryData() {
     <td>${i.price.toFixed(2)}</td>
     <td>${i.total_qty}</td>
     <td>${i.total_amt.toFixed(2)}</td>
-                <td class="operate-col"> <!-- 操作栏：详情按钮移到这里 -->
+                <td class="operate-col">
                     <button class="btn btn-sm btn-outline-primary btn-detail" onclick="event.stopPropagation(); window.location.href='${detailUrl}'">详情</button>
                 </td>
             </tr>`;
         });
-        // 修改：添加总计行，显示后端返回的 total_amount
         html += `<tr class="total-row">
             <td colspan="5">总计</td>
             <td>${result.total_amount.toFixed(2)}</td>
@@ -392,14 +360,16 @@ function restoreSummaryData() {
         </tr>`;
         $('#data').html(html);
 
+        // 根据默认排序设置自动排序（如果已勾选）
+        handleAutoSort();
+
     } catch (e) {
         console.error('恢复汇总数据失败：', e);
-        // 出错时清空存储，避免脏数据
         sessionStorage.removeItem(STORAGE_KEY);
     }
 }
 
-// 2. 查询汇总（修改：适配新增的操作列和总计金额）
+// ---------- 查询汇总 ----------
 function query(){
     let group_id = $('#group').val();
     let start_time = $('#s').val();
@@ -415,39 +385,33 @@ function query(){
     }
     if (start > end) return alert('开始时间不能晚于结束时间');
 
-    // 获取标签参数
     let selectedIds = getSelectedTagIds();
     let totalTags = allTags.length;
-    // 若全选，则不传 tag_ids（后端视为无筛选）
     let tagParam = (selectedIds.split(',').length === totalTags) ? '' : selectedIds;
 
     queryParams = {
         group_id: group_id,
         start_date: start_time,
         end_date: end_time,
-        tag_ids: tagParam   // 可能为空字符串
+        tag_ids: tagParam
     };
 
-    // 发起查询
     $.get('/summary/by-group/', queryParams, function(res) {
         if (res.code !== 1) {
             alert(res.msg || '查询失败');
             $('#data').html('');
-            // 保存失败状态（清空存储）
             sessionStorage.removeItem(STORAGE_KEY);
             return;
         }
 
-        // 成功查询后，保存参数和结果到会话存储
         const saveData = { params: queryParams, result: res };
         sessionStorage.setItem(STORAGE_KEY, JSON.stringify(saveData));
 
         if (res.data.length === 0) {
-            // 调整colspan为7（新增操作列）
             $('#data').html('<tr><td colspan="7" class="empty-data">该时间段内无销售数据</td></tr>');
             return;
         }
-        // 渲染数据（详情按钮移到操作列）
+
         let html = '';
         res.data.forEach(i => {
             const detailUrl = `/summary/product-detail/${i.pid}/?group_id=${queryParams.group_id}&start_date=${queryParams.start_date}&end_date=${queryParams.end_date}`;
@@ -460,46 +424,43 @@ function query(){
     <td>${i.price.toFixed(2)}</td>
     <td>${i.total_qty}</td>
     <td>${i.total_amt.toFixed(2)}</td>
-                <td class="operate-col"> <!-- 独立操作栏 -->
+                <td class="operate-col">
                     <button class="btn btn-sm btn-outline-primary btn-detail" onclick="event.stopPropagation(); window.location.href='${detailUrl}'">详情</button>
                 </td>
             </tr>`;
         });
-        // 修改：添加总计行，显示后端返回的 total_amount
         html += `<tr class="total-row">
             <td colspan="5">总计</td>
             <td>${res.total_amount.toFixed(2)}</td>
             <td class="operate-col"></td>
         </tr>`;
         $('#data').html(html);
+
+        // 检查是否需要自动排序
+        handleAutoSort();
     }).fail(function() {
         alert('查询失败，请检查网络或接口');
         sessionStorage.removeItem(STORAGE_KEY);
     });
 }
 
-// 3. 显示导出模态框（原有逻辑不变）
+// ---------- 导出相关 ----------
 function showExportModal() {
     if (!queryParams.group_id) {
         return alert('请先执行查询操作');
     }
-    // 重置自定义字段
     customFieldCount = 0;
     $('#customFieldsContainer').empty();
     const modal = new bootstrap.Modal(document.getElementById('exportModal'));
     modal.show();
 }
 
-// 4. 全选/取消全选字段（原有逻辑不变）
 function selectAllFields(isSelect) {
     $('input[name="export_fields"]').prop('checked', isSelect);
 }
 
-// 5. 添加自定义字段（原有逻辑不变）
 function addCustomField() {
     customFieldCount++;
-
-    // 获取所有可选的目标字段
     let targetFieldsHtml = '';
     $('input[name="export_fields"]').each(function() {
         const fieldValue = $(this).val();
@@ -509,7 +470,7 @@ function addCustomField() {
 
     const customFieldHtml = `
     <div class="custom-field-item" data-index="${customFieldCount}">
-        <input type="text" class="form-control form-control-sm custom-field-name" placeholder="字段名称（如：上次金额）" value="备注${customFieldCount}">
+        <input type="text" class="form-control form-control-sm custom-field-name" placeholder="字段名称" value="备注${customFieldCount}">
         <select class="form-select form-select-sm custom-field-position">
             <option value="after">在...之后</option>
             <option value="before">在...之前</option>
@@ -518,20 +479,15 @@ function addCustomField() {
             ${targetFieldsHtml}
         </select>
         <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeCustomField(${customFieldCount})">×</button>
-    </div>
-    `;
-
+    </div>`;
     $('#customFieldsContainer').append(customFieldHtml);
 }
 
-// 6. 移除自定义字段（原有逻辑不变）
 function removeCustomField(index) {
     $(`.custom-field-item[data-index="${index}"]`).remove();
 }
 
-// 7. 导出Excel（原有逻辑不变）
 function exportExcel() {
-    // 获取选中的字段和自定义字段（保持原有逻辑）
     let selectedFields = [];
     $('input[name="export_fields"]:checked').each(function() {
         selectedFields.push($(this).val());
@@ -543,10 +499,9 @@ function exportExcel() {
         const name = $(this).find('.custom-field-name').val().trim();
         const position = $(this).find('.custom-field-position').val();
         const target = $(this).find('.custom-field-target').val();
-        if (name) customFields.push({ name: name, position: position, target: target });
+        if (name) customFields.push({ name, position, target });
     });
 
-    // ★ 收集当前表格中所有排序后的数据行
     let sortedData = [];
     $('#data tr:not(.total-row)').each(function() {
         const cells = $(this).find('td');
@@ -568,7 +523,6 @@ function exportExcel() {
     formData.append('custom_fields', JSON.stringify(customFields));
     formData.append('tag_ids', getSelectedTagIds());
     selectedFields.forEach(field => formData.append('fields[]', field));
-    // ★ 将排序后的数据以 JSON 字符串形式提交
     formData.append('sorted_data', JSON.stringify(sortedData));
 
     $.ajax({
@@ -606,11 +560,8 @@ function exportExcel() {
         }
     });
 }
-// ---------- 排序相关 ----------
-let sortStagesCache = [];
-let isSortDataReady = false;
 
-// 加载排序规则（复用开单页接口）
+// ---------- 排序相关 ----------
 async function loadSortRules() {
     try {
         const res = await fetch('/bill/get-sort-rules/');
@@ -623,13 +574,16 @@ async function loadSortRules() {
     }
 }
 
-// 初始化排序数据
 async function initSortData() {
     await loadSortRules();
     isSortDataReady = true;
+    // 若之前因规则未就绪而搁置了自动排序，现在执行
+    if (pendingAutoSort && $('#autoSortCheckbox').is(':checked')) {
+        sortProductSummary();
+        pendingAutoSort = false;
+    }
 }
 
-// 获取单行在某个阶段内的排序值
 function getStageOrderValue(tr, stageRules) {
     const tagsStr = tr.getAttribute('data-tags');
     let tagIds = [];
@@ -656,7 +610,6 @@ function getStageOrderValue(tr, stageRules) {
     return 9999;
 }
 
-// 执行排序
 function sortProductSummary() {
     if (!isSortDataReady) {
         alert('排序数据正在加载，请稍后再试。');
@@ -685,31 +638,63 @@ function sortProductSummary() {
         return 0;
     });
 
-    // 重新插入表格，保持总计行在最后
     const tbody = document.getElementById('data');
     const totalRow = $('#data tr.total-row').detach();
     rowsWithKeys.forEach(({row}) => tbody.appendChild(row));
     if (totalRow.length) tbody.appendChild(totalRow[0]);
 
-    // 更新序号
     $('#data tr:not(.total-row)').each((index, row) => {
         $(row).find('td:first').text(index + 1);
     });
 }
-// 8. 页面初始化（修改：调用恢复函数）
+
+// ---------- 默认排序复选框逻辑 ----------
+const AUTO_SORT_KEY = 'default_auto_sort';
+const $autoSortCheckbox = $('#autoSortCheckbox');
+
+// 保存状态到 localStorage
+function saveAutoSortState() {
+    localStorage.setItem(AUTO_SORT_KEY, $autoSortCheckbox.is(':checked'));
+}
+
+// 恢复状态
+function restoreAutoSortState() {
+    const saved = localStorage.getItem(AUTO_SORT_KEY);
+    if (saved === 'true') {
+        $autoSortCheckbox.prop('checked', true);
+    } else {
+        $autoSortCheckbox.prop('checked', false);
+    }
+}
+
+// 监听变化
+$autoSortCheckbox.on('change', saveAutoSortState);
+
+// 处理自动排序：如果勾选了“默认排序”，则在数据渲染后自动排序
+function handleAutoSort() {
+    if ($autoSortCheckbox.is(':checked')) {
+        if (isSortDataReady) {
+            sortProductSummary();
+            pendingAutoSort = false;
+        } else {
+            // 标记等待，等 initSortData 完成后再排
+            pendingAutoSort = true;
+        }
+    } else {
+        pendingAutoSort = false;
+    }
+}
+
+// ---------- 页面初始化 ----------
 $(function(){
-    // 加载区域组
+    restoreAutoSortState();   // 恢复复选框状态
     loadGroup();
-    // 设置默认时间（解决时间框显示“一杆一杆”问题）
     const now = new Date();
     const pad = (num) => num.toString().padStart(2, '0');
     const defaultTime = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
     $('#s').val(defaultTime);
     $('#e').val(defaultTime);
-
-    loadTags();  // 加载标签
-
-    // 页面加载时尝试恢复数据（区域组加载完成后会再次调用，确保兼容性）
+    loadTags();
     restoreSummaryData();
     initSortData();
 });
