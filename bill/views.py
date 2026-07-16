@@ -1854,9 +1854,10 @@ def import_orders(request):
         if missing_areas:
             new_areas = [Area(name=name) for name in missing_areas if name]  # 过滤空字符串
             if new_areas:
-                created = Area.objects.bulk_create(new_areas)
-                # 将新创建的区域加入映射
-                for area in created:
+                Area.objects.bulk_create(new_areas)
+                # ✅ 重新从数据库查询，确保所有实例都有主键
+                fresh_areas = Area.objects.filter(name__in=[a.name for a in new_areas])
+                for area in fresh_areas:
                     area_map[area.name] = area
 
     # ========== 2. 批量查询现有商品，并创建缺失的商品 ==========
