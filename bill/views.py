@@ -1735,6 +1735,7 @@ from decimal import Decimal
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
+from pypinyin import lazy_pinyin          # ← 新增导入
 
 @login_required
 @permission_required(PERM_ORDER_CREATE)
@@ -1757,39 +1758,27 @@ def import_orders(request):
         return JsonResponse({'code': 0, 'msg': 'Excel 无数据'})
 
     order_groups = defaultdict(list)
-    area_names = set()               # 收集所有出现的区域名（用于批量查询/创建）
+    area_names = set()
     product_names = set()
     pure_customer_names = set()
-    pure_name_area = {}              # 记录纯客户名对应的最终区域名（用于创建客户）
-    product_create_info = {}         # 键为 (商品名称, 单位)
+    pure_name_area = {}
+    product_create_info = {}
 
-    # 辅助函数：从客户名称中解析出区域和纯客户名
     def parse_customer_name(raw_name, given_area):
-        """
-        返回 (解析出的区域名, 纯客户名)
-        规则：
-        - 如果 given_area 非空：则区域就是 given_area，直接从 raw_name 去掉前缀得到纯客户名
-        - 如果 given_area 为空：尝试从 raw_name 按 " | " 分割提取区域和客户名
-          - 若包含 " | "，则第一部分为区域，剩余为纯客户名
-          - 若不包含，则区域为空，纯客户名就是 raw_name
-        """
         if given_area:
-            # 区域明确给出，客户名称前缀应当匹配
             prefix = given_area + " | "
             if raw_name.startswith(prefix):
                 pure = raw_name[len(prefix):].strip()
             else:
-                pure = raw_name  # 容错：若不匹配，保留原样
+                pure = raw_name
             return given_area, pure
         else:
-            # 区域为空，尝试从客户名称解析
             if " | " in raw_name:
                 parts = raw_name.split(" | ", 1)
                 extracted_area = parts[0].strip()
                 pure = parts[1].strip()
                 return extracted_area, pure
             else:
-                # 无分隔符，无法提取区域
                 return "", raw_name
 
     for row in rows:
@@ -1811,10 +1800,9 @@ def import_orders(request):
             price = Decimal('0')
         status = str(row[9]).strip() if len(row) > 9 and row[9] else 'pending'
 
-        # 根据 Excel 区域列和客户名称解析最终的区域和纯客户名
         final_area, pure_customer_name = parse_customer_name(raw_customer_name, area_name)
 
-        order_key = (order_no, raw_customer_name, area_name)  # 仍用原始值分组
+        order_key = (order_no, raw_customer_name, area_name)
         order_groups[order_key].append({
             'product_name': prod_name,
             'spec': spec,
@@ -1823,19 +1811,16 @@ def import_orders(request):
             'price': price,
             'status': status,
             'pure_customer_name': pure_customer_name,
-            'area_name': final_area,   # 传递解析后的区域名，方便后续创建订单
+            'area_name': final_area,
         })
 
-        # 收集区域名（仅非空才加入集合，便于创建）
         if final_area:
             area_names.add(final_area)
         if pure_customer_name:
             pure_customer_names.add(pure_customer_name)
-            # 记录该纯客户名对应的区域（用于后续创建客户时关联区域）
             if pure_customer_name not in pure_name_area:
                 pure_name_area[pure_customer_name] = final_area
 
-        # 仅非作废订单的商品参与自动创建
         if status != 'cancelled':
             product_names.add(prod_name)
             product_key = (prod_name, unit)
@@ -1845,22 +1830,21 @@ def import_orders(request):
                     'price': price,
                 }
 
-    # ========== 1. 批量查询现有区域，并创建缺失的区域 ==========
+    # ========== 1. 批量查询/创建区域 ==========
     area_map = {}
     if area_names:
         existing_areas = Area.objects.filter(name__in=area_names)
         area_map = {a.name: a for a in existing_areas}
         missing_areas = area_names - set(area_map.keys())
         if missing_areas:
-            new_areas = [Area(name=name) for name in missing_areas if name]  # 过滤空字符串
+            new_areas = [Area(name=name) for name in missing_areas if name]
             if new_areas:
                 Area.objects.bulk_create(new_areas)
-                # ✅ 重新从数据库查询，确保所有实例都有主键
                 fresh_areas = Area.objects.filter(name__in=[a.name for a in new_areas])
                 for area in fresh_areas:
                     area_map[area.name] = area
 
-    # ========== 2. 批量查询现有商品，并创建缺失的商品 ==========
+    # ========== 2. 批量查询/创建商品（带拼音）==========
     existing_products = Product.objects.filter(name__in=product_names) if product_names else []
     product_map = {(p.name, p.unit): p for p in existing_products}
 
@@ -1869,6 +1853,9 @@ def import_orders(request):
         new_products = []
         for pname, punit in missing_product_keys:
             info = product_create_info[(pname, punit)]
+            # ✅ 手动生成拼音
+            pinyin_full = ''.join(lazy_pinyin(pname, style=0))
+            pinyin_abbr = ''.join([p[0] for p in lazy_pinyin(pname, style=0)])
             new_products.append(Product(
                 name=pname,
                 unit=punit,
@@ -1876,6 +1863,8 @@ def import_orders(request):
                 price=info['price'],
                 stock_system=0,
                 stock_actual=0,
+                pinyin_full=pinyin_full,          # ✅ 设置全拼
+                pinyin_abbr=pinyin_abbr,          # ✅ 设置首字母
             ))
         if new_products:
             created = Product.objects.bulk_create(new_products)
@@ -1887,8 +1876,7 @@ def import_orders(request):
                 for p in fresh_products:
                     product_map[(p.name, p.unit)] = p
 
-    # ========== 3. 批量查询现有客户，并创建缺失的客户 ==========
-    # ========== 3. 批量查询现有客户，并创建缺失的客户 ==========
+    # ========== 3. 批量查询/创建客户（带拼音）==========
     customer_map = {}
     if pure_customer_names:
         existing_customers = Customer.objects.filter(name__in=pure_customer_names)
@@ -1900,18 +1888,29 @@ def import_orders(request):
             for pure_name in missing_names:
                 area_name_for_customer = pure_name_area.get(pure_name)
                 area = area_map.get(area_name_for_customer) if area_name_for_customer else None
-                new_customers.append(Customer(name=pure_name, area=area))
+                # ✅ 手动生成拼音
+                pinyin_full = ''.join(lazy_pinyin(pure_name, style=0))
+                pinyin_abbr = ''.join([p[0] for p in lazy_pinyin(pure_name, style=0)])
+                new_customers.append(Customer(
+                    name=pure_name,
+                    area=area,
+                    pinyin_full=pinyin_full,      # ✅ 设置全拼
+                    pinyin_abbr=pinyin_abbr,      # ✅ 设置首字母
+                ))
             try:
-                Customer.objects.bulk_create(new_customers, ignore_conflicts=True)  # 添加 ignore_conflicts
-                # 补全 customer_map
+                Customer.objects.bulk_create(new_customers, ignore_conflicts=True)
                 for c in Customer.objects.filter(name__in=missing_names):
                     customer_map[c.name] = c
             except Exception:
-                # 降级为逐个创建（兼容低版本 Django）
+                # 降级为逐个创建，同时传递拼音字段
                 for c_obj in new_customers:
                     obj, created = Customer.objects.get_or_create(
                         name=c_obj.name,
-                        defaults={'area': c_obj.area}
+                        defaults={
+                            'area': c_obj.area,
+                            'pinyin_full': c_obj.pinyin_full,   # ✅ 传递拼音
+                            'pinyin_abbr': c_obj.pinyin_abbr,   # ✅ 传递拼音
+                        }
                     )
                     customer_map[obj.name] = obj
 
@@ -1931,7 +1930,6 @@ def import_orders(request):
                 skip_count += 1
                 continue
 
-            # 从 items 的第一个元素获取解析后的区域名和纯客户名
             final_area_name = items[0]['area_name']
             area = area_map.get(final_area_name) if final_area_name else None
 
