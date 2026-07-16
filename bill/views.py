@@ -676,7 +676,7 @@ def order_list(request):
             order.paid_percent = 100
 
         can_cancel = False
-        if order.status != 'cancelled' and not order.is_settled and order.status != 'printed':
+        if order.status != 'cancelled' and not order.is_settled:  # 移除 and order.status != 'printed'
             if is_super_admin:
                 can_cancel = True
             elif is_admin:
