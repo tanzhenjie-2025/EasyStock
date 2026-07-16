@@ -40,5 +40,7 @@ urlpatterns = [
 path('orders/export/', views.export_orders, name='export_orders'),
 path('orders/import/', views.import_orders, name='import_orders'),
 
+path('order/<str:order_no>/mark-printed/', views.mark_order_printed, name='mark_order_printed'),
+
 
 ]

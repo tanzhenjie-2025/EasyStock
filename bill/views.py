@@ -1997,3 +1997,34 @@ def import_orders(request):
     if skip_count:
         msg += f'，跳过 {skip_count} 个重复订单'
     return JsonResponse({'code': 1, 'msg': msg})
+
+@login_required
+@permission_required(PERM_ORDER_PRINT)
+def mark_order_printed(request, order_no):
+    """标记订单为已打印（仅在窗口打印后由前端调用）"""
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, status=405)
+
+    order = get_object_or_404(Order, order_no=order_no)
+
+    if order.status == 'pending':
+        order.status = 'printed'
+        order.save(update_fields=['status'])
+
+        # 清理相关缓存
+        clear_order_cache(order_no)
+
+        # 记录操作日志
+        create_operation_log(
+            request,
+            'mark_printed', 'order', str(order.id),
+            f"订单-{order_no}", "打印后标记为已打印"
+        )
+        return JsonResponse({'code': 1, 'msg': '订单已标记为已打印'})
+
+    elif order.status == 'printed':
+        return JsonResponse({'code': 1, 'msg': '订单已是已打印状态'})
+
+    else:
+        # 作废、重开等状态不允许标记
+        return JsonResponse({'code': 0, 'msg': f'订单状态为{order.status}，无法标记已打印'})

@@ -173,7 +173,7 @@
 <body>
     <!-- 打印按钮（仅屏幕显示） -->
     <div class="no-print" style="text-align: center; margin: 20px;">
-        <button onclick="window.print()">打印三联单</button>
+        <button onclick="printAndMark()">打印三联单</button>
         <a href="/bill/"><button>返回开单页</button></a>
     </div>
 
@@ -291,6 +291,51 @@
                 window.location.href = '/bill/';
             }
         });
+         // 防止多次打印重复标记
+    var printMarked = false;
+
+    function printAndMark() {
+        window.onafterprint = function() {
+            if (!printMarked) {
+                printMarked = true;
+                // 向服务器发送标记请求
+                fetch('{% url "bill:mark_order_printed" order.order_no %}', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken'),
+                        'Content-Type': 'application/json',
+                    },
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.code === 1) {
+                        console.log('订单状态已更新为“已打印”');
+                    }
+                })
+                .catch(error => {
+                    console.error('标记请求失败:', error);
+                });
+            }
+            window.onafterprint = null; // 清除事件，避免残留
+        };
+        window.print();
+    }
+
+    // 通用 Cookie 读取函数（兼容 Django CSRF）
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
     </script>
 </body>
 </html>
