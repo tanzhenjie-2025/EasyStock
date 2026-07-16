@@ -1249,8 +1249,6 @@ def batch_settle_order(request):
 
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'批量结清失败：{str(e)}'}, status=500)
-
-
 @login_required
 @permission_required(PERM_PRODUCT_SEARCH)
 def get_customer_recent_products(request):
@@ -1264,7 +1262,7 @@ def get_customer_recent_products(request):
         return JsonResponse({'code': 1, 'data': cached_data})
 
     try:
-        # 获取最近5个有效订单ID
+        # 获取最近有效订单ID（取10个，覆盖足够的最近购买记录）
         recent_order_ids = list(
             Order.objects.filter(
                 customer_id=customer_id,
@@ -1283,12 +1281,6 @@ def get_customer_recent_products(request):
             order_id__in=recent_order_ids
         ).select_related('product', 'order').order_by('-order__create_time')
 
-        # 获取客户专属价格
-        customer_prices = {
-            item['product_id']: float(item['custom_price'])
-            for item in CustomerPrice.objects.filter(customer_id=customer_id).values('product_id', 'custom_price')
-        }
-
         # 分别处理有product的商品与自由开单商品
         product_dict = {}          # key: product.id
         free_product_dict = {}     # key: "free_产品名|规格|单位|价格"
@@ -1298,19 +1290,36 @@ def get_customer_recent_products(request):
                 product = item.product
                 if product.id in product_dict:
                     continue
-                final_price = customer_prices.get(product.id, float(product.price))
+
+                # ----- 价格快照逻辑 -----
+                # 1. 优先使用开单时的实际单价（成交价快照）
+                if item.actual_unit_price is not None:
+                    final_price = float(item.actual_unit_price)
+                # 2. 若无实际单价，尝试客户价快照
+                elif item.snapshot_customer_price is not None:
+                    final_price = float(item.snapshot_customer_price)
+                # 3. 再尝试标准价快照
+                elif item.snapshot_standard_price is not None:
+                    final_price = float(item.snapshot_standard_price)
+                # 4. 兜底：使用商品当前标准价
+                else:
+                    final_price = float(product.price)
+
+                # 规格：优先使用订单明细中的规格快照
+                specification = item.specification or product.specification or ''
+
                 product_dict[product.id] = {
                     'id': product.id,
                     'name': product.name,
-                    'price': final_price,
-                    'standard_price': float(product.price),
+                    'price': final_price,                    # 成交价快照
+                    'standard_price': float(product.price),  # 当前标准价（用于对比）
                     'unit': product.unit,
                     'last_purchase_time': item.order.create_time.strftime('%Y-%m-%d %H:%M'),
                     'last_quantity': item.quantity,
-                    'specification': product.specification or ''
+                    'specification': specification,
                 }
             else:
-                # 自由开单商品：用 (名称、规格、单位、价格) 去重
+                # 自由开单商品：使用当时的成交价（原有逻辑不变）
                 name = item.product_name or ''
                 spec = item.specification or ''
                 unit = item.unit or ''
@@ -1319,19 +1328,18 @@ def get_customer_recent_products(request):
                 if free_key in free_product_dict:
                     continue
                 free_product_dict[free_key] = {
-                    'id': None,  # 稍后分配负ID
+                    'id': None,
                     'name': name,
                     'price': price,
-                    'standard_price': price,   # 与价格一致
+                    'standard_price': price,
                     'unit': unit,
                     'last_purchase_time': item.order.create_time.strftime('%Y-%m-%d %H:%M'),
                     'last_quantity': item.quantity,
-                    'specification': spec
+                    'specification': spec,
                 }
 
-        # 组装结果列表
+        # 组装结果
         recent_products = list(product_dict.values())
-        # 为自由商品分配唯一负ID，避免与正product.id冲突
         free_offset = 0
         for free_data in free_product_dict.values():
             free_offset += 1
@@ -1350,8 +1358,6 @@ def get_customer_recent_products(request):
     except Exception as e:
         logger.error(f"获取客户最近商品失败: {str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'获取失败：{str(e)}', 'data': []})
-
-
 # ===================== 2. 新增：价格核算视图 =====================
 
 @login_required
