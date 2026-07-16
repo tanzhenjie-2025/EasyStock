@@ -498,8 +498,9 @@ def customer_add(request):
                 return JsonResponse({'code': 0, 'msg': '所属区域不能为空'}, content_type='application/json')
             # ✅ 移除：电话必填校验，改为选填
 
-            if Customer.objects.filter(name=name).exists():
-                return JsonResponse({'code': 0, 'msg': '客户名称已存在'}, content_type='application/json')
+                # ✅ 修改：按区域+名称校验唯一性
+            if Customer.objects.filter(name=name, area_id=area_id).exists():
+                return JsonResponse({'code': 0, 'msg': '该区域下已存在同名客户'})
 
             area = get_object_or_404(Area, id=area_id)
             customer = Customer.objects.create(
@@ -552,9 +553,9 @@ def customer_edit(request, pk):
                 return JsonResponse({'code': 0, 'msg': '所属区域不能为空'}, content_type='application/json')
             # ✅ 移除：电话必填校验，改为选填
 
-            if Customer.objects.filter(name=name).exclude(pk=pk).exists():
-                return JsonResponse({'code': 0, 'msg': '客户名称已存在'}, content_type='application/json')
-
+                # ✅ 修改：排除自身，按区域+名称校验
+            if Customer.objects.filter(name=name, area_id=area_id).exclude(pk=pk).exists():
+                return JsonResponse({'code': 0, 'msg': '该区域下已存在同名客户'})
             area = get_object_or_404(Area, id=area_id)
             customer.name = name
             customer.area = area
@@ -1301,6 +1302,7 @@ def customer_import(request):
             new_count = 0
             skip_count = 0
             error_list = []
+            # 预加载所有区域名称→区域对象的映射
             area_map = {area.name: area for area in Area.objects.all()}
 
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), 2):
@@ -1320,18 +1322,18 @@ def customer_import(request):
                     if len(cells) > 4:
                         remark = cells[4]
 
-                # ✅ 修改：仅校验名称必填，电话可为空
+                # 名称必填校验
                 if not name:
                     error_list.append(f"第{row_idx}行：客户名称为空，跳过")
                     continue
 
-                if Customer.objects.filter(name=name).exists():
+                # 查找区域对象（允许为空）
+                area_obj = area_map.get(area_name)
+
+                # ✅ 修改：按区域+名称联合查重
+                if Customer.objects.filter(name=name, area=area_obj).exists():
                     skip_count += 1
                     continue
-
-                area_obj = None
-                if area_name and area_name in area_map:
-                    area_obj = area_map[area_name]
 
                 try:
                     customer = Customer.objects.create(
@@ -1339,7 +1341,7 @@ def customer_import(request):
                         area=area_obj,
                         remark=remark
                     )
-                    # ✅ 修改：仅电话非空时创建主号码
+                    # 仅当电话非空时创建主号码
                     if phone:
                         CustomerPhone.objects.create(
                             customer=customer,

@@ -48,7 +48,7 @@ class CustomerPhone(models.Model):
 
 class Customer(models.Model):
     """客户信息表（增加拼音检索）"""
-    name = models.CharField('客户名称', max_length=100, unique=True, db_index=True)
+    name = models.CharField('客户名称', max_length=100, db_index=True)
     # 新增拼音字段
     pinyin_full = models.CharField('全拼', max_length=200, blank=True, db_index=True)
     pinyin_abbr = models.CharField('拼音首字母', max_length=50, blank=True, db_index=True)
@@ -98,6 +98,7 @@ class Customer(models.Model):
         verbose_name = '客户'
         verbose_name_plural = '客户管理'
         ordering = ['-create_time']
+        unique_together = ('area', 'name')
         indexes = [
             models.Index(fields=['area']),
             models.Index(fields=['area', 'name']),
