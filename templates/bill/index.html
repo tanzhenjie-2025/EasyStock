@@ -1247,9 +1247,15 @@ function customerGoToPage(delta) {
         }
 
         function closeRecentBuyModal() {
-            // 简化关闭逻辑，默认保留数据，除非清空
-            document.getElementById('recentBuyModal').style.display = 'none';
-        }
+    // 隐藏模态框
+    document.getElementById('recentBuyModal').style.display = 'none';
+    // 焦点回到开单页面的第一个商品名称输入框
+    const firstProductInput = document.querySelector('#bill-tbody .name-input');
+    if (firstProductInput) {
+        firstProductInput.focus();
+        firstProductInput.select();  // 可选，选中文本方便直接输入
+    }
+}
 
         // 新增：处理模态框搜索框快捷键
         function handleModalSearchKeydown(e) {
