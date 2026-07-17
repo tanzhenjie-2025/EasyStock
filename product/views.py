@@ -72,16 +72,20 @@ PERM_STOCK_IN_CANCEL = 'stock_in_cancel'  # 作废入库
 
 # ====================== 缓存工具函数 ======================
 def clear_product_all_cache():
+    # 删除精确 key
     cache.delete_many([KEY_AREA, KEY_PRODUCT_ALIAS])
-    for key in cache.keys(f"{CACHE_PREFIX_PRODUCT_LIST}*"):
-        cache.delete(key)
-    for key in cache.keys(f"{CACHE_PREFIX_PRODUCT_DETAIL}*"):
-        cache.delete(key)
-    for key in cache.keys(f"{CACHE_PREFIX_SALES_RANK}*"):
-        cache.delete(key)
-    for key in cache.keys(f"{CACHE_PREFIX_PRODUCT_COUNT}*"):
-        cache.delete(key)
 
+    # 改用 delete_pattern 批量删除（与订单模块保持一致）
+    cache.delete_pattern(f"{CACHE_PREFIX_PRODUCT_LIST}*")
+    cache.delete_pattern(f"{CACHE_PREFIX_PRODUCT_DETAIL}*")
+    cache.delete_pattern(f"{CACHE_PREFIX_SALES_RANK}*")
+    cache.delete_pattern(f"{CACHE_PREFIX_PRODUCT_COUNT}*")
+
+    # 清理排序相关缓存
+    cache.delete('sort_stages_json')
+    cache.delete('product_tags_map_json')
+
+    logger.info("已清理全部商品及排序相关缓存")
 
 
 @login_required

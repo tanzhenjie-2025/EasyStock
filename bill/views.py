@@ -124,6 +124,13 @@ def clear_customer_related_cache(customer_id: int = None):
     cache.delete_pattern(f"{CACHE_PREFIX_CUSTOMER_RECENT_PRODUCT}*")
     logger.info(f"已清理客户相关缓存: {customer_id if customer_id else '全量'}")
 
+def clear_sort_cache():
+    """
+    清理排序规则及关联的商品标签映射缓存
+    """
+    cache.delete('sort_stages_json')
+    cache.delete('product_tags_map_json')
+    logger.info("已清理排序规则相关缓存")
 
 # ========== 重构：自定义AJAX装饰器（适配RBAC） ==========
 def ajax_login_required(view_func):
@@ -451,12 +458,8 @@ def save_order(request):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'开单失败：{str(e)}'})
 
-from django.db import transaction
 from .models import SortRule, ProductTag
-import json
 from django.contrib.auth.decorators import login_required, permission_required
-from django.http import JsonResponse
-from django.shortcuts import render
 
 @login_required
 @permission_required(PERM_ORDER_CREATE)
@@ -464,7 +467,7 @@ def sort_rule_setting(request):
     if request.method == 'POST':
         try:
             data = json.loads(request.body)
-            stages = data.get('stages', [])   # [{stage:1, rules:[...]}, ...]
+            stages = data.get('stages', [])
             with transaction.atomic():
                 SortRule.objects.all().delete()
                 for stage_info in stages:
@@ -477,6 +480,8 @@ def sort_rule_setting(request):
                             spec_condition=rule.get('spec_condition') if rule['type'] == 'spec' else None,
                             priority=rule['priority']
                         )
+            # ✅ 排序规则变更后，立即清理相关缓存
+            clear_sort_cache()
             return JsonResponse({'code': 1, 'msg': '规则保存成功'})
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'保存失败：{str(e)}'})
