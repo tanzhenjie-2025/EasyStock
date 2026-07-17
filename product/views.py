@@ -43,6 +43,9 @@ from accounts.models import (
     PERM_PRODUCT_IMPORT, PERM_PRODUCT_STOCK_OP, PERM_PRODUCT_DETAIL
 )
 
+
+from pypinyin import lazy_pinyin    # 确保已导入
+
 # 业务模型
 from bill.models import Order, OrderItem
 from product.models import Product, ProductAlias
@@ -580,7 +583,7 @@ def product_edit_data(request, pk):
 
 # ====================== 导入/导出/快速出入库（仅修改系统库存） ======================
 
-from django.db import IntegrityError  # 确保在文件顶部导入
+
 
 @require_POST
 @permission_required(PERM_PRODUCT_IMPORT)
@@ -590,7 +593,7 @@ def product_import(request):
             return JsonResponse({'code': 0, 'msg': '请选择Excel文件'})
 
         file = request.FILES['file']
-        # 标题 -> 内部字段名（与导出模板一致）
+        # 标题 -> 内部字段名
         header_to_field = {
             '序号': 'serial',
             'ID': 'id',
@@ -620,7 +623,6 @@ def product_import(request):
             return JsonResponse({'code': 0, 'msg': '文件为空'})
 
         headers = rows[0]
-        # 建立列索引映射
         col_map = {}
         for idx, h in enumerate(headers):
             h = str(h).strip()
@@ -634,10 +636,9 @@ def product_import(request):
         success_count = 0
         fail_count = 0
         fail_reasons = []
-        new_products = []                      # 需要批量创建的新商品
-        updated_products_set = set()           # 需要保存的已有商品（去重）
+        new_products = []
+        updated_products_set = set()
         tag_cache = {}
-        # 本轮导入已处理的 (名称, 单位) -> 商品实例 映射，解决 Excel 内部重复
         processed_key_map = {}
 
         for row_idx, row in enumerate(rows[1:], 2):
@@ -694,11 +695,10 @@ def product_import(request):
                     if st_val == '停用':
                         is_active = False
 
-                # ---------- 确定商品实例（核心改进） ----------
+                # ---------- 确定商品实例 ----------
                 key = (name, unit)
                 product = None
 
-                # 1. 优先通过 ID 查找（包括所有状态）
                 if 'id' in col_map:
                     id_val = row[col_map['id']]
                     if id_val is not None and str(id_val).strip():
@@ -708,25 +708,20 @@ def product_import(request):
                         except (ValueError, TypeError):
                             pass
 
-                # 2. 如果没找到，检查本轮是否已处理过相同 (name, unit)
                 if not product and key in processed_key_map:
                     product = processed_key_map[key]
 
-                # 3. 从数据库查找：先找启用状态，再找停用状态
                 if not product:
-                    # 使用 objects 管理器，只查 is_active=True
                     product = Product.objects.filter(name=name, unit=unit).first()
                     if product:
                         processed_key_map[key] = product
                     else:
-                        # 若没有启用的，再查停用的（is_active=False）
                         product = Product.all_objects.filter(
                             name=name, unit=unit, is_active=False
                         ).first()
                         if product:
                             processed_key_map[key] = product
 
-                # 4. 如果数据库也没有，创建新商品
                 if not product:
                     product = Product(
                         name=name,
@@ -740,10 +735,8 @@ def product_import(request):
                     new_products.append(product)
                     processed_key_map[key] = product
                 else:
-                    # 已存在（启用或停用）的商品，标记为需要更新
                     updated_products_set.add(product)
 
-                # 统一用导入行的数据覆盖属性（以最后一行为准）
                 product.name = name
                 product.unit = unit
                 product.price = price
@@ -774,10 +767,8 @@ def product_import(request):
                         tag_objs.append(tag_obj)
                     product._import_tags = tag_objs
                 else:
-                    # 无标签列：新商品留空，已有商品保留原标签
-                    if not product.pk:      # 新商品还没有主键
+                    if not product.pk:
                         product._import_tags = []
-                    # 已有商品不设置 _import_tags，后续不覆盖标签
 
                 success_count += 1
 
@@ -785,14 +776,19 @@ def product_import(request):
                 fail_count += 1
                 fail_reasons.append(f'第{row_idx}行：处理错误 - {str(e)}')
 
-        # ---------- 持久化（不使用强制事务，允许部分失败） ----------
+        # ---------- 持久化 ----------
         try:
+            # 为新商品手动生成拼音字段（解决 bulk_create 不触发 save 的问题）
+            for prod in new_products:
+                prod.pinyin_full = ''.join(lazy_pinyin(prod.name, style=0))
+                prod.pinyin_abbr = ''.join([p[0] for p in lazy_pinyin(prod.name, style=0)])
+
             if new_products:
                 Product.objects.bulk_create(new_products)
             for prod in updated_products_set:
-                prod.save()
+                prod.save()   # 更新时会自动调用 save 生成拼音
 
-            # 设置标签（需要主键，所以放在保存之后）
+            # 设置标签
             all_products = new_products + list(updated_products_set)
             for prod in all_products:
                 if hasattr(prod, '_import_tags'):
