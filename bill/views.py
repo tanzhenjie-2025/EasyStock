@@ -1742,7 +1742,7 @@ from decimal import Decimal
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
-from pypinyin import lazy_pinyin          # ← 新增导入
+from pypinyin import lazy_pinyin
 
 @login_required
 @permission_required(PERM_ORDER_CREATE)
@@ -1821,14 +1821,14 @@ def import_orders(request):
             'area_name': final_area,
         })
 
-        if final_area:
-            area_names.add(final_area)
-        if pure_customer_name:
-            pure_customer_names.add(pure_customer_name)
-            if pure_customer_name not in pure_name_area:
-                pure_name_area[pure_customer_name] = final_area
-
+        # 仅有效订单才收集需要创建的区域、客户、商品信息
         if status != 'cancelled':
+            if final_area:
+                area_names.add(final_area)
+            if pure_customer_name:
+                pure_customer_names.add(pure_customer_name)
+                if pure_customer_name not in pure_name_area:
+                    pure_name_area[pure_customer_name] = final_area
             product_names.add(prod_name)
             product_key = (prod_name, unit)
             if product_key not in product_create_info:
@@ -1860,7 +1860,6 @@ def import_orders(request):
         new_products = []
         for pname, punit in missing_product_keys:
             info = product_create_info[(pname, punit)]
-            # ✅ 手动生成拼音
             pinyin_full = ''.join(lazy_pinyin(pname, style=0))
             pinyin_abbr = ''.join([p[0] for p in lazy_pinyin(pname, style=0)])
             new_products.append(Product(
@@ -1870,8 +1869,8 @@ def import_orders(request):
                 price=info['price'],
                 stock_system=0,
                 stock_actual=0,
-                pinyin_full=pinyin_full,          # ✅ 设置全拼
-                pinyin_abbr=pinyin_abbr,          # ✅ 设置首字母
+                pinyin_full=pinyin_full,
+                pinyin_abbr=pinyin_abbr,
             ))
         if new_products:
             created = Product.objects.bulk_create(new_products)
@@ -1895,28 +1894,26 @@ def import_orders(request):
             for pure_name in missing_names:
                 area_name_for_customer = pure_name_area.get(pure_name)
                 area = area_map.get(area_name_for_customer) if area_name_for_customer else None
-                # ✅ 手动生成拼音
                 pinyin_full = ''.join(lazy_pinyin(pure_name, style=0))
                 pinyin_abbr = ''.join([p[0] for p in lazy_pinyin(pure_name, style=0)])
                 new_customers.append(Customer(
                     name=pure_name,
                     area=area,
-                    pinyin_full=pinyin_full,      # ✅ 设置全拼
-                    pinyin_abbr=pinyin_abbr,      # ✅ 设置首字母
+                    pinyin_full=pinyin_full,
+                    pinyin_abbr=pinyin_abbr,
                 ))
             try:
                 Customer.objects.bulk_create(new_customers, ignore_conflicts=True)
                 for c in Customer.objects.filter(name__in=missing_names):
                     customer_map[c.name] = c
             except Exception:
-                # 降级为逐个创建，同时传递拼音字段
                 for c_obj in new_customers:
                     obj, created = Customer.objects.get_or_create(
                         name=c_obj.name,
                         defaults={
                             'area': c_obj.area,
-                            'pinyin_full': c_obj.pinyin_full,   # ✅ 传递拼音
-                            'pinyin_abbr': c_obj.pinyin_abbr,   # ✅ 传递拼音
+                            'pinyin_full': c_obj.pinyin_full,
+                            'pinyin_abbr': c_obj.pinyin_abbr,
                         }
                     )
                     customer_map[obj.name] = obj
@@ -1937,12 +1934,17 @@ def import_orders(request):
                 skip_count += 1
                 continue
 
-            final_area_name = items[0]['area_name']
-            area = area_map.get(final_area_name) if final_area_name else None
-
-            pure_customer_name = items[0]['pure_customer_name']
-            customer = customer_map.get(pure_customer_name) if pure_customer_name else None
             status = items[0]['status']
+
+            # 作废订单：强制不关联任何区域、客户、商品
+            if status == 'cancelled':
+                area = None
+                customer = None
+            else:
+                final_area_name = items[0]['area_name']
+                area = area_map.get(final_area_name) if final_area_name else None
+                pure_customer_name = items[0]['pure_customer_name']
+                customer = customer_map.get(pure_customer_name) if pure_customer_name else None
 
             order = Order(
                 order_no=order_no if order_no else '',
@@ -1972,7 +1974,8 @@ def import_orders(request):
                 amount = price * qty
                 total += amount
 
-                product = product_map.get((prod_name, unit))
+                # 作废订单明细不关联商品
+                product = None if status == 'cancelled' else product_map.get((prod_name, unit))
 
                 order_items.append(OrderItem(
                     order=order,
