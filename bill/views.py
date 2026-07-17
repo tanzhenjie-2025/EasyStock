@@ -895,27 +895,28 @@ def cancel_order(request, order_no):
             # 统一使用 Django 时区计算时间差
             time_diff = (current_time - order.create_time).total_seconds() / 60
 
-            # ===================== 1. 状态锁校验 =====================
-            if order.is_settled:
-                return JsonResponse({'code': 0, 'msg': '已收款的订单无法作废'}, status=400)
-            if order.status == 'printed':
-                return JsonResponse({'code': 0, 'msg': '已出库的订单无法作废'}, status=400)
-            if order.status == 'cancelled':
-                return JsonResponse({'code': 0, 'msg': '该订单已作废，无需重复操作'}, status=400)
-
-            # ===================== 2. 精简权限判断 =====================
+            # ===================== 1. 获取角色（提前） =====================
             user_role_code = request.user.role.code if request.user.role else None
             is_super_admin = user_role_code == ROLE_SUPER_ADMIN
             is_admin = user_role_code == ROLE_ADMIN
             is_operator = user_role_code == ROLE_OPERATOR
 
+            # ===================== 2. 状态锁校验（超级管理员可越过部分限制） =====================
+            if order.status == 'cancelled':
+                return JsonResponse({'code': 0, 'msg': '该订单已作废，无需重复操作'}, status=400)
+
+            if not is_super_admin:
+                if order.is_settled:
+                    return JsonResponse({'code': 0, 'msg': '已收款的订单无法作废'}, status=400)
+                if order.status == 'printed':
+                    return JsonResponse({'code': 0, 'msg': '已出库的订单无法作废'}, status=400)
+
+            # ===================== 3. 后续权限判断（保持不变） =====================
             if not is_super_admin:
                 if is_admin:
-                    # 管理员：作废他人订单需要额外权限
                     if order.creator != request.user and not request.user.has_permission('order_cancel_others'):
                         return JsonResponse({'code': 0, 'msg': '无作废他人订单的权限'}, status=403)
                 elif is_operator:
-                    # 普通店员：仅自己 + 5分钟内
                     if order.creator != request.user:
                         return JsonResponse({'code': 0, 'msg': '普通店员仅能作废自己创建的订单'}, status=403)
                     if time_diff > 5:
