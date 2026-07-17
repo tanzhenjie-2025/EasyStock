@@ -363,6 +363,10 @@ box-sizing: border-box;
         <label class="form-label me-2">选择客户：</label>
         <input type="text" id="customerInput" class="form-control form-control-sm" style="width: 250px; display: inline-block;" placeholder="输入区域/客户名（输入法式选择）">
         <button id="btnRecentBuy" class="btn btn-sm btn-outline-secondary ms-2" style="vertical-align: middle;" onclick="openRecentBuyModal()" disabled>用户最近购买</button>
+        
+        <!-- 👇 新增制单号输入框 -->
+    <label class="form-label me-2 ms-3">制单号：</label>
+    <input type="text" id="orderNumberInput" class="form-control form-control-sm" style="width: 200px; display: inline-block;" placeholder="可选">
     </div>
 
     <button class="btn-add-row" onclick="addBlankRow()">新增空白行</button>
@@ -886,18 +890,46 @@ function customerGoToPage(delta) {
     if (!item || !currentCustomerInput) return;
     currentCustomerInput.value = item.full_name;
     currentCustomerInput.dataset.customerId = item.id;
-    currentCustomerInput.dataset.customerName = item.full_name;   // 👈 新增这一行
+    currentCustomerInput.dataset.customerName = item.full_name;
+
+    // 🔥 存储制单号到 dataset，并回填
+    currentCustomerInput.dataset.orderNumber = item.order_number || '';
+    const orderInput = document.getElementById('orderNumberInput');
+    orderInput.value = item.order_number || '';
+
     currentCustomerInput.dispatchEvent(new Event('change'));
     hideSuggest();
+
+    // 若没有制单号，自动聚焦到制单号输入框
+    if (!item.order_number) {
+        setTimeout(() => {
+            orderInput.focus();
+            orderInput.select();
+        }, 100);
+    }
 }
         function handleCustomerInputKey(e) {
-    // ===== 统一处理 Enter 键（保留原有跳转逻辑） =====
+    // ===== 统一处理 Enter 键（整合制单号逻辑） =====
     if (e.key === 'Enter') {
         e.preventDefault();
-        hideSuggest();                // 关闭下拉框
-        // 原有：跳转到第一个商品输入框
-        const firstProductInput = document.querySelector('#bill-tbody .name-input');
-        if (firstProductInput) { firstProductInput.focus(); firstProductInput.select(); }
+        hideSuggest();
+
+        const orderNumberInput = document.getElementById('orderNumberInput');
+        const customerInput = document.getElementById('customerInput');
+        const hasOrderNumber = customerInput.dataset.orderNumber && customerInput.dataset.orderNumber.trim() !== '';
+
+        if (!hasOrderNumber && customerInput.dataset.customerId) {
+            // 无制单号：跳转到制单号输入框
+            orderNumberInput.focus();
+            orderNumberInput.select();
+        } else {
+            // 有制单号或未选客户：保持原逻辑，跳转到第一个商品输入框
+            const firstProductInput = document.querySelector('#bill-tbody .name-input');
+            if (firstProductInput) {
+                firstProductInput.focus();
+                firstProductInput.select();
+            }
+        }
         return;
     }
 
@@ -954,6 +986,29 @@ function customerGoToPage(delta) {
                 customerInput.addEventListener('input', () => debouncedCustomerSearch(customerInput));
                 customerInput.addEventListener('keydown', handleCustomerInputKey);
                 customerInput.addEventListener('blur', () => { setTimeout(hideSuggest, 200); });
+            }
+        }
+        
+        // ========== 制单号输入框键盘事件（新增） ==========
+        function initOrderNumberInput() {
+            const orderInput = document.getElementById('orderNumberInput');
+            if (orderInput) {
+                orderInput.addEventListener('keydown', function(e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (e.shiftKey) {
+                            // Shift+Enter 保存订单
+                            saveOrder();
+                        } else {
+                            // 普通 Enter 跳转到第一个商品输入框
+                            const firstProductInput = document.querySelector('#bill-tbody .name-input');
+                            if (firstProductInput) {
+                                firstProductInput.focus();
+                                firstProductInput.select();
+                            }
+                        }
+                    }
+                });
             }
         }
 
@@ -1151,6 +1206,10 @@ function customerGoToPage(delta) {
     if (customerName !== savedCustomerName) {
         customerId = '';   // 视为自由输入的客户，不关联原ID
     }
+    
+    // 🔥 获取制单号
+    const orderNumberInput = document.getElementById('orderNumberInput');
+    const orderNumber = orderNumberInput ? orderNumberInput.value.trim() : '';
 
     const items = [];
     document.querySelectorAll('#bill-tbody tr').forEach(tr => {
@@ -1178,7 +1237,8 @@ function customerGoToPage(delta) {
             items,
             total_amount: total,
             customer_id: customerId,
-            customer_name: customerName
+            customer_name: customerName,
+            order_number: orderNumber,    // 👈 新增
         };
         if (originalOrderNo) {
             requestData.original_order_no = originalOrderNo;
@@ -1207,7 +1267,9 @@ function customerGoToPage(delta) {
         function resetBill(){
             document.getElementById('bill-tbody').innerHTML='';
             rowIdCounter=0;
-            addBlankRow();
+            for (let i = 0; i < 3; i++) {
+                addBlankRow();
+            }
             const customerInput = document.getElementById('customerInput');
             if (customerInput) {
                 customerInput.value = '';
@@ -1492,6 +1554,7 @@ function customerGoToPage(delta) {
         window.onload = function() {
             restoreAutoSortSetting();
             initCustomerInput();
+            initOrderNumberInput(); 
 
             {% if reopen_order_data %}
                 const customerInput = document.getElementById('customerInput');
@@ -1521,7 +1584,9 @@ function customerGoToPage(delta) {
                 const firstProductInput = document.querySelector('#bill-tbody .name-input');
                 if (firstProductInput) { firstProductInput.focus(); firstProductInput.select(); }
             {% else %}
-                addBlankRow();
+                for (let i = 0; i < 3; i++) {
+                    addBlankRow();
+                }
                 const customerInput = document.getElementById('customerInput');
                 if (customerInput) customerInput.focus();
             {% endif %}
@@ -1622,5 +1687,7 @@ function restoreAutoSortSetting() {
         checkbox.checked = (saved === 'true');
     }
 }
+
+        
     </script>
 {% endblock %}

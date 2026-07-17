@@ -292,33 +292,31 @@ def save_order(request):
             data = json.loads(request.body)
             items = data.get('items', [])
             customer_id = data.get('customer_id', '')
+            customer_name = data.get('customer_name', '').strip()   # 提前到循环外
+            order_number = data.get('order_number', '').strip()     # 🔥 新增制单号
             original_order_no = data.get('original_order_no', '')
 
             if not items:
                 return JsonResponse({'code': 0, 'msg': '无订单明细'})
 
             # ---------- 1. 分离有效商品ID和临时商品 ----------
-            valid_product_ids = []  # 需要校验、扣库存的商品ID
-            item_data_list = []  # 存储每个明细的详细数据
+            valid_product_ids = []
+            item_data_list = []
 
             for item in items:
-                pid = item.get('id', '').strip()  # 前端可能传空字符串
+                pid = item.get('id', '').strip()
                 name = item.get('name', '').strip()
                 spec = item.get('spec', '').strip()
                 unit = item.get('unit', '').strip()
                 qty = item.get('qty', 0)
                 price = item.get('price', 0)
-                customer_name = data.get('customer_name', '').strip()
 
                 if not name:
                     return JsonResponse({'code': 0, 'msg': '商品名称不能为空'})
                 if not isinstance(qty, int) or qty <= 0:
                     return JsonResponse({'code': 0, 'msg': f'商品{name}数量无效'})
 
-                product = None
                 product_id_int = None
-
-                # 处理有效ID
                 if pid:
                     try:
                         product_id_int = int(pid)
@@ -360,6 +358,11 @@ def save_order(request):
                 order.customer = customer
                 order.area = customer.area
 
+                # 🔥 处理制单号：仅当客户尚无制单号且本次传入非空时才写入
+                if order_number and not customer.order_number:
+                    customer.order_number = order_number
+                    customer.save(update_fields=['order_number'])
+
             if original_order_no:
                 original_order = get_object_or_404(Order, order_no=original_order_no)
                 if original_order.status != 'cancelled':
@@ -367,9 +370,9 @@ def save_order(request):
                 order.original_order = original_order
                 order.status = 'reopened'
 
+            # ---------- 5. 生成订单明细 ----------
             total_amount = 0
             order_items = []
-            # 需要更新库存的商品列表（仅有效商品）
             update_stock_products = []
 
             for item_data in item_data_list:
@@ -382,19 +385,15 @@ def save_order(request):
                 total_amount += amount
 
                 if pid is not None:
-                    # ---- 关联商品 ----
                     product = products_map[pid]
-                    # 价格快照
                     snap_standard = product.price
                     snap_customer = customer_prices_dict.get(pid, None)
-                    # 库存扣减准备
                     product.stock_system -= qty
                     update_stock_products.append(product)
-                    # 创建明细
                     order_items.append(OrderItem(
                         order=order,
                         product=product,
-                        product_name=product.name,  # 同步保存名称，方便统一处理
+                        product_name=product.name,
                         unit=item_data['unit'],
                         specification=spec,
                         quantity=qty,
@@ -404,11 +403,10 @@ def save_order(request):
                         snapshot_customer_price=snap_customer,
                     ))
                 else:
-                    # ---- 临时商品（自由开单） ----
                     order_items.append(OrderItem(
                         order=order,
-                        product=None,  # 不关联任何 Product
-                        product_name=name,  # 保存手动输入的名称
+                        product=None,
+                        product_name=name,
                         unit=item_data['unit'],
                         specification=spec,
                         quantity=qty,
@@ -418,13 +416,11 @@ def save_order(request):
                         snapshot_customer_price=None,
                     ))
 
-            # ---------- 5. 保存订单和明细 ----------
+            # ---------- 6. 保存 ----------
             order.total_amount = total_amount
             order.save()
-
             OrderItem.objects.bulk_create(order_items)
 
-            # ---------- 6. 批量更新库存（仅有效商品） ----------
             if update_stock_products:
                 Product.objects.bulk_update(update_stock_products, ['stock_system'])
 
@@ -831,47 +827,26 @@ def order_detail(request, order_no):
 
 
 @login_required
-@permission_required(PERM_PRODUCT_SEARCH)
 def search_customer(request):
-    """
-    客户搜索（支持名称/区域/拼音全拼/拼音首字母） + 手动缓存优化
-    性能优化点：
-    1. select_related('area') 避免N+1查询
-    2. distinct() 避免关联区域可能产生的重复行
-    3. 仅取前8条，降低传输和渲染开销
-    4. 手动缓存10秒，缓解数据库压力
-    """
+    """客户搜索（支持拼音，返回制单号）"""
     keyword = request.GET.get('keyword', '').strip()
     if not keyword:
         return JsonResponse({'code': 0, 'data': []})
 
-    # 缓存命中直接返回
-    cache_key = f"{CACHE_PREFIX_CUSTOMER_SEARCH}{keyword}"
-    cached_data = cache.get(cache_key)
-    if cached_data:
-        return JsonResponse({'code': 1, 'data': cached_data})
-
-    # 组合模糊查询：客户名、区域名、全拼、首字母
-    customers = Customer.objects.select_related('area').filter(
+    # 根据名称、拼音全拼、首字母模糊搜索
+    customers = Customer.objects.filter(
         Q(name__icontains=keyword) |
-        Q(area__name__icontains=keyword) |
         Q(pinyin_full__icontains=keyword) |
         Q(pinyin_abbr__icontains=keyword)
-    ).distinct()[:50]   # 控制返回数量
+    ).distinct()[:50]
 
     data = []
     for c in customers:
-        area_name = c.area.name if c.area else '无区域'
         data.append({
             'id': c.id,
-            'full_name': f"{area_name} | {c.name}",
-            # 如需返回电话，可取消下面注释：
-            # 'phone': c.primary_phone,
+            'full_name': f'{c.area.name} - {c.name}' if c.area else c.name,
+            'order_number': c.order_number or '',   # 制单号，为空则返回空字符串
         })
-
-    # 写入缓存
-    cache.set(cache_key, data, timeout=CACHE_CUSTOMER_SEARCH)
-    logger.info(f"设置客户搜索缓存: {cache_key}")
     return JsonResponse({'code': 1, 'data': data})
 
 @login_required

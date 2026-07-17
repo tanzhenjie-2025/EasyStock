@@ -63,6 +63,8 @@ class Customer(models.Model):
     remark = models.CharField('备注', max_length=200, blank=True, default='')
     create_time = models.DateTimeField('创建时间', auto_now_add=True, db_index=True)
 
+    order_number = models.CharField('制单号', max_length=100, blank=True, default='')
+
     # 软删除字段
     is_active = models.BooleanField('是否启用', default=True, db_index=True)
     disabled_time = models.DateTimeField('禁用时间', null=True, blank=True)
@@ -70,6 +72,7 @@ class Customer(models.Model):
     # 管理器
     objects = CustomerManager()
     all_objects = models.Manager()
+
 
     # ---------- 快捷属性 ----------
     @property

@@ -252,12 +252,18 @@
                     </div>
                 </div>
                 <div class="bottom-row">
-                    <span></span>
-                    <div class="field-group">
-                        <strong>制单工号：</strong>
-                        <span class="underline underline-sm">&nbsp;</span>
-                    </div>
-                </div>
+    <span></span>
+    <div class="field-group">
+        <strong>制单工号：</strong>
+        <span class="underline underline-sm">
+            {% if item.order.customer and item.order.customer.order_number %}
+                {{ item.order.customer.order_number }}
+            {% else %}
+                &nbsp;
+            {% endif %}
+        </span>
+    </div>
+</div>
             </div>
         </div>
 
