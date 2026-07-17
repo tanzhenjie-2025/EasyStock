@@ -39,7 +39,7 @@ class Order(models.Model):
         verbose_name='开单人',
         related_name='created_orders'
     )
-    create_time = models.DateTimeField('开单时间', auto_now_add=True)
+    create_time = models.DateTimeField('开单时间', default=timezone.now)
     total_amount = models.DecimalField('总金额', max_digits=12, decimal_places=2, default=0)
     status = models.CharField('状态', max_length=10, choices=ORDER_STATUS, default='pending')
 

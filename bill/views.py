@@ -1600,7 +1600,6 @@ from urllib.parse import quote
 def export_orders(request):
     """导出当前筛选条件下的订单 Excel（模板可复用）"""
     # 复用 order_list 的查询逻辑，但跳过缓存和分页
-    # 下面代码提取与 order_list 相同的过滤条件（可根据实际封装公共函数）
     order_no = request.GET.get('order_no', '').strip()
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
@@ -1610,7 +1609,7 @@ def export_orders(request):
     amount_value = request.GET.get('amount_value', '').strip()
     status = request.GET.get('status', 'all')
 
-    # 权限控制（与 order_list 一致）
+    # 权限控制
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
     can_view_others = request.user.has_permission('order_view_others')
     orders = Order.objects.select_related('area').order_by('-create_time')
@@ -1657,7 +1656,7 @@ def export_orders(request):
         except:
             pass
 
-    # 预加载订单明细及关联商品，防止N+1
+    # 预加载订单明细及关联商品
     orders = orders.prefetch_related(
         Prefetch('items', queryset=OrderItem.objects.select_related('product'))
     )
@@ -1667,8 +1666,8 @@ def export_orders(request):
     ws = wb.active
     ws.title = "订单数据"
 
-    # 表头
-    headers = ['订单编号', '客户名称', '区域', '商品名称', '规格', '单位', '数量', '单价', '小计金额', '订单状态']
+    # 表头（增加“创建时间”列）
+    headers = ['订单编号', '客户名称', '区域', '商品名称', '规格', '单位', '数量', '单价', '小计金额', '订单状态', '创建时间']
     header_font = Font(bold=True)
     for col_num, header in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col_num, value=header)
@@ -1679,8 +1678,9 @@ def export_orders(request):
     for order in orders:
         area_name = order.area.name if order.area else ''
         customer_name_snap = order.customer_name_snapshot or ''
-        # 避免 Excel 将长数字转为科学计数法，订单编号强制存为文本
         order_no_text = order.order_no
+        # 将 aware 时间转为当前时区的字符串
+        create_time_val = timezone.localtime(order.create_time).replace(tzinfo=None)
         for item in order.items.all():
             ws.cell(row=row, column=1, value=order_no_text)
             ws.cell(row=row, column=2, value=customer_name_snap)
@@ -1689,20 +1689,18 @@ def export_orders(request):
             ws.cell(row=row, column=5, value=item.specification)
             ws.cell(row=row, column=6, value=item.unit)
             ws.cell(row=row, column=7, value=item.quantity)
-            # 单价取实际单价，若无则取0
             price = float(item.actual_unit_price) if item.actual_unit_price else 0.0
             ws.cell(row=row, column=8, value=price)
-            # 小计金额使用快照金额
             amt = float(item.amount) if item.amount else 0.0
             ws.cell(row=row, column=9, value=amt)
             ws.cell(row=row, column=10, value=order.status)
+            ws.cell(row=row, column=11, value=create_time_val)   # 直接写入 datetime
             row += 1
 
-    # 设置响应为 Excel 下载
+    # 设置响应
     response = HttpResponse(
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
-    # 生成带日期的中文文件名，例如：订单导出20260713.xlsx
     now_str = timezone.now().strftime('%Y%m%d')
     filename = f'订单导出{now_str}.xlsx'
     response['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(filename)}"
@@ -1739,7 +1737,8 @@ def import_orders(request):
     if not rows:
         return JsonResponse({'code': 0, 'msg': 'Excel 无数据'})
 
-    order_groups = defaultdict(list)
+    # 修改数据结构，增加创建时间字段
+    order_groups = {}          # key -> {'items': [...], 'create_time': aware_datetime or None}
     area_names = set()
     product_names = set()
     pure_customer_names = set()
@@ -1764,8 +1763,10 @@ def import_orders(request):
                 return "", raw_name
 
     for row in rows:
-        if len(row) < 9:
+        # 至少需要10列（到订单状态），否则跳过该行
+        if len(row) < 10:
             continue
+
         order_no = str(row[0]).strip() if row[0] else ''
         raw_customer_name = str(row[1]).strip() if row[1] else ''
         area_name = str(row[2]).strip() if row[2] else ''
@@ -1782,10 +1783,38 @@ def import_orders(request):
             price = Decimal('0')
         status = str(row[9]).strip() if len(row) > 9 and row[9] else 'pending'
 
+        # ---------- 导入时间解析（覆盖原解析块） ----------
+        create_time = None
+        if len(row) > 10 and row[10]:
+            val = row[10]
+            if isinstance(val, datetime):
+                # Excel 原生日期时间
+                dt = val
+            else:
+                # 兜底：尝试字符串解析（兼容旧模板）
+                try:
+                    dt = datetime.strptime(str(val).strip(), '%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    try:
+                        dt = datetime.strptime(str(val).strip(), '%Y-%m-%d')
+                    except Exception:
+                        dt = None
+            if dt is not None:
+                # 确保为 aware 时间
+                if timezone.is_naive(dt):
+                    create_time = timezone.make_aware(dt, timezone.get_current_timezone())
+                else:
+                    create_time = dt
+
         final_area, pure_customer_name = parse_customer_name(raw_customer_name, area_name)
 
         order_key = (order_no, raw_customer_name, area_name)
-        order_groups[order_key].append({
+        if order_key not in order_groups:
+            order_groups[order_key] = {
+                'items': [],
+                'create_time': None,   # 同一订单的多行，只保存第一个有效的创建时间
+            }
+        order_groups[order_key]['items'].append({
             'product_name': prod_name,
             'spec': spec,
             'unit': unit,
@@ -1795,6 +1824,8 @@ def import_orders(request):
             'pure_customer_name': pure_customer_name,
             'area_name': final_area,
         })
+        if create_time and not order_groups[order_key]['create_time']:
+            order_groups[order_key]['create_time'] = create_time
 
         # 仅有效订单才收集需要创建的区域、客户、商品信息
         if status != 'cancelled':
@@ -1904,11 +1935,13 @@ def import_orders(request):
 
     # ========== 5. 事务中创建订单和订单明细 ==========
     with transaction.atomic():
-        for (order_no, raw_customer_name, area_name), items in order_groups.items():
+        for (order_no, raw_customer_name, area_name), group_data in order_groups.items():
             if order_no and order_no in existing_orders:
                 skip_count += 1
                 continue
 
+            items = group_data['items']
+            order_create_time = group_data['create_time']   # 可能为 None
             status = items[0]['status']
 
             # 作废订单：强制不关联任何区域、客户、商品
@@ -1929,7 +1962,10 @@ def import_orders(request):
                 creator=request.user,
                 total_amount=0,
                 status=status,
+                # 不传 create_time，下面显式赋值以覆盖 auto_now_add
             )
+            if order_create_time:
+                order.create_time = order_create_time   # 使用导入的时间
             order.save()
 
             if status == 'cancelled':
@@ -1949,7 +1985,6 @@ def import_orders(request):
                 amount = price * qty
                 total += amount
 
-                # 作废订单明细不关联商品
                 product = None if status == 'cancelled' else product_map.get((prod_name, unit))
 
                 order_items.append(OrderItem(
