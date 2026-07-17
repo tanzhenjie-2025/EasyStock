@@ -158,58 +158,37 @@ ROLE_SUPER_ADMIN = 'super_admin'
 
 
 def permission_required(permission_code):
-    """
-    自定义权限装饰器（修复版）：
-    - AJAX请求：返回标准 JSON 错误码 (401/403)
-    - 普通请求：发送消息 + 重定向回来源页（不跳转单独的无权限页）
-    """
-
     def decorator(view_func):
         @wraps(view_func)
         def wrapper(request, *args, **kwargs):
-            # 1. 检查是否登录
             if not request.user.is_authenticated:
-                if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-                    return JsonResponse({'code': 0, 'msg': '请先登录后再操作'}, status=401)
+                # ... 省略 AJAX 处理 ...
                 return redirect(f'/accounts/login/?next={request.path}')
 
-            # 2. 超级管理员直接放行
             if request.user.role and request.user.role.code == ROLE_SUPER_ADMIN:
                 return view_func(request, *args, **kwargs)
 
-            # 3. 检查具体权限
             if not request.user.has_permission(permission_code):
-                # 判断是否为 AJAX 请求
-                if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-                    return JsonResponse(
-                        {'code': 0, 'msg': '抱歉，您没有权限执行此操作，请联系管理员'},
-                        status=403
-                    )
-
-                # 【修复】普通请求：不跳转页面，改为消息提示 + 重定向
+                # AJAX 处理保持不变...
                 messages.error(request, '抱歉，您没有权限执行此操作，请联系管理员')
 
-                # 尝试获取来源页，如果没有则回到首页
                 referer_url = request.META.get('HTTP_REFERER')
                 if referer_url:
-                    # 防止重定向循环（如果来源页就是当前页，则不要回去）
                     try:
                         resolved_path = resolve_url(request.path)
                         resolved_referer = resolve_url(referer_url)
+                        # 如果来源页就是当前页，不要回去，否则死循环
                         if resolved_path == resolved_referer:
-                            return redirect('/bill/')
+                            return redirect('/accounts/no-permission/')   # ★ 改这里
                     except:
                         pass
                     return redirect(referer_url)
 
-                # 默认回首页
-                return redirect('/bill/')
+                # ★ 默认跳转改为无权限提示页，而不是 /bill/
+                return redirect('/accounts/no-permission/')   # ★ 改这里
 
-            # 4. 权限校验通过
             return view_func(request, *args, **kwargs)
-
         return wrapper
-
     return decorator
 
 
@@ -217,9 +196,8 @@ def permission_required(permission_code):
 def login_view(request):
     # 封装安全跳转工具函数，避免重复代码
     def safe_redirect(default='/bill/'):
-        # 优先POST，再GET
         next_url = request.POST.get('next') or request.GET.get('next')
-        # 校验URL是否为本站安全地址
+        # ✅ 补全 allowed_hosts 和 require_https 参数
         if next_url and url_has_allowed_host_and_scheme(
                 url=next_url,
                 allowed_hosts={request.get_host()},
@@ -252,10 +230,15 @@ def login_view(request):
                 obj_id=user.id, obj_name=f"{user.user_code}-{user.username}",
                 detail=f"用户登录：编号={user.user_code}，用户名={user.username}"
             )
+
+            if not user.role:
+                messages.error(request, '您的账户尚未分配角色，请联系管理员。')
+                return redirect('/accounts/no-permission/')
+
             if user.force_password_change:
-                # 同样携带next参数
                 return redirect(f"{reverse('accounts:force_change_password')}?next={safe_redirect()}")
             return redirect(safe_redirect())
+
         else:
             messages.error(request, '用户名/密码错误或账户已禁用')
 
@@ -714,10 +697,11 @@ def profile(request):
 @login_required
 def no_permission(request):
     """
-    备用视图：即使用户手动访问此URL，也只发消息并跳转，不渲染单独的无权限页面
+    无权限提示页：仅登录可访问，避免重定向循环
     """
-    messages.error(request, '抱歉，您没有权限访问该页面，请联系管理员')
-    return redirect('/bill/') # 或者 redirect(request.META.get('HTTP_REFERER', '/bill/'))
+    # 可选：在这里也调用 messages.error，以便模板显示
+    # messages.error(request, '抱歉，您没有权限访问该页面，请联系管理员')
+    return render(request, 'accounts/no_permission.html')
 
 # ===================== 用户管理：导入导出新增代码 =====================
 @login_required

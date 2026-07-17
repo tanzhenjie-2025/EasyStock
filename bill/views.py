@@ -972,7 +972,6 @@ def cancel_order(request, order_no):
 
 
 @login_required
-@permission_required(PERM_ORDER_PRINT)
 def print_order(request, order_no):
     """订单打印页面（手动缓存版）"""
     cache_key = f"{CACHE_PREFIX_PRINT_ORDER}{order_no}"

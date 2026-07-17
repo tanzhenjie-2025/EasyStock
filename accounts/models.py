@@ -351,3 +351,28 @@ class User(AbstractUser):
             res = False
         cache.set(cache_key, res, 3600)
         return res
+
+    def has_perm(self, perm, obj=None):
+        """
+        覆盖 Django 原生 has_perm，使其使用自定义 RBAC 权限检查。
+        - 超级管理员直接返回 True
+        - 否则调用自定义 has_permission(perm_code)
+        """
+        # 如果你的超级管理员标志是 role.is_super_admin，则：
+        if self.role and self.role.is_super_admin:
+            return True
+        # 若有其他超级管理员逻辑（如 is_superuser）也可一并判断
+        if self.is_superuser:
+            return True
+        return self.has_permission(perm)
+
+    def has_perms(self, perm_list, obj=None):
+        """
+        覆盖原生 has_perms，支持批量权限检查。
+        """
+        if self.role and self.role.is_super_admin:
+            return True
+        if self.is_superuser:
+            return True
+        # 逐一检查，也可使用 has_any_permission 优化
+        return all(self.has_permission(perm) for perm in perm_list)
