@@ -1000,7 +1000,8 @@ input:checked + .slider:before{transform:translateX(26px);}
             {% csrf_token %}
             <div class="form-item">
                 <label>选择Excel文件</label>
-                <input type="file" id="importFile" accept=".xlsx,.xls" required>
+                <!-- 👇 添加 name="file" -->
+                <input type="file" name="file" id="importFile" accept=".xlsx,.xls" required>
             </div>
             <button type="submit" class="btn btn-success">开始导入</button>
         </form>
@@ -1039,9 +1040,9 @@ input:checked + .slider:before{transform:translateX(26px);}
                 <label for="field_unit">单位</label>
             </div>
             <div class="field-checkbox">
-    <input type="checkbox" id="field_specification" name="export_fields" value="specification" checked>
-    <label for="field_specification">商品规格</label>
-</div>
+                <input type="checkbox" id="field_specification" name="export_fields" value="specification" checked>
+                <label for="field_specification">商品规格</label>
+            </div>
             <div class="field-checkbox">
                 <input type="checkbox" id="field_stock_system" name="export_fields" value="stock_system" checked>
                 <label for="field_stock_system">系统库存</label>
@@ -1057,6 +1058,11 @@ input:checked + .slider:before{transform:translateX(26px);}
             <div class="field-checkbox">
                 <input type="checkbox" id="field_status" name="export_fields" value="status" checked>
                 <label for="field_status">状态</label>
+            </div>
+            <!-- 新增：商品标签字段 -->
+            <div class="field-checkbox">
+                <input type="checkbox" id="field_tags" name="export_fields" value="tags" checked>
+                <label for="field_tags">商品标签</label>
             </div>
             <div class="custom-fields-section">
                 <h6>自定义字段</h6>
@@ -1516,7 +1522,13 @@ $('#importForm').submit(function(e){
                 showToast(res.msg, 'success');
                 closeImportModal();
                 setTimeout(()=>location.reload(), 1500);
-            }else showToast(res.msg, 'error');
+            } else {
+                // 显示具体错误消息
+                showToast(res.msg || '导入失败', 'error');
+            }
+        },
+        error: function(xhr, status, error) {
+            showToast('网络请求失败: ' + error, 'error');
         }
     });
 });

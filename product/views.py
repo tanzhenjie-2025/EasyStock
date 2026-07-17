@@ -579,56 +579,241 @@ def product_edit_data(request, pk):
 
 
 # ====================== 导入/导出/快速出入库（仅修改系统库存） ======================
+
+from django.db import IntegrityError  # 确保在文件顶部导入
+
 @require_POST
 @permission_required(PERM_PRODUCT_IMPORT)
 def product_import(request):
     try:
         if 'file' not in request.FILES:
             return JsonResponse({'code': 0, 'msg': '请选择Excel文件'})
-        file = request.FILES['file']
-        success_count = fail_count = 0
-        fail_reasons = []
 
+        file = request.FILES['file']
+        # 标题 -> 内部字段名（与导出模板一致）
+        header_to_field = {
+            '序号': 'serial',
+            'ID': 'id',
+            '商品名称': 'name',
+            '单价（元）': 'price',
+            '单位': 'unit',
+            '商品规格': 'specification',
+            '系统库存': 'stock_system',
+            '实际库存': 'stock_actual',
+            '别名': 'aliases',
+            '状态': 'status',
+            '商品标签': 'tags',
+        }
+
+        # 读取文件（兼容 xlsx / xls）
         if file.name.endswith('.xlsx'):
             wb = openpyxl.load_workbook(io.BytesIO(file.read()))
             rows = list(wb.active.iter_rows(values_only=True))
-        else:
+        elif file.name.endswith('.xls'):
             wb = xlrd.open_workbook(file_contents=file.read())
-            rows = [wb.sheet_by_index(0).row_values(i) for i in range(wb.sheet_by_index(0).nrows)]
+            sheet = wb.sheet_by_index(0)
+            rows = [sheet.row_values(i) for i in range(sheet.nrows)]
+        else:
+            return JsonResponse({'code': 0, 'msg': '仅支持 .xls 或 .xlsx 文件'})
 
-        name_col = price_col = unit_col = -1
-        for idx, h in enumerate(rows[0] if rows else []):
+        if not rows:
+            return JsonResponse({'code': 0, 'msg': '文件为空'})
+
+        headers = rows[0]
+        # 建立列索引映射
+        col_map = {}
+        for idx, h in enumerate(headers):
             h = str(h).strip()
-            if '商品名称' in h:
-                name_col = idx
-            elif '零售价' in h:
-                price_col = idx
-            elif '辅助单位' in h:
-                unit_col = idx
+            field = header_to_field.get(h)
+            if field:
+                col_map[field] = idx
 
-        existing = set(Product.objects.values_list('name', flat=True))
-        new_products = []
-        for i, row in enumerate(rows[1:], 2):
+        if 'name' not in col_map:
+            return JsonResponse({'code': 0, 'msg': '缺少“商品名称”列，请使用正确的模板'})
+
+        success_count = 0
+        fail_count = 0
+        fail_reasons = []
+        new_products = []                      # 需要批量创建的新商品
+        updated_products_set = set()           # 需要保存的已有商品（去重）
+        tag_cache = {}
+        # 本轮导入已处理的 (名称, 单位) -> 商品实例 映射，解决 Excel 内部重复
+        processed_key_map = {}
+
+        for row_idx, row in enumerate(rows[1:], 2):
             try:
-                name = str(row[name_col]).strip() if len(row) > name_col else ''
-                if not name or name in existing:
+                # ---------- 提取各字段 ----------
+                name = str(row[col_map['name']]).strip() if len(row) > col_map['name'] and row[col_map['name']] else ''
+                if not name:
                     fail_count += 1
+                    fail_reasons.append(f'第{row_idx}行：商品名称不能为空')
                     continue
-                price = float(row[price_col]) if (price_col != -1 and len(row) > price_col) else 0.0
-                unit = str(row[unit_col]).strip() if (unit_col != -1 and len(row) > unit_col) else '件'
-                new_products.append(Product(name=name, price=price, unit=unit, stock_system=77, stock_actual=77))
-                existing.add(name)
+
+                unit = '件'
+                if 'unit' in col_map:
+                    u_val = row[col_map['unit']]
+                    if u_val is not None and str(u_val).strip():
+                        unit = str(u_val).strip()
+
+                price = 0.0
+                if 'price' in col_map:
+                    p_val = row[col_map['price']]
+                    if p_val is not None and str(p_val).strip():
+                        try:
+                            price = float(str(p_val).strip())
+                        except ValueError:
+                            pass
+
+                specification = ''
+                if 'specification' in col_map:
+                    s_val = row[col_map['specification']]
+                    if s_val is not None:
+                        specification = str(s_val).strip()
+
+                stock_system = 0
+                if 'stock_system' in col_map:
+                    ss_val = row[col_map['stock_system']]
+                    if ss_val is not None and str(ss_val).strip():
+                        try:
+                            stock_system = int(float(str(ss_val).strip()))
+                        except ValueError:
+                            pass
+
+                stock_actual = 0
+                if 'stock_actual' in col_map:
+                    sa_val = row[col_map['stock_actual']]
+                    if sa_val is not None and str(sa_val).strip():
+                        try:
+                            stock_actual = int(float(str(sa_val).strip()))
+                        except ValueError:
+                            pass
+
+                is_active = True
+                if 'status' in col_map:
+                    st_val = str(row[col_map['status']]).strip() if len(row) > col_map['status'] else ''
+                    if st_val == '停用':
+                        is_active = False
+
+                # ---------- 确定商品实例（核心改进） ----------
+                key = (name, unit)
+                product = None
+
+                # 1. 优先通过 ID 查找（包括所有状态）
+                if 'id' in col_map:
+                    id_val = row[col_map['id']]
+                    if id_val is not None and str(id_val).strip():
+                        try:
+                            pid = int(float(str(id_val).strip()))
+                            product = Product.all_objects.filter(id=pid).first()
+                        except (ValueError, TypeError):
+                            pass
+
+                # 2. 如果没找到，检查本轮是否已处理过相同 (name, unit)
+                if not product and key in processed_key_map:
+                    product = processed_key_map[key]
+
+                # 3. 从数据库查找：先找启用状态，再找停用状态
+                if not product:
+                    # 使用 objects 管理器，只查 is_active=True
+                    product = Product.objects.filter(name=name, unit=unit).first()
+                    if product:
+                        processed_key_map[key] = product
+                    else:
+                        # 若没有启用的，再查停用的（is_active=False）
+                        product = Product.all_objects.filter(
+                            name=name, unit=unit, is_active=False
+                        ).first()
+                        if product:
+                            processed_key_map[key] = product
+
+                # 4. 如果数据库也没有，创建新商品
+                if not product:
+                    product = Product(
+                        name=name,
+                        unit=unit,
+                        price=price,
+                        specification=specification,
+                        stock_system=stock_system,
+                        stock_actual=stock_actual,
+                        is_active=is_active
+                    )
+                    new_products.append(product)
+                    processed_key_map[key] = product
+                else:
+                    # 已存在（启用或停用）的商品，标记为需要更新
+                    updated_products_set.add(product)
+
+                # 统一用导入行的数据覆盖属性（以最后一行为准）
+                product.name = name
+                product.unit = unit
+                product.price = price
+                product.specification = specification
+                product.stock_system = stock_system
+                product.stock_actual = stock_actual
+                product.is_active = is_active
+
+                # ---------- 处理标签 ----------
+                if 'tags' in col_map:
+                    tags_str = ''
+                    if len(row) > col_map['tags'] and row[col_map['tags']]:
+                        tags_str = str(row[col_map['tags']]).strip()
+                    tag_names = [t.strip() for t in tags_str.split(',') if t.strip()]
+                    tag_objs = []
+                    for tname in tag_names:
+                        if tname not in tag_cache:
+                            tag_obj, created = ProductTag.objects.get_or_create(
+                                name=tname,
+                                defaults={'color': '#3498db', 'is_active': True}
+                            )
+                            if not created and not tag_obj.is_active:
+                                tag_obj.is_active = True
+                                tag_obj.save()
+                            tag_cache[tname] = tag_obj
+                        else:
+                            tag_obj = tag_cache[tname]
+                        tag_objs.append(tag_obj)
+                    product._import_tags = tag_objs
+                else:
+                    # 无标签列：新商品留空，已有商品保留原标签
+                    if not product.pk:      # 新商品还没有主键
+                        product._import_tags = []
+                    # 已有商品不设置 _import_tags，后续不覆盖标签
+
                 success_count += 1
-            except:
+
+            except Exception as e:
                 fail_count += 1
+                fail_reasons.append(f'第{row_idx}行：处理错误 - {str(e)}')
 
-        if new_products:
-            Product.objects.bulk_create(new_products)
+        # ---------- 持久化（不使用强制事务，允许部分失败） ----------
+        try:
+            if new_products:
+                Product.objects.bulk_create(new_products)
+            for prod in updated_products_set:
+                prod.save()
+
+            # 设置标签（需要主键，所以放在保存之后）
+            all_products = new_products + list(updated_products_set)
+            for prod in all_products:
+                if hasattr(prod, '_import_tags'):
+                    prod.tags.set(prod._import_tags)
+
+        except IntegrityError as e:
+            logger.error(f"导入保存冲突: {str(e)}")
+            return JsonResponse({'code': 0, 'msg': f'导入失败，数据冲突：{str(e)}'})
+        except Exception as e:
+            logger.error(f"持久化异常: {str(e)}")
+            return JsonResponse({'code': 0, 'msg': f'保存失败：{str(e)}'})
+
         clear_product_all_cache()
-        return JsonResponse({'code': 1, 'msg': f'成功{success_count}，失败{fail_count}'})
-    except Exception as e:
-        return JsonResponse({'code': 0, 'msg': str(e)})
+        msg = f'成功 {success_count} 条，失败 {fail_count} 条'
+        if fail_reasons:
+            msg += '；' + '；'.join(fail_reasons[:5])
+        return JsonResponse({'code': 1, 'msg': msg})
 
+    except Exception as e:
+        logger.error(f"导入失败: {str(e)}")
+        return JsonResponse({'code': 0, 'msg': f'导入失败：{str(e)}'})
 
 @require_POST
 @permission_required(PERM_PRODUCT_STOCK_OP)
@@ -708,7 +893,7 @@ def product_export(request):
                 Q(name__icontains=keyword) | Q(id__in=alias_product_ids)
             )
 
-        products = products_query.prefetch_related('aliases').order_by('name')
+        products = products_query.prefetch_related('aliases', 'tags').order_by('name')  # 预加载标签
         field_config = {
             'serial': {'header': '序号', 'width': 8},
             'id': {'header': 'ID', 'width': 8},
@@ -719,7 +904,9 @@ def product_export(request):
             'stock_system': {'header': '系统库存', 'width': 10},
             'stock_actual': {'header': '实际库存', 'width': 10},
             'aliases': {'header': '别名', 'width': 20},
-            'status': {'header': '状态', 'width': 8}
+            'status': {'header': '状态', 'width': 8},
+            # 👇 新增标签字段
+            'tags': {'header': '商品标签', 'width': 20},
         }
 
         final_fields = selected_fields.copy()
@@ -773,6 +960,9 @@ def product_export(request):
                     value = ','.join([a.alias_name for a in product.aliases.all()])
                 elif field == 'status':
                     value = '启用' if product.is_active else '停用'
+                elif field == 'tags':
+                    # 👇 导出所有启用标签的名称
+                    value = ','.join([tag.name for tag in product.tags.all()])
                 elif field.startswith('custom_'):
                     value = ''
                 ws.cell(row=row_num, column=col_num, value=value)
