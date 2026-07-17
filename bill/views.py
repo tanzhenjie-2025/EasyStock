@@ -379,10 +379,12 @@ def save_order(request):
                 order.customer = customer
                 order.area = customer.area
 
-                # 🔥 处理制单号：仅当客户尚无制单号且本次传入非空时才写入
-                if order_number and not customer.order_number:
-                    customer.order_number = order_number
-                    customer.save(update_fields=['order_number'])
+
+                # 🔥 处理制单号：如果传入的制单号与客户现有制单号不同，则更新
+                if customer_id and order_number:  # 确保客户存在且本次传入了非空制单号
+                    if customer.order_number != order_number:  # 现有制单号与本次不同（包括原本为空的情况）
+                        customer.order_number = order_number
+                        customer.save(update_fields=['order_number'])
 
             if original_order_no:
                 original_order = get_object_or_404(Order, order_no=original_order_no)
