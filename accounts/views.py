@@ -154,8 +154,6 @@ from django.http import JsonResponse
 from django.shortcuts import redirect
 
 # 假设你有这个常量定义
-ROLE_SUPER_ADMIN = 'super_admin'
-
 
 def permission_required(permission_code):
     def decorator(view_func):

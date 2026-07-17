@@ -1299,38 +1299,50 @@ def customer_import(request):
 
             wb = load_workbook(file_obj)
             ws = wb.active
+
+            # ---------- 1. 读取表头，建立列名 → 索引映射 ----------
+            header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+            col_map = {
+                str(cell).strip(): idx
+                for idx, cell in enumerate(header_row)
+                if cell                           # 忽略空表头
+            }
+
+            # 客户名称列是必填字段，必须存在
+            if '客户名称' not in col_map:
+                return JsonResponse({'code': 0, 'msg': 'Excel 表头缺少“客户名称”列，请使用正确的导出模板'})
+
+            name_idx = col_map['客户名称']
+            area_idx = col_map.get('所属区域')      # 可选
+            phone_idx = col_map.get('联系电话')     # 可选
+            remark_idx = col_map.get('备注')        # 可选
+
             new_count = 0
             skip_count = 0
             error_list = []
-            # 预加载所有区域名称→区域对象的映射
             area_map = {area.name: area for area in Area.objects.all()}
 
+            # ---------- 2. 按列名取数据 ----------
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), 2):
                 if not any(row):
                     continue
 
-                name = ''
-                area_name = ''
-                phone = ''
-                remark = ''
                 cells = [str(cell).strip() if cell else '' for cell in row]
 
-                if len(cells) >= 4:
-                    name = cells[1]
-                    area_name = cells[2]
-                    phone = cells[3]
-                    if len(cells) > 4:
-                        remark = cells[4]
+                # 安全取值（防止列数不够导致索引越界）
+                name = cells[name_idx] if name_idx < len(cells) else ''
+                area_name = cells[area_idx] if area_idx is not None and area_idx < len(cells) else ''
+                phone = cells[phone_idx] if phone_idx is not None and phone_idx < len(cells) else ''
+                remark = cells[remark_idx] if remark_idx is not None and remark_idx < len(cells) else ''
 
-                # 名称必填校验
                 if not name:
                     error_list.append(f"第{row_idx}行：客户名称为空，跳过")
                     continue
 
-                # 查找区域对象（允许为空）
-                area_obj = area_map.get(area_name)
+                # 区域查找（允许为空，'无' 也会映射为 None）
+                area_obj = area_map.get(area_name) if area_name else None
 
-                # ✅ 修改：按区域+名称联合查重
+                # 按区域+名称联合查重
                 if Customer.objects.filter(name=name, area=area_obj).exists():
                     skip_count += 1
                     continue
@@ -1341,7 +1353,6 @@ def customer_import(request):
                         area=area_obj,
                         remark=remark
                     )
-                    # 仅当电话非空时创建主号码
                     if phone:
                         CustomerPhone.objects.create(
                             customer=customer,
