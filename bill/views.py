@@ -68,6 +68,20 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+from functools import wraps
+from django.core.exceptions import PermissionDenied
+
+def accounts_permission_required(perm_code):
+    """自定义权限装饰器，使用项目的 has_permission 检查"""
+    def decorator(view_func):
+        @wraps(view_func)
+        def _wrapped_view(request, *args, **kwargs):
+            # 前置登录已由 @login_required 保证
+            if not request.user.has_permission(perm_code):
+                raise PermissionDenied  # 直接返回 403，不再重定向登录
+            return view_func(request, *args, **kwargs)
+        return _wrapped_view
+    return decorator
 
 # ========== 新增：统一缓存清理函数 ==========
 def clear_order_cache(order_no: str = None):
@@ -541,7 +555,7 @@ def get_all_product_tags(request):
     return JsonResponse({'code': 1, 'data': data})
 
 @login_required
-@permission_required(PERM_ORDER_VIEW)
+@accounts_permission_required(PERM_ORDER_VIEW)
 def order_list(request):
     """订单列表页（新增Tab状态筛选版 + 财务进度展示）"""
     order_no = request.GET.get('order_no', '').strip()
