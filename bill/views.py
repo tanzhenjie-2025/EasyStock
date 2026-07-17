@@ -2011,7 +2011,8 @@ def mark_order_printed(request, order_no):
 
     order = get_object_or_404(Order, order_no=order_no)
 
-    if order.status == 'pending':
+    # 允许 pending 和 reopened 状态标记为已打印
+    if order.status in ('pending', 'reopened'):
         order.status = 'printed'
         order.save(update_fields=['status'])
 
@@ -2030,5 +2031,5 @@ def mark_order_printed(request, order_no):
         return JsonResponse({'code': 1, 'msg': '订单已是已打印状态'})
 
     else:
-        # 作废、重开等状态不允许标记
+        # 作废等状态不允许标记
         return JsonResponse({'code': 0, 'msg': f'订单状态为{order.status}，无法标记已打印'})
