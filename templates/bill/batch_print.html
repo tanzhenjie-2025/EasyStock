@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>批量打印订单</title>
+    <style>
+        /* ========== 打印样式（三联单打印机竖向） ========== */
+        @media print {
+            @page {
+                size: 140mm 210mm;
+                margin: 0;
+            }
+            html, body {
+                margin: 0;
+                padding: 0;
+                font-family: "SimSun", serif;
+                height: auto;
+            }
+            .bill-print {
+                width: 140mm;
+                height: auto;
+                padding: 7mm 5mm 5mm 5mm;
+                box-sizing: border-box;
+                page-break-inside: avoid;
+                border: none;
+            }
+            .no-print {
+                display: none;
+            }
+            /* 每个订单后强制分页（最后一个除外，通过 .page-break 控制） */
+            .page-break {
+                page-break-after: always;
+            }
+        }
+
+        /* ========== 屏幕预览样式（与打印单张完全一致） ========== */
+        .bill-footer .total-amount {
+            font-size: 22px;
+            font-weight: bold;
+        }
+
+        .bill-print {
+            width: 140mm;
+            height: auto;
+            border: none;
+            margin: 20px auto;
+            padding: 7mm 5mm 5mm 5mm;
+            box-sizing: border-box;
+            /* 屏幕预览时可加淡淡阴影，便于区分 */
+            box-shadow: 0 0 4px rgba(0,0,0,0.1);
+        }
+
+        .bill-header {
+            text-align: center;
+            margin-bottom: 8px;
+        }
+        .bill-header h2 {
+            margin: 0 0 4px 0;
+            font-size: 26px;
+        }
+
+        .bill-info-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 2px auto;
+            width: 90%;
+            flex-wrap: wrap;
+        }
+        .bill-info-row span {
+            white-space: nowrap;
+        }
+        .bill-info-row .info-group span+span {
+            margin-left: 20px;
+        }
+        .bill-info-row .info-group:first-child {
+            font-size: 18px;
+        }
+        .bill-info-row .info-group:last-child {
+            font-size: 13px;
+        }
+
+        /* 表格线框 */
+        .bill-table {
+            width: 90%;
+            margin: 0 auto;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        .bill-table th,
+        .bill-table td {
+            border: 1px solid #000;
+            padding: 4px;
+            text-align: center;
+            font-size: 14px;
+            word-break: break-all;
+        }
+
+        .bill-table .col-index { width: 5%; }
+        .bill-table .col-spec  { width: 18%; }
+        .bill-table .col-name  { width: 33%; }
+        .bill-table .col-qty   { width: 8%; }
+        .bill-table .col-unit  { width: 6%; }
+        .bill-table .col-price { width: 15%; }
+        .bill-table .col-total { width: 15%; }
+
+        .bill-footer {
+            margin-top: 8px;
+            margin-left: auto;
+            margin-right: auto;
+            width: 90%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 14px;
+        }
+        .bill-footer span {
+            white-space: nowrap;
+        }
+
+        .bill-bottom {
+            margin-top: 16px;
+            width: 90%;
+            margin-left: auto;
+            margin-right: auto;
+            font-size: 13px;
+        }
+        .bill-bottom .bottom-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 12px;
+        }
+        .bill-bottom .bottom-row:first-child {
+            margin-top: 0;
+        }
+        .bill-bottom .bottom-row .field-group {
+            display: flex;
+            align-items: center;
+        }
+        .bill-bottom .bottom-row .field-group .underline {
+            display: inline-block;
+            width: 120px;
+            border-bottom: 1px solid #000;
+            margin-left: 4px;
+        }
+        .bill-bottom .bottom-row .field-group .underline-sm {
+            width: 100px;
+        }
+        .bill-bottom .bottom-row .field-group-right {
+            display: flex;
+            align-items: center;
+            margin-left: auto;
+        }
+    </style>
+</head>
+<body>
+    <!-- 打印按钮（仅屏幕显示） -->
+    <div class="no-print" style="text-align: center; margin: 20px;">
+        <button onclick="batchPrintAndMark()">一键打印所有订单</button>
+        <a href="javascript:window.close()"><button>关闭窗口</button></a>
+    </div>
+
+    <!-- 循环渲染每个订单 -->
+    {% for item in orders_data %}
+        <div class="bill-print">
+            <div class="bill-header">
+                <h2>{{ bill_title }}</h2>
+                <div class="bill-info-row">
+                    <div class="info-group">
+                        <span>
+                            客户名称：
+                            {% if item.order.customer_name_snapshot %}
+                                {{ item.order.customer_name_snapshot }}
+                            {% elif item.order.customer %}
+                                {{ item.order.customer.name }}
+                            {% else %}
+                                无
+                            {% endif %}
+                        </span>
+                    </div>
+                    <div class="info-group">
+                        <span>订单编号：{{ item.order.order_no }}</span>
+                        <span>开单时间：{{ item.order.create_time|date:"Y-m-d H:i:s" }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 商品表格（包含完整表头） -->
+            <table class="bill-table">
+                <thead>
+                    <tr>
+                        <th class="col-index">序号</th>
+                        <th class="col-spec">规格</th>
+                        <th class="col-name">商品名称</th>
+                        <th class="col-qty">数量</th>
+                        <th class="col-unit">单位</th>
+                        <th class="col-price">单价</th>
+                        <th class="col-total">小计</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for line in item.items_display %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        {% if line %}
+                            <td>{{ line.specification|default:"-" }}</td>
+                            <td>{{ line.product_name }}</td>
+                            <td>{{ line.quantity }}</td>
+                            <td>{{ line.unit }}</td>
+                            <td>¥{{ line.actual_unit_price }}</td>
+                            <td>¥{{ line.amount }}</td>
+                        {% else %}
+                            <td></td><td></td><td></td><td></td><td></td><td></td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <!-- 底部信息（与单张打印完全一致） -->
+            <div class="bill-footer">
+                <span>开单人员：{{ item.order.creator.name|default:"未知" }}</span>
+                <span></span>
+                <span class="total-amount">总金额：¥{{ item.order.total_amount }}</span>
+            </div>
+
+            <div class="bill-bottom">
+                <div class="bottom-row">
+                    <span><strong>联系电话：</strong>{{ phone_numbers }}</span>
+                </div>
+                <div class="bottom-row"> 
+                    <span><strong>投诉电话/微信号：</strong>{{ complaint_phone }}</span>
+                </div>
+                <div class="bottom-row">
+                    <div class="field-group">
+                        <strong>拣货人员：</strong>
+                        <span class="underline">&nbsp;</span>
+                    </div>
+                    <div class="field-group">
+                        <strong>收款备注：</strong>
+                        <span class="underline underline-sm">&nbsp;</span>
+                    </div>
+                </div>
+                <div class="bottom-row">
+                    <div class="field-group">
+                        <strong>件数备注：</strong>
+                        <span class="underline">&nbsp;</span>
+                    </div>
+                    <div class="field-group">
+                        <strong>收货签署：</strong>
+                        <span class="underline underline-sm">&nbsp;</span>
+                    </div>
+                </div>
+                <div class="bottom-row">
+                    <span></span>
+                    <div class="field-group">
+                        <strong>制单工号：</strong>
+                        <span class="underline underline-sm">&nbsp;</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 如果不是最后一个订单，添加分页符 -->
+        {% if not forloop.last %}
+            <div class="page-break"></div>
+        {% endif %}
+    {% endfor %}
+
+    <script>
+        // 传递所有订单号到前端
+        var orderNos = [{% for item in orders_data %}"{{ item.order.order_no }}"{% if not forloop.last %},{% endif %}{% endfor %}];
+
+        function batchPrintAndMark() {
+            window.onafterprint = function() {
+                fetch('{% url "bill:batch_mark_printed" %}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken'),
+                    },
+                    body: JSON.stringify({order_nos: orderNos}),
+                })
+                .then(r => r.json())
+                .then(data => {
+                    console.log(data.msg);
+                    // 标记完成后可提示用户或自动关闭窗口
+                    if (data.code === 1) {
+                        alert("所有订单已标记为已打印");
+                    }
+                });
+                window.onafterprint = null;
+            };
+            window.print();
+        }
+
+        // 获取 CSRF Token
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+    </script>
+</body>
+</html>
