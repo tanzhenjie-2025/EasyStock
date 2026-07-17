@@ -43,4 +43,8 @@ path('orders/import/', views.import_orders, name='import_orders'),
 path('order/<str:order_no>/mark-printed/', views.mark_order_printed, name='mark_order_printed'),
 
 
+path('batch-print/', views.batch_print_orders, name='batch_print_orders'),
+path('orders/batch-mark-printed/', views.batch_mark_printed, name='batch_mark_printed'),
+
+
 ]

@@ -381,6 +381,8 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
 
 <div class="mb-3">
     <button class="btn btn-sm btn-success" id="batchSettleBtn" disabled>批量结清选中订单</button>
+<!-- 在 <div class="mb-3"> 内，batchSettleBtn 之后添加 -->
+<button class="btn btn-sm btn-primary" id="batchPrintBtn" disabled>批量打印选中订单</button>
 </div>
 
 
@@ -920,6 +922,7 @@ $(document).ready(function() {
 function updateBatchBtnStatus() {
     const checkedCount = $('.orderCheckbox:not(:disabled):checked').length;
     $('#batchSettleBtn').prop('disabled', checkedCount === 0);
+    $('#batchPrintBtn').prop('disabled', checkedCount === 0);  // 新增
 }
 
 function getCsrfToken() {
@@ -1122,6 +1125,16 @@ $(document).ready(function() {
             customerInput.val(inputValue);
         }
     }
+    
+    $('#batchPrintBtn').click(function() {
+    const selected = $('.orderCheckbox:checked').map(function() {
+        return $(this).val();
+    }).get();
+    if (selected.length === 0) return;
+    // 打开新窗口，跳转到批量打印页面
+    const url = '{% url "bill:batch_print_orders" %}' + '?order_nos=' + selected.join(',');
+    window.open(url, '_blank');
+});
 });
 
 // 导入订单按钮点击 -> 触发隐藏的文件选择

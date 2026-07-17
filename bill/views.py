@@ -2033,3 +2033,58 @@ def mark_order_printed(request, order_no):
     else:
         # 作废等状态不允许标记
         return JsonResponse({'code': 0, 'msg': f'订单状态为{order.status}，无法标记已打印'})
+
+import json
+from django.http import HttpResponseBadRequest, JsonResponse
+from django.shortcuts import render
+from django.views.decorators.http import require_POST
+from django.contrib.auth.decorators import login_required, permission_required
+from django.conf import settings
+from .models import Order
+
+@login_required
+@permission_required(PERM_ORDER_PRINT)
+def batch_print_orders(request):
+    """批量打印订单页面"""
+    order_nos_param = request.GET.get('order_nos', '')
+    order_nos = [no.strip() for no in order_nos_param.split(',') if no.strip()]
+    if not order_nos:
+        return HttpResponseBadRequest("请选择至少一个订单")
+
+    # 排除已作废的订单（前端已禁止勾选，后端再做一次保护）
+    orders = Order.objects.filter(
+        order_no__in=order_nos
+    ).exclude(status='cancelled').select_related('customer', 'area', 'creator')
+
+    orders_data = []
+    for order in orders:
+        items = order.items.select_related('product')
+        items_display = list(items[:18]) + [None] * (18 - min(len(items), 18))
+        orders_data.append({
+            'order': order,
+            'items_display': items_display,
+        })
+
+    context = {
+        'orders_data': orders_data,
+        'phone_numbers': settings.PHONE_NUMBERS,
+        'complaint_phone': settings.COMPLAINT_PHONE,
+        'bill_title': settings.BILL_TITLE,
+    }
+    return render(request, 'bill/batch_print.html', context)
+
+
+@login_required
+@permission_required(PERM_ORDER_PRINT)
+@require_POST
+def batch_mark_printed(request):
+    """批量标记订单为已打印（仅将pending改为printed）"""
+    data = json.loads(request.body)
+    order_nos = data.get('order_nos', [])
+    if not order_nos:
+        return JsonResponse({'code': 0, 'msg': '参数错误'})
+    updated = Order.objects.filter(
+        order_no__in=order_nos,
+        status='pending'
+    ).update(status='printed')
+    return JsonResponse({'code': 1, 'msg': f'成功标记 {updated} 个订单为已打印'})
