@@ -3,13 +3,16 @@
 <html>
 <head>
     <meta charset="utf-8">
+    <!-- 👇 新增：移动端视口设置，必须项 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}EasyStock - 库存管理系统{% endblock %}</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5/dist/css/bootstrap.min.css">
     <script src="https://cdn.jsdelivr.net/npm/jquery@3/dist/jquery.min.js"></script>
     <style>
-        /* 原有样式保留 */
+        /* 原有导航栏样式（已优化） */
         .navbar {
             margin-bottom: 20px;
+            /* 移动端避免横向滚动 */
             overflow-x: auto;
         }
 
@@ -19,11 +22,13 @@
 
         .navbar-collapse {
             display: flex;
+            /* 默认不换行，桌面端保持水平 */
             flex-wrap: nowrap !important;
             align-items: center;
             width: 100%;
         }
 
+        /* 主导航菜单容器 */
         .navbar-nav.me-auto {
             display: flex;
             flex-wrap: nowrap !important;
@@ -49,25 +54,60 @@
             font-size: 14px !important;
         }
 
+        /* 平板/手机端断点：导航栏垂直展开 */
         @media (max-width: 991px) {
-            .navbar-collapse {
-                flex-wrap: wrap !important;
-            }
-
-            .navbar-nav.me-auto {
+            /* 让折叠后的菜单项垂直排列 */
+            .navbar-nav {
+                flex-direction: column !important;
                 width: 100%;
+            }
+            .navbar-nav.me-auto {
                 margin-bottom: 10px;
+                gap: 0 !important;          /* 去除间距 */
+            }
+            .nav-item {
+                width: 100%;
+            }
+            .nav-link {
+                padding: 0.75rem 1rem !important; /* 增大点击区域 */
+            }
+            /* 用户信息区域也垂直排列 */
+            .navbar-nav:last-child {
+                margin-top: 10px;
             }
         }
 
+        /* 内容区域通用响应式 */
         .content-container {
             padding: 0 15px;
         }
 
-        /* 【新增】权限弹窗样式优化 */
+        /* 移动端减小内边距 */
+        @media (max-width: 576px) {
+            .content-container {
+                padding: 0 10px;
+            }
+        }
+
+        /* 通用表格横向滚动（子模板可直接使用 .table-responsive 类） */
+        .table-responsive {
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        /* 权限弹窗样式优化 */
         #permissionModal .modal-content {
             opacity: 0.95;
             box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
+        }
+
+        /* 移动端模态框宽度优化 */
+        @media (max-width: 576px) {
+            #permissionModal .modal-dialog {
+                margin: 0.5rem;
+                max-width: calc(100% - 1rem);
+            }
         }
     </style>
     {% block extra_css %}{% endblock %}
@@ -76,62 +116,51 @@
 {% csrf_token %}
 <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
     <div class="container">
-        <a class="navbar-brand" href={% url 'bill:index' %}>EasyStock 系统</a>
+        <a class="navbar-brand" href="{% url 'bill:index' %}">EasyStock 系统</a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse">
             <span class="navbar-toggler-icon"></span>
         </button>
         <div class="collapse navbar-collapse">
             <ul class="navbar-nav me-auto">
                 {% if user.is_authenticated %}
-                    <!-- 基础权限：开单人必备（使用自定义过滤器） -->
                     {% if user|has_perm:"order_create" %}
-                        <li class="nav-item"><a class="nav-link" href={% url 'bill:index' %}>开单</a></li>
+                        <li class="nav-item"><a class="nav-link" href="{% url 'bill:index' %}">开单</a></li>
                     {% endif %}
                     {% if user|has_perm:"order_view" %}
-                        <li class="nav-item"><a class="nav-link" href={% url 'bill:order_list' %}>订单</a></li>
+                        <li class="nav-item"><a class="nav-link" href="{% url 'bill:order_list' %}">订单</a></li>
                     {% endif %}
                     {% if user|has_perm:"product_view" %}
-                        <li class="nav-item"><a class="nav-link" href={% url 'product:stock_list' %}>库存</a></li>
+                        <li class="nav-item"><a class="nav-link" href="{% url 'product:stock_list' %}">库存</a></li>
                     {% endif %}
-
-                    <!-- 管理员权限：基于具体权限编码控制 -->
                     {% if user|has_perm:"product_view" %}
-                        <li class="nav-item"><a class="nav-link" href={% url 'product:product_manage' %}>商品管理</a>
-                        </li>
+                        <li class="nav-item"><a class="nav-link" href="{% url 'product:product_manage' %}">商品管理</a></li>
                     {% endif %}
                     {% if user|has_perm:"area_view" %}
-                        <li class="nav-item"><a class="nav-link" href={% url 'area_manage:area_page' %}>区域管理</a>
-                        </li>
-                        <li class="nav-item"><a class="nav-link" href={% url 'area_manage:group_page' %}>区域组管理</a>
-                        </li>
+                        <li class="nav-item"><a class="nav-link" href="{% url 'area_manage:area_page' %}">区域管理</a></li>
+                        <li class="nav-item"><a class="nav-link" href="{% url 'area_manage:group_page' %}">区域组管理</a></li>
                     {% endif %}
                     {% if user|has_perm:"customer_view" %}
-                        <li class="nav-item"><a class="nav-link"
-                                                href={% url 'customer_manage:customer_page' %}>客户管理</a></li>
+                        <li class="nav-item"><a class="nav-link" href="{% url 'customer_manage:customer_page' %}">客户管理</a></li>
                     {% endif %}
                     {% if user|has_perm:"customer_price_view" %}
-                        <li class="nav-item"><a class="nav-link" href={% url 'customer_manage:customer_price_page' %}>客户专属价</a>
-                        </li>
+                        <li class="nav-item"><a class="nav-link" href="{% url 'customer_manage:customer_price_page' %}">客户专属价</a></li>
                     {% endif %}
                     {% if user|has_perm:"order_summary" %}
-                        <li class="nav-item"><a class="nav-link" href={% url 'summary:summary_page' %}>商品汇总</a></li>
-                        <li class="nav-item"><a class="nav-link"
-                                                href={% url 'summary:customer_summary_page' %}>金额汇总</a></li>
+                        <li class="nav-item"><a class="nav-link" href="{% url 'summary:summary_page' %}">商品汇总</a></li>
+                        <li class="nav-item"><a class="nav-link" href="{% url 'summary:customer_summary_page' %}">金额汇总</a></li>
                     {% endif %}
                     {% if user|has_perm:"user_view" %}
-                        <li class="nav-item"><a class="nav-link" href={% url 'accounts:user_list' %}>用户管理</a></li>
+                        <li class="nav-item"><a class="nav-link" href="{% url 'accounts:user_list' %}">用户管理</a></li>
                     {% endif %}
                     {% if user|has_any_perm:"log_view,log_view_all" %}
-                        <li class="nav-item"><a class="nav-link" href={% url 'operation_log:log_list' %}>操作日志</a>
-                        </li>
+                        <li class="nav-item"><a class="nav-link" href="{% url 'operation_log:log_list' %}">操作日志</a></li>
                     {% endif %}
                 {% endif %}
             </ul>
-            <!-- 登录/个人信息区域（修复：去掉括号） -->
             <div class="navbar-nav">
                 {% if user.is_authenticated %}
                     <span class="nav-link user-info">
-            欢迎：{{ user.name }} ({{ user.user_code }})
+                        欢迎：{{ user.name }} ({{ user.user_code }})
                         {% if user.is_superuser or user.role and user.role.code == 'super_admin' %}
                             <span class="badge bg-danger">超级管理员</span>
                         {% elif user.role %}
@@ -143,7 +172,7 @@
                         {% else %}
                             <span class="badge bg-light text-dark">未分配角色</span>
                         {% endif %}
-        </span>
+                    </span>
                     <li class="nav-item"><a class="nav-link" href="/accounts/profile/">个人信息</a></li>
                     <li class="nav-item"><a class="nav-link" href="/accounts/logout/">退出登录</a></li>
                 {% else %}
@@ -166,9 +195,7 @@
     {% block content %}{% endblock %}
 </div>
 
-<!-- ============================================ -->
-<!-- 【新增】通用权限不足提示弹窗 (Bootstrap Modal) -->
-<!-- ============================================ -->
+<!-- 通用权限不足提示弹窗 -->
 <div class="modal fade" id="permissionModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content border-warning">
@@ -176,8 +203,7 @@
                 <h5 class="modal-title">
                     <i class="bi bi-exclamation-triangle-fill me-2"></i> 权限不足
                 </h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
-                        aria-label="Close"></button>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body text-center py-4">
                 <p class="fs-5" id="permissionModalMsg">抱歉，您没有权限执行此操作。</p>
@@ -193,7 +219,6 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5/dist/js/bootstrap.bundle.min.js"></script>
 <script>
     $(function () {
-        // 1. 从 Cookie 中获取 CSRF Token (原有逻辑保留)
         function getCookie(name) {
             let cookieValue = null;
             if (document.cookie && document.cookie !== '') {
@@ -211,12 +236,10 @@
 
         const csrftoken = getCookie('csrftoken');
 
-        // 2. 定义安全的 HTTP 方法
         function csrfSafeMethod(method) {
             return (/^(GET|HEAD|OPTIONS|TRACE)$/.test(method));
         }
 
-        // 3. 全局 AJAX 设置 (CSRF)
         $.ajaxSetup({
             beforeSend: function (xhr, settings) {
                 if (!csrfSafeMethod(settings.type) && !this.crossDomain) {
@@ -225,36 +248,25 @@
             }
         });
 
-        // 4. 全局 AJAX 错误拦截：捕获权限不足
         $(document).ajaxError(function (event, jqXHR, ajaxSettings, thrownError) {
-            // 尝试解析 JSON 响应
             let respMsg = "操作失败，请稍后重试。";
             try {
                 const resp = JSON.parse(jqXHR.responseText);
                 if (resp && resp.msg) {
                     respMsg = resp.msg;
                 }
-            } catch (e) {
-                // 不是 JSON 格式则使用默认文案
-            }
+            } catch (e) {}
 
-            // 判断状态码：403 代表权限不足
             if (jqXHR.status === 403) {
                 $('#permissionModalMsg').text(respMsg);
                 const modal = new bootstrap.Modal(document.getElementById('permissionModal'));
                 modal.show();
-            }
-            // 401：未登录或登录过期
-            else if (jqXHR.status === 401) {
+            } else if (jqXHR.status === 401) {
                 alert('登录已过期，请重新登录');
                 window.location.href = '/accounts/login/';
             }
         });
 
-        // ============================================
-        // 【新增】页面加载完成后，检查 Django Messages
-        // 如果包含权限错误，自动弹出弹窗
-        // ============================================
         const $alerts = $('.alert-danger');
         let hasPermissionError = false;
         let errorMsg = "抱歉，您没有权限执行此操作。";
@@ -264,7 +276,6 @@
             if (text.includes("没有权限") || text.includes("权限不足")) {
                 hasPermissionError = true;
                 errorMsg = text.trim();
-                // 隐藏原本的 alert，改用 Modal 展示
                 $(this).remove();
             }
         });

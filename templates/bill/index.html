@@ -330,6 +330,182 @@ box-sizing: border-box;
             100% { background-color: inherit; }
         }
         .flash-green { animation: flash-green 0.2s ease; }
+        
+        /* ============================================ */
+/* 移动端 & 平板端响应式优化                     */
+/* ============================================ */
+
+/* 基础响应式容器 (已在 base.html 定义，此处可复用) */
+.table-responsive {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* 客户区域弹性布局 */
+.customer-area {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+.customer-area .form-label {
+    margin-bottom: 0;
+    white-space: nowrap;
+}
+.customer-input {
+    flex: 1 1 200px;
+    min-width: 160px;
+}
+.order-input {
+    flex: 1 1 150px;
+    min-width: 120px;
+}
+
+/* ========== 平板竖屏及以下 (≤991px) ========== */
+@media (max-width: 991px) {
+    /* 标题缩小 */
+    h1 { font-size: 1.5rem; }
+    
+    /* 主表格字体和内边距缩小 */
+    .bill-table {
+        font-size: 13px;
+    }
+    .bill-table th, .bill-table td {
+        padding: 4px;
+    }
+    .bill-table input {
+        font-size: 13px;
+        padding: 5px;
+    }
+    /* 隐藏序号和操作列 (可选，若不想隐藏可不加) */
+    .bill-table th:nth-child(1),
+    .bill-table td:nth-child(1),
+    .bill-table th:nth-child(8),
+    .bill-table td:nth-child(8) {
+        display: none;
+    }
+    
+}
+
+/* ========== 手机端 (≤576px) ========== */
+@media (max-width: 576px) {
+    .content-container {
+        padding: 0 8px;
+    }
+    h1 { font-size: 1.2rem; }
+
+    /* 按钮增大触摸区 */
+    .btn-add-row, .btn-save, .btn-print, button {
+        padding: 10px 15px;
+        font-size: 14px;
+        min-height: 44px;
+    }
+    .btn-del {
+        padding: 6px 10px;
+        font-size: 13px;
+    }
+
+    /* 表格更小字体 */
+    .bill-table {
+        font-size: 12px;
+    }
+    .bill-table input {
+        font-size: 12px;
+        padding: 4px;
+    }
+
+    /* 客户区垂直堆叠 */
+    .customer-area {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .customer-input, .order-input {
+        width: 100%;
+        flex: none;
+    }
+
+    /* 候选下拉框不超出屏幕 */
+    .suggest-dropdown {
+        max-width: 90vw !important;
+        left: 5vw !important;
+        right: auto !important;
+        font-size: 12px;
+    }
+    .suggest-dropdown div {
+        padding: 8px 10px;
+    }
+
+    /* ===== 最近购买模态框改为上下布局 ===== */
+    .recent-buy-modal .modal-content {
+        width: 100%;
+        height: 95vh;
+        margin: 2.5vh auto;
+        border-radius: 0;
+    }
+    .modal-body {
+        flex-direction: column;
+        overflow-y: auto;
+    }
+    .left-panel, .right-panel {
+        flex: none;
+        width: 100%;
+        max-height: 50vh;
+        overflow-y: auto;
+        border-right: none;
+        border-bottom: 1px solid #eee;
+        padding: 10px;
+    }
+    .right-panel {
+        background: #fff;
+    }
+    /* 模态框内表格允许横向滚动 */
+    .left-panel .table-scroll-wrapper,
+    .right-panel .table-scroll-wrapper {
+        overflow-x: auto;
+    }
+}
+                /* 修复最近购买模态框表格：名称/规格列被挤没的问题 */
+        .recent-products-table {
+            table-layout: auto !important;
+        }
+        .recent-products-table th,
+        .recent-products-table td {
+            white-space: nowrap;
+        }
+        .recent-products-table th:nth-child(1),
+        .recent-products-table td:nth-child(1) {
+            min-width: 110px;      /* 名称列最小宽度 */
+        }
+        .recent-products-table th:nth-child(2),
+        .recent-products-table td:nth-child(2) {
+            min-width: 60px;       /* 规格列最小宽度 */
+        }
+        /* 隐藏左侧表格的第5列（最后购买）、第6列（上次数量） */
+        .recent-products-table th:nth-child(5),
+        .recent-products-table td:nth-child(5),
+        .recent-products-table th:nth-child(6),
+        .recent-products-table td:nth-child(6) {
+            display: none;
+        }
+
+        /* 右侧购物车表格同样处理 */
+        .cart-table {
+            table-layout: auto !important;
+        }
+        .cart-table th,
+        .cart-table td {
+            white-space: nowrap;
+        }
+        .cart-table th:nth-child(2),
+        .cart-table td:nth-child(2) {
+            min-width: 80px;       /* 名称列最小宽度 */
+        }
+        /* 隐藏购物车表格的规格列（第3列） */
+        .cart-table th:nth-child(3),
+        .cart-table td:nth-child(3) {
+            display: none;
+        }
     </style>
 {% endblock %}
 
@@ -337,7 +513,7 @@ box-sizing: border-box;
 {% block content %}
     <div class="content-container">
     <!-- 标题行：左侧标题，右侧排序按钮 -->
-    <div class="d-flex justify-content-between align-items-center mb-2">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-2">
         <h1 class="mb-0">快速开单工具（表格版）</h1>
         <div>
             <button class="btn btn-sm btn-outline-primary" onclick="sortBillTable()" title="按规则排序">
@@ -359,19 +535,18 @@ box-sizing: border-box;
     {% endif %}
 
     <!-- 客户输入框 + 最近购买按钮 -->
-    <div class="mb-3">
-        <label class="form-label me-2">选择客户：</label>
-        <input type="text" id="customerInput" class="form-control form-control-sm" style="width: 250px; display: inline-block;" placeholder="输入区域/客户名（输入法式选择）">
-        <button id="btnRecentBuy" class="btn btn-sm btn-outline-secondary ms-2" style="vertical-align: middle;" onclick="openRecentBuyModal()" disabled>用户最近购买</button>
-        
-        <!-- 👇 新增制单号输入框 -->
-    <label class="form-label me-2 ms-3">制单号：</label>
-    <input type="text" id="orderNumberInput" class="form-control form-control-sm" style="width: 200px; display: inline-block;" placeholder="可选">
-    </div>
+    <div class="mb-3 customer-area">
+    <label class="form-label">选择客户：</label>
+    <input type="text" id="customerInput" class="form-control form-control-sm customer-input" placeholder="输入区域/客户名（输入法式选择）">
+    <button id="btnRecentBuy" class="btn btn-sm btn-outline-secondary" onclick="openRecentBuyModal()" disabled>用户最近购买</button>
+    <label class="form-label">制单号：</label>
+    <input type="text" id="orderNumberInput" class="form-control form-control-sm order-input" placeholder="可选">
+</div>
 
     <button class="btn-add-row" onclick="addBlankRow()">新增空白行</button>
 
-        <table class="bill-table" id="bill-table">
+    <div class="table-responsive">
+    <table class="bill-table" id="bill-table">
             <thead>
                 <tr>
                     <th>序号</th>
@@ -393,6 +568,8 @@ box-sizing: border-box;
                 </tr>
             </tfoot>
         </table>
+</div>
+        
 
         <div class="btn-group">
             <button class="btn-save" onclick="saveOrder()">保存并提交</button>
@@ -1201,6 +1378,13 @@ function customerGoToPage(delta) {
     let customerId = customerInput.dataset.customerId || '';
     const customerName = customerInput.value.trim();
     
+    // ========= 新增必填校验 =========
+    if (!customerName) {
+        alert('请填写客户名称！');
+        customerInput.focus();
+        return;
+    }
+    
     // 👇 关键修改：如果输入框文本与最初选中的名称不一致，丢弃 customerId
     const savedCustomerName = customerInput.dataset.customerName || '';
     if (customerName !== savedCustomerName) {
@@ -1210,6 +1394,13 @@ function customerGoToPage(delta) {
     // 🔥 获取制单号
     const orderNumberInput = document.getElementById('orderNumberInput');
     const orderNumber = orderNumberInput ? orderNumberInput.value.trim() : '';
+    
+    // ========= 制单号必填校验（新增） =========
+    if (!orderNumber) {
+        alert('请输入制单号！');
+        orderNumberInput.focus();
+        return;
+    }
 
     const items = [];
     document.querySelectorAll('#bill-tbody tr').forEach(tr => {
