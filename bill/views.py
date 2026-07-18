@@ -865,7 +865,7 @@ def search_customer(request):
     for c in customers:
         data.append({
             'id': c.id,
-            'full_name': f'{c.area.name} - {c.name}' if c.area else c.name,
+            'full_name': f'{c.area.name} | {c.name}' if c.area else c.name,
             'order_number': c.order_number or '',   # 制单号，为空则返回空字符串
         })
     return JsonResponse({'code': 1, 'data': data})
