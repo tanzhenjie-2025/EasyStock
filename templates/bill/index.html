@@ -330,7 +330,7 @@ box-sizing: border-box;
             100% { background-color: inherit; }
         }
         .flash-green { animation: flash-green 0.2s ease; }
-        
+
         /* ============================================ */
 /* 移动端 & 平板端响应式优化                     */
 /* ============================================ */
@@ -366,7 +366,7 @@ box-sizing: border-box;
 @media (max-width: 991px) {
     /* 标题缩小 */
     h1 { font-size: 1.5rem; }
-    
+
     /* 主表格字体和内边距缩小 */
     .bill-table {
         font-size: 13px;
@@ -385,7 +385,7 @@ box-sizing: border-box;
     .bill-table td:nth-child(8) {
         display: none;
     }
-    
+
 }
 
 /* ========== 手机端 (≤576px) ========== */
@@ -569,7 +569,7 @@ box-sizing: border-box;
             </tfoot>
         </table>
 </div>
-        
+
 
         <div class="btn-group">
             <button class="btn-save" onclick="saveOrder()">保存并提交</button>
@@ -1158,14 +1158,22 @@ function customerGoToPage(delta) {
     if (key === 'Escape') hideSuggest();
 }
         function initCustomerInput() {
-            const customerInput = document.getElementById('customerInput');
-            if (customerInput) {
-                customerInput.addEventListener('input', () => debouncedCustomerSearch(customerInput));
-                customerInput.addEventListener('keydown', handleCustomerInputKey);
-                customerInput.addEventListener('blur', () => { setTimeout(hideSuggest, 200); });
+    const customerInput = document.getElementById('customerInput');
+    if (customerInput) {
+        customerInput.addEventListener('input', () => debouncedCustomerSearch(customerInput));
+        customerInput.addEventListener('keydown', handleCustomerInputKey);
+        // 修改 blur 事件：如果焦点转移到了建议下拉框内，则不隐藏
+        customerInput.addEventListener('blur', function(e) {
+            const relatedTarget = e.relatedTarget;
+            // 如果 relatedTarget 存在且在 suggestBox 内部，则不做隐藏（例如点击翻页按钮或建议项）
+            if (relatedTarget && suggestBox && suggestBox.contains(relatedTarget)) {
+                return;
             }
-        }
-        
+            setTimeout(hideSuggest, 200);
+        });
+    }
+}
+
         // ========== 制单号输入框键盘事件（新增） ==========
         function initOrderNumberInput() {
             const orderInput = document.getElementById('orderNumberInput');
@@ -1377,7 +1385,7 @@ function customerGoToPage(delta) {
     const customerInput = document.getElementById('customerInput');
     let customerId = customerInput.dataset.customerId || '';
     const customerName = customerInput.value.trim();
-    
+
     // ========= 新增必填校验 =========
     if (!customerName) {
         alert('请填写客户名称！');
@@ -1390,11 +1398,11 @@ function customerGoToPage(delta) {
     if (customerName !== savedCustomerName) {
         customerId = '';   // 视为自由输入的客户，不关联原ID
     }
-    
+
     // 🔥 获取制单号
     const orderNumberInput = document.getElementById('orderNumberInput');
     const orderNumber = orderNumberInput ? orderNumberInput.value.trim() : '';
-    
+
     // ========= 制单号必填校验（新增） =========
     if (!orderNumber) {
         alert('请输入制单号！');
@@ -1444,7 +1452,7 @@ function customerGoToPage(delta) {
         });
         const d = await r.json();
         if (d.code === 1) {
-            
+
             // 原地跳转
             window.location.href = `/bill/print/${d.order_no}/`;
         } else {
@@ -1734,7 +1742,7 @@ function customerGoToPage(delta) {
             addedProductIds = [];
 
             document.getElementById('recentBuyModal').style.display = 'none';
-            
+
             const firstProductInput = document.querySelector('#bill-tbody .name-input');
             if (firstProductInput) { firstProductInput.focus(); firstProductInput.select(); }
         }
@@ -1743,7 +1751,7 @@ function customerGoToPage(delta) {
         window.onload = function() {
             restoreAutoSortSetting();
             initCustomerInput();
-            initOrderNumberInput(); 
+            initOrderNumberInput();
 
             {% if reopen_order_data %}
                 const customerInput = document.getElementById('customerInput');
@@ -1877,6 +1885,6 @@ function restoreAutoSortSetting() {
     }
 }
 
-        
+
     </script>
 {% endblock %}
