@@ -1510,7 +1510,17 @@ function showImportModal(){$('#importModal').addClass('active');}
 function closeImportModal(){$('#importModal').removeClass('active');}
 $('#importForm').submit(function(e){
     e.preventDefault();
-    let formData = new FormData(this);
+    var $form = $(this);
+    var $submitBtn = $form.find('button[type="submit"]');
+
+    // 防止重复点击
+    if ($submitBtn.prop('disabled')) return;
+
+    // ---- 反馈信号：禁用按钮 + 显示加载状态 ----
+    $submitBtn.prop('disabled', true)
+        .html('<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span> 导入中...');
+
+    var formData = new FormData(this);
     $.ajax({
         url: "{% url 'product:product_import' %}",
         type: 'POST',
@@ -1521,14 +1531,17 @@ $('#importForm').submit(function(e){
             if(res.code===1){
                 showToast(res.msg, 'success');
                 closeImportModal();
+                // 页面即将刷新，无需恢复按钮
                 setTimeout(()=>location.reload(), 1500);
             } else {
-                // 显示具体错误消息
                 showToast(res.msg || '导入失败', 'error');
+                // 失败时恢复按钮，允许重试
+                $submitBtn.prop('disabled', false).text('开始导入');
             }
         },
         error: function(xhr, status, error) {
             showToast('网络请求失败: ' + error, 'error');
+            $submitBtn.prop('disabled', false).text('开始导入');
         }
     });
 });
