@@ -832,18 +832,24 @@ let isSortDataReady = true;   // 数据已就绪，可随时排序
 }
 
         function selectItem(index) {
-            const item = currentSuggestList[index];
-            if (!item || !currentSearchInput) return;
-            const tr = currentSearchInput.closest('tr');
-            const nameInput = tr.querySelector('.name-input');
-            nameInput.value = item.name;
-            nameInput.dataset.productId = item.id;
-            tr.querySelector('.spec-input').value = item.specification || '';
-            tr.querySelector('.price-input').value = item.price;
-            tr.querySelector('.unit-input').value = item.unit;
-            calcRowAmount(tr.querySelector('.price-input'));
-            hideSuggest();
-        }
+    const item = currentSuggestList[index];
+    if (!item || !currentSearchInput) return;
+    const input = currentSearchInput;   // 保存当前输入框引用
+    const tr = input.closest('tr');
+    const nameInput = tr.querySelector('.name-input');
+    nameInput.value = item.name;
+    nameInput.dataset.productId = item.id;
+    tr.querySelector('.spec-input').value = item.specification || '';
+    tr.querySelector('.price-input').value = item.price;
+    tr.querySelector('.unit-input').value = item.unit;
+    calcRowAmount(tr.querySelector('.price-input'));
+    hideSuggest();
+    // 重新获得焦点，并全选文本（方便修改）
+    if (input) {
+        input.focus();
+        input.select();
+    }
+}
 
         // ========== 翻页辅助函数 ==========
 function goToPage(delta) {
