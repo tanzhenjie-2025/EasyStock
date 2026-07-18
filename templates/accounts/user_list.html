@@ -23,11 +23,11 @@
     .col-role { min-width: 50px; }
     .col-create-time { min-width: 200px; }
 
-    /* 🔥 关键修改：操作列加宽，并强制内部不换行 */
+    /* 🔥 操作列加宽，并强制内部不换行 */
     .col-operation {
-        width: 420px;       /* 增加固定宽度，容纳4个按钮 */
+        width: 420px;
         min-width: 420px;
-        white-space: nowrap; /* 禁止操作列内容换行 */
+        white-space: nowrap;
     }
 
     /* 状态徽章 */
@@ -43,31 +43,191 @@
     .role-tag { font-size: 0.85rem; padding: 2px 6px; }
     .shop-stats { background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
 
-    /* 🔥 关键修改：极致压缩按钮尺寸 */
+    /* 按钮组尺寸 */
     .btn-group-sm .btn {
-        padding: 1px 5px;       /* 减小内边距 */
-        font-size: 0.7rem;       /* 减小字体 */
-        line-height: 1.2;        /* 减小行高 */
+        padding: 1px 5px;
+        font-size: 0.7rem;
+        line-height: 1.2;
     }
 
     /* 整行可点击 */
     .clickable-row { cursor: pointer; }
 
-    /* 🔥 关键修改：减小按钮间距 */
+    /* 操作按钮容器 */
     .btn-group-action {
-        gap: 4px;          /* 从 8px 减到 4px */
+        gap: 4px;
         display: flex;
         align-items: center;
     }
 
-    /* 🔥 新增：确保表格容器允许横向滚动（防止屏幕太窄时崩坏） */
+    /* 表格容器允许横向滚动 */
     .table-responsive {
         overflow-x: auto;
     }
 
-    /* ... (保留后面的模态框、Toast 等其他样式不变) ... */
-    /* 为了节省篇幅，此处省略后面未修改的 CSS，请保留你原来的代码 */
+    /* ========== 拟态导入弹窗样式 ========== */
+    .import-modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.3);
+        backdrop-filter: blur(4px);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1050;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+    }
+    .import-modal-overlay.active {
+        opacity: 1;
+    }
 
+    .import-modal-box {
+        background: #ecf0f3;
+        border-radius: 24px;
+        padding: 30px 25px 25px;
+        width: 450px;
+        max-width: 90vw;
+        box-shadow: 
+            12px 12px 24px rgba(0, 0, 0, 0.1),
+            -8px -8px 16px rgba(255, 255, 255, 0.8);
+        color: #2c3e50;
+        font-family: inherit;
+    }
+
+    .import-modal-title {
+        font-size: 1.3rem;
+        font-weight: 600;
+        margin-bottom: 25px;
+        text-align: center;
+        color: #1e272e;
+        letter-spacing: 0.5px;
+    }
+
+    .import-form-group {
+        margin-bottom: 20px;
+    }
+
+    .import-form-label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 500;
+        color: #485460;
+        font-size: 0.9rem;
+    }
+
+    /* 拟态文件选择框 */
+    .import-file-input-wrapper {
+        background: #ecf0f3;
+        border-radius: 16px;
+        box-shadow: 
+            inset 4px 4px 8px rgba(0, 0, 0, 0.08),
+            inset -4px -4px 8px rgba(255, 255, 255, 0.9);
+        padding: 10px 15px;
+        display: flex;
+        align-items: center;
+        transition: all 0.2s;
+    }
+    .import-file-input-wrapper:hover {
+        box-shadow: 
+            inset 2px 2px 6px rgba(0, 0, 0, 0.1),
+            inset -2px -2px 6px rgba(255, 255, 255, 0.9);
+    }
+    .import-file-input {
+        flex: 1;
+        border: none;
+        background: transparent;
+        outline: none;
+        font-size: 0.9rem;
+        color: #2d3436;
+        padding: 4px 0;
+    }
+    .import-file-input::file-selector-button {
+        background: #dfe6e9;
+        border: none;
+        border-radius: 10px;
+        padding: 6px 14px;
+        margin-right: 10px;
+        cursor: pointer;
+        font-size: 0.85rem;
+        color: #2d3436;
+        box-shadow: 
+            3px 3px 6px rgba(0, 0, 0, 0.05),
+            -3px -3px 6px rgba(255, 255, 255, 0.8);
+        transition: all 0.15s;
+    }
+    .import-file-input::file-selector-button:hover {
+        box-shadow: 
+            1px 1px 4px rgba(0, 0, 0, 0.1),
+            -1px -1px 4px rgba(255, 255, 255, 0.9);
+        background: #d5dbdb;
+    }
+
+    .import-tip {
+        margin-top: 12px;
+        font-size: 0.8rem;
+        color: #636e72;
+        background: rgba(255,255,255,0.4);
+        padding: 8px 12px;
+        border-radius: 10px;
+    }
+
+    /* 拟态按钮组 */
+    .import-modal-buttons {
+        display: flex;
+        justify-content: flex-end;
+        gap: 15px;
+        margin-top: 25px;
+    }
+
+    .import-btn {
+        border: none;
+        border-radius: 14px;
+        padding: 10px 22px;
+        font-size: 0.9rem;
+        font-weight: 500;
+        cursor: pointer;
+        background: #ecf0f3;
+        box-shadow: 
+            6px 6px 12px rgba(0, 0, 0, 0.08),
+            -4px -4px 10px rgba(255, 255, 255, 0.9);
+        color: #2d3436;
+        transition: all 0.2s ease;
+        letter-spacing: 0.3px;
+    }
+    .import-btn:hover {
+        box-shadow: 
+            3px 3px 8px rgba(0, 0, 0, 0.1),
+            -2px -2px 6px rgba(255, 255, 255, 0.9);
+        transform: translateY(-1px);
+    }
+    .import-btn:active {
+        box-shadow: 
+            inset 4px 4px 8px rgba(0, 0, 0, 0.1),
+            inset -3px -3px 6px rgba(255, 255, 255, 0.8);
+        transform: translateY(1px);
+    }
+    .import-btn-cancel {
+        color: #636e72;
+    }
+    .import-btn-confirm {
+        background: #74b9ff;
+        color: white;
+        box-shadow: 
+            6px 6px 12px rgba(116, 185, 255, 0.2),
+            -4px -4px 10px rgba(255, 255, 255, 0.9);
+    }
+    .import-btn-confirm:hover {
+        background: #5aa3f0;
+    }
+    .import-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+    }
 </style>
 {% endblock %}
 
@@ -82,7 +242,6 @@
             </a>
             <button class="btn btn-sm btn-success" onclick="exportData()">📥 导出数据</button>
             <button class="btn btn-sm btn-warning" onclick="showImportModal()">📤 导入数据</button>
-            <!-- 权限管理按钮：仅超级管理员可见 -->
             {% if is_super_admin %}
             <a href="{% url 'accounts:role_permission_config' 'operator' %}" class="btn btn-outline-primary btn-sm">
                 <i class="bi bi-shield-lock"></i> 权限管理
@@ -91,7 +250,6 @@
         </div>
     </div>
     <div class="card-body">
-        <!-- 新增：全店销售统计（仅超级管理员可见） -->
         {% if is_super_admin %}
         <div class="shop-stats">
             <h6 class="mb-2">【全店销售统计】</h6>
@@ -113,29 +271,19 @@
                 <button type="submit" class="btn btn-sm btn-outline-primary">搜索</button>
                 <a href="{% url 'accounts:user_list' %}" class="btn btn-sm btn-outline-secondary">重置</a>
             </div>
-            <!-- 隐藏的status输入框 -->
             <input type="hidden" name="status" id="statusInput" value="{{ status }}">
         </form>
 
         <!-- Tab切换 -->
         <ul class="nav nav-tabs mb-3" id="statusTabs">
             <li class="nav-item">
-                <a class="nav-link {% if status == 'all' %}active{% endif %}"
-                   href="#" data-status="all">
-                    全部 ({{ all_count }})
-                </a>
+                <a class="nav-link {% if status == 'all' %}active{% endif %}" href="#" data-status="all">全部 ({{ all_count }})</a>
             </li>
             <li class="nav-item">
-                <a class="nav-link {% if status == 'active' %}active{% endif %}"
-                   href="#" data-status="active">
-                    正常 ({{ active_count }})
-                </a>
+                <a class="nav-link {% if status == 'active' %}active{% endif %}" href="#" data-status="active">正常 ({{ active_count }})</a>
             </li>
             <li class="nav-item">
-                <a class="nav-link {% if status == 'inactive' %}active{% endif %} text-danger"
-                   href="#" data-status="inactive">
-                    已停用 ({{ inactive_count }})
-                </a>
+                <a class="nav-link {% if status == 'inactive' %}active{% endif %} text-danger" href="#" data-status="inactive">已停用 ({{ inactive_count }})</a>
             </li>
         </ul>
 
@@ -156,14 +304,13 @@
                         <th class="col-sales">销售额</th>
                         <th class="col-ratio">占比</th>
                         {% endif %}
-
                         <th class="col-operation">操作</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for user in users %}
-                    <!-- 🔥 整合：停用用户行视觉区分 -->
-                    <tr class="clickable-row {% if not user.is_active %}user-inactive-row{% endif %}" data-detail-url="{% url 'accounts:user_detail' user.id %}">
+                    <tr class="clickable-row {% if not user.is_active %}user-inactive-row{% endif %}"
+                        data-detail-url="{% url 'accounts:user_detail' user.id %}">
                         <td class="col-serial">{{ forloop.counter }}</td>
                         <td class="col-user-code">{{ user.user_code }}</td>
                         <td class="col-username">{{ user.username }}</td>
@@ -188,9 +335,7 @@
                         <td class="col-sales">{{ user.sales|default:0 }}元</td>
                         <td class="col-ratio">{{ user.ratio|default:0 }}%</td>
                         {% endif %}
-
                         <td class="col-operation">
-                            <!-- 🔥 整合：动态操作列 -->
                             <div class="btn-group-action">
                                 <a href="{% url 'accounts:user_detail' user.id %}" class="btn btn-outline-info btn-sm">详情</a>
                                 {% if user.is_active %}
@@ -198,22 +343,16 @@
                                     <button class="btn btn-outline-danger btn-sm status-toggle-btn"
                                             data-user-id="{{ user.id }}"
                                             data-user-code="{{ user.user_code }}"
-                                            data-is-active="1">
-                                        停用
-                                    </button>
+                                            data-is-active="1">停用</button>
                                 {% else %}
                                     <button class="btn btn-outline-success btn-sm status-toggle-btn"
                                             data-user-id="{{ user.id }}"
                                             data-user-code="{{ user.user_code }}"
-                                            data-is-active="0">
-                                        启用
-                                    </button>
+                                            data-is-active="0">启用</button>
                                 {% endif %}
                                 <button class="btn btn-outline-warning btn-sm reset-password-btn"
                                         data-user-id="{{ user.id }}"
-                                        data-user-code="{{ user.user_code }}">
-                                    重置密码
-                                </button>
+                                        data-user-code="{{ user.user_code }}">重置密码</button>
                             </div>
                         </td>
                     </tr>
@@ -226,11 +365,10 @@
             </table>
         </div>
 
-        <!-- Bootstrap 分页控件 -->
+        <!-- 分页 -->
         {% if page_obj.has_other_pages %}
         <nav aria-label="Page navigation" class="mt-4">
             <ul class="pagination justify-content-center">
-                <!-- 上一页 -->
                 {% if page_obj.has_previous %}
                 <li class="page-item">
                     <a class="page-link" href="?page={{ page_obj.previous_page_number }}&keyword={{ keyword }}&status={{ status }}">上一页</a>
@@ -238,8 +376,6 @@
                 {% else %}
                 <li class="page-item disabled"><span class="page-link">上一页</span></li>
                 {% endif %}
-
-                <!-- 页码 -->
                 {% for num in paginator.page_range %}
                     {% if page_obj.number == num %}
                     <li class="page-item active"><span class="page-link">{{ num }}</span></li>
@@ -249,8 +385,6 @@
                     </li>
                     {% endif %}
                 {% endfor %}
-
-                <!-- 下一页 -->
                 {% if page_obj.has_next %}
                 <li class="page-item">
                     <a class="page-link" href="?page={{ page_obj.next_page_number }}&keyword={{ keyword }}&status={{ status }}">下一页</a>
@@ -264,7 +398,7 @@
     </div>
 </div>
 
-<!-- 导出字段选择模态框 -->
+<!-- 导出字段选择模态框（原 Bootstrap 弹窗保持不变） -->
 <div class="modal fade" id="exportModal" tabindex="-1" aria-labelledby="exportModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
@@ -273,59 +407,23 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <!-- 全选/取消全选按钮 -->
                 <div class="select-all-btn">
                     <button type="button" class="btn btn-xs btn-outline-primary" onclick="selectAllFields(true)">全选</button>
                     <button type="button" class="btn btn-xs btn-outline-secondary ms-1" onclick="selectAllFields(false)">取消全选</button>
                 </div>
-
-                <!-- 用户字段选项 -->
-                <div class="field-checkbox">
-                    <input type="checkbox" id="field_serial" name="export_fields" value="serial" checked>
-                    <label for="field_serial">序号</label>
-                </div>
-                <div class="field-checkbox">
-                    <input type="checkbox" id="field_id" name="export_fields" value="id" checked>
-                    <label for="field_id">ID</label>
-                </div>
-                <div class="field-checkbox">
-                    <input type="checkbox" id="field_user_code" name="export_fields" value="user_code" checked>
-                    <label for="field_user_code">用户编号</label>
-                </div>
-                <div class="field-checkbox">
-                    <input type="checkbox" id="field_username" name="export_fields" value="username" checked>
-                    <label for="field_username">用户名</label>
-                </div>
-                <div class="field-checkbox">
-                    <input type="checkbox" id="field_name" name="export_fields" value="name" checked>
-                    <label for="field_name">姓名</label>
-                </div>
-                <div class="field-checkbox">
-                    <input type="checkbox" id="field_phone" name="export_fields" value="phone" checked>
-                    <label for="field_phone">联系电话</label>
-                </div>
-                <div class="field-checkbox">
-                    <input type="checkbox" id="field_email" name="export_fields" value="email">
-                    <label for="field_email">邮箱</label>
-                </div>
-                <div class="field-checkbox">
-                    <input type="checkbox" id="field_role" name="export_fields" value="role" checked>
-                    <label for="field_role">所属角色</label>
-                </div>
-                <div class="field-checkbox">
-                    <input type="checkbox" id="field_status" name="export_fields" value="status" checked>
-                    <label for="field_status">状态</label>
-                </div>
-
-
-                <!-- 自定义字段区域 -->
+                <div class="field-checkbox"><input type="checkbox" id="field_serial" name="export_fields" value="serial" checked><label for="field_serial">序号</label></div>
+                <div class="field-checkbox"><input type="checkbox" id="field_id" name="export_fields" value="id" checked><label for="field_id">ID</label></div>
+                <div class="field-checkbox"><input type="checkbox" id="field_user_code" name="export_fields" value="user_code" checked><label for="field_user_code">用户编号</label></div>
+                <div class="field-checkbox"><input type="checkbox" id="field_username" name="export_fields" value="username" checked><label for="field_username">用户名</label></div>
+                <div class="field-checkbox"><input type="checkbox" id="field_name" name="export_fields" value="name" checked><label for="field_name">姓名</label></div>
+                <div class="field-checkbox"><input type="checkbox" id="field_phone" name="export_fields" value="phone" checked><label for="field_phone">联系电话</label></div>
+                <div class="field-checkbox"><input type="checkbox" id="field_email" name="export_fields" value="email"><label for="field_email">邮箱</label></div>
+                <div class="field-checkbox"><input type="checkbox" id="field_role" name="export_fields" value="role" checked><label for="field_role">所属角色</label></div>
+                <div class="field-checkbox"><input type="checkbox" id="field_status" name="export_fields" value="status" checked><label for="field_status">状态</label></div>
                 <div class="custom-fields-section">
                     <h6>自定义字段（用于手动填写）</h6>
-                    <div id="customFieldsContainer">
-                    </div>
-                    <button type="button" class="btn btn-sm btn-outline-success btn-add-custom" onclick="addCustomField()">
-                        + 添加自定义字段
-                    </button>
+                    <div id="customFieldsContainer"></div>
+                    <button type="button" class="btn btn-sm btn-outline-success btn-add-custom" onclick="addCustomField()">+ 添加自定义字段</button>
                 </div>
             </div>
             <div class="modal-footer">
@@ -339,15 +437,13 @@
 
 {% block extra_js %}
 <script>
-// 全局变量（导出用）
+// 全局变量
 let customFieldCount = 0;
 
-// 获取CSRF Token
 function getCsrfToken() {
     return document.querySelector('meta[name="csrf-token"]').content;
 }
 
-// 吐司提示
 function showToast(message, type = 'info', duration = 3000) {
     let toastContainer = document.getElementById('toastContainer');
     if (!toastContainer) {
@@ -363,38 +459,51 @@ function showToast(message, type = 'info', duration = 3000) {
     setTimeout(() => toast.remove(), duration);
 }
 
-// 导入弹窗
+/* ========== 拟态导入弹窗 ========== */
 function showImportModal() {
-    document.querySelectorAll('.modal-overlay').forEach(el => el.remove());
-    let overlay = document.createElement('div');
-    overlay.className = 'modal-overlay form-modal';
+    // 移除旧弹窗
+    document.querySelectorAll('.import-modal-overlay').forEach(el => el.remove());
 
+    const overlay = document.createElement('div');
+    overlay.className = 'import-modal-overlay';
     overlay.innerHTML = `
-        <div class="modal-box">
-            <div class="modal-title">导入用户数据</div>
-            <div class="form-group">
-                <label class="form-label">选择 Excel 文件</label>
-                <input type="file" class="form-input" id="import-file-input" accept=".xlsx, .xls">
-                <div class="selected-count-tip" style="margin-top: 10px;">
-                    提示：请确保格式为 [序号, 用户编号, 用户名, 姓名, 联系电话, 邮箱, 所属角色, 状态]，系统会自动跳过重复的用户编号。
+        <div class="import-modal-box">
+            <div class="import-modal-title">📤 导入用户数据</div>
+            <div class="import-form-group">
+                <label class="import-form-label">选择 Excel 文件</label>
+                <div class="import-file-input-wrapper">
+                    <input type="file" class="import-file-input" id="import-file-input" accept=".xlsx, .xls">
+                </div>
+                <div class="import-tip">
+                    💡 请确保文件格式为：序号, 用户编号, 用户名, 姓名, 联系电话, 邮箱, 所属角色, 状态。<br>系统会自动跳过重复的用户编号。
                 </div>
             </div>
-            <div class="modal-buttons">
-                <button class="modal-btn modal-btn-cancel">取消</button>
-                <button class="modal-btn modal-btn-confirm" id="btn-confirm-import">开始导入</button>
+            <div class="import-modal-buttons">
+                <button class="import-btn import-btn-cancel" id="import-cancel-btn">取消</button>
+                <button class="import-btn import-btn-confirm" id="import-confirm-btn">开始导入</button>
             </div>
         </div>
     `;
     document.body.appendChild(overlay);
+    // 动画显示
     setTimeout(() => overlay.classList.add('active'), 10);
 
-    const cancelBtn = overlay.querySelector('.modal-btn-cancel');
-    const confirmBtn = overlay.querySelector('#btn-confirm-import');
+    const cancelBtn = overlay.querySelector('#import-cancel-btn');
+    const confirmBtn = overlay.querySelector('#import-confirm-btn');
     const fileInput = overlay.querySelector('#import-file-input');
 
-    const closeModal = () => overlay.remove();
+    const closeModal = () => {
+        overlay.classList.remove('active');
+        setTimeout(() => overlay.remove(), 200);
+    };
 
     cancelBtn.addEventListener('click', closeModal);
+
+    // 点击遮罩关闭
+    overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) closeModal();
+    });
+
     confirmBtn.addEventListener('click', () => {
         if (!fileInput.files || fileInput.files.length === 0) {
             showToast('请先选择文件', 'warning');
@@ -432,10 +541,8 @@ function showImportModal() {
     });
 }
 
-// ==================== 导出相关函数 ====================
-function exportData() {
-    showExportModal();
-}
+// 导出相关（保持不变）
+function exportData() { showExportModal(); }
 function showExportModal() {
     customFieldCount = 0;
     $('#customFieldsContainer').empty();
@@ -460,12 +567,9 @@ function addCustomField() {
             <option value="after">在...之后</option>
             <option value="before">在...之前</option>
         </select>
-        <select class="form-select form-select-sm custom-field-target">
-            ${targetFieldsHtml}
-        </select>
+        <select class="form-select form-select-sm custom-field-target">${targetFieldsHtml}</select>
         <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeCustomField(${customFieldCount})">×</button>
-    </div>
-    `;
+    </div>`;
     $('#customFieldsContainer').append(customFieldHtml);
 }
 function removeCustomField(index) {
@@ -485,14 +589,12 @@ function exportExcel() {
         const position = $(this).find('.custom-field-position').val();
         const target = $(this).find('.custom-field-target').val();
         if (name) {
-            customFields.push({name: name,position: position,target: target});
+            customFields.push({name: name, position: position, target: target});
         }
     });
     let formData = new FormData();
     formData.append('custom_fields', JSON.stringify(customFields));
-    selectedFields.forEach(field => {
-        formData.append('fields[]', field);
-    });
+    selectedFields.forEach(field => formData.append('fields[]', field));
     $.ajax({
         url: '/accounts/api/user/export/',
         type: 'POST',
@@ -524,15 +626,13 @@ function exportExcel() {
         },
         error: function(xhr) {
             let errorMsg = '导出失败，请重试';
-            if (xhr.responseJSON) {
-                errorMsg = xhr.responseJSON.msg || errorMsg;
-            }
+            if (xhr.responseJSON) errorMsg = xhr.responseJSON.msg || errorMsg;
             alert(errorMsg);
         }
     });
 }
 
-// 🔥 整合：Tab切换状态
+// Tab切换、行点击、状态切换、重置密码等（原有代码不变）
 $(document).on('click', '#statusTabs .nav-link', function(e) {
     e.preventDefault();
     const status = $(this).data('status');
@@ -540,24 +640,17 @@ $(document).on('click', '#statusTabs .nav-link', function(e) {
     $('#filterForm').submit();
 });
 
-// 🔥 整合：整行点击跳转详情（适配新按钮组）
 $(document).on('click', '.clickable-row', function(e) {
-    if ($(e.target).closest('.btn-group-action').length) {
-        return;
-    }
+    if ($(e.target).closest('.btn-group-action').length) return;
     const detailUrl = $(this).data('detail-url');
-    if (detailUrl) {
-        window.location.href = detailUrl;
-    }
+    if (detailUrl) window.location.href = detailUrl;
 });
 
-// 切换用户状态
 $(document).on('click', '.status-toggle-btn', function() {
     const userId = $(this).data('user-id');
     const userCode = $(this).data('user-code');
     const isActive = $(this).data('is-active') === 1;
     const action = isActive ? '禁用' : '启用';
-
     if (confirm(`确定要${action}用户【${userCode}】吗？`)) {
         $.ajax({
             url: `{% url 'accounts:user_toggle_status' 0 %}`.replace('0', userId),
@@ -572,18 +665,14 @@ $(document).on('click', '.status-toggle-btn', function() {
                     alert('操作失败：' + res.msg);
                 }
             },
-            error: function() {
-                alert('请求失败，请重试！');
-            }
+            error: function() { alert('请求失败，请重试！'); }
         });
     }
 });
 
-// 重置密码
 $(document).on('click', '.reset-password-btn', function() {
     const userId = $(this).data('user-id');
     const userCode = $(this).data('user-code');
-
     if (confirm(`确定要重置用户【${userCode}】的密码吗？\n重置后密码为：123456（登录后强制修改）`)) {
         $.ajax({
             url: `{% url 'accounts:reset_password' 0 %}`.replace('0', userId),
@@ -598,9 +687,7 @@ $(document).on('click', '.reset-password-btn', function() {
                     alert('重置失败：' + res.msg);
                 }
             },
-            error: function() {
-                alert('请求失败，请重试！');
-            }
+            error: function() { alert('请求失败，请重试！'); }
         });
     }
 });
