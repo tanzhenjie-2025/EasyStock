@@ -38,13 +38,17 @@ urlpatterns = [
 
 
 path('orders/export/', views.export_orders, name='export_orders'),
-path('orders/import/', views.import_orders, name='import_orders'),
+
 
 path('order/<str:order_no>/mark-printed/', views.mark_order_printed, name='mark_order_printed'),
 
 
 path('batch-print/', views.batch_print_orders, name='batch_print_orders'),
 path('orders/batch-mark-printed/', views.batch_mark_printed, name='batch_mark_printed'),
+
+    path('orders/import/', views.import_order_page, name='import_order_page'),  # GET → 页面
+    path('orders/import/preview/', views.import_orders_preview, name='import_orders_preview'),  # POST → 预览
+    path('orders/import/confirm/', views.import_orders_confirm, name='import_orders_confirm'),  # POST → 确认导入
 
 
 ]
