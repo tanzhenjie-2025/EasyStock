@@ -1257,10 +1257,15 @@ def customer_export(request):
                 'name': '客户名称',
                 'area_name': '所属区域',
                 'phone': '联系电话',
-                'remark': '备注'
+                'remark': '备注',
+                # ✅ 新增：制单号
+                'order_number': '制单号'
             }
 
-            # ✅ 修改：预加载电话
+            # ✅ 强制包含制单号字段（确保导出模板可用于导入）
+            if 'order_number' not in selected_fields:
+                selected_fields.append('order_number')
+
             customers = Customer.objects.select_related('area').prefetch_related('phones').order_by('-create_time')
             export_data = []
             for idx, customer in enumerate(customers, 1):
@@ -1269,9 +1274,10 @@ def customer_export(request):
                     'id': customer.id,
                     'name': customer.name,
                     'area_name': customer.area.name if customer.area else '无',
-                    # ✅ 修改：使用主号码
                     'phone': customer.primary_phone,
-                    'remark': customer.remark or ''
+                    'remark': customer.remark or '',
+                    # ✅ 新增：导出制单号
+                    'order_number': customer.order_number or ''
                 })
 
             file_date_str = timezone.localdate().strftime("%Y%m%d")
@@ -1305,44 +1311,58 @@ def customer_import(request):
             col_map = {
                 str(cell).strip(): idx
                 for idx, cell in enumerate(header_row)
-                if cell                           # 忽略空表头
+                if cell
             }
 
-            # 客户名称列是必填字段，必须存在
             if '客户名称' not in col_map:
                 return JsonResponse({'code': 0, 'msg': 'Excel 表头缺少“客户名称”列，请使用正确的导出模板'})
 
             name_idx = col_map['客户名称']
-            area_idx = col_map.get('所属区域')      # 可选
-            phone_idx = col_map.get('联系电话')     # 可选
-            remark_idx = col_map.get('备注')        # 可选
+            area_idx = col_map.get('所属区域')
+            phone_idx = col_map.get('联系电话')
+            remark_idx = col_map.get('备注')
+            # ✅ 新增：读取“制单号”列（兼容旧模板：不存在时不影响导入）
+            order_number_idx = col_map.get('制单号')
 
             new_count = 0
             skip_count = 0
+            new_area_count = 0  # ✅ 记录新增区域数
             error_list = []
             area_map = {area.name: area for area in Area.objects.all()}
 
-            # ---------- 2. 按列名取数据 ----------
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), 2):
                 if not any(row):
                     continue
 
                 cells = [str(cell).strip() if cell else '' for cell in row]
-
-                # 安全取值（防止列数不够导致索引越界）
                 name = cells[name_idx] if name_idx < len(cells) else ''
                 area_name = cells[area_idx] if area_idx is not None and area_idx < len(cells) else ''
                 phone = cells[phone_idx] if phone_idx is not None and phone_idx < len(cells) else ''
                 remark = cells[remark_idx] if remark_idx is not None and remark_idx < len(cells) else ''
+                order_number = cells[order_number_idx] if order_number_idx is not None and order_number_idx < len(
+                    cells) else ''
 
                 if not name:
                     error_list.append(f"第{row_idx}行：客户名称为空，跳过")
                     continue
 
-                # 区域查找（允许为空，'无' 也会映射为 None）
-                area_obj = area_map.get(area_name) if area_name else None
+                # ✅ 处理区域：不存在则自动创建（排除特殊值“无”）
+                area_obj = None
+                if area_name and area_name != '无':
+                    area_obj = area_map.get(area_name)
+                    if not area_obj:
+                        try:
+                            area_obj = Area.objects.create(
+                                name=area_name,
+                                remark='导入自动创建',
+                                is_active=True
+                            )
+                            area_map[area_name] = area_obj
+                            new_area_count += 1
+                        except Exception as e:
+                            error_list.append(f"第{row_idx}行：自动创建区域“{area_name}”失败（{str(e)}）")
+                            continue  # 区域创建失败则跳过该行
 
-                # 按区域+名称联合查重
                 if Customer.objects.filter(name=name, area=area_obj).exists():
                     skip_count += 1
                     continue
@@ -1351,7 +1371,8 @@ def customer_import(request):
                     customer = Customer.objects.create(
                         name=name,
                         area=area_obj,
-                        remark=remark
+                        remark=remark,
+                        order_number=order_number
                     )
                     if phone:
                         CustomerPhone.objects.create(
@@ -1363,7 +1384,9 @@ def customer_import(request):
                 except Exception as e:
                     error_list.append(f"第{row_idx}行：保存失败（{str(e)}）")
 
-            msg = f"导入完成！新增：{new_count} 条，跳过重复：{skip_count} 条。"
+            msg = f"导入完成！新增客户：{new_count} 条，跳过重复：{skip_count} 条。"
+            if new_area_count > 0:
+                msg += f" 自动创建区域：{new_area_count} 个。"
             if error_list:
                 msg += f" 异常：{len(error_list)} 条。"
 
@@ -1375,7 +1398,7 @@ def customer_import(request):
         except Exception as e:
             logger.error(f"导入客户失败：{str(e)}", exc_info=True)
             return JsonResponse({'code': 0, 'msg': f'导入失败：{str(e)}'})
-    return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+        return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
 # ========== 客户专属价格导出/导入 ==========
 @login_required
