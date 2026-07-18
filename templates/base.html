@@ -184,7 +184,7 @@
 </nav>
 
 <div class="container content-container">
-    {% if messages %}
+    {% if messages and not request.path == '/accounts/login/' %}
         {% for message in messages %}
             <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
                 {{ message }}
