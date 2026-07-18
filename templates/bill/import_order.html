@@ -1,0 +1,327 @@
+{% extends "base.html" %}
+{% block title %}导入订单 - EasyStock{% endblock %}
+
+{% block extra_css %}
+<style>
+    .step { display: none; }
+    .step.active { display: block; }
+    .upload-area {
+        border: 2px dashed #ccc;
+        padding: 40px;
+        text-align: center;
+        cursor: pointer;
+    }
+    .upload-area:hover { border-color: #0d6efd; }
+    .preview-table th, .preview-table td { vertical-align: middle; }
+    .text-warning { background-color: #fff3cd !important; }
+    .text-danger { background-color: #f8d7da !important; }
+    .new-badge { font-size: 0.75rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h3>订单导入 <small class="text-muted">—— 上传 Excel 并预览确认</small></h3>
+
+<!-- 步骤条 -->
+<div class="mb-4">
+    <div class="d-flex">
+        <div class="step-indicator active" id="step1Indicator">
+            <span class="badge bg-primary">1</span> 上传文件
+        </div>
+        <div class="mx-3 align-self-center">→</div>
+        <div class="step-indicator" id="step2Indicator">
+            <span class="badge bg-secondary">2</span> 预览确认
+        </div>
+        <div class="mx-3 align-self-center">→</div>
+        <div class="step-indicator" id="step3Indicator">
+            <span class="badge bg-secondary">3</span> 导入完成
+        </div>
+    </div>
+</div>
+
+<!-- 步骤1：上传 -->
+<div class="step active" id="step1">
+    <div class="upload-area" id="uploadArea">
+        <p class="mb-1"><i class="bi bi-cloud-upload fs-1"></i></p>
+        <p>点击或拖拽上传 Excel 文件 (.xlsx)</p>
+        <input type="file" id="excelFileInput" accept=".xlsx" style="display:none">
+    </div>
+    <div id="uploadMsg" class="mt-2"></div>
+</div>
+
+<!-- 步骤2：预览 -->
+<div class="step" id="step2">
+    <div class="d-flex justify-content-between mb-2">
+        <h5>数据预览</h5>
+        <div>
+            <button class="btn btn-sm btn-outline-primary" id="allowAllNew">一键允许创建所有新基础数据</button>
+            <button class="btn btn-sm btn-outline-warning" id="skipAllWarnings">跳过所有警告订单</button>
+        </div>
+    </div>
+
+    <!-- 基础数据预览 -->
+    <ul class="nav nav-tabs" id="previewTabs" role="tablist">
+        <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-orders">订单明细</a></li>
+        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-areas">新建区域</a></li>
+        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-products">新建商品</a></li>
+        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-customers">新建客户</a></li>
+    </ul>
+
+    <div class="tab-content mt-3">
+        <div class="tab-pane fade show active" id="tab-orders">
+            <table class="table table-bordered preview-table">
+                <thead>
+                    <tr>
+                        <th><input type="checkbox" id="selectAllOrders"></th>
+                        <th>订单编号</th><th>客户</th><th>区域</th><th>商品明细</th><th>状态</th><th>警告</th><th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="orderPreviewBody"></tbody>
+            </table>
+        </div>
+        <div class="tab-pane fade" id="tab-areas">
+            <table class="table">
+                <thead><tr><th>区域名称</th><th>操作</th></tr></thead>
+                <tbody id="areaPreviewBody"></tbody>
+            </table>
+        </div>
+        <div class="tab-pane fade" id="tab-products">
+            <table class="table">
+                <thead><tr><th>商品名</th><th>单位</th><th>规格</th><th>单价</th><th>操作</th></tr></thead>
+                <tbody id="productPreviewBody"></tbody>
+            </table>
+        </div>
+        <div class="tab-pane fade" id="tab-customers">
+            <table class="table">
+                <thead><tr><th>客户名</th><th>所属区域</th><th>操作</th></tr></thead>
+                <tbody id="customerPreviewBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="mt-3">
+        <button class="btn btn-secondary" onclick="goToStep(1)">返回</button>
+        <button class="btn btn-success" id="confirmImportBtn">确认导入</button>
+    </div>
+</div>
+
+<!-- 步骤3：结果 -->
+<div class="step" id="step3">
+    <div id="importResult"></div>
+    <button class="btn btn-primary mt-3" onclick="window.location.href='{% url 'bill:order_list' %}'">返回订单列表</button>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// 全局变量
+let previewData = null;
+
+// 全局函数（供 onclick 或其他地方调用）
+function goToStep(num) {
+    const steps = document.querySelectorAll('.step');
+    steps.forEach(s => s.classList.remove('active'));
+    document.getElementById(`step${num}`).classList.add('active');
+    const indicators = document.querySelectorAll('.step-indicator');
+    indicators.forEach(ind => ind.classList.remove('active'));
+    document.getElementById(`step${num}Indicator`).classList.add('active');
+}
+
+function renderPreview() {
+    if (!previewData) return;
+    // 订单明细
+    let ordersHtml = '';
+    previewData.orders.forEach((o, idx) => {
+        const itemsStr = o.items.map(i => `${i.product_name}(${i.unit}) x${i.qty}`).join('<br>');
+        const warnings = o.warnings.map(w => `<span class="badge bg-warning text-dark">${w}</span>`).join(' ');
+        const skipChecked = o.skip ? '' : 'checked';  // 不跳过则勾选
+        ordersHtml += `
+        <tr class="${o.warnings.length ? 'text-warning' : ''}">
+            <td><input type="checkbox" class="order-select" data-index="${idx}" ${skipChecked}></td>
+            <td>${o.order_no}</td>
+            <td>${o.raw_customer_name}</td>
+            <td>${o.area_name}</td>
+            <td>${itemsStr}</td>
+            <td>${o.status}</td>
+            <td>${warnings}</td>
+            <td><button class="btn btn-sm btn-danger remove-order" data-index="${idx}">跳过</button></td>
+        </tr>`;
+    });
+    $('#orderPreviewBody').html(ordersHtml);
+
+    // 基础数据
+    const areaHtml = previewData.new_areas.map(a => `<tr><td contenteditable="true" class="edit-area-name">${a}</td><td><button class="btn btn-sm btn-warning remove-new-area">不创建</button></td></tr>`).join('');
+    $('#areaPreviewBody').html(areaHtml);
+    const productHtml = previewData.new_products.map(p => `
+        <tr>
+            <td contenteditable="true" class="edit-prod-name">${p.name}</td>
+            <td contenteditable="true" class="edit-prod-unit">${p.unit}</td>
+            <td contenteditable="true" class="edit-prod-spec">${p.spec}</td>
+            <td contenteditable="true" class="edit-prod-price">${p.price}</td>
+            <td><button class="btn btn-sm btn-warning remove-new-product">不创建</button></td>
+        </tr>`).join('');
+    $('#productPreviewBody').html(productHtml);
+    const customerHtml = previewData.new_customers.map(c => `
+        <tr>
+            <td contenteditable="true" class="edit-cust-name">${c.name}</td>
+            <td contenteditable="true" class="edit-cust-area">${c.area}</td>
+            <td><button class="btn btn-sm btn-warning remove-new-customer">不创建</button></td>
+        </tr>`).join('');
+    $('#customerPreviewBody').html(customerHtml);
+
+    // 事件绑定（每次重新渲染后重新绑定）
+    $('.remove-order').click(function() {
+        const idx = $(this).data('index');
+        previewData.orders[idx].skip = true;
+        $(this).closest('tr').addClass('text-danger');
+        // 同时勾选对应的复选框（视觉反馈）
+        $(this).closest('tr').find('.order-select').prop('checked', true);
+    });
+    $('.remove-new-area, .remove-new-product, .remove-new-customer').click(function() {
+        $(this).closest('tr').remove();
+    });
+    $('#selectAllOrders').change(function() {
+        $('.order-select').prop('checked', this.checked);
+    });
+}
+
+function getCsrfToken() {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, 10) === 'csrftoken=') {
+                cookieValue = decodeURIComponent(cookie.substring(10));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
+// DOM 加载完成后绑定所有事件
+document.addEventListener('DOMContentLoaded', function() {
+    // ----- 上传区域 -----
+    const uploadArea = document.getElementById('uploadArea');
+    const fileInput = document.getElementById('excelFileInput');
+    uploadArea.addEventListener('click', function(e) {
+        fileInput.click();
+    });
+
+    fileInput.addEventListener('change', function() {
+        const file = this.files[0];
+        if (!file) return;
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('csrfmiddlewaretoken', getCsrfToken());
+
+        document.getElementById('uploadMsg').innerHTML = '<div class="alert alert-info">正在解析...</div>';
+        fetch('{% url "bill:import_orders_preview" %}', {
+            method: 'POST',
+            body: formData,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.code === 1) {
+                previewData = data.data;
+                renderPreview();
+                goToStep(2);
+            } else {
+                document.getElementById('uploadMsg').innerHTML = `<div class="alert alert-danger">${data.msg}</div>`;
+            }
+        })
+        .catch(err => {
+            document.getElementById('uploadMsg').innerHTML = `<div class="alert alert-danger">请求失败：${err.message}</div>`;
+        });
+    });
+
+    // ----- 其他按钮（需在 DOM 存在后绑定）-----
+    $('#allowAllNew').click(() => {
+        alert('所有显示的基础数据将在导入时创建');
+    });
+
+    $('#skipAllWarnings').click(() => {
+        if (!previewData) return;
+        previewData.orders.forEach(o => {
+            if (o.warnings.length) o.skip = true;
+        });
+        renderPreview();  // 重新渲染，复选框会同步显示为勾选
+    });
+
+    $('#confirmImportBtn').click(function() {
+        if (!previewData) {
+            alert('没有预览数据，请先上传文件');
+            return;
+        }
+        // 收集最终数据
+        const finalOrders = previewData.orders.map((o, idx) => {
+    const checkbox = $(`.order-select[data-index="${idx}"]`);
+    if (checkbox.length) {
+        o.skip = !checkbox.prop('checked');   // ✅ 勾选 → 不跳过
+    }
+    return o;
+});
+
+        const newAreas = [];
+        $('#areaPreviewBody tr').each(function() {
+            const name = $(this).find('.edit-area-name').text().trim();
+            if (name) newAreas.push({ name });
+        });
+        const newProducts = [];
+        $('#productPreviewBody tr').each(function() {
+            const name = $(this).find('.edit-prod-name').text().trim();
+            const unit = $(this).find('.edit-prod-unit').text().trim();
+            const spec = $(this).find('.edit-prod-spec').text().trim();
+            const price = $(this).find('.edit-prod-price').text().trim();
+            if (name) newProducts.push({ name, unit, spec, price });
+        });
+        const newCustomers = [];
+        $('#customerPreviewBody tr').each(function() {
+            const name = $(this).find('.edit-cust-name').text().trim();
+            const area = $(this).find('.edit-cust-area').text().trim();
+            if (name) newCustomers.push({ name, area });
+        });
+
+        const payload = {
+            orders: finalOrders,
+            new_areas: newAreas,
+            new_products: newProducts,
+            new_customers: newCustomers,
+        };
+
+        fetch('{% url "bill:import_orders_confirm" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken(),
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify(payload)
+        })
+        .then(res => res.json())
+        .then(data => {
+            let html = '';
+            if (data.code === 1) {
+                html += `<div class="alert alert-success">${data.msg}</div>`;
+                if (data.errors && data.errors.length) {
+                    html += '<div class="alert alert-warning"><ul>' + data.errors.map(e => `<li>${e}</li>`).join('') + '</ul></div>';
+                }
+            } else {
+                html += `<div class="alert alert-danger">${data.msg}</div>`;
+            }
+            $('#importResult').html(html);
+            goToStep(3);
+        })
+        .catch(err => {
+            alert('导入请求失败：' + err.message);
+        });
+    });
+
+    // 初始化步骤（确保显示第一步）
+    goToStep(1);
+});
+</script>
+{% endblock %}
