@@ -326,6 +326,17 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
                         </div>
                     </div>
                 </div>
+            
+            <div class="col-auto">
+    <select name="creator_id" class="form-select form-select-sm">
+        <option value="">所有开单人</option>
+        {% for creator in creators %}
+            <option value="{{ creator.id }}" {% if creator_id == creator.id|stringformat:"i" %}selected{% endif %}>
+                {{ creator.name }} ({{ creator.user_code }})
+            </option>
+        {% endfor %}
+    </select>
+</div>
                 <!-- 🔥 新增：保持status筛选参数 -->
                 <input type="hidden" name="status" value="{{ status }}">
                 <div class="col-auto">

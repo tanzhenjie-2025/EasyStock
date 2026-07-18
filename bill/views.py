@@ -23,7 +23,7 @@ from django.core.cache import cache
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 
 # ========== 导入用户模块的RBAC核心组件 ==========
-from accounts.models import ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OPERATOR, PERM_ORDER_CANCEL_OWN
+from accounts.models import ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OPERATOR, PERM_ORDER_CANCEL_OWN, User
 from accounts.views import (
     permission_required,  # RBAC权限装饰器
     create_operation_log,  # 统一日志记录
@@ -572,11 +572,13 @@ def order_list(request):
     customer_name = request.GET.get('customer_name', '').strip()
     amount_operator = request.GET.get('amount_operator', '')
     amount_value = request.GET.get('amount_value', '').strip()
-    status = request.GET.get('status', 'all')  # 🔥 新增：状态筛选参数
+    status = request.GET.get('status', 'all')
+    # 🔥 新增：开单人筛选参数
+    creator_id = request.GET.get('creator_id', '')
     page = request.GET.get('page', 1)
 
-    # 🔥 手动缓存 Key：新增 status 参数
-    cache_key = f"{CACHE_PREFIX_ORDER_LIST}{request.user.id}_{order_no}_{date_from}_{date_to}_{area_id}_{customer_name}_{amount_operator}_{amount_value}_{status}_{page}"
+    # 🔥 缓存键中加入 creator_id
+    cache_key = f"{CACHE_PREFIX_ORDER_LIST}{request.user.id}_{order_no}_{date_from}_{date_to}_{area_id}_{customer_name}_{amount_operator}_{amount_value}_{status}_{creator_id}_{page}"
     cached_data = cache.get(cache_key)
 
     if cached_data:
@@ -594,33 +596,37 @@ def order_list(request):
     is_admin = request.user.role and request.user.role.code == ROLE_ADMIN
     is_operator = request.user.role and request.user.role.code == ROLE_OPERATOR
 
-    # 🔥 新增：状态筛选（核心Tab逻辑，包含已结清/未结清）
-    base_orders = orders  # 保存基础查询集用于统计
+    # 🔥 新增：获取开单人列表（用于筛选下拉框）
+    if is_super_admin or can_view_others:
+        creators = User.objects.filter(created_orders__isnull=False).distinct().order_by('user_code')
+    else:
+        # 无查看他人权限时，只显示当前用户自己
+        creators = User.objects.filter(id=request.user.id)
+
+    # 🔥 状态筛选（核心Tab逻辑，包含已结清/未结清）
+    base_orders = orders
     if status == 'normal':
         orders = orders.filter(status__in=ORDER_STATUS_VALID)
     elif status == 'cancelled':
         orders = orders.filter(status='cancelled')
     elif status == 'settled':
-        # 🔥 已结清：只看有效订单且 is_settled=True
         orders = orders.filter(is_settled=True, status__in=ORDER_STATUS_VALID)
     elif status == 'unsettled':
-        # 🔥 未结清：只看有效订单且 is_settled=False
         orders = orders.filter(is_settled=False, status__in=ORDER_STATUS_VALID)
 
-    # 🔥 优化：Tab数量统计（一次聚合查询替代三次count查询）
+    # 🔥 Tab数量统计
     counts = base_orders.aggregate(
         count_all=Count('id'),
         count_normal=Count(Case(When(status__in=ORDER_STATUS_VALID, then='id'))),
         count_cancelled=Count(Case(When(status='cancelled', then='id'))),
-        # 🔥 新增：统计已结清/未结清数量（仅统计有效订单）
         count_settled=Count(Case(When(status__in=ORDER_STATUS_VALID, is_settled=True, then='id'))),
         count_unsettled=Count(Case(When(status__in=ORDER_STATUS_VALID, is_settled=False, then='id')))
     )
     count_all = counts['count_all']
     count_normal = counts['count_normal']
     count_cancelled = counts['count_cancelled']
-    count_settled = counts['count_settled']  # 🔥 新增
-    count_unsettled = counts['count_unsettled']  # 🔥 新增
+    count_settled = counts['count_settled']
+    count_unsettled = counts['count_unsettled']
 
     # 原有筛选逻辑
     if order_no:
@@ -654,6 +660,10 @@ def order_list(request):
         except decimal.InvalidOperation:
             pass
 
+    # 🔥 新增：开单人筛选
+    if creator_id and creator_id.isdigit():
+        orders = orders.filter(creator_id=int(creator_id))
+
     # 分页
     paginator = Paginator(orders, 10)
     try:
@@ -677,23 +687,21 @@ def order_list(request):
     settled_orders = stats['settled_orders']
     total_debt = stats['total_debt']
 
-    # 作废权限计算 & 🔥 新增：财务数据计算
+    # 作废权限计算 & 财务数据计算
     current_time = timezone.now()
     order_list = list(page_orders)
     for order in order_list:
         time_diff = (current_time - order.create_time).total_seconds() / 60
         order.time_diff = time_diff
 
-        # 🔥 新增：计算财务进度 (统一用 Decimal 计算，防止浮点数误差)
         order.unpaid_amount = order.total_amount - order.received_amount
-        # 计算已收比例 (用于前端进度条，可选)
         if order.total_amount > 0:
             order.paid_percent = (order.received_amount / order.total_amount) * 100
         else:
             order.paid_percent = 100
 
         can_cancel = False
-        if order.status != 'cancelled' and not order.is_settled:  # 移除 and order.status != 'printed'
+        if order.status != 'cancelled' and not order.is_settled:
             if is_super_admin:
                 can_cancel = True
             elif is_admin:
@@ -725,23 +733,23 @@ def order_list(request):
         'total_sales': total_sales,
         'settled_orders': settled_orders,
         'total_debt': total_debt,
-        # 🔥 新增：Tab相关参数
         'status': status,
         'count_all': count_all,
         'count_normal': count_normal,
         'count_cancelled': count_cancelled,
-        'count_settled': count_settled,  # 🔥 新增
-        'count_unsettled': count_unsettled,  # 🔥 新增
+        'count_settled': count_settled,
+        'count_unsettled': count_unsettled,
+        # 🔥 新增：开单人筛选数据
+        'creators': creators,
+        'creator_id': creator_id,
     }
-    # 构建基础查询字符串（去掉 page 参数，保留其他筛选条件）
+
     query_params = request.GET.copy()
     if 'page' in query_params:
         del query_params['page']
     base_query_string = query_params.urlencode()
 
-    # 生成省略式页码范围
     def get_page_range(page, num_pages, surrounding=2):
-        """返回包含省略号的页码列表"""
         if num_pages <= 7:
             return list(range(1, num_pages + 1))
         pages = [1]
