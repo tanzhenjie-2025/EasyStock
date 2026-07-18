@@ -225,6 +225,54 @@
         transition: transform 0.3s ease;
         font-size: 1.1rem;
     }
+    
+    /* ========== 移动端适配：订单列表 ========== */
+@media (max-width: 768px) {
+    /* 表格容器允许横向滚动 */
+    .table-responsive {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* 表格改为自动列宽，防止固定宽度撑破屏幕 */
+    .table-fixed {
+        table-layout: auto !important;
+    }
+
+    /* 隐藏“区域”列 */
+    .col-area,
+    th.col-area,
+    td.col-area {
+        display: none !important;
+    }
+
+    /* 隐藏“财务进度”列 */
+    .col-amount,
+    th.col-amount,
+    td.col-amount {
+        display: none !important;
+    }
+
+    /* 隐藏“结清状态”列 */
+    .col-settled,
+    th.col-settled,
+    td.col-settled {
+        display: none !important;
+    }
+
+    /* 操作按钮更紧凑，字体缩小 */
+    .op-btn-group .btn {
+        padding: 4px 8px;
+        font-size: 12px;
+    }
+
+    /* 可选：Tab 状态栏折行、字体缩小 */
+    .status-tab {
+        padding: 6px 10px;
+        font-size: 0.85rem;
+        margin-right: 4px;
+    }
+}
 </style>
 {% endblock %}
 
