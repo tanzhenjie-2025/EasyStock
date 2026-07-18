@@ -2437,10 +2437,31 @@ def import_orders_preview(request):
     product_names = data['product_names']
     existing_products = Product.objects.filter(name__in=product_names, is_active=True)
     # 以 (name, unit) 为 key
-    product_map = {(p.name, p.unit): p for p in existing_products}
+    product_map = {(p.name, p.unit): p for p in existing_products}          # 用于判断是否存在
+    product_obj_map = {(p.name, p.unit): p for p in existing_products}      # 用于获取价格
+
+    # ===== 新建商品列表 & 价格冲突检测 =====
     new_products = []
+    price_conflicts = []   # 存储价格冲突的商品信息
+    conflict_keys = set()  # 快速判断是否冲突
+
     for (pname, punit), info in product_create_info.items():
-        if (pname, punit) not in product_map:
+        if (pname, punit) in product_map:
+            # 商品已存在，比较价格
+            db_price = product_obj_map[(pname, punit)].price
+            import_price = Decimal(info['price'])
+            if db_price != import_price:
+                key = f"{pname}|{punit}"
+                price_conflicts.append({
+                    'key': key,
+                    'name': pname,
+                    'unit': punit,
+                    'db_price': str(db_price),
+                    'import_price': str(import_price),
+                })
+                conflict_keys.add(key)
+        else:
+            # 新建商品
             new_products.append({
                 'name': pname,
                 'unit': punit,
@@ -2478,7 +2499,7 @@ def import_orders_preview(request):
         users = User.objects.filter(username__in=all_creator_usernames | all_settled_by_usernames)
         user_map = {u.username: u for u in users}
 
-    # ===== 组装订单预览 =====
+    # ===== 组装订单预览（加入冲突标记与警告） =====
     order_preview_list = []
     for key, g in order_groups.items():
         order_no = g['order_no']
@@ -2502,8 +2523,10 @@ def import_orders_preview(request):
         if settled_by_warning:
             warnings.append(settled_by_warning)
 
-        # 构建明细
+        # 构建明细（增加 price_conflict 字段）
         for item in g['items']:
+            item_key = f"{item['product_name']}|{item['unit']}"
+            item_conflict = item_key in conflict_keys
             items_preview.append({
                 'product_name': item['product_name'],
                 'spec': item['spec'],
@@ -2512,7 +2535,13 @@ def import_orders_preview(request):
                 'price': str(item['price']),
                 'amount': str(item['price'] * item['qty']),
                 'status': item['status'],
+                'price_conflict': item_conflict,   # 新增冲突标记
             })
+
+        # 如果该订单存在冲突商品，添加总体警告
+        order_warnings = warnings[:]  # 复制已有警告
+        if any(item.get('price_conflict', False) for item in items_preview):
+            order_warnings.append('存在商品价格与系统不一致，请在"新建商品"标签页处理')
 
         order_preview_list.append({
             'order_no': order_no,
@@ -2528,8 +2557,8 @@ def import_orders_preview(request):
             'settled_time': g['settled_time'].strftime('%Y-%m-%d %H:%M:%S') if g['settled_time'] else '',
             'order_number_snapshot': g.get('order_number_snapshot', ''),
             'items': items_preview,
-            'warnings': warnings,
-            'skip': duplicate,  # 前端可默认勾选跳过
+            'warnings': order_warnings,          # 使用新的警告列表
+            'skip': duplicate,                   # 重复编号默认跳过
         })
 
     preview_data = {
@@ -2538,6 +2567,7 @@ def import_orders_preview(request):
         'new_customers': new_customers,
         'orders': order_preview_list,
         'parse_errors': data['row_errors'],
+        'price_conflicts': price_conflicts,   # 新增冲突列表
     }
 
     return JsonResponse({'code': 1, 'data': preview_data})
@@ -2554,20 +2584,38 @@ def import_orders_confirm(request):
     except:
         return JsonResponse({'code': 0, 'msg': 'JSON 格式错误'})
 
-    # 期望结构：{ orders: [...], new_areas: [...], new_products: [...], new_customers: [...] }
-    # 其中 orders 与预览结构一致，但可能被用户修改（例如跳过某些行）
-
     orders_data = payload.get('orders', [])
     new_areas_data = payload.get('new_areas', [])
     new_products_data = payload.get('new_products', [])
     new_customers_data = payload.get('new_customers', [])
+    overwrite_products = payload.get('overwrite_products', [])   # 新增：覆盖商品列表
+
+    # ---- 处理价格覆盖（放在事务外，但实际建议放在事务内，保证一致性） ----
+    # 此处放在事务外，便于提前处理；若发生异常，则事务回滚
+    # 注意：若需要原子性，可移至 with transaction.atomic() 内部
+    if overwrite_products:
+        for item in overwrite_products:
+            key = item.get('key')
+            new_price = Decimal(item.get('new_price'))
+            if not key:
+                continue
+            name, unit = key.split('|', 1)
+            try:
+                product = Product.objects.get(name=name, unit=unit, is_active=True)
+                if product.price != new_price:
+                    product.price = new_price
+                    product.save(update_fields=['price'])
+            except Product.DoesNotExist:
+                pass   # 忽略不存在的商品
+
+    # ---- 以下为原有导入逻辑（未变） ----
     valid_orders = [o for o in orders_data if not o.get('skip')]
     if not valid_orders:
         return JsonResponse({'code': 0, 'msg': '没有可导入的订单，请检查是否全被跳过'})
+
     # 1. 创建区域
     area_map = {}
     if new_areas_data:
-        # 去重
         names = set(a['name'] if isinstance(a, dict) else a for a in new_areas_data)
         existing = Area.objects.filter(name__in=names).values('name', 'id')
         area_map = {a['name']: a['id'] for a in existing}
@@ -2584,12 +2632,10 @@ def import_orders_confirm(request):
     product_map = {}
     if new_products_data:
         for p in new_products_data:
-            # p 包含 name, unit, spec, price
             pname = p['name']
             punit = p.get('unit', '')
             spec = p.get('spec', '')
             price = Decimal(p.get('price', '0'))
-            # 检查是否已有
             existing = Product.objects.filter(name=pname, unit=punit, is_active=True).first()
             if existing:
                 product_map[(pname, punit)] = existing
@@ -2608,9 +2654,6 @@ def import_orders_confirm(request):
             )
             new_prod.save()
             product_map[(pname, punit)] = new_prod
-    # 同时把数据库中已有的商品也加入，避免重复查询
-    # 但更简单的做法是执行时再查，此处为了效率可先批量查询所有可能用到的商品
-    # 这里略，可在循环中 get_or_create
 
     # 3. 创建客户
     customer_map = {}
@@ -2634,11 +2677,7 @@ def import_orders_confirm(request):
             new_cust.save()
             customer_map[cname] = new_cust
 
-    # 4. 查询所有订单中可能用到的基础数据（商品、客户、区域）
-    # 为了简化，这里直接使用刚创建的 map，并额外查询已存在的数据
-    # 由于确认时可能用到已存在的商品，应再查一遍
-    # 但因为预览时只显示了新建的，已存在的可能没返回前端，为确保可靠，执行时重新查询所有相关名字
-    # 从 orders_data 中收集所有需要的名字
+    # 4. 查询所有订单中可能用到的基础数据
     all_area_names = set()
     all_product_keys = set()
     all_customer_names = set()
@@ -2662,7 +2701,6 @@ def import_orders_confirm(request):
         area_map_from_db = {a.name: a for a in areas}
     else:
         area_map_from_db = {}
-    # 合并新建的
     area_full_map = {**area_map_from_db, **{a.name: a for a in Area.objects.filter(name__in=area_map.keys())}}
 
     # 查询已存在的商品
@@ -2674,7 +2712,6 @@ def import_orders_confirm(request):
         product_full_map = {(p.name, p.unit): p for p in products}
     else:
         product_full_map = {}
-    # 合并新建的
     product_full_map.update(product_map)
 
     # 查询已存在的客户
@@ -2709,7 +2746,6 @@ def import_orders_confirm(request):
                 continue
             try:
                 order_no = order_data['order_no']
-                # 防止重复
                 if Order.objects.filter(order_no=order_no).exists():
                     errors.append(f'订单 {order_no} 已存在，跳过')
                     continue
@@ -2741,7 +2777,6 @@ def import_orders_confirm(request):
                 )
                 order.save()
 
-                # 结算信息
                 if status != 'cancelled':
                     is_settled = order_data.get('is_settled', False)
                     received = Decimal(order_data.get('received_amount', '0'))
@@ -2788,8 +2823,7 @@ def import_orders_confirm(request):
             except Exception as e:
                 errors.append(f'订单 {order_data.get("order_no", "未知")} 导入失败: {str(e)}')
 
-    # 清理缓存（如果存在）
-    clear_order_cache()  # 确保该函数可用
+    clear_order_cache()  # 清理缓存（确保该函数存在）
 
     return JsonResponse({
         'code': 1,

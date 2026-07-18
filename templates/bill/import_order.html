@@ -16,6 +16,9 @@
     .text-warning { background-color: #fff3cd !important; }
     .text-danger { background-color: #f8d7da !important; }
     .new-badge { font-size: 0.75rem; }
+    /* 新增：价格冲突表格样式 */
+    .price-conflict-row { background-color: #f8d7da; }
+    #priceConflictContainer { border: 1px solid #dc3545; border-radius: 5px; padding: 15px; background: #f8f9fa; }
 </style>
 {% endblock %}
 
@@ -90,6 +93,23 @@
                 <thead><tr><th>商品名</th><th>单位</th><th>规格</th><th>单价</th><th>操作</th></tr></thead>
                 <tbody id="productPreviewBody"></tbody>
             </table>
+            <!-- ===== 新增：价格冲突商品展示区域 ===== -->
+            <div id="priceConflictContainer" style="margin-top:20px; display:none;">
+                <h6 class="text-danger">⚠️ 价格冲突商品</h6>
+                <p class="text-muted">以下商品已存在但价格与导入价格不同，勾选“覆盖”将以导入价格更新系统价格</p>
+                <table class="table table-bordered table-sm" id="priceConflictTable">
+                    <thead>
+                        <tr>
+                            <th>商品名</th>
+                            <th>单位</th>
+                            <th>系统价格</th>
+                            <th>导入价格</th>
+                            <th>覆盖</th>
+                        </tr>
+                    </thead>
+                    <tbody id="priceConflictBody"></tbody>
+                </table>
+            </div>
         </div>
         <div class="tab-pane fade" id="tab-customers">
             <table class="table">
@@ -133,11 +153,18 @@ function renderPreview() {
     // 订单明细
     let ordersHtml = '';
     previewData.orders.forEach((o, idx) => {
-        const itemsStr = o.items.map(i => `${i.product_name}(${i.unit}) x${i.qty}`).join('<br>');
+        const itemsStr = o.items.map(i => {
+            // 如果存在价格冲突，在商品名后加 ⚠️ 标记
+            const conflictMark = i.price_conflict ? ' ⚠️' : '';
+            return `${i.product_name}${conflictMark}(${i.unit}) x${i.qty}`;
+        }).join('<br>');
         const warnings = o.warnings.map(w => `<span class="badge bg-warning text-dark">${w}</span>`).join(' ');
-        const skipChecked = o.skip ? '' : 'checked';  // 不跳过则勾选
+        const skipChecked = o.skip ? '' : 'checked';
+        // 如果订单包含冲突商品，行背景加亮
+        const hasConflict = o.items.some(item => item.price_conflict);
+        const rowClass = hasConflict ? 'text-danger' : (o.warnings.length ? 'text-warning' : '');
         ordersHtml += `
-        <tr class="${o.warnings.length ? 'text-warning' : ''}">
+        <tr class="${rowClass}">
             <td><input type="checkbox" class="order-select" data-index="${idx}" ${skipChecked}></td>
             <td>${o.order_no}</td>
             <td>${o.raw_customer_name}</td>
@@ -170,12 +197,35 @@ function renderPreview() {
         </tr>`).join('');
     $('#customerPreviewBody').html(customerHtml);
 
-    // 事件绑定（每次重新渲染后重新绑定）
+    // ===== 新增：渲染价格冲突商品 =====
+    const conflictContainer = document.getElementById('priceConflictContainer');
+    const conflictBody = document.getElementById('priceConflictBody');
+    if (previewData.price_conflicts && previewData.price_conflicts.length) {
+        conflictContainer.style.display = 'block';
+        let html = '';
+        previewData.price_conflicts.forEach(function(p) {
+            html += `
+                <tr>
+                    <td>${p.name}</td>
+                    <td>${p.unit}</td>
+                    <td>${p.db_price}</td>
+                    <td>${p.import_price}</td>
+                    <td>
+                        <input type="checkbox" class="overwrite-price" data-key="${p.key}" data-newprice="${p.import_price}">
+                    </td>
+                </tr>
+            `;
+        });
+        conflictBody.innerHTML = html;
+    } else {
+        conflictContainer.style.display = 'none';
+    }
+
+    // 事件绑定
     $('.remove-order').click(function() {
         const idx = $(this).data('index');
         previewData.orders[idx].skip = true;
         $(this).closest('tr').addClass('text-danger');
-        // 同时勾选对应的复选框（视觉反馈）
         $(this).closest('tr').find('.order-select').prop('checked', true);
     });
     $('.remove-new-area, .remove-new-product, .remove-new-customer').click(function() {
@@ -238,7 +288,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // ----- 其他按钮（需在 DOM 存在后绑定）-----
+    // ----- 其他按钮 -----
     $('#allowAllNew').click(() => {
         alert('所有显示的基础数据将在导入时创建');
     });
@@ -248,98 +298,102 @@ document.addEventListener('DOMContentLoaded', function() {
         previewData.orders.forEach(o => {
             if (o.warnings.length) o.skip = true;
         });
-        renderPreview();  // 重新渲染，复选框会同步显示为勾选
+        renderPreview();
     });
 
+    // ===== 确认导入按钮（增加覆盖商品收集） =====
     $('#confirmImportBtn').click(function() {
-    const $btn = $(this);
-    // 防止重复点击
-    if ($btn.prop('disabled')) return;
+        const $btn = $(this);
+        if ($btn.prop('disabled')) return;
 
-    if (!previewData) {
-        alert('没有预览数据，请先上传文件');
-        return;
-    }
-
-    // ----- 1. 禁用按钮，并反馈信号 -----
-    $btn.prop('disabled', true).text('导入中...');
-    // 在结果区显示加载信息
-    $('#importResult').html('<div class="alert alert-info"><i class="bi bi-hourglass-split"></i> 正在导入订单，请稍候…</div>');
-
-    // 收集数据（与原有逻辑相同）
-    const finalOrders = previewData.orders.map((o, idx) => {
-        const checkbox = $(`.order-select[data-index="${idx}"]`);
-        if (checkbox.length) {
-            o.skip = !checkbox.prop('checked');
+        if (!previewData) {
+            alert('没有预览数据，请先上传文件');
+            return;
         }
-        return o;
-    });
 
-    const newAreas = [];
-    $('#areaPreviewBody tr').each(function() {
-        const name = $(this).find('.edit-area-name').text().trim();
-        if (name) newAreas.push({ name });
-    });
-    const newProducts = [];
-    $('#productPreviewBody tr').each(function() {
-        const name = $(this).find('.edit-prod-name').text().trim();
-        const unit = $(this).find('.edit-prod-unit').text().trim();
-        const spec = $(this).find('.edit-prod-spec').text().trim();
-        const price = $(this).find('.edit-prod-price').text().trim();
-        if (name) newProducts.push({ name, unit, spec, price });
-    });
-    const newCustomers = [];
-    $('#customerPreviewBody tr').each(function() {
-        const name = $(this).find('.edit-cust-name').text().trim();
-        const area = $(this).find('.edit-cust-area').text().trim();
-        if (name) newCustomers.push({ name, area });
-    });
+        $btn.prop('disabled', true).text('导入中...');
+        $('#importResult').html('<div class="alert alert-info"><i class="bi bi-hourglass-split"></i> 正在导入订单，请稍候…</div>');
 
-    const payload = {
-        orders: finalOrders,
-        new_areas: newAreas,
-        new_products: newProducts,
-        new_customers: newCustomers,
-    };
-
-    // ----- 2. 发起请求 -----
-    fetch('{% url "bill:import_orders_confirm" %}', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': getCsrfToken(),
-            'X-Requested-With': 'XMLHttpRequest',
-        },
-        body: JSON.stringify(payload)
-    })
-    .then(res => res.json())
-    .then(data => {
-        let html = '';
-        if (data.code === 1) {
-            html += `<div class="alert alert-success">${data.msg}</div>`;
-            if (data.errors && data.errors.length) {
-                html += '<div class="alert alert-warning"><ul>' + data.errors.map(e => `<li>${e}</li>`).join('') + '</ul></div>';
+        // 收集订单数据
+        const finalOrders = previewData.orders.map((o, idx) => {
+            const checkbox = $(`.order-select[data-index="${idx}"]`);
+            if (checkbox.length) {
+                o.skip = !checkbox.prop('checked');
             }
-        } else {
-            html += `<div class="alert alert-danger">${data.msg}</div>`;
-        }
-        $('#importResult').html(html);
-        goToStep(3);
-    })
-    .catch(err => {
-        $('#importResult').html(`<div class="alert alert-danger">导入请求失败：${err.message}</div>`);
-        // 如果失败，可让用户重试，恢复按钮
-        // 这里保持按钮禁用，但也可以恢复：$btn.prop('disabled', false).text('确认导入');
-        // 但为了不鼓励错误重试，建议保持禁用并提示用户刷新
-    })
-    .finally(() => {
-        // 无论成功失败，都恢复按钮（如果停留在本页，用户可以再次尝试；但成功后会跳转到第三步，不会看到恢复）
-        // 因为成功时调用了 goToStep(3)，第三步没有这个按钮，所以恢复不影响
-        $btn.prop('disabled', false).text('确认导入');
-    });
-});
+            return o;
+        });
 
-    // 初始化步骤（确保显示第一步）
+        const newAreas = [];
+        $('#areaPreviewBody tr').each(function() {
+            const name = $(this).find('.edit-area-name').text().trim();
+            if (name) newAreas.push({ name });
+        });
+        const newProducts = [];
+        $('#productPreviewBody tr').each(function() {
+            const name = $(this).find('.edit-prod-name').text().trim();
+            const unit = $(this).find('.edit-prod-unit').text().trim();
+            const spec = $(this).find('.edit-prod-spec').text().trim();
+            const price = $(this).find('.edit-prod-price').text().trim();
+            if (name) newProducts.push({ name, unit, spec, price });
+        });
+        const newCustomers = [];
+        $('#customerPreviewBody tr').each(function() {
+            const name = $(this).find('.edit-cust-name').text().trim();
+            const area = $(this).find('.edit-cust-area').text().trim();
+            if (name) newCustomers.push({ name, area });
+        });
+
+        // ===== 新增：收集覆盖商品 =====
+        const overwriteProducts = [];
+        $('.overwrite-price:checked').each(function() {
+            const key = $(this).data('key');
+            const newPrice = $(this).data('newprice');
+            if (key && newPrice) {
+                overwriteProducts.push({ key: key, new_price: newPrice });
+            }
+        });
+
+        const payload = {
+            orders: finalOrders,
+            new_areas: newAreas,
+            new_products: newProducts,
+            new_customers: newCustomers,
+            overwrite_products: overwriteProducts,   // 新增字段
+        };
+
+        // 发起请求
+        fetch('{% url "bill:import_orders_confirm" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken(),
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify(payload)
+        })
+        .then(res => res.json())
+        .then(data => {
+            let html = '';
+            if (data.code === 1) {
+                html += `<div class="alert alert-success">${data.msg}</div>`;
+                if (data.errors && data.errors.length) {
+                    html += '<div class="alert alert-warning"><ul>' + data.errors.map(e => `<li>${e}</li>`).join('') + '</ul></div>';
+                }
+            } else {
+                html += `<div class="alert alert-danger">${data.msg}</div>`;
+            }
+            $('#importResult').html(html);
+            goToStep(3);
+        })
+        .catch(err => {
+            $('#importResult').html(`<div class="alert alert-danger">导入请求失败：${err.message}</div>`);
+        })
+        .finally(() => {
+            $btn.prop('disabled', false).text('确认导入');
+        });
+    });
+
+    // 初始化步骤
     goToStep(1);
 });
 </script>
