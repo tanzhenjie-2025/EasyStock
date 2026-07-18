@@ -1444,7 +1444,7 @@ function customerGoToPage(delta) {
         });
         const d = await r.json();
         if (d.code === 1) {
-            alert('开单成功：' + d.order_no);
+            
             // 原地跳转
             window.location.href = `/bill/print/${d.order_no}/`;
         } else {
@@ -1734,9 +1734,7 @@ function customerGoToPage(delta) {
             addedProductIds = [];
 
             document.getElementById('recentBuyModal').style.display = 'none';
-
-            // 提示并聚焦
-            alert(`成功导入 ${count} 项商品到开单列表！`);
+            
             const firstProductInput = document.querySelector('#bill-tbody .name-input');
             if (firstProductInput) { firstProductInput.focus(); firstProductInput.select(); }
         }
