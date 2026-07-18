@@ -374,6 +374,8 @@ def save_order(request):
             order = Order()
             order.creator = request.user
             order.customer_name_snapshot = customer_name
+            # 在创建 Order() 后，保存前添加
+            order.order_number_snapshot = order_number or None
             if customer_id:
                 customer = get_object_or_404(Customer, id=customer_id)
                 order.customer = customer

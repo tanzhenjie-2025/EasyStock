@@ -43,6 +43,9 @@ class Order(models.Model):
     total_amount = models.DecimalField('总金额', max_digits=12, decimal_places=2, default=0)
     status = models.CharField('状态', max_length=10, choices=ORDER_STATUS, default='pending')
 
+    # 新增字段
+    order_number_snapshot = models.CharField(max_length=100, blank=True, null=True, verbose_name='制单号快照')
+
     cancelled_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,

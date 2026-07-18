@@ -279,7 +279,9 @@
     <div class="field-group">
         <strong>制单工号：</strong>
         <span class="underline underline-sm">
-            {% if order.customer and order.customer.order_number %}
+            {% if order.order_number_snapshot %}
+                {{ order.order_number_snapshot }}
+            {% elif order.customer and order.customer.order_number %}
                 {{ order.customer.order_number }}
             {% else %}
                 &nbsp;
