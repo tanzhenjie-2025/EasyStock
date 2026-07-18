@@ -703,12 +703,14 @@ def no_permission(request):
 
 # ===================== 用户管理：导入导出新增代码 =====================
 @login_required
-@permission_required('area_add')  # 可根据实际权限配置修改，如 'user_add'
+@permission_required('user_add')   # 建议使用更精确的权限，如 'user_import'
 def user_import(request):
     """
     用户批量导入：
     读取Excel，格式：[序号, 用户编号, 用户名, 姓名, 联系电话, 邮箱, 所属角色, 状态]
-    用户编号重复则跳过，默认密码为 123456
+    - 用户编号重复则跳过
+    - 用户名缺失时自动使用 用户编号 作为用户名
+    - 默认密码 123456
     """
     if request.method == 'POST':
         try:
@@ -722,15 +724,14 @@ def user_import(request):
             imported_count = 0
             skipped_count = 0
 
-            # 预加载所有角色到内存，加速匹配
+            # 预加载所有角色到内存（名称 -> 角色对象）
             role_map = {r.name: r for r in Role.objects.only('id', 'name')}
 
-            # 从第2行开始遍历（第1行是表头）
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
                 if len(row) < 3:
                     continue
 
-                # 提取数据，忽略第一列序号
+                # 提取数据（忽略第一列序号）
                 user_code = str(row[1]).strip() if row[1] else ''
                 username = str(row[2]).strip() if row[2] else ''
                 name = str(row[3]).strip() if len(row) > 3 and row[3] else ''
@@ -739,52 +740,62 @@ def user_import(request):
                 role_name = str(row[6]).strip() if len(row) > 6 and row[6] else ''
                 status_str = str(row[7]).strip() if len(row) > 7 and row[7] else '正常'
 
-                if not user_code or not username:
+                if not user_code:
                     skipped_count += 1
                     continue
 
-                # 检查用户编号是否已存在
+                # 如果用户编号已存在，跳过
                 if User.objects.filter(user_code=user_code).exists():
                     skipped_count += 1
                     continue
 
-                # 查找角色
+                # ---------- 核心改动：用户名缺失处理 ----------
+                # 若用户名为空，则用 user_code 作为用户名
+                if not username:
+                    username = user_code   # 或 f"user_{user_code}"
+                # ------------------------------------------------
+
+                # 查找角色（容错：角色名不存在则 role=None）
                 role = role_map.get(role_name) if role_name else None
 
                 # 解析状态
                 is_active = status_str != '禁用'
 
-                # 拆分姓名为 first_name 和 last_name
+                # 拆分姓名（保留原有逻辑，也可以直接存为 last_name 或全名）
                 first_name = name[:1] if name else ''
                 last_name = name[1:] if len(name) > 1 else ''
 
-                # 创建新用户
-                user = User.objects.create(
-                    user_code=user_code,
-                    username=username,
-                    first_name=first_name,
-                    last_name=last_name,
-                    phone=phone,
-                    email=email,
-                    role=role,
-                    is_active=is_active,
-                    force_password_change=True
-                )
-                user.set_password('123456')
-                user.save()
-
-                imported_count += 1
+                try:
+                    # 创建用户
+                    user = User.objects.create(
+                        user_code=user_code,
+                        username=username,
+                        first_name=first_name,
+                        last_name=last_name,
+                        phone=phone,
+                        email=email,
+                        role=role,
+                        is_active=is_active,
+                        force_password_change=True
+                    )
+                    user.set_password('123456')
+                    user.save()
+                    imported_count += 1
+                except IntegrityError:
+                    # 用户名冲突（自动生成的 username 可能已存在）
+                    skipped_count += 1
+                    continue
 
             # 记录日志
             create_operation_log(
                 request=request, op_type='import', obj_type='user',
                 obj_id=0, obj_name='批量导入',
-                detail=f"导入成功：新增{imported_count}条，跳过{skipped_count}条重复"
+                detail=f"导入成功：新增{imported_count}条，跳过{skipped_count}条重复/异常"
             )
 
             return JsonResponse({
                 'code': 1,
-                'msg': f'导入完成！新增 {imported_count} 条，跳过 {skipped_count} 条重复数据'
+                'msg': f'导入完成！新增 {imported_count} 条，跳过 {skipped_count} 条重复或异常数据'
             })
 
         except Exception as e:
