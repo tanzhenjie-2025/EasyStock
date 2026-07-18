@@ -1625,11 +1625,11 @@ from openpyxl.styles import Font, Alignment
 from django.http import HttpResponse
 from django.db.models import Prefetch
 from urllib.parse import quote
+
 @login_required
 @permission_required(PERM_ORDER_VIEW)
 def export_orders(request):
-    """导出当前筛选条件下的订单 Excel（模板可复用）"""
-    # 复用 order_list 的查询逻辑，但跳过缓存和分页
+    """导出当前筛选条件下的订单 Excel（模板可复用，增加订单级字段）"""
     order_no = request.GET.get('order_no', '').strip()
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
@@ -1639,14 +1639,13 @@ def export_orders(request):
     amount_value = request.GET.get('amount_value', '').strip()
     status = request.GET.get('status', 'all')
 
-    # 权限控制
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
     can_view_others = request.user.has_permission('order_view_others')
-    orders = Order.objects.select_related('area').order_by('-create_time')
+    # 关键修改：增加 select_related 预加载 creator 和 settled_by
+    orders = Order.objects.select_related('area', 'creator', 'settled_by').order_by('-create_time')
     if not is_super_admin and not can_view_others:
         orders = orders.filter(creator=request.user)
 
-    # 应用状态筛选
     if status == 'normal':
         orders = orders.filter(status__in=ORDER_STATUS_VALID)
     elif status == 'cancelled':
@@ -1656,7 +1655,6 @@ def export_orders(request):
     elif status == 'unsettled':
         orders = orders.filter(is_settled=False, status__in=ORDER_STATUS_VALID)
 
-    # 应用其他筛选
     if order_no:
         orders = orders.filter(order_no__startswith=order_no)
     if area_id and area_id.isdigit():
@@ -1686,18 +1684,21 @@ def export_orders(request):
         except:
             pass
 
-    # 预加载订单明细及关联商品
     orders = orders.prefetch_related(
         Prefetch('items', queryset=OrderItem.objects.select_related('product'))
     )
 
-    # 创建 Excel 工作簿
     wb = Workbook()
     ws = wb.active
     ws.title = "订单数据"
 
-    # 表头（增加“创建时间”列）
-    headers = ['订单编号', '客户名称', '区域', '商品名称', '规格', '单位', '数量', '单价', '小计金额', '订单状态', '创建时间']
+    # 表头扩展，增加订单级字段
+    headers = [
+        '订单编号', '客户名称', '区域', '商品名称', '规格', '单位',
+        '数量', '单价', '小计金额', '订单状态', '创建时间',
+        '开单人', '订单总金额', '是否结清', '已收金额',
+        '结清人', '结清时间', '制单号快照'
+    ]
     header_font = Font(bold=True)
     for col_num, header in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col_num, value=header)
@@ -1709,8 +1710,17 @@ def export_orders(request):
         area_name = order.area.name if order.area else ''
         customer_name_snap = order.customer_name_snapshot or ''
         order_no_text = order.order_no
-        # 将 aware 时间转为当前时区的字符串
         create_time_val = timezone.localtime(order.create_time).replace(tzinfo=None)
+
+        # 订单级字段（同一订单的所有明细行都相同）
+        creator_name = order.creator.username if order.creator else ''
+        total_amount = float(order.total_amount)
+        is_settled_text = '是' if order.is_settled else '否'
+        received_amount = float(order.received_amount)
+        settled_by_name = order.settled_by.username if order.settled_by else ''
+        settled_time_val = timezone.localtime(order.settled_time).replace(tzinfo=None) if order.settled_time else ''
+        order_number_snap = order.order_number_snapshot or ''
+
         for item in order.items.all():
             ws.cell(row=row, column=1, value=order_no_text)
             ws.cell(row=row, column=2, value=customer_name_snap)
@@ -1724,10 +1734,18 @@ def export_orders(request):
             amt = float(item.amount) if item.amount else 0.0
             ws.cell(row=row, column=9, value=amt)
             ws.cell(row=row, column=10, value=order.status)
-            ws.cell(row=row, column=11, value=create_time_val)   # 直接写入 datetime
+            ws.cell(row=row, column=11, value=create_time_val)
+
+            # 新增列
+            ws.cell(row=row, column=12, value=creator_name)
+            ws.cell(row=row, column=13, value=total_amount)
+            ws.cell(row=row, column=14, value=is_settled_text)
+            ws.cell(row=row, column=15, value=received_amount)
+            ws.cell(row=row, column=16, value=settled_by_name)
+            ws.cell(row=row, column=17, value=settled_time_val)
+            ws.cell(row=row, column=18, value=order_number_snap)
             row += 1
 
-    # 设置响应
     response = HttpResponse(
         content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
@@ -1746,6 +1764,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from pypinyin import lazy_pinyin
+from accounts.models import User   # 新增导入
 
 @login_required
 @permission_required(PERM_ORDER_CREATE)
@@ -1767,8 +1786,8 @@ def import_orders(request):
     if not rows:
         return JsonResponse({'code': 0, 'msg': 'Excel 无数据'})
 
-    # 修改数据结构，增加创建时间字段
-    order_groups = {}          # key -> {'items': [...], 'create_time': aware_datetime or None}
+    # 数据结构扩展，增加订单级字段
+    order_groups = {}   # key -> {'items': [...], 'create_time': ..., 'creator_username': ..., ...}
     area_names = set()
     product_names = set()
     pure_customer_names = set()
@@ -1793,8 +1812,8 @@ def import_orders(request):
                 return "", raw_name
 
     for row in rows:
-        # 至少需要10列（到订单状态），否则跳过该行
-        if len(row) < 10:
+        # 兼容不同列数：最少需要11列（旧模板），新增列缺失时默认为空
+        if len(row) < 11:
             continue
 
         order_no = str(row[0]).strip() if row[0] else ''
@@ -1813,15 +1832,13 @@ def import_orders(request):
             price = Decimal('0')
         status = str(row[9]).strip() if len(row) > 9 and row[9] else 'pending'
 
-        # ---------- 导入时间解析（覆盖原解析块） ----------
+        # 创建时间解析（索引10）
         create_time = None
         if len(row) > 10 and row[10]:
             val = row[10]
             if isinstance(val, datetime):
-                # Excel 原生日期时间
                 dt = val
             else:
-                # 兜底：尝试字符串解析（兼容旧模板）
                 try:
                     dt = datetime.strptime(str(val).strip(), '%Y-%m-%d %H:%M:%S')
                 except ValueError:
@@ -1830,11 +1847,40 @@ def import_orders(request):
                     except Exception:
                         dt = None
             if dt is not None:
-                # 确保为 aware 时间
                 if timezone.is_naive(dt):
                     create_time = timezone.make_aware(dt, timezone.get_current_timezone())
                 else:
                     create_time = dt
+
+        # 新增字段解析（索引 11~17）
+        creator_username = str(row[11]).strip() if len(row) > 11 and row[11] else ''
+        # 订单总金额（索引12）可忽略，后续用明细重新计算
+        is_settled_str = str(row[13]).strip() if len(row) > 13 and row[13] else ''
+        is_settled = (is_settled_str == '是')   # 默认 False
+        try:
+            received_amount = Decimal(str(row[14])) if len(row) > 14 and row[14] else Decimal('0')
+        except:
+            received_amount = Decimal('0')
+        settled_by_username = str(row[15]).strip() if len(row) > 15 and row[15] else ''
+        settled_time = None
+        if len(row) > 16 and row[16]:
+            val = row[16]
+            if isinstance(val, datetime):
+                dt = val
+            else:
+                try:
+                    dt = datetime.strptime(str(val).strip(), '%Y-%m-%d %H:%M:%S')
+                except ValueError:
+                    try:
+                        dt = datetime.strptime(str(val).strip(), '%Y-%m-%d')
+                    except Exception:
+                        dt = None
+            if dt is not None:
+                if timezone.is_naive(dt):
+                    settled_time = timezone.make_aware(dt, timezone.get_current_timezone())
+                else:
+                    settled_time = dt
+        order_number_snapshot = str(row[17]).strip() if len(row) > 17 and row[17] else ''
 
         final_area, pure_customer_name = parse_customer_name(raw_customer_name, area_name)
 
@@ -1842,7 +1888,14 @@ def import_orders(request):
         if order_key not in order_groups:
             order_groups[order_key] = {
                 'items': [],
-                'create_time': None,   # 同一订单的多行，只保存第一个有效的创建时间
+                'create_time': None,
+                # 订单级字段（取第一行）
+                'creator_username': creator_username,
+                'is_settled': is_settled,
+                'received_amount': received_amount,
+                'settled_by_username': settled_by_username,
+                'settled_time': settled_time,
+                'order_number_snapshot': order_number_snapshot,
             }
         order_groups[order_key]['items'].append({
             'product_name': prod_name,
@@ -1857,7 +1910,7 @@ def import_orders(request):
         if create_time and not order_groups[order_key]['create_time']:
             order_groups[order_key]['create_time'] = create_time
 
-        # 仅有效订单才收集需要创建的区域、客户、商品信息
+        # 仅有效订单收集区域、客户、商品信息
         if status != 'cancelled':
             if final_area:
                 area_names.add(final_area)
@@ -1954,7 +2007,20 @@ def import_orders(request):
                     )
                     customer_map[obj.name] = obj
 
-    # ========== 4. 已存在订单编号检查 ==========
+    # ========== 4. 预查询 User 对象（用于开单人、结清人）==========
+    all_creator_usernames = set()
+    all_settled_by_usernames = set()
+    for group_data in order_groups.values():
+        if group_data['creator_username']:
+            all_creator_usernames.add(group_data['creator_username'])
+        if group_data['settled_by_username']:
+            all_settled_by_usernames.add(group_data['settled_by_username'])
+    user_map = {}
+    if all_creator_usernames or all_settled_by_usernames:
+        users = User.objects.filter(username__in=all_creator_usernames | all_settled_by_usernames)
+        user_map = {u.username: u for u in users}
+
+    # ========== 5. 已存在订单编号检查 ==========
     existing_orders = set(
         Order.objects.filter(order_no__in=[k[0] for k in order_groups if k[0]])
         .values_list('order_no', flat=True)
@@ -1963,7 +2029,6 @@ def import_orders(request):
     success_count = 0
     skip_count = 0
 
-    # ========== 5. 事务中创建订单和订单明细 ==========
     with transaction.atomic():
         for (order_no, raw_customer_name, area_name), group_data in order_groups.items():
             if order_no and order_no in existing_orders:
@@ -1971,10 +2036,9 @@ def import_orders(request):
                 continue
 
             items = group_data['items']
-            order_create_time = group_data['create_time']   # 可能为 None
+            order_create_time = group_data['create_time']
             status = items[0]['status']
 
-            # 作废订单：强制不关联任何区域、客户、商品
             if status == 'cancelled':
                 area = None
                 customer = None
@@ -1984,19 +2048,42 @@ def import_orders(request):
                 pure_customer_name = items[0]['pure_customer_name']
                 customer = customer_map.get(pure_customer_name) if pure_customer_name else None
 
+            # 确定开单人
+            creator_username = group_data['creator_username']
+            creator = user_map.get(creator_username) if creator_username else None
+            if not creator:
+                creator = request.user   # 找不到则默认为当前用户
+
             order = Order(
                 order_no=order_no if order_no else '',
                 customer_name_snapshot=raw_customer_name,
                 area=area,
                 customer=customer,
-                creator=request.user,
+                creator=creator,
                 total_amount=0,
                 status=status,
-                # 不传 create_time，下面显式赋值以覆盖 auto_now_add
+                order_number_snapshot=group_data.get('order_number_snapshot') or '',
+                # 结算相关字段仅在非作废订单时设置
+                is_settled=False,
+                received_amount=Decimal('0'),
             )
             if order_create_time:
-                order.create_time = order_create_time   # 使用导入的时间
+                order.create_time = order_create_time
             order.save()
+
+            # 处理结算字段
+            if status != 'cancelled':
+                is_settled = group_data['is_settled']
+                received_amount = group_data['received_amount']
+                if is_settled or received_amount > 0:
+                    order.is_settled = is_settled
+                    order.received_amount = received_amount
+                    settled_by_username = group_data['settled_by_username']
+                    settled_by = user_map.get(settled_by_username) if settled_by_username else None
+                    order.settled_by = settled_by
+                    order.settled_time = group_data['settled_time']
+                    # 没有结清备注，不设置
+                    order.save(update_fields=['is_settled', 'received_amount', 'settled_by', 'settled_time'])
 
             if status == 'cancelled':
                 order.cancelled_by = request.user
