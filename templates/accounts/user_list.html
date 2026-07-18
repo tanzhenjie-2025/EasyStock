@@ -254,10 +254,10 @@
         <div class="shop-stats">
             <h6 class="mb-2">【全店销售统计】</h6>
             <p class="mb-0">
-                总开单：{{ shop_stats.total_orders }} 单 |
-                总销售额：{{ shop_stats.total_sales }} 元 |
-                总作废：{{ shop_stats.total_cancelled }} 单
-            </p>
+    总开单：{{ shop_stats.total_orders }} 单 |
+    总销售额：{{ shop_stats.total_sales|floatformat:-2 }} 元 |
+    总作废：{{ shop_stats.total_cancelled }} 单
+</p>
         </div>
         {% endif %}
 
@@ -332,7 +332,7 @@
                         </td>
                         {% if is_super_admin %}
                         <td class="col-order-count">{{ user.orders|default:0 }}单</td>
-                        <td class="col-sales">{{ user.sales|default:0 }}元</td>
+                        <td class="col-sales">{{ user.sales|floatformat:-2|default:"0" }}元</td>
                         <td class="col-ratio">{{ user.ratio|default:0 }}%</td>
                         {% endif %}
                         <td class="col-operation">
