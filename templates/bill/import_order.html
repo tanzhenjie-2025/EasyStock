@@ -252,73 +252,92 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     $('#confirmImportBtn').click(function() {
-        if (!previewData) {
-            alert('没有预览数据，请先上传文件');
-            return;
-        }
-        // 收集最终数据
-        const finalOrders = previewData.orders.map((o, idx) => {
-    const checkbox = $(`.order-select[data-index="${idx}"]`);
-    if (checkbox.length) {
-        o.skip = !checkbox.prop('checked');   // ✅ 勾选 → 不跳过
+    const $btn = $(this);
+    // 防止重复点击
+    if ($btn.prop('disabled')) return;
+
+    if (!previewData) {
+        alert('没有预览数据，请先上传文件');
+        return;
     }
-    return o;
-});
 
-        const newAreas = [];
-        $('#areaPreviewBody tr').each(function() {
-            const name = $(this).find('.edit-area-name').text().trim();
-            if (name) newAreas.push({ name });
-        });
-        const newProducts = [];
-        $('#productPreviewBody tr').each(function() {
-            const name = $(this).find('.edit-prod-name').text().trim();
-            const unit = $(this).find('.edit-prod-unit').text().trim();
-            const spec = $(this).find('.edit-prod-spec').text().trim();
-            const price = $(this).find('.edit-prod-price').text().trim();
-            if (name) newProducts.push({ name, unit, spec, price });
-        });
-        const newCustomers = [];
-        $('#customerPreviewBody tr').each(function() {
-            const name = $(this).find('.edit-cust-name').text().trim();
-            const area = $(this).find('.edit-cust-area').text().trim();
-            if (name) newCustomers.push({ name, area });
-        });
+    // ----- 1. 禁用按钮，并反馈信号 -----
+    $btn.prop('disabled', true).text('导入中...');
+    // 在结果区显示加载信息
+    $('#importResult').html('<div class="alert alert-info"><i class="bi bi-hourglass-split"></i> 正在导入订单，请稍候…</div>');
 
-        const payload = {
-            orders: finalOrders,
-            new_areas: newAreas,
-            new_products: newProducts,
-            new_customers: newCustomers,
-        };
-
-        fetch('{% url "bill:import_orders_confirm" %}', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCsrfToken(),
-                'X-Requested-With': 'XMLHttpRequest',
-            },
-            body: JSON.stringify(payload)
-        })
-        .then(res => res.json())
-        .then(data => {
-            let html = '';
-            if (data.code === 1) {
-                html += `<div class="alert alert-success">${data.msg}</div>`;
-                if (data.errors && data.errors.length) {
-                    html += '<div class="alert alert-warning"><ul>' + data.errors.map(e => `<li>${e}</li>`).join('') + '</ul></div>';
-                }
-            } else {
-                html += `<div class="alert alert-danger">${data.msg}</div>`;
-            }
-            $('#importResult').html(html);
-            goToStep(3);
-        })
-        .catch(err => {
-            alert('导入请求失败：' + err.message);
-        });
+    // 收集数据（与原有逻辑相同）
+    const finalOrders = previewData.orders.map((o, idx) => {
+        const checkbox = $(`.order-select[data-index="${idx}"]`);
+        if (checkbox.length) {
+            o.skip = !checkbox.prop('checked');
+        }
+        return o;
     });
+
+    const newAreas = [];
+    $('#areaPreviewBody tr').each(function() {
+        const name = $(this).find('.edit-area-name').text().trim();
+        if (name) newAreas.push({ name });
+    });
+    const newProducts = [];
+    $('#productPreviewBody tr').each(function() {
+        const name = $(this).find('.edit-prod-name').text().trim();
+        const unit = $(this).find('.edit-prod-unit').text().trim();
+        const spec = $(this).find('.edit-prod-spec').text().trim();
+        const price = $(this).find('.edit-prod-price').text().trim();
+        if (name) newProducts.push({ name, unit, spec, price });
+    });
+    const newCustomers = [];
+    $('#customerPreviewBody tr').each(function() {
+        const name = $(this).find('.edit-cust-name').text().trim();
+        const area = $(this).find('.edit-cust-area').text().trim();
+        if (name) newCustomers.push({ name, area });
+    });
+
+    const payload = {
+        orders: finalOrders,
+        new_areas: newAreas,
+        new_products: newProducts,
+        new_customers: newCustomers,
+    };
+
+    // ----- 2. 发起请求 -----
+    fetch('{% url "bill:import_orders_confirm" %}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken(),
+            'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify(payload)
+    })
+    .then(res => res.json())
+    .then(data => {
+        let html = '';
+        if (data.code === 1) {
+            html += `<div class="alert alert-success">${data.msg}</div>`;
+            if (data.errors && data.errors.length) {
+                html += '<div class="alert alert-warning"><ul>' + data.errors.map(e => `<li>${e}</li>`).join('') + '</ul></div>';
+            }
+        } else {
+            html += `<div class="alert alert-danger">${data.msg}</div>`;
+        }
+        $('#importResult').html(html);
+        goToStep(3);
+    })
+    .catch(err => {
+        $('#importResult').html(`<div class="alert alert-danger">导入请求失败：${err.message}</div>`);
+        // 如果失败，可让用户重试，恢复按钮
+        // 这里保持按钮禁用，但也可以恢复：$btn.prop('disabled', false).text('确认导入');
+        // 但为了不鼓励错误重试，建议保持禁用并提示用户刷新
+    })
+    .finally(() => {
+        // 无论成功失败，都恢复按钮（如果停留在本页，用户可以再次尝试；但成功后会跳转到第三步，不会看到恢复）
+        // 因为成功时调用了 goToStep(3)，第三步没有这个按钮，所以恢复不影响
+        $btn.prop('disabled', false).text('确认导入');
+    });
+});
 
     // 初始化步骤（确保显示第一步）
     goToStep(1);
