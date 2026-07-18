@@ -274,18 +274,19 @@
                     <span class="underline underline-sm">&nbsp;</span>
                 </div>
             </div>
-            <div class="bottom-row">
-    <span></span>
+            <div class="bottom-row" style="justify-content: flex-start;">
     <div class="field-group">
-        <strong>制单工号：</strong>
-        <span class="underline underline-sm">
-            {% if order.order_number_snapshot %}
-                {{ order.order_number_snapshot }}
-            {% elif order.customer and order.customer.order_number %}
-                {{ order.customer.order_number }}
-            {% else %}
-                &nbsp;
-            {% endif %}
+        <strong style="font-size: 18px;">制单工号：</strong>
+        <span class="underline underline-sm" style="text-align: center;">
+            <span style="font-size: 22px; font-weight: bold; display: block; width: 100%;">
+                {% if order.order_number_snapshot %}
+                    {{ order.order_number_snapshot }}
+                {% elif order.customer and order.customer.order_number %}
+                    {{ order.customer.order_number }}
+                {% else %}
+                    &nbsp;
+                {% endif %}
+            </span>
         </span>
     </div>
 </div>

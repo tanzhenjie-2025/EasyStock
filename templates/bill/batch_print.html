@@ -251,17 +251,21 @@
                         <span class="underline underline-sm">&nbsp;</span>
                     </div>
                 </div>
-                <div class="field-group">
-    <strong>制单工号：</strong>
-    <span class="underline underline-sm">
-        {% if item.order.order_number_snapshot %}
-            {{ item.order.order_number_snapshot }}
-        {% elif item.order.customer and item.order.customer.order_number %}
-            {{ item.order.customer.order_number }}
-        {% else %}
-            &nbsp;
-        {% endif %}
-    </span>
+                <div class="bottom-row" style="justify-content: flex-start;">
+    <div class="field-group">
+        <strong style="font-size: 18px;">制单工号：</strong>
+        <span class="underline underline-sm" style="text-align: center;">
+            <span style="font-size: 22px; font-weight: bold; display: block; width: 100%;">
+                {% if item.order.order_number_snapshot %}
+                    {{ item.order.order_number_snapshot }}
+                {% elif item.order.customer and item.order.customer.order_number %}
+                    {{ item.order.customer.order_number }}
+                {% else %}
+                    &nbsp;
+                {% endif %}
+            </span>
+        </span>
+    </div>
 </div>
             </div>
         </div>
