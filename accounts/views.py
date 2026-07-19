@@ -56,6 +56,37 @@ OP_TYPE_ENABLE_USER = 'enable_user'
 OP_TYPE_DISABLE_USER = 'disable_user'
 OP_TYPE_UPDATE_ROLE_PERM = 'update_role_permission'
 
+# ========== 在 accounts/utils.py 或 views.py 顶部 ==========
+from functools import wraps
+from django.http import JsonResponse
+
+
+def permission_required_json(perm_code):
+    """
+    自定义权限装饰器（JSON API专用）
+    用法：@permission_required_json(PERM_CUSTOMER_IMPORT)
+    """
+
+    def decorator(view_func):
+        @wraps(view_func)
+        def wrapper(request, *args, **kwargs):
+            # 1. 检查登录（避免未登录时 .user 报错，虽然通常 @login_required 已处理）
+            if not request.user.is_authenticated:
+                return JsonResponse({'code': 0, 'msg': '请先登录'}, status=401)
+
+            # 2. 权限校验（利用你重写好的 has_perm）
+            if not request.user.has_perm(perm_code):
+                return JsonResponse({
+                    'code': 0,
+                    'msg': f'您没有执行该操作的权限（缺少权限：{perm_code}）'
+                }, status=403)
+
+            # 3. 放行
+            return view_func(request, *args, **kwargs)
+
+        return wrapper
+
+    return decorator
 # ========== Excel导出（优化索引匹配） ==========
 def export_to_excel(data, title, headers, selected_fields, custom_fields, file_name, total_row=None):
     wb = openpyxl.Workbook()

@@ -1756,15 +1756,8 @@ def export_orders(request):
     return response
 
 
-
-from openpyxl import load_workbook
-from collections import defaultdict
-from decimal import Decimal
 from django.db import transaction
-from django.db.models import Q
-from django.utils import timezone
-from pypinyin import lazy_pinyin
-from accounts.models import User   # 新增导入
+
 
 @login_required
 @permission_required(PERM_ORDER_CREATE)

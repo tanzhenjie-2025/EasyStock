@@ -40,7 +40,8 @@ from accounts.views import permission_required, create_operation_log
 from accounts.models import (
     PERM_PRODUCT_VIEW, PERM_PRODUCT_ADD, PERM_PRODUCT_EDIT,
     PERM_PRODUCT_DELETE, PERM_PRODUCT_ALIAS_ADD, PERM_PRODUCT_ALIAS_DELETE,
-    PERM_PRODUCT_IMPORT, PERM_PRODUCT_STOCK_OP, PERM_PRODUCT_DETAIL
+    PERM_PRODUCT_IMPORT, PERM_PRODUCT_STOCK_OP, PERM_PRODUCT_DETAIL,
+PERM_CUSTOMER_IMPORT,PERM_CUSTOMER_EXPORT
 )
 
 
@@ -106,6 +107,7 @@ def search_unit(request):
     data = [{'name': unit.name} for unit in units]
     return JsonResponse({'code': 1, 'data': data})
 
+@login_required
 @permission_required(PERM_PRODUCT_VIEW)
 def product_manage(request):
     no_tag = request.GET.get('no_tag', '0').strip() == '1'
@@ -311,6 +313,7 @@ def product_manage(request):
 
 
 # ====================== 商品CRUD ======================
+@login_required
 @permission_required(PERM_PRODUCT_ADD)
 def product_add(request):
     if request.method == 'POST':
@@ -358,7 +361,7 @@ def product_add(request):
             return JsonResponse({'code': 0, 'msg': f'新增失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
-
+@login_required
 @permission_required(PERM_PRODUCT_EDIT)
 def product_edit(request, pk):
     product = get_object_or_404(Product.objects.prefetch_related('aliases'), pk=pk)
@@ -414,7 +417,7 @@ def product_edit(request, pk):
             return JsonResponse({'code': 0, 'msg': f'编辑失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
-
+@login_required
 @permission_required(PERM_PRODUCT_DELETE)
 def product_delete(request, pk):
     try:
@@ -427,7 +430,7 @@ def product_delete(request, pk):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'禁用失败：{str(e)}'})
 
-
+@login_required
 @permission_required(PERM_PRODUCT_EDIT)
 def product_restore(request, pk):
     try:
@@ -538,6 +541,7 @@ def product_stock_calibrate(request):
 
 
 # ====================== 别名CRUD（无修改） ======================
+@login_required
 @permission_required(PERM_PRODUCT_ALIAS_ADD)
 def alias_add(request):
     if request.method == 'POST':
@@ -557,7 +561,7 @@ def alias_add(request):
             return JsonResponse({'code': 0, 'msg': str(e)})
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
-
+@login_required
 @permission_required(PERM_PRODUCT_ALIAS_DELETE)
 def alias_delete(request, pk):
     try:
@@ -570,7 +574,7 @@ def alias_delete(request, pk):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': str(e)})
 
-
+@login_required
 @permission_required(PERM_PRODUCT_EDIT)
 def product_edit_data(request, pk):
     product = get_object_or_404(Product.objects.prefetch_related('aliases'), pk=pk)
@@ -588,7 +592,7 @@ def product_edit_data(request, pk):
 # ====================== 导入/导出/快速出入库（仅修改系统库存） ======================
 
 
-
+@login_required
 @require_POST
 @permission_required(PERM_PRODUCT_IMPORT)
 def product_import(request):
@@ -815,6 +819,7 @@ def product_import(request):
         logger.error(f"导入失败: {str(e)}")
         return JsonResponse({'code': 0, 'msg': f'导入失败：{str(e)}'})
 
+@login_required
 @require_POST
 @permission_required(PERM_PRODUCT_STOCK_OP)
 def quick_stock_operation(request):
@@ -864,7 +869,7 @@ def export_to_excel(data, title, headers, selected_fields, custom_fields, file_n
 
 
 @login_required
-@permission_required(PERM_PRODUCT_IMPORT)
+@permission_required("customer_price_export")
 def product_export(request):
     try:
         keyword = request.POST.get('keyword', request.GET.get('keyword', '')).strip()
@@ -988,6 +993,7 @@ def product_export(request):
 
 
 # ===================== 修改：商品详情主视图 =====================
+@login_required
 @permission_required(PERM_PRODUCT_DETAIL)
 def product_detail(request, pk):
     product = get_object_or_404(Product, pk=pk)
@@ -1355,6 +1361,7 @@ def product_one_statistics_api(request, pk):
 
 
 # ===================== 修改：商品统计详情页面视图 (无需PK) =====================
+@login_required
 @permission_required(PERM_PRODUCT_DETAIL)
 def product_statistics_detail(request):
     """全部商品统计页面"""

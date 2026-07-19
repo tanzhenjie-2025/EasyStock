@@ -1241,6 +1241,7 @@ def export_to_excel(data, title, headers, selected_fields, custom_fields, file_n
 
 # ========== 客户导出 ==========
 @login_required
+@permission_required('customer_export')
 def customer_export(request):
     if request.method == 'POST':
         try:
@@ -1296,6 +1297,7 @@ def customer_export(request):
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
 @login_required
+@permission_required('customer_import')
 def customer_import(request):
     if request.method == 'POST':
         try:
@@ -1398,7 +1400,7 @@ def customer_import(request):
         except Exception as e:
             logger.error(f"导入客户失败：{str(e)}", exc_info=True)
             return JsonResponse({'code': 0, 'msg': f'导入失败：{str(e)}'})
-        return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+    return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
 # ========== 客户专属价格导出/导入 ==========
 @login_required
