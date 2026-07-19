@@ -274,7 +274,9 @@
                     <span class="underline underline-sm">&nbsp;</span>
                 </div>
             </div>
-            <div class="bottom-row" style="justify-content: flex-start;">
+        <!-- 新增：客服留言行（仅当有补货品项时显示，靠右） -->
+<!-- 制单工号（左） + 客服留言（右）在同一行 -->
+<div class="bottom-row" style="justify-content: space-between;">
     <div class="field-group">
         <strong style="font-size: 18px;">制单工号：</strong>
         <span class="underline underline-sm" style="text-align: center;">
@@ -289,7 +291,16 @@
             </span>
         </span>
     </div>
+    {% if has_makeup %}
+    <div class="field-group">
+        <strong style="font-size: 18px;">客服留言：</strong>
+        <span style="font-size: 22px; font-weight: bold;">带回退货</span>
+    </div>
+    {% endif %}
 </div>
+
+
+
         </div>
     </div>
 

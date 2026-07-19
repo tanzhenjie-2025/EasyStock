@@ -331,6 +331,7 @@ def save_order(request):
                 unit = item.get('unit', '').strip()
                 qty = item.get('qty', 0)
                 price = item.get('price', 0)
+                is_makeup = item.get('is_makeup', False)
 
                 if not name:
                     return JsonResponse({'code': 0, 'msg': '商品名称不能为空'})
@@ -352,6 +353,7 @@ def save_order(request):
                     'unit': unit,
                     'qty': qty,
                     'price': decimal.Decimal(str(price)),
+                    'is_makeup': is_makeup,
                 })
 
             # ---------- 2. 批量查询有效商品 ----------
@@ -426,6 +428,7 @@ def save_order(request):
                         actual_unit_price=input_price,
                         snapshot_standard_price=snap_standard,
                         snapshot_customer_price=snap_customer,
+                        is_makeup_item=item_data.get('is_makeup', False),  # 新增
                     ))
                 else:
                     order_items.append(OrderItem(
@@ -439,6 +442,7 @@ def save_order(request):
                         actual_unit_price=input_price,
                         snapshot_standard_price=None,
                         snapshot_customer_price=None,
+                        is_makeup_item=item_data.get('is_makeup', False),  # 新增
                     ))
 
             # ---------- 6. 保存 ----------
@@ -1004,8 +1008,10 @@ def print_order(request, order_no):
     )
     items = order.items.select_related('product')
 
-    # ===== 核心：构建固定15行的商品列表 =====
-    # 最多取前15个真实商品，剩余用 None 补齐
+    # 判断是否有补货品项
+    has_makeup = order.items.filter(is_makeup_item=True).exists()
+
+    # 构建固定18行的商品列表（保留原有逻辑）
     items_display = list(items[:18])
     items_display.extend([None] * (18 - len(items_display)))
 
@@ -1014,8 +1020,9 @@ def print_order(request, order_no):
 
     context = {
         'order': order,
-        'items_display': items_display,   # 使用固定长度的列表
+        'items_display': items_display,
         'is_super_admin': is_super_admin,
+        'has_makeup': has_makeup,                # 新增
         'phone_numbers': settings.PHONE_NUMBERS,
         'complaint_phone': settings.COMPLAINT_PHONE,
         'bill_title': settings.BILL_TITLE,
@@ -1284,7 +1291,8 @@ def get_customer_recent_products(request):
             return JsonResponse({'code': 1, 'data': []})
 
         order_items = OrderItem.objects.filter(
-            order_id__in=recent_order_ids
+            order_id__in=recent_order_ids,
+            is_makeup_item=False
         ).select_related('product', 'order').order_by('-order__create_time')
 
         # 分别处理有product的商品与自由开单商品
@@ -1424,6 +1432,8 @@ def price_check_ajax(request):
         issue_items = []
 
         for item in order.items.all():
+            if item.is_makeup_item:  # ← 补货品项不参与核算
+                continue
             # 确定基准价
             base_price = item.snapshot_standard_price
             price_type = "标准价"
@@ -1697,7 +1707,7 @@ def export_orders(request):
         '订单编号', '客户名称', '区域', '商品名称', '规格', '单位',
         '数量', '单价', '小计金额', '订单状态', '创建时间',
         '开单人', '订单总金额', '是否结清', '已收金额',
-        '结清人', '结清时间', '制单号快照'
+        '结清人', '结清时间', '制单号快照', '是否补货'
     ]
     header_font = Font(bold=True)
     for col_num, header in enumerate(headers, 1):
@@ -1744,6 +1754,9 @@ def export_orders(request):
             ws.cell(row=row, column=16, value=settled_by_name)
             ws.cell(row=row, column=17, value=settled_time_val)
             ws.cell(row=row, column=18, value=order_number_snap)
+
+            is_makeup_text = '是' if item.is_makeup_item else ''
+            ws.cell(row=row, column=19, value=is_makeup_text)
             row += 1
 
     response = HttpResponse(
@@ -1875,6 +1888,9 @@ def import_orders(request):
                     settled_time = dt
         order_number_snapshot = str(row[17]).strip() if len(row) > 17 and row[17] else ''
 
+        is_makeup_str = str(row[18]).strip() if len(row) > 18 and row[18] else ''
+        is_makeup_item = is_makeup_str in ['是', '1', 'true', 'True']
+
         final_area, pure_customer_name = parse_customer_name(raw_customer_name, area_name)
 
         order_key = (order_no, raw_customer_name, area_name)
@@ -1899,6 +1915,7 @@ def import_orders(request):
             'status': status,
             'pure_customer_name': pure_customer_name,
             'area_name': final_area,
+            'is_makeup_item': is_makeup_item,
         })
         if create_time and not order_groups[order_key]['create_time']:
             order_groups[order_key]['create_time'] = create_time
@@ -2108,6 +2125,7 @@ def import_orders(request):
                     actual_unit_price=price,
                     snapshot_standard_price=product.price if product else None,
                     snapshot_customer_price=None,
+                    is_makeup_item=item_data.get('is_makeup_item', False),
                 ))
 
             OrderItem.objects.bulk_create(order_items)
@@ -2180,9 +2198,11 @@ def batch_print_orders(request):
     for order in orders:
         items = order.items.select_related('product')
         items_display = list(items[:18]) + [None] * (18 - min(len(items), 18))
+        has_makeup = any(item.is_makeup_item for item in items)
         orders_data.append({
             'order': order,
             'items_display': items_display,
+            'has_makeup': has_makeup,
         })
 
     context = {
@@ -2340,6 +2360,9 @@ def parse_excel_to_structure(workbook):
                     settled_time = dt
         order_number_snapshot = str(row[17]).strip() if len(row) > 17 and row[17] else ''
 
+        is_makeup_str = str(row[18]).strip() if len(row) > 18 and row[18] else ''
+        is_makeup_item = is_makeup_str in ['是', '1', 'true', 'True']
+
         final_area, pure_customer_name = parse_customer_name(raw_customer_name, area_name)
 
         order_key = (order_no, raw_customer_name, area_name)
@@ -2366,12 +2389,13 @@ def parse_excel_to_structure(workbook):
             'status': status,
             'pure_customer_name': pure_customer_name,
             'area_name': final_area,
+            'is_makeup_item': is_makeup_item,
         })
         if create_time and not order_groups[order_key]['create_time']:
             order_groups[order_key]['create_time'] = create_time
 
         # 收集基础数据（仅有效订单）
-        if status != 'cancelled':
+        if status != 'cancelled'and not is_makeup_item:
             if final_area:
                 area_names.add(final_area)
             if pure_customer_name:
@@ -2518,8 +2542,9 @@ def import_orders_preview(request):
 
         # 构建明细（增加 price_conflict 字段）
         for item in g['items']:
+            is_makeup = item.get('is_makeup_item', False)  # 取标记
             item_key = f"{item['product_name']}|{item['unit']}"
-            item_conflict = item_key in conflict_keys
+            item_conflict = (not is_makeup) and (item_key in conflict_keys)
             items_preview.append({
                 'product_name': item['product_name'],
                 'spec': item['spec'],
@@ -2528,6 +2553,7 @@ def import_orders_preview(request):
                 'price': str(item['price']),
                 'amount': str(item['price'] * item['qty']),
                 'status': item['status'],
+                'is_makeup': is_makeup,  # 传给前端
                 'price_conflict': item_conflict,   # 新增冲突标记
             })
 
@@ -2796,6 +2822,7 @@ def import_orders_confirm(request):
                     amount = price * qty
                     total += amount
                     product = product_full_map.get((prod_name, unit))
+                    is_makeup = item.get('is_makeup_item', False)
                     items_to_create.append(OrderItem(
                         order=order,
                         product=product,
@@ -2807,6 +2834,7 @@ def import_orders_confirm(request):
                         actual_unit_price=price,
                         snapshot_standard_price=product.price if product else None,
                         snapshot_customer_price=None,
+                        is_makeup_item=is_makeup,  # 设置补货标记
                     ))
                 OrderItem.objects.bulk_create(items_to_create)
                 order.total_amount = total

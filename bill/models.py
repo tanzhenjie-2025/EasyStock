@@ -167,6 +167,9 @@ class OrderItem(models.Model):
     )
     quantity = models.IntegerField('数量', default=1)
     amount = models.DecimalField('小计金额', max_digits=10, decimal_places=2, null=True, blank=True)
+    # order/models.py  class OrderItem
+    is_makeup_item = models.BooleanField('是否补货品项', default=False,
+                                         help_text='补货品项价格为0，用于统计和价格核算时排除')
 
     # 【新增】价格快照字段
     # 当时的商品标准价

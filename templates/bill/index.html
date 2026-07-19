@@ -6,6 +6,7 @@
 <!-- 页面专属样式 -->
 {% block extra_css %}
     <style>
+    .makeup-row { background-color: #e7f3ff; }  /* 浅蓝背景，表示补货 */
         /* 原有样式保留 */
         .reopen-tag {
             background: #ffc107;
@@ -743,6 +744,55 @@ let isSortDataReady = true;   // 数据已就绪，可随时排序
             hideSuggest();
         }
 
+        // 规格输入框快捷键
+function handleSpecKeydown(e) {
+    const input = e.target;
+    // 仅当输入框为空且光标在起始位置时触发（避免干扰已输入内容）
+    if (input.selectionStart !== 0 || input.value.length > 0) return;
+
+    if (e.key === '1') {
+        e.preventDefault();
+        input.value = '补';
+        updateMakeupFlag(input);
+    } else if (e.key === '2') {
+        e.preventDefault();
+        input.value = '换';
+        updateMakeupFlag(input);
+    } else if (e.key === ' ') {
+        e.preventDefault();
+        input.value = '补';
+        updateMakeupFlag(input);
+    }
+}
+
+// 根据输入内容自动判断补货标记（只要包含“补”或“换”字即视为补货）
+function updateMakeupFlag(input) {
+    const val = input.value.trim();
+    const isMakeup = val.includes('补') || val.includes('换');
+    setMakeupFlag(input, isMakeup);
+
+    if (isMakeup) {
+        const tr = input.closest('tr');
+        const priceInput = tr.querySelector('.price-input');
+        if (priceInput) {
+            priceInput.value = 0;
+            calcRowAmount(priceInput);
+        }
+    }
+}
+
+// 统一设置行样式和数据标记
+function setMakeupFlag(input, isMakeup) {
+    const tr = input.closest('tr');
+    if (isMakeup) {
+        tr.classList.add('makeup-row');
+        input.dataset.isMakeup = '1';
+    } else {
+        tr.classList.remove('makeup-row');
+        input.dataset.isMakeup = '0';
+    }
+}
+
         // ========== 防抖函数 ==========
         function debounce(func, delay = 500) {
             let timeoutId;
@@ -780,6 +830,8 @@ let isSortDataReady = true;   // 数据已就绪，可随时排序
     suggestBox.innerHTML = '';
 
     const totalPages = Math.ceil(list.length / SUGGEST_PAGE_SIZE);
+
+    
     if (suggestCurrentPage >= totalPages) {
         suggestCurrentPage = Math.max(0, totalPages - 1);
     }
@@ -834,20 +886,30 @@ let isSortDataReady = true;   // 数据已就绪，可随时排序
         function selectItem(index) {
     const item = currentSuggestList[index];
     if (!item || !currentSearchInput) return;
-    const input = currentSearchInput;   // 保存当前输入框引用
+    const input = currentSearchInput;
     const tr = input.closest('tr');
     const nameInput = tr.querySelector('.name-input');
     nameInput.value = item.name;
     nameInput.dataset.productId = item.id;
-    tr.querySelector('.spec-input').value = item.specification || '';
-    tr.querySelector('.price-input').value = item.price;
+
+    const specInput = tr.querySelector('.spec-input');
+    specInput.value = item.specification || '';
+    updateMakeupFlag(specInput);          // 触发补货检测（可能将价格置0）
+
+    const priceInput = tr.querySelector('.price-input');
+    // 若非补货，使用建议价；否则保持 updateMakeupFlag 设置的 0
+    if (specInput.dataset.isMakeup !== '1') {
+        priceInput.value = item.price;
+    }
     tr.querySelector('.unit-input').value = item.unit;
-    calcRowAmount(tr.querySelector('.price-input'));
+    calcRowAmount(priceInput);
     hideSuggest();
-    // 重新获得焦点，并全选文本（方便修改）
+
+    // 焦点回到商品名称输入框，光标放到文本末尾
     if (input) {
         input.focus();
-        input.select();
+        const len = input.value.length;
+        input.setSelectionRange(len, len);
     }
 }
 
@@ -1211,15 +1273,26 @@ function customerGoToPage(delta) {
     input.placeholder = placeholder;
     input.value = value;
 
+    // 规格列专属处理
+    if (className === 'spec-input') {
+        input.placeholder = '规格（1补/2退）';
+        input.addEventListener('keydown', handleSpecKeydown);
+        input.addEventListener('input', updateMakeupFlag);
+    }
+
+    // 数量/单价输入实时计算金额
     if (type === 'number') {
         input.min = className === 'quantity-input' ? 1 : 0;
         input.step = className === 'price-input' ? 0.01 : 1;
         input.addEventListener('input', () => calcRowAmount(input));
     }
 
-    // 商品名称：拼音搜索 + 快捷键
+    // 商品名称：拼音搜索 + 快捷键，并清除 productId
     if (className === 'name-input') {
-        input.addEventListener('input', () => debouncedProductSearch(input));
+        input.addEventListener('input', () => {
+            input.dataset.productId = '';          // 手动修改时清除关联产品ID
+            debouncedProductSearch(input);
+        });
         input.addEventListener('keydown', handleProductInputKey);
     }
 
@@ -1227,24 +1300,28 @@ function customerGoToPage(delta) {
     if (className === 'unit-input') {
         input.addEventListener('focus', () => {
             if (input.value.trim()) {
-                onUnitInput(input);        // 有值时按值搜索
+                onUnitInput(input);
             } else {
-                loadAllUnitsWithCache(input);  // 空值时展示全部单位
+                loadAllUnitsWithCache(input);
             }
         });
         input.addEventListener('input', () => debouncedUnitSearch(input));
         input.addEventListener('keydown', handleUnitInputKey);
     }
-    if (className === 'name-input') {
-    input.addEventListener('input', () => {
-        // 用户一旦手动修改名称，清除绑定的 productId
-        input.dataset.productId = '';
-        debouncedProductSearch(input);
-    });
-    input.addEventListener('keydown', handleProductInputKey);
-}
 
-    bindInputKeyboardEvents(input);  // 通用的 Enter / 方向键等
+    // 通用模糊/建议框保护：名称和单位输入框失焦时延迟隐藏（避免点建议时消失）
+    if (className === 'name-input' || className === 'unit-input') {
+        input.addEventListener('blur', function(e) {
+            setTimeout(() => {
+                if (suggestBox && suggestBox.contains(document.activeElement)) {
+                    return;
+                }
+                hideSuggest();
+            }, 200);
+        });
+    }
+
+    bindInputKeyboardEvents(input);   // 方向键、Enter 等通用逻辑
     return input;
 }
         function bindInputKeyboardEvents(input) {
@@ -1426,12 +1503,15 @@ function customerGoToPage(delta) {
         const amt = parseFloat(tr.querySelector('.amount-cell').textContent.replace('¥','')) || 0;
         const productId = nameInput.dataset.productId || '';
         const spec = tr.querySelector('.spec-input').value.trim();
+        const specInput = tr.querySelector('.spec-input');
+        const isMakeup = specInput && specInput.dataset.isMakeup === '1';   // 新增
 
         if (name && qty && price >= 0) {
-            items.push({
-                id: productId, name, spec, qty, unit, price, amt
-            });
-        }
+        items.push({
+            id: productId, name, spec, qty, unit, price, amt,
+            is_makeup: isMakeup                    // 新增字段
+        });
+    }
     });
 
     if (!items.length) { alert('请填写商品'); return; }
@@ -1708,50 +1788,57 @@ function customerGoToPage(delta) {
         }
 
         function batchAddToBill() {
-            const count = cartItems.length;
+    const count = cartItems.length;
+    cartItems.forEach(item => {
+        let existingRow = null;
+        document.querySelectorAll('#bill-tbody tr').forEach(tr => {
+            const nameInput = tr.querySelector('.name-input');
+            if (nameInput.dataset.productId == item.productId) {
+                existingRow = tr;
+            }
+        });
 
-            cartItems.forEach(item => {
-                let existingRow = null;
-                document.querySelectorAll('#bill-tbody tr').forEach(tr => {
-                    const nameInput = tr.querySelector('.name-input');
-                    if (nameInput.dataset.productId == item.productId) {
-                        existingRow = tr;
-                    }
-                });
-
-                if (existingRow) {
-                    const quantityInput = existingRow.querySelector('.quantity-input');
-                    const currentQty = parseInt(quantityInput.value) || 0;
-                    quantityInput.value = currentQty + item.quantity;
-                    calcRowAmount(quantityInput);
-                    existingRow.classList.add('highlight-row');
-                    setTimeout(() => existingRow.classList.remove('highlight-row'), 1000);
-                } else {
-    const newRow = addBlankRow(true);
-    const nameInput = newRow.querySelector('.name-input');
-    nameInput.value = item.name;
-    nameInput.dataset.productId = item.productId;
-    // 👇 新增规格赋值
-    newRow.querySelector('.spec-input').value = item.spec || '';
-    newRow.querySelector('.quantity-input').value = item.quantity;
-    newRow.querySelector('.unit-input').value = item.unit;
-    newRow.querySelector('.price-input').value = item.price;
-    calcRowAmount(newRow.querySelector('.price-input'));
-    newRow.classList.add('highlight-row');
-    setTimeout(() => newRow.classList.remove('highlight-row'), 1000);
-}
-            });
-
-            // 清空模态框数据
-            cartItems = [];
-            cartIdCounter = 0;
-            addedProductIds = [];
-
-            document.getElementById('recentBuyModal').style.display = 'none';
-
-            const firstProductInput = document.querySelector('#bill-tbody .name-input');
-            if (firstProductInput) { firstProductInput.focus(); firstProductInput.select(); }
+        if (existingRow) {
+            const quantityInput = existingRow.querySelector('.quantity-input');
+            const currentQty = parseInt(quantityInput.value) || 0;
+            quantityInput.value = currentQty + item.quantity;
+            calcRowAmount(quantityInput);
+            existingRow.classList.add('highlight-row');
+            setTimeout(() => existingRow.classList.remove('highlight-row'), 1000);
+        } else {
+            const newRow = addBlankRow(true);
+            const nameInput = newRow.querySelector('.name-input');
+            nameInput.value = item.name;
+            nameInput.dataset.productId = item.productId;
+            const specInput = newRow.querySelector('.spec-input');
+            specInput.value = item.spec || '';
+            updateMakeupFlag(specInput);                // 确保补货检测
+            newRow.querySelector('.quantity-input').value = item.quantity;
+            newRow.querySelector('.unit-input').value = item.unit;
+            const priceInput = newRow.querySelector('.price-input');
+            if (specInput.dataset.isMakeup !== '1') {
+                priceInput.value = item.price;
+            } else {
+                priceInput.value = 0;
+            }
+            calcRowAmount(priceInput);
+            newRow.classList.add('highlight-row');
+            setTimeout(() => newRow.classList.remove('highlight-row'), 1000);
         }
+    });
+
+    // 清空模态框数据
+    cartItems = [];
+    cartIdCounter = 0;
+    addedProductIds = [];
+    document.getElementById('recentBuyModal').style.display = 'none';
+
+    const firstProductInput = document.querySelector('#bill-tbody .name-input');
+    if (firstProductInput) {
+        firstProductInput.focus();
+        firstProductInput.select();
+    }
+}
 
         // ========== 页面加载初始化 ==========
         window.onload = function() {
@@ -1770,17 +1857,22 @@ function customerGoToPage(delta) {
                 rowIdCounter = 0;
 
                 const reopenItems = {{ reopen_order_data.items|safe }};
-                reopenItems.forEach(item => {
-    const tr = addBlankRow(true);
-    const nameInput = tr.querySelector('.name-input');
-    nameInput.value = item.name;
-    nameInput.dataset.productId = item.id;
-    // 👇 新增规格回显
-    tr.querySelector('.spec-input').value = item.spec || '';
-    tr.querySelector('.quantity-input').value = item.qty;
-    tr.querySelector('.unit-input').value = item.unit;
-    tr.querySelector('.price-input').value = item.price;
-    calcRowAmount(tr.querySelector('.price-input'));
+                reopenItems.forEach(item => {const tr = addBlankRow(true);
+const nameInput = tr.querySelector('.name-input');
+nameInput.value = item.name;
+nameInput.dataset.productId = item.id;
+const specInput = tr.querySelector('.spec-input');
+specInput.value = item.spec || '';
+updateMakeupFlag(specInput);                // 新增
+tr.querySelector('.quantity-input').value = item.qty;
+tr.querySelector('.unit-input').value = item.unit;
+const priceInput = tr.querySelector('.price-input');
+if (specInput.dataset.isMakeup !== '1') {   // 新增判断
+    priceInput.value = item.price;
+} else {
+    priceInput.value = 0;
+}
+calcRowAmount(priceInput);
 });
 
                 if (reopenItems.length === 0) addBlankRow();

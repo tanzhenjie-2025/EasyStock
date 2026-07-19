@@ -154,15 +154,18 @@ function renderPreview() {
     let ordersHtml = '';
     previewData.orders.forEach((o, idx) => {
         const itemsStr = o.items.map(i => {
-            // 如果存在价格冲突，在商品名后加 ⚠️ 标记
             const conflictMark = i.price_conflict ? ' ⚠️' : '';
-            return `${i.product_name}${conflictMark}(${i.unit}) x${i.qty}`;
+            const makeupBadge = i.is_makeup ? ' <span class="badge bg-info">补货</span>' : '';
+            const priceShow = i.is_makeup ? '0（补）' : i.price;
+            return `${i.product_name}${conflictMark}${makeupBadge}(${i.unit}) x${i.qty}  ¥${priceShow}`;
         }).join('<br>');
+
         const warnings = o.warnings.map(w => `<span class="badge bg-warning text-dark">${w}</span>`).join(' ');
         const skipChecked = o.skip ? '' : 'checked';
-        // 如果订单包含冲突商品，行背景加亮
         const hasConflict = o.items.some(item => item.price_conflict);
+        // 补货品项不会产生冲突，故不影响行颜色
         const rowClass = hasConflict ? 'text-danger' : (o.warnings.length ? 'text-warning' : '');
+
         ordersHtml += `
         <tr class="${rowClass}">
             <td><input type="checkbox" class="order-select" data-index="${idx}" ${skipChecked}></td>
