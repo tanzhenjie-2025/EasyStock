@@ -68,18 +68,20 @@ def create_summary_operation_log(request, operation_type, object_type, object_id
 @permission_required(PERM_ORDER_SUMMARY)
 def summary_page(request):
     """商品汇总页面"""
-    return render(request, 'summary/summary.html')
+    # 获取所有活跃用户（开单人），按用户名排序
+    users = User.objects.filter(is_active=True).order_by('username')
+    return render(request, 'summary/summary.html', {'users': users})
 
 
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
 @cache_page(CACHE_HIGH_PRIORITY)
 def summary_by_group(request):
-    """商品汇总接口 - 返回规格和标签信息，供前端排序使用"""
     group_id = request.GET.get('group_id')
     start_datetime = request.GET.get('start_date')
     end_datetime = request.GET.get('end_date')
     tag_ids_str = request.GET.get('tag_ids', '')
+    creator_id = request.GET.get('creator_id')  # 新增：开单人ID
 
     if not all([group_id, start_datetime, end_datetime]):
         return JsonResponse({'code': 0, 'msg': '请选择组和时间范围'})
@@ -99,10 +101,19 @@ def summary_by_group(request):
         'order__create_time__lte': end,
         'order__status__in': ['pending', 'printed', 'reopened']
     }
+    # 标签过滤
     if tag_ids_str:
         tag_ids = [int(x) for x in tag_ids_str.split(',') if x]
         if tag_ids:
             filters['product__tags__id__in'] = tag_ids
+
+    # 新增：开单人过滤（如果提供了有效ID）
+    if creator_id:
+        try:
+            creator_id = int(creator_id)
+            filters['order__creator_id'] = creator_id
+        except (ValueError, TypeError):
+            pass  # 无效ID则忽略
 
     # 查询聚合数据，新增 product__specification 字段
     items = OrderItem.objects.filter(**filters) \

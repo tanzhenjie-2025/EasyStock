@@ -113,6 +113,17 @@
             <option value="">请选择区域组</option>
         </select>
     </div>
+    <!-- 新增：开单人 -->
+    <div class="form-group">
+        <label class="form-label-sm mb-0">开单人</label>
+        <select id="creator" class="form-select form-select-sm">
+            <option value="">全部人</option>
+            {% for user in users %}
+            <option value="{{ user.id }}">{{ user.username }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    
     <div class="form-group">
         <label class="form-label-sm mb-0">开始时间</label>
         <input type="datetime-local" id="s" class="form-control form-control-sm" placeholder="开始时间">
@@ -286,6 +297,7 @@ function restoreTagSelection() {
 }
 
 // ---------- 区域组加载 ----------
+// ---------- 区域组加载 ----------
 function loadGroup(){
     $.ajax({
         url: '/summary/group/list/',
@@ -293,21 +305,19 @@ function loadGroup(){
         dataType: 'json',
         success: function(res) {
             let groupData = Array.isArray(res) ? res : [];
-            let opt = '<option value="">请选择区域组</option>';
-            if (groupData.length === 0) {
-                opt += '<option value="0">全部区域</option>';
-            } else {
-                groupData.forEach(g => {
-                    opt += `<option value="${g.id}">${g.name}</option>`;
-                });
-            }
+            let opt = '';
+            // 后端已返回包含 "全部区域" (id: '0') 的列表，直接使用
+            groupData.forEach(g => {
+                // 默认选中 id 为 '0' 或 0 的项
+                let selected = (g.id == '0' || g.id === 0) ? ' selected' : '';
+                opt += `<option value="${g.id}"${selected}>${g.name}</option>`;
+            });
             $('#group').html(opt);
             restoreSummaryData();
         },
         error: function() {
-            let opt = '<option value="">请选择区域组</option>';
-            opt += '<option value="0">全部区域</option>';
-            $('#group').html(opt);
+            // 接口异常时，降级提供"全部区域"并默认选中
+            $('#group').html('<option value="0" selected>全部区域</option>');
             restoreSummaryData();
         }
     });
@@ -325,6 +335,12 @@ function restoreSummaryData() {
         $('#group').val(params.group_id);
         $('#s').val(params.start_date);
         $('#e').val(params.end_date);
+        
+        if (params.creator_id) {
+            $('#creator').val(params.creator_id);
+        } else {
+            $('#creator').val('');   // 默认“全部人”
+        }
         queryParams = params;
 
         if (result.code !== 1) {
@@ -374,6 +390,7 @@ function query(){
     let group_id = $('#group').val();
     let start_time = $('#s').val();
     let end_time = $('#e').val();
+    let creator_id = $('#creator').val();   // 新增
 
     if (!group_id) return alert('请先选择区域组');
     if (!start_time || !end_time) return alert('请选择完整的时间范围');
@@ -393,7 +410,8 @@ function query(){
         group_id: group_id,
         start_date: start_time,
         end_date: end_time,
-        tag_ids: tagParam
+        tag_ids: tagParam,
+        creator_id: creator_id   // 新增，空字符串表示全部
     };
 
     $.get('/summary/by-group/', queryParams, function(res) {
