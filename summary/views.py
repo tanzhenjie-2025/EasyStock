@@ -68,9 +68,7 @@ def create_summary_operation_log(request, operation_type, object_type, object_id
 @permission_required(PERM_ORDER_SUMMARY)
 def summary_page(request):
     """商品汇总页面"""
-    # 获取所有活跃用户（开单人），按用户名排序
-    users = User.objects.filter(is_active=True).order_by('username')
-    return render(request, 'summary/summary.html', {'users': users})
+    return render(request, 'summary/summary.html')
 
 
 @login_required
@@ -161,17 +159,23 @@ def summary_by_group(request):
 
     return JsonResponse({'code': 1, 'data': data, 'total_amount': float(total_amount)})
 
+@login_required
+@permission_required(PERM_ORDER_SUMMARY)
+def user_list(request):
+    """返回所有活跃用户（开单人）列表，用于前端下拉"""
+    users = User.objects.filter(is_active=True).order_by('username')
+    data = [{'id': u.id, 'username': u.username} for u in users]
+    return JsonResponse({'code': 1, 'data': data, 'msg': ''})
 
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
 @cache_page(CACHE_MID_PRIORITY)
 def group_list(request):
-    """区域组列表"""
     try:
         groups = AreaGroup.objects.all().order_by('name')
         group_list = [{'id': '0', 'name': '全部区域'}]
-        group_list.extend([{'id': group.id, 'name': group.name} for group in groups])
-        return JsonResponse(group_list, safe=False)
+        group_list.extend([{'id': str(g.id), 'name': g.name} for g in groups])
+        return JsonResponse({'code': 1, 'data': group_list, 'msg': ''})
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'加载失败：{str(e)}'}, status=400)
 

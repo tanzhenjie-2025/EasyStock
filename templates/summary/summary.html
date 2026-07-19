@@ -115,15 +115,12 @@
     </div>
     <!-- 新增：开单人 -->
     <div class="form-group">
-        <label class="form-label-sm mb-0">开单人</label>
-        <select id="creator" class="form-select form-select-sm">
-            <option value="">全部人</option>
-            {% for user in users %}
-            <option value="{{ user.id }}">{{ user.username }}</option>
-            {% endfor %}
-        </select>
-    </div>
-    
+    <label class="form-label-sm mb-0">开单人</label>
+    <select id="creator" class="form-select form-select-sm">
+        <option value="">全部人</option>
+    </select>
+</div>
+
     <div class="form-group">
         <label class="form-label-sm mb-0">开始时间</label>
         <input type="datetime-local" id="s" class="form-control form-control-sm" placeholder="开始时间">
@@ -241,13 +238,27 @@ let sortStagesCache = [];
 let isSortDataReady = false;
 let pendingAutoSort = false;   // 标记是否需要等待排序规则就绪后自动排序
 
+function loadUsers() {
+    return $.get('/summary/user-list/', function(res) {
+        if (res.code === 1) {
+            const $creator = $('#creator');
+            $creator.find('option:not(:first)').remove();
+            res.data.forEach(user => {
+                $creator.append(`<option value="${user.id}">${user.username}</option>`);
+            });
+        }
+    }).fail(function() {
+        console.warn('加载开单人列表失败');
+    });
+}
+
 // ---------- 加载标签 ----------
 function loadTags() {
-    $.get('/summary/tag-list/', function(res) {
-        if (Array.isArray(res)) {
-            allTags = res;
-            renderTags(res);
-            restoreTagSelection();
+    return $.get('/summary/tag-list/', function(res) {
+        if (res.code === 1) {
+            allTags = res.data;
+            renderTags(res.data);
+            restoreTagSelection();   // 恢复标签选中状态
         }
     }).fail(function() {
         console.warn('加载标签失败');
@@ -296,30 +307,20 @@ function restoreTagSelection() {
     }
 }
 
-// ---------- 区域组加载 ----------
-// ---------- 区域组加载 ----------
-function loadGroup(){
-    $.ajax({
-        url: '/summary/group/list/',
-        type: 'GET',
-        dataType: 'json',
-        success: function(res) {
-            let groupData = Array.isArray(res) ? res : [];
+function loadGroup() {
+    return $.get('/summary/group/list/', function(res) {
+        if (res.code === 1) {
             let opt = '';
-            // 后端已返回包含 "全部区域" (id: '0') 的列表，直接使用
-            groupData.forEach(g => {
-                // 默认选中 id 为 '0' 或 0 的项
+            res.data.forEach(g => {
                 let selected = (g.id == '0' || g.id === 0) ? ' selected' : '';
                 opt += `<option value="${g.id}"${selected}>${g.name}</option>`;
             });
             $('#group').html(opt);
-            restoreSummaryData();
-        },
-        error: function() {
-            // 接口异常时，降级提供"全部区域"并默认选中
+        } else {
             $('#group').html('<option value="0" selected>全部区域</option>');
-            restoreSummaryData();
         }
+    }).fail(function() {
+        $('#group').html('<option value="0" selected>全部区域</option>');
     });
 }
 
@@ -335,7 +336,7 @@ function restoreSummaryData() {
         $('#group').val(params.group_id);
         $('#s').val(params.start_date);
         $('#e').val(params.end_date);
-        
+
         if (params.creator_id) {
             $('#creator').val(params.creator_id);
         } else {
@@ -706,15 +707,19 @@ function handleAutoSort() {
 // ---------- 页面初始化 ----------
 $(function(){
     restoreAutoSortState();   // 恢复复选框状态
-    loadGroup();
+
+    // 设置默认时间（可保留原逻辑）
     const now = new Date();
     const pad = (num) => num.toString().padStart(2, '0');
     const defaultTime = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
     $('#s').val(defaultTime);
     $('#e').val(defaultTime);
-    loadTags();
-    restoreSummaryData();
-    initSortData();
+
+    // 并行加载三个下拉数据，全部完成后执行后续
+    $.when(loadGroup(), loadUsers(), loadTags()).done(function() {
+        restoreSummaryData();   // 恢复之前保存的查询参数和结果
+        initSortData();        // 初始化排序规则（自动加载）
+    });
 });
 </script>
 {% endblock %}

@@ -26,5 +26,6 @@ path('product-detail/<int:product_id>/', views.product_summary_detail_page, name
 path('api/product-order-source/<int:product_id>/', views.get_product_order_source, name='get_product_order_source'),  # 商品订单来源接口
 
 path('tag-list/', views.tag_list, name='tag_list'),
+path('user-list/', views.user_list, name='user_list'),
 
 ]
