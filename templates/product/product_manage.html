@@ -435,6 +435,7 @@ input:checked + .slider:before{transform:translateX(26px);}
                 🏷️ 商品别名
             </button>
         </li>
+        {% if request.user.role and request.user.role.code != 'operator' %}
         <li class="nav-item" role="presentation">
             <button class="nav-link {% if active_tab == 'stock' %}active{% endif %}" id="tab-stock" data-bs-toggle="tab" data-bs-target="#panel-stock" type="button" role="tab">
                 📥 入库管理
@@ -449,6 +450,7 @@ input:checked + .slider:before{transform:translateX(26px);}
         <li class="nav-item ms-auto">
             <a href="{% url 'product:product_statistics_detail' %}" class="btn btn-info">📊 数据统计</a>
         </li>
+        {% endif %}
     </ul>
 
     <!-- ==================== Tab 内容区 (切换部分) ==================== -->

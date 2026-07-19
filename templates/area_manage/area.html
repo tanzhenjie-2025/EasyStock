@@ -89,15 +89,16 @@
 {% block content %}
     <h3>区域管理</h3>
     <div class="my-3 btn-group-action">
-        {% if can_add %}
+    {% if request.user.role and request.user.role.code != 'operator' %}
+        
             <button class="btn btn-sm btn-primary" onclick="add()">新增区域</button>
-        {% endif %}
+       
         <!-- 区域统计（area_view 权限即可） -->
         <button class="btn btn-sm btn-info" onclick="window.location.href='{% url 'area_manage:area_stats_page' %}'">
             📊 区域统计
         </button>
         <button class="btn btn-sm btn-success" onclick="exportData()">📥 导出数据</button>
-        {% if can_add %}
+       
             <button class="btn btn-sm btn-warning" onclick="showImportModal()">📤 导入数据</button>
         {% endif %}
     </div>

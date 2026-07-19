@@ -21,7 +21,9 @@
     .col-amount { width: 140px; }        /* 🔥 修改：财务进度列加宽 */
     .col-status { width: 120px; }        /* 订单状态列 */
     .col-settled { width: 140px; }       /* 结清状态列 */
-    .col-operation { width: 300px; }     /* 操作列（多个按钮） */
+    .col-operation {  width: 400px;   /* 增大宽度 */
+    overflow: visible !important;   /* 允许内容溢出显示 */
+    text-overflow: clip !important; }     /* 操作列（多个按钮） */
 
     /* 单元格内容不换行，超出省略（可选） */
     .table td, .table th {
@@ -443,7 +445,7 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
 
 
 <div class="mb-3">
-{% if request.user.role and request.user.role.code == 'operator' %}
+{% if request.user.role and request.user.role.code != 'operator' %}
     <button class="btn btn-sm btn-success" id="batchSettleBtn" disabled>批量结清选中订单</button>
     {% endif %}
 <!-- 在 <div class="mb-3"> 内，batchSettleBtn 之后添加 -->
@@ -587,10 +589,10 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
                     {# 正常状态订单操作 #}
                     <a href="{% url 'bill:print_order' order.order_no %}" class="btn btn-sm btn-primary">打印</a>
                     <a href="{% url 'bill:order_detail' order.order_no %}" class="btn btn-sm btn-info">详情</a>
-                    {% if request.user.role and request.user.role.code != 'operator' %}}
-                        <button class="btn btn-sm btn-success settleBtn" data-order-no="{{ order.order_no }}">标记结清</button>
-                        <button class="btn btn-sm btn-warning unsettleBtn" data-order-no="{{ order.order_no }}">撤销结清</button>
-                    {% endif %}
+                    {% if request.user.role and request.user.role.code != 'operator' %}
+    <button class="btn btn-sm btn-success settleBtn" data-order-no="{{ order.order_no }}">标记结清</button>
+    <button class="btn btn-sm btn-warning unsettleBtn" data-order-no="{{ order.order_no }}">撤销结清</button>
+{% endif %}
                     {% if order.can_cancel %}
                         <button class="btn btn-sm btn-danger cancelBtn" data-order-no="{{ order.order_no }}">作废订单</button>
                     {% endif %}
