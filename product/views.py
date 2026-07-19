@@ -844,6 +844,8 @@ def quick_stock_operation(request):
 
 
 # 导出/详情/排行/库存列表（无修改，仅适配字段）
+@login_required
+@permission_required(PERM_PRODUCT_IMPORT)
 def export_to_excel(data, title, headers, selected_fields, custom_fields, file_name):
     wb = Workbook()
     ws = wb.active

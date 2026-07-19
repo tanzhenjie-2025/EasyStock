@@ -452,10 +452,11 @@
         <h3 class="page-title">客户管理</h3>
         <div class="d-flex gap-2">
             <!-- 客户统计入口（所有角色可见，因为都有customer_view权限） -->
+            {% if request.user.role and request.user.role.code != 'operator' %}
             <a href="{% url 'customer_manage:customer_stats_page' %}" class="btn btn-success">
                 📊 客户统计
             </a>
-            {% if request.user.role and request.user.role.code == 'super_admin' %}
+            
                 <a href="/customer-manage/customer/sales-rank/page/" class="btn btn-warning">
                     🔝 客户消费TOP30排行
                 </a>
@@ -469,27 +470,11 @@
             <div class="btn-group-action">
                 <!-- 🔥 新增客户：仅非开单人可见（开单人无 customer_add 权限） -->
                 {% if request.user.role and request.user.role.code != 'operator' %}
-                <button class="btn btn-primary" onclick="openAddModal()">
-                    新增客户
-                </button>
-                {% endif %}
-                
-                <!-- 🔥 还款登记：开单人有 customer_repayment 权限，故保留 -->
-                <button class="btn btn-success" onclick="openRepaymentModal()">
-                    还款登记
-                </button>
-                
-                <!-- 🔥 导出数据：所有角色保留 -->
-                <button class="btn btn-info" onclick="showExportModal()">
-                    📥 导出数据
-                </button>
-                
-                <!-- 🔥 导入数据：仅非开单人可见（开单人隐藏导入） -->
-                {% if request.user.role and request.user.role.code != 'operator' %}
-                <button class="btn btn-warning" onclick="showImportModal()">
-                    📤 导入数据
-                </button>
-                {% endif %}
+<button class="btn btn-primary" onclick="openAddModal()">新增客户</button>
+<button class="btn btn-success" onclick="openRepaymentModal()">还款登记</button>
+<button class="btn btn-info" onclick="showExportModal()">📥 导出数据</button>
+<button class="btn btn-warning" onclick="showImportModal()">📤 导入数据</button>
+{% endif %}
             </div>
         </div>
 

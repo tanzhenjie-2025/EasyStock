@@ -281,27 +281,31 @@
 const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER' %}";
 </script>
     
-<h3>订单列表
-    {% if not is_boss %}
+<h3>
+    订单列表
+    {% if request.user.role and request.user.role.code == 'operator' %}
         <span class="badge bg-secondary">仅显示您创建的订单</span>
+    {% else %} 
+        <span class="badge bg-secondary">显示所有创建的订单</span>
     {% endif %}
-    <a href="{% url 'bill:price_check' %}" class="btn btn-sm btn-outline-danger ms-2">
-        <i class="bi bi-calculator"></i> 价格核算
-    </a>
-    <!-- 🔥 新增：订单统计按钮 -->
-    <a href="{% url 'bill:order_stats_page' %}" class="btn btn-sm btn-outline-info ms-2">
-        <i class="bi bi-bar-chart"></i> 订单统计
-    </a>
-<!-- 新增：导出订单按钮 -->
-<a href="{% url 'bill:export_orders' %}?{{ request.GET.urlencode }}" class="btn btn-sm btn-outline-success ms-2">
-    <i class="bi bi-download"></i> 导出订单
-</a>
-<!-- 新增：导入订单按钮（触发文件选择） -->
-<a href="{% url 'bill:import_order_page' %}" class="btn btn-sm btn-outline-warning ms-2">
-    <i class="bi bi-upload"></i> 导入订单
-</a>
-<!-- 隐藏的文件上传 input -->
-<input type="file" id="importOrderFile" accept=".xlsx" style="display: none;" />
+
+
+
+    {% if request.user.role and request.user.role.code != 'operator' %}
+        <a href="{% url 'bill:price_check' %}" class="btn btn-sm btn-outline-danger ms-2">
+            <i class="bi bi-calculator"></i> 价格核算
+        </a>
+        <a href="{% url 'bill:order_stats_page' %}" class="btn btn-sm btn-outline-info ms-2">
+            <i class="bi bi-bar-chart"></i> 订单统计
+        </a>
+        <a href="{% url 'bill:export_orders' %}?{{ request.GET.urlencode }}" class="btn btn-sm btn-outline-success ms-2">
+            <i class="bi bi-download"></i> 导出订单
+        </a>
+        <a href="{% url 'bill:import_order_page' %}" class="btn btn-sm btn-outline-warning ms-2">
+            <i class="bi bi-upload"></i> 导入订单
+        </a>
+        <input type="file" id="importOrderFile" accept=".xlsx" style="display: none;" />
+    {% endif %}
 </h3>
 
 <!-- 🔥 优化：统一的切换按钮 -->
@@ -439,7 +443,9 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
 
 
 <div class="mb-3">
+{% if request.user.role and request.user.role.code == 'operator' %}
     <button class="btn btn-sm btn-success" id="batchSettleBtn" disabled>批量结清选中订单</button>
+    {% endif %}
 <!-- 在 <div class="mb-3"> 内，batchSettleBtn 之后添加 -->
 <button class="btn btn-sm btn-primary" id="batchPrintBtn" disabled>批量打印选中订单</button>
 </div>
@@ -581,10 +587,8 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
                     {# 正常状态订单操作 #}
                     <a href="{% url 'bill:print_order' order.order_no %}" class="btn btn-sm btn-primary">打印</a>
                     <a href="{% url 'bill:order_detail' order.order_no %}" class="btn btn-sm btn-info">详情</a>
-                    {% if not order.is_settled %}
+                    {% if request.user.role and request.user.role.code != 'operator' %}}
                         <button class="btn btn-sm btn-success settleBtn" data-order-no="{{ order.order_no }}">标记结清</button>
-                    {% endif %}
-                    {% if is_super_admin and order.is_settled %}
                         <button class="btn btn-sm btn-warning unsettleBtn" data-order-no="{{ order.order_no }}">撤销结清</button>
                     {% endif %}
                     {% if order.can_cancel %}

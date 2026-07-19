@@ -709,7 +709,7 @@ input:checked + .slider:before{transform:translateX(26px);}
             <button class="btn btn-primary mt-2">前往导入</button>
         </div>
     </div>
-    {% endif %}
+    
     <div class="col-md-4" style="margin-bottom: 20px; max-width: 350px;">
         <div class="tool-card" onclick="exportData()" style="cursor: pointer;">
             <span class="tool-icon">📤</span>
@@ -718,6 +718,7 @@ input:checked + .slider:before{transform:translateX(26px);}
             <button class="btn btn-success mt-2">前往导出</button>
         </div>
     </div>
+    {% endif %}
 </div>
         </div>
     </div>
@@ -1552,6 +1553,7 @@ function showToast(msg, type){
 }
 function editProduct(id){openModal(id);}
 
+// ========== Tab 切换逻辑 ==========
 // ========== Tab 切换逻辑 ==========
 $(document).ready(function(){
     if(currentActiveTab) {

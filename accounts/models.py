@@ -165,10 +165,11 @@ def init_accounts_data(sender, **kwargs):
         operator_role = Role.objects.get(code=ROLE_OPERATOR)
         operator_perms = Permission.objects.filter(code__in=[
             'order_create', 'order_view', 'order_print', 'order_reopen',
-            'product_search', 'order_settle', 'area_view',
-            'customer_view', 'customer_repayment', 'customer_price_view',
+            'product_search', 'area_view',
+            'customer_view', 'customer_price_view',
             'log_view', 'product_view', 'product_detail',
-            'order_cancel_own'
+            'order_cancel_own',
+            'order_summary',  # ← 新增此行
         ])
         operator_role.permissions.set(operator_perms)
 
