@@ -30,24 +30,24 @@ DEBUG = os.environ.get('DEBUG', 'false').lower() == 'true'
 
 ALLOWED_HOSTS = [host.strip() for host in os.environ.get('ALLOWED_HOSTS', '').split(',') if host.strip()]
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.mysql',
-        'NAME': os.environ.get('MYSQL_DATABASE', 'db'),       # 数据库名
-        'USER': os.environ.get('MYSQL_USER', 'root'),     # 例如 root
-        'PASSWORD': os.environ.get('MYSQL_PASSWORD', 'mima'),
-        'HOST': '127.0.0.1',          # 本地数据库填 127.0.0.1
-        'PORT': '3306',               # MySQL 默认端口
-        'OPTIONS': {
-            'charset': 'utf8mb4',
-            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
-        },
-        # 可选：开启长连接，减少频繁建连开销
-        'CONN_MAX_AGE': 60,
-        # 可选：开启连接健康检查
-        'CONN_HEALTH_CHECKS': True,
-    }
-}
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.mysql',
+#         'NAME': os.environ.get('MYSQL_DATABASE', 'db'),       # 数据库名
+#         'USER': os.environ.get('MYSQL_USER', 'root'),     # 例如 root
+#         'PASSWORD': os.environ.get('MYSQL_PASSWORD', 'mima'),
+#         'HOST': '127.0.0.1',          # 本地数据库填 127.0.0.1
+#         'PORT': '3306',               # MySQL 默认端口
+#         'OPTIONS': {
+#             'charset': 'utf8mb4',
+#             'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+#         },
+#         # 可选：开启长连接，减少频繁建连开销
+#         'CONN_MAX_AGE': 60,
+#         # 可选：开启连接健康检查
+#         'CONN_HEALTH_CHECKS': True,
+#     }
+# }
 
 
 CSRF_TRUSTED_ORIGINS = [host.strip() for host in os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',') if host.strip()]

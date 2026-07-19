@@ -227,7 +227,7 @@
         transition: transform 0.3s ease;
         font-size: 1.1rem;
     }
-    
+
     /* ========== 移动端适配：订单列表 ========== */
 @media (max-width: 768px) {
     /* 表格容器允许横向滚动 */
@@ -287,7 +287,7 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
     订单列表
     {% if request.user.role and request.user.role.code == 'operator' %}
         <span class="badge bg-secondary">仅显示您创建的订单</span>
-    {% else %} 
+    {% else %}
         <span class="badge bg-secondary">显示所有创建的订单</span>
     {% endif %}
 
@@ -380,7 +380,7 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
                         </div>
                     </div>
                 </div>
-            
+
             <div class="col-auto">
     <select name="creator_id" class="form-select form-select-sm">
         <option value="">所有开单人</option>
@@ -815,88 +815,204 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
 {% block extra_js %}
 <script>
 $(document).ready(function() {
-    // =============== 优化：统一展开收起逻辑 ===============
-    const wrapper = $('#contentWrapper');
-    const masterToggle = $('#masterToggle');
-    const toggleIcon = $('#toggleIcon');
+    // ================================================================
+    // 一、localStorage 持久化（优化版）
+    // ================================================================
 
-    // 点击事件
-    masterToggle.click(function() {
-        wrapper.toggleClass('collapsed');
-        const isCollapsed = wrapper.hasClass('collapsed');
-        
-        // 切换图标：向下(bi-chevron-down) 或 向上(bi-chevron-up)
-        if (isCollapsed) {
-            toggleIcon.removeClass('bi-chevron-up').addClass('bi-chevron-down');
-        } else {
-            toggleIcon.removeClass('bi-chevron-down').addClass('bi-chevron-up');
+    function saveSelection() {
+        var orderNosSet = new Set();
+        // 1. 读取旧集合
+        var stored = localStorage.getItem('selectedOrders');
+        if (stored) {
+            try {
+                var existing = JSON.parse(stored);
+                existing.forEach(function(no) { orderNosSet.add(no); });
+            } catch(e) {}
         }
-    });
-    // =============== 逻辑结束 ===============
+        // 2. 同步当前页所有复选框的状态
+        $('.orderCheckbox').each(function() {
+            var val = $(this).val();
+            if ($(this).is(':disabled')) {
+                orderNosSet.delete(val);
+            } else {
+                if (this.checked) {
+                    orderNosSet.add(val);
+                } else {
+                    orderNosSet.delete(val);
+                }
+            }
+        });
+        // 3. 保存全局集合
+        var finalArray = Array.from(orderNosSet);
+        localStorage.setItem('selectedOrders', JSON.stringify(finalArray));
+        updateSelectAllState();
+        updateBatchBtnStatus();
+    }
 
-    $('.amount-quick-btn').click(function() {
-        const value = $(this).data('value');
-        $('#amountValueInput').val(value);
-    });
+    function restoreSelection() {
+        var stored = localStorage.getItem('selectedOrders');
+        if (!stored) return;
 
-    $('.order-row').click(function(e) {
-        const target = $(e.target);
-        if (
-            target.closest('.op-btn-group').length || 
-            target.closest('.col-select').length ||
-            target.is('input[type="checkbox"]')
-        ) {
-            return;
+        try {
+            var orderNos = JSON.parse(stored);
+            $('.orderCheckbox:not(:disabled)').each(function() {
+                var val = $(this).val();
+                if (orderNos.includes(val)) {
+                    $(this).prop('checked', true).trigger('change');
+                }
+            });
+            updateSelectAllState();
+            updateBatchBtnStatus();
+        } catch (e) {
+            console.warn('恢复选中状态失败', e);
         }
-        $('.order-row').removeClass('selected');
-        $(this).addClass('selected');
-        const orderNo = $(this).data('order-no');
-        window.location.href = orderDetailUrlTemplate.replace('ORDER_NO_PLACEHOLDER', orderNo);
-    });
+    }
 
-    $('.orderCheckbox').change(function() {
-        const $row = $(this).closest('.order-row');
+    function updateSelectAllState() {
+        var checkboxes = $('.orderCheckbox:not(:disabled)');
+        var checked = checkboxes.filter(':checked');
+        var allChecked = checkboxes.length > 0 && checked.length === checkboxes.length;
+        $('#selectAll').prop('checked', allChecked);
+    }
+
+    function updateBatchBtnStatus() {
+        var stored = localStorage.getItem('selectedOrders');
+        var checkedCount = stored ? JSON.parse(stored).length : 0;
+        $('#batchSettleBtn').prop('disabled', checkedCount === 0);
+        $('#batchPrintBtn').prop('disabled', checkedCount === 0);
+    }
+
+    window.clearOrderSelection = function() {
+        localStorage.removeItem('selectedOrders');
+        $('.orderCheckbox:not(:disabled)').prop('checked', false).trigger('change');
+    };
+
+    // 监听单个复选框变化
+    $(document).on('change', '.orderCheckbox', function() {
+        var $row = $(this).closest('.order-row');
         if (this.checked) {
             $row.addClass('selected');
         } else {
             $row.removeClass('selected');
         }
-        updateBatchBtnStatus();
+        saveSelection();
     });
 
+    // 全选按钮
     $('#selectAll').change(function() {
-        $('.orderCheckbox:not(:disabled)').prop('checked', this.checked).trigger('change');
+        var isChecked = this.checked;
+        $('.orderCheckbox:not(:disabled)').prop('checked', isChecked).trigger('change');
     });
-});
 
-$(document).ready(function() {
-    $('.quick-option').click(function() {
-        const type = $(this).data('type');
-        const value = $(this).data('value');
-        const $remark = $('#settleRemark');
+    // ================================================================
+    // 二、原有功能
+    // ================================================================
+
+    // 金额快速按钮
+    $('.amount-quick-btn').click(function() {
+        var value = $(this).data('value');
+        $('#amountValueInput').val(value);
+    });
+
+    // 行点击跳转详情
+    $('.order-row').click(function(e) {
+        var target = $(e.target);
+        if (target.closest('.op-btn-group').length || target.closest('.col-select').length || target.is('input[type="checkbox"]')) {
+            return;
+        }
+        $('.order-row').removeClass('selected');
+        $(this).addClass('selected');
+        var orderNo = $(this).data('order-no');
+        window.location.href = orderDetailUrlTemplate.replace('ORDER_NO_PLACEHOLDER', orderNo);
+    });
+
+    // 单个操作按钮
+    $(document).on('click', '.settleBtn', function() {
+        var orderNo = $(this).data('order-no');
+        $('#settleOrderNo').val(orderNo);
+        $('#settleRemark').val('');
+        $('#settleModal').modal('show');
+    });
+    $(document).on('click', '.unsettleBtn', function() {
+        var orderNo = $(this).data('order-no');
+        $('#unsettleOrderNo').val(orderNo);
+        $('#unsettleRemark').val('');
+        $('#unsettleModal').modal('show');
+    });
+    $(document).on('click', '.cancelBtn', function() {
+        var orderNo = $(this).data('order-no');
+        $('#cancelOrderNo').val(orderNo);
+        $('#cancelReason').val('');
+        $('#cancelModal').modal('show');
+    });
+
+    // 快速备注选项
+    $(document).on('click', '.quick-option', function() {
+        var type = $(this).data('type');
+        var value = $(this).data('value');
+        var $remark = $('#settleRemark');
         updateRemarkText($remark, type, value);
     });
-
     $('#applyCustomTime').click(function() {
-        const customTime = $('#customTime').val();
+        var customTime = $('#customTime').val();
         if (customTime) {
-            const $remark = $('#settleRemark');
+            var $remark = $('#settleRemark');
             updateRemarkText($remark, 'time', customTime);
         } else {
             alert('请选择自定义日期');
         }
     });
 
+    // ----- 批量结清模态框 -----
+    $('#batchSettleBtn').click(function() {
+        var stored = localStorage.getItem('selectedOrders');
+        var selectedOrders = stored ? JSON.parse(stored) : [];
+        if (selectedOrders.length === 0) return;
+
+        var html = '<div class="alert alert-info">请为每个订单填写结清备注：</div>';
+        selectedOrders.forEach(function(orderNo) {
+            html += `
+                <div class="mb-3 p-2 border rounded">
+                    <label class="form-label">订单 ${orderNo} 备注：</label>
+                    <div class="d-flex flex-wrap gap-1 mb-2">
+                        <button type="button" class="btn btn-xs btn-outline-primary order-quick-option" data-type="pay_type" data-value="微信收款">微信</button>
+                        <button type="button" class="btn btn-xs btn-outline-primary order-quick-option" data-type="pay_type" data-value="现金收款">现金</button>
+                        <button type="button" class="btn btn-xs btn-outline-primary order-quick-option" data-type="pay_type" data-value="支付宝收款">支付宝</button>
+                        {% for i in "12345678"|make_list %}
+                        <button type="button" class="btn btn-xs btn-outline-primary order-quick-option" data-type="account" data-value="00{{i}}">00{{i}}</button>
+                        {% endfor %}
+                        <button type="button" class="btn btn-xs btn-outline-primary order-quick-option" data-type="time" data-value="{{ date.today|date:'Y-m-d' }}">今日</button>
+                        <button type="button" class="btn btn-xs btn-outline-danger clear-order-remark">清空</button>
+                    </div>
+                    <textarea class="form-control batchRemark" data-order-no="${orderNo}" rows="2" placeholder="收款方式：XXX。转账账户：XXX。转账时间：XXX"></textarea>
+                </div>
+            `;
+        });
+        $('#batchOrderList').html(html);
+        $('#batchSettleModal').modal('show');
+    });
+
+    // 批量模态框中的快捷选项事件
+    $(document).on('click', '.order-quick-option', function() {
+        var type = $(this).data('type');
+        var value = $(this).data('value');
+        var $remark = $(this).closest('.mb-3').find('.batchRemark');
+        updateRemarkText($remark, type, value);
+    });
+    $(document).on('click', '.clear-order-remark', function() {
+        $(this).closest('.mb-3').find('.batchRemark').val('');
+    });
+
+    // 批量快捷填充（顶部按钮）
     $('.batch-quick-option').click(function() {
-        const type = $(this).data('type');
-        const value = $(this).data('value');
+        var type = $(this).data('type');
+        var value = $(this).data('value');
         $('.batchRemark').each(function() {
             updateRemarkText($(this), type, value);
         });
     });
-
     $('#applyBatchCustomTime').click(function() {
-        const customTime = $('#batchCustomTime').val();
+        var customTime = $('#batchCustomTime').val();
         if (customTime) {
             $('.batchRemark').each(function() {
                 updateRemarkText($(this), 'time', customTime);
@@ -905,315 +1021,246 @@ $(document).ready(function() {
             alert('请选择自定义日期');
         }
     });
-
     $('#clearBatchQuick').click(function() {
         $('.batchRemark').val('');
     });
-});
 
-function updateRemarkText($remarkElem, type, value) {
-    let currentText = $remarkElem.val().trim() || '';
-    const typeLabels = {
-        'pay_type': '收款方式',
-        'account': '转账账户',
-        'time': '转账时间'
-    };
-    const label = typeLabels[type];
-    const regex = new RegExp(`${label}：[^。]*`, 'g');
-    if (regex.test(currentText)) {
-        currentText = currentText.replace(regex, `${label}：${value}`);
-    } else {
-        if (currentText) {
-            currentText += `。${label}：${value}`;
+    // 作废快捷回复
+    $(document).on('click', '.quick-reply', function() {
+        var reason = $(this).data('reason');
+        $('#cancelReason').val(reason);
+    });
+
+    // 批量打印
+    $('#batchPrintBtn').click(function() {
+        var stored = localStorage.getItem('selectedOrders');
+        var selected = stored ? JSON.parse(stored) : [];
+        if (selected.length === 0) return;
+        var url = '{% url "bill:batch_print_orders" %}' + '?order_nos=' + selected.join(',');
+        window.open(url, '_blank');
+    });
+
+    // ================================================================
+    // 三、通用辅助函数
+    // ================================================================
+    function updateRemarkText($remarkElem, type, value) {
+        var currentText = $remarkElem.val().trim() || '';
+        var typeLabels = {
+            'pay_type': '收款方式',
+            'account': '转账账户',
+            'time': '转账时间'
+        };
+        var label = typeLabels[type];
+        var regex = new RegExp(label + '：[^。]*', 'g');
+        if (regex.test(currentText)) {
+            currentText = currentText.replace(regex, label + '：' + value);
         } else {
-            currentText = `${label}：${value}`;
-        }
-    }
-    $remarkElem.val(currentText);
-}
-
-$('#batchSettleBtn').click(function() {
-    const selectedOrders = $('.orderCheckbox:checked').map(function() {
-        return $(this).val();
-    }).get();
-    let html = '<div class="alert alert-info">请为每个订单填写结清备注：</div>';
-    selectedOrders.forEach(orderNo => {
-        html += `
-            <div class="mb-3 p-2 border rounded">
-                <label class="form-label">订单 ${orderNo} 备注：</label>
-                <div class="d-flex flex-wrap gap-1 mb-2">
-                    <button type="button" class="btn btn-xs btn-outline-primary order-quick-option" data-type="pay_type" data-value="微信收款">微信</button>
-                    <button type="button" class="btn btn-xs btn-outline-primary order-quick-option" data-type="pay_type" data-value="现金收款">现金</button>
-                    <button type="button" class="btn btn-xs btn-outline-primary order-quick-option" data-type="pay_type" data-value="支付宝收款">支付宝</button>
-                    {% for i in "12345678"|make_list %}
-                    <button type="button" class="btn btn-xs btn-outline-primary order-quick-option" data-type="account" data-value="00{{i}}">00{{i}}</button>
-                    {% endfor %}
-                    <button type="button" class="btn btn-xs btn-outline-primary order-quick-option" data-type="time" data-value="{{ date.today|date:'Y-m-d' }}">今日</button>
-                    <button type="button" class="btn btn-xs btn-outline-danger clear-order-remark">清空</button>
-                </div>
-                <textarea class="form-control batchRemark" data-order-no="${orderNo}" rows="2" placeholder="收款方式：XXX。转账账户：XXX。转账时间：XXX"></textarea>
-            </div>
-        `;
-    });
-    $('#batchOrderList').html(html);
-    $('.order-quick-option').click(function() {
-        const type = $(this).data('type');
-        const value = $(this).data('value');
-        const $remark = $(this).closest('.mb-3').find('.batchRemark');
-        updateRemarkText($remark, type, value);
-    });
-    $('.clear-order-remark').click(function() {
-        $(this).closest('.mb-3').find('.batchRemark').val('');
-    });
-    $('#batchSettleModal').modal('show');
-});
-
-$(document).ready(function() {
-    $('.orderCheckbox').change(updateBatchBtnStatus);
-    $('.settleBtn').click(function() {
-        const orderNo = $(this).data('order-no');
-        $('#settleOrderNo').val(orderNo);
-        $('#settleRemark').val('');
-        $('#settleModal').modal('show');
-    });
-    $('.unsettleBtn').click(function() {
-        const orderNo = $(this).data('order-no');
-        $('#unsettleOrderNo').val(orderNo);
-        $('#unsettleRemark').val('');
-        $('#unsettleModal').modal('show');
-    });
-});
-
-function updateBatchBtnStatus() {
-    const checkedCount = $('.orderCheckbox:not(:disabled):checked').length;
-    $('#batchSettleBtn').prop('disabled', checkedCount === 0);
-    $('#batchPrintBtn').prop('disabled', checkedCount === 0);  // 新增
-}
-
-function getCsrfToken() {
-    let cookieValue = null;
-    if (document.cookie && document.cookie !== '') {
-        const cookies = document.cookie.split(';');
-        for (let i = 0; i < cookies.length; i++) {
-            const cookie = cookies[i].trim();
-            if (cookie.substring(0, 10) === 'csrftoken=') {
-                cookieValue = decodeURIComponent(cookie.substring(10));
-                break;
+            if (currentText) {
+                currentText += '。' + label + '：' + value;
+            } else {
+                currentText = label + '：' + value;
             }
         }
+        $remarkElem.val(currentText);
     }
-    return cookieValue;
-}
 
-function submitSettle() {
-    const orderNo = $('#settleOrderNo').val();
-    const remark = $('#settleRemark').val().trim();
-    if (!remark) {
-        alert('请填写结清备注');
-        return;
-    }
-    fetch(`/bill/orders/settle/${orderNo}/`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': getCsrfToken(),
-            'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: JSON.stringify({ remark: remark })
-    })
-    .then(res => {
-        if (!res.ok) {
-            return res.text().then(text => {
-                throw new Error(`请求失败（状态码：${res.status}）：${text.substring(0, 100)}`);
-            });
+    function getCsrfToken() {
+        var cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            var cookies = document.cookie.split(';');
+            for (var i = 0; i < cookies.length; i++) {
+                var cookie = cookies[i].trim();
+                if (cookie.substring(0, 10) === 'csrftoken=') {
+                    cookieValue = decodeURIComponent(cookie.substring(10));
+                    break;
+                }
+            }
         }
-        return res.json();
-    })
-    .then(data => {
-        if (data.code === 1) {
-            alert('标记结清成功');
-            window.location.reload();
+        return cookieValue;
+    }
+
+    // ================================================================
+    // 四、提交函数
+    // ================================================================
+    window.submitSettle = function() {
+        var orderNo = $('#settleOrderNo').val();
+        var remark = $('#settleRemark').val().trim();
+        if (!remark) { alert('请填写结清备注'); return; }
+        fetch('/bill/orders/settle/' + orderNo + '/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken(),
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify({ remark: remark })
+        })
+        .then(function(res) {
+            if (!res.ok) return res.text().then(function(text) { throw new Error('请求失败：' + text.substring(0, 100)); });
+            return res.json();
+        })
+        .then(function(data) {
+            if (data.code === 1) {
+                alert('标记结清成功');
+                clearOrderSelection();
+                window.location.reload();
+            } else {
+                alert('标记失败：' + data.msg);
+            }
+        })
+        .catch(function(err) { alert('标记失败：' + err.message); });
+    };
+
+    window.submitUnsettle = function() {
+        var orderNo = $('#unsettleOrderNo').val();
+        var remark = $('#unsettleRemark').val().trim();
+        if (!remark) { alert('请填写撤销结清备注'); return; }
+        fetch('/bill/orders/unsettle/' + orderNo + '/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken(),
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify({ remark: remark })
+        })
+        .then(function(res) {
+            if (!res.ok) return res.text().then(function(text) { throw new Error('请求失败：' + text.substring(0, 100)); });
+            return res.json();
+        })
+        .then(function(data) {
+            if (data.code === 1) {
+                alert('撤销结清成功');
+                clearOrderSelection();
+                window.location.reload();
+            } else {
+                alert('撤销失败：' + data.msg);
+            }
+        })
+        .catch(function(err) { alert('撤销失败：' + err.message); });
+    };
+
+    window.submitCancel = function() {
+        var orderNo = $('#cancelOrderNo').val();
+        var reason = $('#cancelReason').val().trim();
+        if (!reason) { alert('请填写作废原因'); return; }
+        fetch('/bill/orders/cancel/' + orderNo + '/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken(),
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify({ reason: reason })
+        })
+        .then(function(res) {
+            if (!res.ok) return res.text().then(function(text) { throw new Error('请求失败：' + text.substring(0, 100)); });
+            return res.json();
+        })
+        .then(function(data) {
+            if (data.code === 1) {
+                alert('订单作废成功');
+                clearOrderSelection();
+                window.location.reload();
+            } else {
+                alert('作废失败：' + data.msg);
+            }
+        })
+        .catch(function(err) { alert('作废失败：' + err.message); });
+    };
+
+    window.submitBatchSettle = function() {
+        var orderList = [];
+        var hasEmptyRemark = false;
+        $('.batchRemark').each(function() {
+            var orderNo = $(this).data('order-no');
+            var remark = $(this).val().trim();
+            if (!remark) {
+                hasEmptyRemark = true;
+                alert('订单 ' + orderNo + ' 的备注不能为空');
+                return false;
+            }
+            orderList.push({ order_no: orderNo, remark: remark });
+        });
+        if (hasEmptyRemark || orderList.length === 0) {
+            alert('请选择至少一个订单并填写备注');
+            return;
+        }
+        fetch('/bill/orders/batch-settle/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken(),
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify({ orders: orderList })
+        })
+        .then(function(res) {
+            if (!res.ok) return res.text().then(function(text) { throw new Error('请求失败：' + text.substring(0, 100)); });
+            return res.json();
+        })
+        .then(function(data) {
+            alert(data.msg);
+            if (data.code === 1) {
+                clearOrderSelection();
+                window.location.reload();
+            }
+        })
+        .catch(function(err) { alert('批量结清失败：' + err.message); });
+    };
+
+    // ================================================================
+    // 五、筛选栏展开/收起
+    // ================================================================
+    var wrapper = $('#contentWrapper');
+    var masterToggle = $('#masterToggle');
+    var toggleIcon = $('#toggleIcon');
+    masterToggle.click(function() {
+        wrapper.toggleClass('collapsed');
+        var isCollapsed = wrapper.hasClass('collapsed');
+        if (isCollapsed) {
+            toggleIcon.removeClass('bi-chevron-up').addClass('bi-chevron-down');
         } else {
-            alert('标记失败：' + data.msg);
+            toggleIcon.removeClass('bi-chevron-down').addClass('bi-chevron-up');
         }
-    })
-    .catch(err => {
-        alert('标记失败：' + err.message);
-        console.error('标记结清错误详情：', err);
     });
-}
 
-function submitUnsettle() {
-    const orderNo = $('#unsettleOrderNo').val();
-    const remark = $('#unsettleRemark').val().trim();
-    if (!remark) {
-        alert('请填写撤销结清备注');
-        return;
-    }
-    fetch(`/bill/orders/unsettle/${orderNo}/`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': getCsrfToken(),
-            'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: JSON.stringify({ remark: remark })
-    })
-    .then(res => {
-        if (!res.ok) {
-            return res.text().then(text => {
-                throw new Error(`请求失败（状态码：${res.status}）：${text.substring(0, 100)}`);
-            });
-        }
-        return res.json();
-    })
-    .then(data => {
-        if (data.code === 1) {
-            alert('撤销结清成功');
-            window.location.reload();
-        } else {
-            alert('撤销失败：' + data.msg);
-        }
-    })
-    .catch(err => {
-        alert('撤销失败：' + err.message);
-        console.error('撤销结清错误详情：', err);
-    });
-}
-
-function submitBatchSettle() {
-    const orderList = [];
-    let hasEmptyRemark = false;
-    $('.batchRemark').each(function() {
-        const orderNo = $(this).data('order-no');
-        const remark = $(this).val().trim();
-        if (!remark) {
-            hasEmptyRemark = true;
-            alert(`订单 ${orderNo} 的备注不能为空`);
+    // ================================================================
+    // 六、页码跳转
+    // ================================================================
+    window.jumpToPage = function(e) {
+        e.preventDefault();
+        saveSelection();
+        var page = document.getElementById('jumpPageInput').value;
+        var maxPage = {{ paginator.num_pages }};
+        if (!page || page < 1 || page > maxPage) {
+            alert('请输入1~' + maxPage + '之间的页码');
             return false;
         }
-        orderList.push({
-            order_no: orderNo,
-            remark: remark
-        });
-    });
-    if (hasEmptyRemark || orderList.length === 0) {
-        alert('请选择至少一个订单并填写备注');
-        return;
-    }
-    fetch('/bill/orders/batch-settle/', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': getCsrfToken(),
-            'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: JSON.stringify({ orders: orderList })
-    })
-    .then(res => {
-        if (!res.ok) {
-            return res.text().then(text => {
-                throw new Error(`请求失败（状态码：${res.status}）：${text.substring(0, 100)}`);
-            });
-        }
-        return res.json();
-    })
-    .then(data => {
-        alert(data.msg);
-        if (data.code === 1) {
-            window.location.reload();
-        }
-    })
-    .catch(err => {
-        alert('批量结清失败：' + err.message);
-        console.error('批量结清错误详情：', err);
-    });
-}
+        var baseQuery = '{{ base_query_string|escapejs }}';
+        window.location.href = '?page=' + page + '&' + baseQuery;
+        return false;
+    };
 
-$('.cancelBtn').click(function() {
-    const orderNo = $(this).data('order-no');
-    $('#cancelOrderNo').val(orderNo);
-    $('#cancelReason').val('');
-    $('#cancelModal').modal('show');
-});
+    // ================================================================
+    // 七、页面初始化
+    // ================================================================
+    restoreSelection();
+    setTimeout(function() { restoreSelection(); }, 200);
 
-$('.quick-reply').click(function() {
-    const reason = $(this).data('reason');
-    $('#cancelReason').val(reason);
-});
-
-function submitCancel() {
-    const orderNo = $('#cancelOrderNo').val();
-    const reason = $('#cancelReason').val().trim();
-    if (!reason) {
-        alert('请填写作废原因');
-        return;
-    }
-    fetch(`/bill/orders/cancel/${orderNo}/`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': getCsrfToken(),
-            'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: JSON.stringify({ reason: reason })
-    })
-    .then(res => {
-        if (!res.ok) {
-            return res.text().then(text => {
-                throw new Error(`请求失败（状态码：${res.status}）：${text.substring(0, 100)}`);
-            });
-        }
-        return res.json();
-    })
-    .then(data => {
-        if (data.code === 1) {
-            alert('订单作废成功');
-            window.location.reload();
-        } else {
-            alert('作废失败：' + data.msg);
-        }
-    })
-    .catch(err => {
-        alert('作废失败：' + err.message);
-        console.error('作废订单错误详情：', err);
-    });
-}
-
-$(document).ready(function() {
-    const customerInput = $('#customerNameInput');
+    var customerInput = $('#customerNameInput');
     if (customerInput.length > 0) {
         customerInput.focus();
-        const inputValue = customerInput.val();
+        var inputValue = customerInput.val();
         if (inputValue) {
             customerInput.val('');
             customerInput.val(inputValue);
         }
     }
-    
-    $('#batchPrintBtn').click(function() {
-    const selected = $('.orderCheckbox:checked').map(function() {
-        return $(this).val();
-    }).get();
-    if (selected.length === 0) return;
-    // 打开新窗口，跳转到批量打印页面
-    const url = '{% url "bill:batch_print_orders" %}' + '?order_nos=' + selected.join(',');
-    window.open(url, '_blank');
-});
-});
 
-// 页码跳转函数
-function jumpToPage(e) {
-    e.preventDefault();
-    const page = document.getElementById('jumpPageInput').value;
-    const maxPage = {{ paginator.num_pages }};
-    if (!page || page < 1 || page > maxPage) {
-        alert(`请输入1~${maxPage}之间的页码`);
-        return false;
-    }
-    const baseQuery = '{{ base_query_string|escapejs }}';
-    window.location.href = `?page=${page}&${baseQuery}`;
-    return false;
-}
+    // 卸载前保存
+    window.addEventListener('beforeunload', function() { saveSelection(); });
+    $(document).on('click', '.page-link', function() { saveSelection(); });
+});
 </script>
 {% endblock %}
