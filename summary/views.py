@@ -484,6 +484,7 @@ def product_list_for_price(request):
 
 
 @login_required
+@permission_required(PERM_PRODUCT_VIEW)
 def customer_amount_detail_page(request, customer_id):
     """客户金额详情页"""
     customer = get_object_or_404(Customer, id=customer_id)
@@ -491,6 +492,7 @@ def customer_amount_detail_page(request, customer_id):
 
 
 @login_required
+@permission_required(PERM_PRODUCT_VIEW)
 def get_customer_order_source(request, customer_id):
     """客户订单来源 - 无N+1，匹配Order索引"""
     try:
