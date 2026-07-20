@@ -1291,10 +1291,10 @@ function customerGoToPage(delta) {
     input.placeholder = placeholder;
     input.value = value;
 
-    // 规格列专属处理
+    
     // 规格列专属处理
 if (className === 'spec-input') {
-    input.placeholder = '规格（1补/2退）';
+    input.placeholder = '商品规格';
     input.addEventListener('keydown', handleSpecKeydown);
     input.addEventListener('input', updateMakeupFlag);
     input.addEventListener('change', updateMakeupFlag);  // 新增
