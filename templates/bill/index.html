@@ -750,10 +750,6 @@ function handleSpecKeydown(e) {
     // 仅在光标在开头且无内容时触发快捷键，避免干扰已输入内容
     if (input.selectionStart !== 0 || input.value.length > 0) return;
     let char = '';
-    if (e.key === '1') char = '补';
-    else if (e.key === '2') char = '换';
-    else if (e.key === '3') char = '退';
-    else return;
     e.preventDefault();
     input.value = char;
     // 手动触发 input 事件，让 updateMakeupFlag 执行
@@ -1172,6 +1168,15 @@ function customerGoToPage(delta) {
     }
 }
         function handleCustomerInputKey(e) {
+            if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        const firstProductInput = document.querySelector('#bill-tbody .name-input');
+        if (firstProductInput) {
+            firstProductInput.focus();
+            firstProductInput.select();
+        }
+        return;
+    }
     // ===== 统一处理 Enter 键（整合制单号逻辑） =====
     if (e.key === 'Enter') {
         e.preventDefault();
@@ -1368,27 +1373,37 @@ if (className === 'spec-input') {
             }
         }
         function handleDirectionKeys(input, key) {
-            const tr = input.closest('tr');
-            const allTr = Array.from(document.querySelectorAll('#bill-tbody tr'));
-            const trIdx = allTr.indexOf(tr);
-            const inputs = tr.querySelectorAll('input');
-            const idx = Array.from(inputs).indexOf(input);
-            const rowCount = allTr.length;
-            switch(key) {
-                case 'ArrowLeft':
-                    const l = idx === 0 ? inputColsCount-1 : idx-1;
-                    inputs[l].focus(); inputs[l].select(); break;
-                case 'ArrowRight':
-                    const r = idx === inputColsCount-1 ? 0 : idx+1;
-                    inputs[r].focus(); inputs[r].select(); break;
-                case 'ArrowUp':
-                    const upTr = allTr[trIdx === 0 ? rowCount-1 : trIdx-1];
-                    upTr.querySelectorAll('input')[idx].focus(); break;
-                case 'ArrowDown':
-                    const dnTr = allTr[trIdx === rowCount-1 ? 0 : trIdx+1];
-                    dnTr.querySelectorAll('input')[idx].focus(); break;
+    const tr = input.closest('tr');
+    const allTr = Array.from(document.querySelectorAll('#bill-tbody tr'));
+    const trIdx = allTr.indexOf(tr);
+    const inputs = tr.querySelectorAll('input');
+    const idx = Array.from(inputs).indexOf(input);
+    const rowCount = allTr.length;
+    switch(key) {
+        case 'ArrowLeft':
+            const l = idx === 0 ? inputColsCount-1 : idx-1;
+            inputs[l].focus(); inputs[l].select(); break;
+        case 'ArrowRight':
+            const r = idx === inputColsCount-1 ? 0 : idx+1;
+            inputs[r].focus(); inputs[r].select(); break;
+        case 'ArrowUp':
+            // 新增：若在第一行且当前是商品名称输入框，跳转到客户姓名
+            if (trIdx === 0 && input.classList.contains('name-input')) {
+                const customerInput = document.getElementById('customerInput');
+                if (customerInput) {
+                    customerInput.focus();
+                    customerInput.select();
+                    break;
+                }
             }
-        }
+            
+            const upTr = allTr[trIdx === 0 ? rowCount-1 : trIdx-1];
+            upTr.querySelectorAll('input')[idx].focus(); break;
+        case 'ArrowDown':
+            const dnTr = allTr[trIdx === rowCount-1 ? 0 : trIdx+1];
+            dnTr.querySelectorAll('input')[idx].focus(); break;
+    }
+}
         function handleDeleteRowByKey(input) {
             const tr = input.closest('tr');
             const tbody = document.getElementById('bill-tbody');
