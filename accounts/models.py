@@ -94,6 +94,10 @@ PERM_PRODUCT_STOCK_OP = 'product_stock_operation'  # 商品出入库操作
 PERM_PRODUCT_DETAIL = 'product_detail'  # 查看商品详情（含销量/客户价）
 PERM_PRODUCT_SALES_RANK = 'product_sales_rank'  # 查看商品销售排行
 
+PERM_UNIT_VIEW = 'unit_view'
+PERM_UNIT_ADD = 'unit_add'
+PERM_UNIT_EDIT = 'unit_edit'
+PERM_UNIT_DELETE = 'unit_delete'
 # 6. 用户管理权限编码
 PERM_USER_VIEW = 'user_view'
 PERM_USER_ADD = 'user_add'

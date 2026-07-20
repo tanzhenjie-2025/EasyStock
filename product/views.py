@@ -590,8 +590,6 @@ def product_edit_data(request, pk):
 
 
 # ====================== 导入/导出/快速出入库（仅修改系统库存） ======================
-
-
 @login_required
 @require_POST
 @permission_required(PERM_PRODUCT_IMPORT)
@@ -1031,12 +1029,14 @@ def sales_rank(request):
 
 
 @login_required
+@permission_required('product_view')
 def sales_rank_data(request):
     data = OrderItem.objects.values('product__name').annotate(total=Sum('quantity')).order_by('-total')[:30]
     return JsonResponse({'data': [{'name': i['product__name'], 'num': i['total']} for i in data]})
 
 
 @login_required
+@permission_required('product_view')
 def stock_list(request):
     # 获取搜索关键词
     keyword = request.GET.get('keyword', '')
@@ -1460,7 +1460,7 @@ from django.db import IntegrityError  # 可选，捕获唯一键冲突
 
 
 @login_required
-@permission_required('product.edit_product')  # 替换为你实际的权限标识
+@permission_required('unit_add')  # 替换为你实际的权限标识
 def unit_add(request):
     """新增单位"""
     if request.method != 'POST':
@@ -1480,7 +1480,7 @@ def unit_add(request):
 
 
 @login_required
-@permission_required('product.edit_product')
+@permission_required('unit_edit')
 def unit_edit(request):
     """编辑单位"""
     if request.method != 'POST':
@@ -1508,7 +1508,7 @@ def unit_edit(request):
 
 
 @login_required
-@permission_required('product.edit_product')
+@permission_required('unit_delete')
 def unit_toggle_status(request):
     """切换单位启用/禁用（软删除=禁用）"""
     if request.method != 'POST':
