@@ -311,8 +311,8 @@ def save_order(request):
             data = json.loads(request.body)
             items = data.get('items', [])
             customer_id = data.get('customer_id', '')
-            customer_name = data.get('customer_name', '').strip()   # 提前到循环外
-            order_number = data.get('order_number', '').strip()     # 🔥 新增制单号
+            customer_name = data.get('customer_name', '').strip()
+            order_number = data.get('order_number', '').strip()
             original_order_no = data.get('original_order_no', '')
 
             if not items:
@@ -323,35 +323,42 @@ def save_order(request):
             item_data_list = []
 
             for item in items:
-                pid = item.get('id', '').strip()
+                pid_raw = item.get('id', '').strip()
                 name = item.get('name', '').strip()
                 spec = item.get('spec', '').strip()
                 unit = item.get('unit', '').strip()
                 qty = item.get('qty', 0)
                 price = item.get('price', 0)
                 is_makeup = item.get('is_makeup', False)
-                operation_type = item.get('operation_type', '')  # 新增读取
+                operation_type = item.get('operation_type', '')
 
                 if not name:
                     return JsonResponse({'code': 0, 'msg': '商品名称不能为空'})
                 if not isinstance(qty, int) or qty <= 0:
                     return JsonResponse({'code': 0, 'msg': f'商品{name}数量无效'})
 
+                # 判断是否为有效商品ID（正数）
                 product_id_int = None
-                if pid:
+                if pid_raw:
                     try:
-                        product_id_int = int(pid)
-                        valid_product_ids.append(product_id_int)
+                        pid_int = int(pid_raw)
+                        if pid_int > 0:
+                            product_id_int = pid_int
+                            valid_product_ids.append(pid_int)
+                        else:
+                            # 负数或零视为自由商品，不加入查询列表
+                            product_id_int = None
                     except (ValueError, TypeError):
-                        return JsonResponse({'code': 0, 'msg': f'商品{name}ID格式错误'})
+                        # 非数字字符串视为自由商品
+                        product_id_int = None
 
                 item_data_list.append({
-                    'pid': product_id_int,
+                    'pid': product_id_int,          # 若为 None 则表示自由商品
                     'name': name,
                     'spec': spec,
                     'unit': unit,
                     'qty': qty,
-                    'price': decimal.Decimal(str(price)),
+                    'price': Decimal(str(price)),
                     'is_makeup': is_makeup,
                     'operation_type': operation_type if is_makeup else '',
                 })
@@ -359,16 +366,21 @@ def save_order(request):
             # ---------- 2. 批量查询有效商品 ----------
             products_map = {}
             if valid_product_ids:
-                products_map = Product.objects.filter(id__in=valid_product_ids).in_bulk()
-                for pid in valid_product_ids:
-                    if pid not in products_map:
-                        return JsonResponse({'code': 0, 'msg': f'商品ID {pid} 不存在'})
+                # 注意：使用 all_objects 可获取软删除商品，但若商品被禁用，我们也应视为不存在，降级为自由商品
+                # 这里只查询 is_active=True 的商品，若商品已禁用则不会返回，后续降级处理
+                products_map = Product.objects.filter(
+                    id__in=valid_product_ids,
+                    is_active=True
+                ).in_bulk()
 
-            # ---------- 3. 查询客户专属价（仅对有效商品） ----------
+            # ---------- 3. 查询客户专属价（仅对有效且存在的商品） ----------
+            # 注意：这里只对 products_map 中存在的商品查询客户价
+            existing_product_ids = list(products_map.keys())
             customer_prices_dict = {}
-            if customer_id and valid_product_ids:
+            if customer_id and existing_product_ids:
                 cp_list = CustomerPrice.objects.filter(
-                    customer_id=customer_id, product_id__in=valid_product_ids
+                    customer_id=customer_id,
+                    product_id__in=existing_product_ids
                 )
                 customer_prices_dict = {cp.product_id: cp.custom_price for cp in cp_list}
 
@@ -376,19 +388,16 @@ def save_order(request):
             order = Order()
             order.creator = request.user
             order.customer_name_snapshot = customer_name
-            # 在创建 Order() 后，保存前添加
             order.order_number_snapshot = order_number or None
+
             if customer_id:
                 customer = get_object_or_404(Customer, id=customer_id)
                 order.customer = customer
                 order.area = customer.area
-
-
-                # 🔥 处理制单号：如果传入的制单号与客户现有制单号不同，则更新
-                if customer_id and order_number:  # 确保客户存在且本次传入了非空制单号
-                    if customer.order_number != order_number:  # 现有制单号与本次不同（包括原本为空的情况）
-                        customer.order_number = order_number
-                        customer.save(update_fields=['order_number'])
+                # 更新客户制单号
+                if order_number and customer.order_number != order_number:
+                    customer.order_number = order_number
+                    customer.save(update_fields=['order_number'])
 
             if original_order_no:
                 original_order = get_object_or_404(Order, order_no=original_order_no)
@@ -407,20 +416,23 @@ def save_order(request):
                 name = item_data['name']
                 spec = item_data['spec']
                 qty = item_data['qty']
-                input_price = item_data['price']
+                input_price = item_data['price']  # Decimal
                 amount = input_price * qty
                 total_amount += amount
 
-                if pid is not None:
+                # 如果 pid 存在但不在 products_map 中，说明商品已不存在或已被禁用，降级为自由商品
+                if pid is not None and pid in products_map:
                     product = products_map[pid]
                     snap_standard = product.price
                     snap_customer = customer_prices_dict.get(pid, None)
+                    # 扣减库存（仅当商品有效）
                     product.stock_system -= qty
                     update_stock_products.append(product)
+
                     order_items.append(OrderItem(
                         order=order,
                         product=product,
-                        product_name=product.name,
+                        product_name=product.name,          # 使用系统名称
                         unit=item_data['unit'],
                         specification=spec,
                         quantity=qty,
@@ -428,14 +440,15 @@ def save_order(request):
                         actual_unit_price=input_price,
                         snapshot_standard_price=snap_standard,
                         snapshot_customer_price=snap_customer,
-                        is_makeup_item=item_data.get('is_makeup', False),  # 新增
-                        operation_type=item_data.get('operation_type', ''),  # 新增
+                        is_makeup_item=item_data['is_makeup'],
+                        operation_type=item_data['operation_type'],
                     ))
                 else:
+                    # 自由商品（包括原本无 ID、负 ID、或商品不存在/禁用）
                     order_items.append(OrderItem(
                         order=order,
                         product=None,
-                        product_name=name,
+                        product_name=name,                  # 使用前端传入名称
                         unit=item_data['unit'],
                         specification=spec,
                         quantity=qty,
@@ -443,9 +456,12 @@ def save_order(request):
                         actual_unit_price=input_price,
                         snapshot_standard_price=None,
                         snapshot_customer_price=None,
-                        is_makeup_item=item_data.get('is_makeup', False),  # 新增
-                        operation_type=item_data.get('operation_type', ''),  # 新增
+                        is_makeup_item=item_data['is_makeup'],
+                        operation_type=item_data['operation_type'],
                     ))
+                    # 如果有 pid 但未找到商品，可记录日志（可选）
+                    if pid is not None:
+                        logger.warning(f"商品ID {pid} 不存在或已禁用，订单明细降级为自由商品，名称：{name}")
 
             # ---------- 6. 保存 ----------
             order.total_amount = total_amount
@@ -466,6 +482,7 @@ def save_order(request):
             return JsonResponse({'code': 1, 'msg': '开单成功', 'order_no': order.order_no})
 
     except Exception as e:
+        logger.error(f"开单失败：{str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'开单失败：{str(e)}'})
 
 
