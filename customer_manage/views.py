@@ -1404,6 +1404,7 @@ def customer_import(request):
 
 # ========== 客户专属价格导出/导入 ==========
 @login_required
+@permission_required('customer_price_export')
 def customer_price_export(request):
     if request.method == 'POST':
         try:
@@ -1458,6 +1459,7 @@ def customer_price_export(request):
     return JsonResponse({'code': 0, 'msg': '请求方式错误'})
 
 @login_required
+@permission_required('customer_price_import')
 def customer_price_import(request):
     if request.method == 'POST':
         try:

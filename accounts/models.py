@@ -69,9 +69,11 @@ PERM_CUSTOMER_PRICE_VIEW = 'customer_price_view'  # 查看客户价格
 PERM_CUSTOMER_PRICE_ADD = 'customer_price_add'  # 新增客户价格
 PERM_CUSTOMER_PRICE_EDIT = 'customer_price_edit'  # 编辑客户价格
 PERM_CUSTOMER_PRICE_DELETE = 'customer_price_delete'  # 删除客户价格
+
 PERM_CUSTOMER_SALES_RANK = 'customer_sales_rank'  # 查看客户消费TOP30排行
 PERM_CUSTOMER_EXPORT = 'customer_export'        # 批量导出客户
 PERM_CUSTOMER_IMPORT = 'customer_import'        # 批量导入客户
+
 PERM_CUSTOMER_PRICE_EXPORT = 'customer_price_export'  # 批量导出客户专属价格
 PERM_CUSTOMER_PRICE_IMPORT = 'customer_price_import'  # 批量导入客户专属价格
 
