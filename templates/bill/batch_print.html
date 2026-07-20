@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <title>批量打印订单</title>
     <style>
-        /* ========== 打印样式（三联单打印机竖向） ========== */
         @media print {
             @page {
                 size: 140mm 210mm;
@@ -27,13 +26,11 @@
             .no-print {
                 display: none;
             }
-            /* 每个订单后强制分页（最后一个除外，通过 .page-break 控制） */
             .page-break {
                 page-break-after: always;
             }
         }
 
-        /* ========== 屏幕预览样式（与打印单张完全一致） ========== */
         .bill-footer .total-amount {
             font-size: 22px;
             font-weight: bold;
@@ -46,7 +43,6 @@
             margin: 20px auto;
             padding: 7mm 5mm 5mm 5mm;
             box-sizing: border-box;
-            /* 屏幕预览时可加淡淡阴影，便于区分 */
             box-shadow: 0 0 4px rgba(0,0,0,0.1);
         }
 
@@ -79,20 +75,32 @@
             font-size: 13px;
         }
 
-        /* 表格线框 */
-        .bill-table {
+        /* 表格样式 */
+        .table-wrapper {
+            position: relative;
             width: 90%;
             margin: 0 auto;
+        }
+        .bill-table {
+            width: 100%;
             border-collapse: collapse;
             table-layout: fixed;
         }
         .bill-table th,
         .bill-table td {
             border: 1px solid #000;
-            padding: 4px;
+            padding: 4px 0;
             text-align: center;
             font-size: 14px;
             word-break: break-all;
+            height: 30px;
+            box-sizing: border-box;
+        }
+        .bill-table thead th {
+            height: 30px;
+        }
+        .bill-table tbody td {
+            height: 30px;
         }
 
         .bill-table .col-index { width: 5%; }
@@ -151,16 +159,32 @@
             align-items: center;
             margin-left: auto;
         }
+
+        /* 浮动消息样式 - 无背景，纯文字漂浮 */
+        .float-msg {
+            position: absolute;
+            left: 0;
+            width: 100%;
+            height: 90px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 40px;
+            font-weight: bold;
+            color: #000;           /* 改为黑色 */
+            transform: rotate(-15deg);
+            pointer-events: none;
+            z-index: 10;
+            /* 移除背景和圆角，避免遮挡表格内容 */
+        }
     </style>
 </head>
 <body>
-    <!-- 打印按钮（仅屏幕显示） -->
     <div class="no-print" style="text-align: center; margin: 20px;">
         <button onclick="batchPrintAndMark()">一键打印所有订单</button>
         <a href="javascript:window.close()"><button>关闭窗口</button></a>
     </div>
 
-    <!-- 循环渲染每个订单 -->
     {% for item in orders_data %}
         <div class="bill-print">
             <div class="bill-header">
@@ -185,39 +209,49 @@
                 </div>
             </div>
 
-            <!-- 商品表格（包含完整表头） -->
-            <table class="bill-table">
-                <thead>
-                    <tr>
-                        <th class="col-index">序号</th>
-                        <th class="col-spec">规格</th>
-                        <th class="col-name">商品名称</th>
-                        <th class="col-qty">数量</th>
-                        <th class="col-unit">单位</th>
-                        <th class="col-price">单价</th>
-                        <th class="col-total">小计</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for line in item.items_display %}
-                    <tr>
-                        <td>{{ forloop.counter }}</td>
-                        {% if line %}
-                            <td>{{ line.specification|default:"-" }}</td>
-                            <td>{{ line.product_name }}</td>
-                            <td>{{ line.quantity }}</td>
-                            <td>{{ line.unit }}</td>
-                            <td>¥{{ line.actual_unit_price }}</td>
-                            <td>¥{{ line.amount }}</td>
-                        {% else %}
-                            <td></td><td></td><td></td><td></td><td></td><td></td>
-                        {% endif %}
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+            <!-- 表格区域 -->
+            <div class="table-wrapper">
+                <table class="bill-table">
+                    <thead>
+                        <tr>
+                            <th class="col-index">序号</th>
+                            <th class="col-spec">规格</th>
+                            <th class="col-name">商品名称</th>
+                            <th class="col-qty">数量</th>
+                            <th class="col-unit">单位</th>
+                            <th class="col-price">单价</th>
+                            <th class="col-total">小计</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for line in item.items_display %}
+                        <tr>
+                            <td>{{ forloop.counter }}</td>
+                            {% if line %}
+                                <td>{{ line.specification|default:"-" }}</td>
+                                <td>{{ line.product_name }}</td>
+                                <td>{{ line.quantity }}</td>
+                                <td>{{ line.unit }}</td>
+                                <td>¥{{ line.actual_unit_price }}</td>
+                                <td>¥{{ line.amount }}</td>
+                            {% else %}
+                                <td></td><td></td><td></td><td></td><td></td><td></td>
+                            {% endif %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
 
-            <!-- 底部信息（与单张打印完全一致） -->
+                <!-- 浮动留言 -->
+                {% if item.has_return_or_exchange and item.float_start is not None %}
+                    {% widthratio item.float_start 1 30 as start_px %}
+                    <div class="float-msg" style="top: {{ start_px|add:30 }}px;">
+                        带回退货
+                    </div>
+                {% endif %}
+            </div>
+
+            <!-- 底部信息 -->
             <div class="bill-footer">
                 <span>开单人员：{{ item.order.creator.name|default:"未知" }}</span>
                 <span></span>
@@ -225,67 +259,64 @@
             </div>
 
             <div class="bill-bottom">
-    <div class="bottom-row">
-        <span><strong>联系电话：</strong>{{ phone_numbers }}</span>
-    </div>
-    <div class="bottom-row"> 
-        <span><strong>投诉电话/微信号：</strong>{{ complaint_phone }}</span>
-    </div>
-    <div class="bottom-row">
-        <div class="field-group">
-            <strong>拣货人员：</strong>
-            <span class="underline">&nbsp;</span>
-        </div>
-        <div class="field-group">
-            <strong>收款备注：</strong>
-            <span class="underline underline-sm">&nbsp;</span>
-        </div>
-    </div>
-    <div class="bottom-row">
-        <div class="field-group">
-            <strong>件数备注：</strong>
-            <span class="underline">&nbsp;</span>
-        </div>
-        <div class="field-group">
-            <strong>收货签署：</strong>
-            <span class="underline underline-sm">&nbsp;</span>
-        </div>
-    </div>
+                <div class="bottom-row">
+                    <span><strong>联系电话：</strong>{{ phone_numbers }}</span>
+                </div>
+                <div class="bottom-row"> 
+                    <span><strong>投诉电话/微信号：</strong>{{ complaint_phone }}</span>
+                </div>
+                <div class="bottom-row">
+                    <div class="field-group">
+                        <strong>拣货人员：</strong>
+                        <span class="underline">&nbsp;</span>
+                    </div>
+                    <div class="field-group">
+                        <strong>收款备注：</strong>
+                        <span class="underline underline-sm">&nbsp;</span>
+                    </div>
+                </div>
+                <div class="bottom-row">
+                    <div class="field-group">
+                        <strong>件数备注：</strong>
+                        <span class="underline">&nbsp;</span>
+                    </div>
+                    <div class="field-group">
+                        <strong>收货签署：</strong>
+                        <span class="underline underline-sm">&nbsp;</span>
+                    </div>
+                </div>
 
-    <!-- 同一行：左制单工号，右客服留言 -->
-<div class="bottom-row" style="justify-content: space-between;">
-    <div class="field-group">
-        <strong style="font-size: 18px;">制单工号：</strong>
-        <span class="underline underline-sm" style="text-align: center;">
-            <span style="font-size: 22px; font-weight: bold; display: block; width: 100%;">
-                {% if item.order.order_number_snapshot %}
-                    {{ item.order.order_number_snapshot }}
-                {% elif item.order.customer and item.order.customer.order_number %}
-                    {{ item.order.customer.order_number }}
-                {% else %}
-                    &nbsp;
-                {% endif %}
-            </span>
-        </span>
-    </div>
-    {% if item.has_makeup %}
-    <div class="field-group">
-        <strong style="font-size: 18px;">客服留言：</strong>
-        <span style="font-size: 22px; font-weight: bold;">带回退货</span>
-    </div>
-    {% endif %}
-</div>
-</div>
+                <div class="bottom-row" style="justify-content: space-between;">
+                    <div class="field-group">
+                        <strong style="font-size: 18px;">制单工号：</strong>
+                        <span class="underline underline-sm" style="text-align: center;">
+                            <span style="font-size: 22px; font-weight: bold; display: block; width: 100%;">
+                                {% if item.order.order_number_snapshot %}
+                                    {{ item.order.order_number_snapshot }}
+                                {% elif item.order.customer and item.order.customer.order_number %}
+                                    {{ item.order.customer.order_number }}
+                                {% else %}
+                                    &nbsp;
+                                {% endif %}
+                            </span>
+                        </span>
+                    </div>
+                    {% if item.has_return_or_exchange and item.float_start is None %}
+                    <div class="field-group">
+                        <strong style="font-size: 18px;">客服留言：</strong>
+                        <span style="font-size: 22px; font-weight: bold;">带回退货</span>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
         </div>
 
-        <!-- 如果不是最后一个订单，添加分页符 -->
         {% if not forloop.last %}
             <div class="page-break"></div>
         {% endif %}
     {% endfor %}
 
     <script>
-        // 传递所有订单号到前端
         var orderNos = [{% for item in orders_data %}"{{ item.order.order_no }}"{% if not forloop.last %},{% endif %}{% endfor %}];
 
         function batchPrintAndMark() {
@@ -301,7 +332,6 @@
                 .then(r => r.json())
                 .then(data => {
                     console.log(data.msg);
-                    // 标记完成后可提示用户或自动关闭窗口
                     if (data.code === 1) {
                         alert("所有订单已标记为已打印");
                     }
@@ -311,7 +341,6 @@
             window.print();
         }
 
-        // 获取 CSRF Token
         function getCookie(name) {
             let cookieValue = null;
             if (document.cookie && document.cookie !== '') {

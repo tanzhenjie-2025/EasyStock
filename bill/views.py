@@ -332,6 +332,7 @@ def save_order(request):
                 qty = item.get('qty', 0)
                 price = item.get('price', 0)
                 is_makeup = item.get('is_makeup', False)
+                operation_type = item.get('operation_type', '')  # 新增读取
 
                 if not name:
                     return JsonResponse({'code': 0, 'msg': '商品名称不能为空'})
@@ -354,6 +355,7 @@ def save_order(request):
                     'qty': qty,
                     'price': decimal.Decimal(str(price)),
                     'is_makeup': is_makeup,
+                    'operation_type': operation_type if is_makeup else '',
                 })
 
             # ---------- 2. 批量查询有效商品 ----------
@@ -429,6 +431,7 @@ def save_order(request):
                         snapshot_standard_price=snap_standard,
                         snapshot_customer_price=snap_customer,
                         is_makeup_item=item_data.get('is_makeup', False),  # 新增
+                        operation_type=item_data.get('operation_type', ''),  # 新增
                     ))
                 else:
                     order_items.append(OrderItem(
@@ -443,6 +446,7 @@ def save_order(request):
                         snapshot_standard_price=None,
                         snapshot_customer_price=None,
                         is_makeup_item=item_data.get('is_makeup', False),  # 新增
+                        operation_type=item_data.get('operation_type', ''),  # 新增
                     ))
 
             # ---------- 6. 保存 ----------
@@ -1009,11 +1013,15 @@ def print_order(request, order_no):
     items = order.items.select_related('product')
 
     # 判断是否有补货品项
-    has_makeup = order.items.filter(is_makeup_item=True).exists()
+    has_return_or_exchange = order.items.filter(
+        is_makeup_item=True,
+        operation_type__in=['return', 'exchange']
+    ).exists()
 
     # 构建固定18行的商品列表（保留原有逻辑）
     items_display = list(items[:18])
     items_display.extend([None] * (18 - len(items_display)))
+    float_start = find_float_start(items_display)
 
     # RBAC权限判断
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
@@ -1022,7 +1030,8 @@ def print_order(request, order_no):
         'order': order,
         'items_display': items_display,
         'is_super_admin': is_super_admin,
-        'has_makeup': has_makeup,                # 新增
+        'has_return_or_exchange': has_return_or_exchange,                # 新增
+        'float_start': float_start,  # 新增
         'phone_numbers': settings.PHONE_NUMBERS,
         'complaint_phone': settings.COMPLAINT_PHONE,
         'bill_title': settings.BILL_TITLE,
@@ -1033,7 +1042,23 @@ def print_order(request, order_no):
 
     return response
 
+def has_return_or_exchange_items(order):
+    # 优先用 operation_type
+    if order.items.filter(is_makeup_item=True, operation_type__in=['return', 'exchange']).exists():
+        return True
+    # 降级：如果 operation_type 为空，则通过 amount < 0 判断（假设退货为负金额）
+    # 或者通过商品名称包含关键词，但不可靠，建议仅作为过渡
+    return order.items.filter(
+        is_makeup_item=True,
+        amount__lt=0
+    ).exists()
 
+def find_float_start(items_display):
+    """从第11行（索引10）开始，查找连续3个空行，返回起始索引，否则返回None"""
+    for start in range(10, 16):  # 索引10~15，保证有3行
+        if all(items_display[start + i] is None for i in range(3)):
+            return start
+    return None
 @login_required
 @permission_required(PERM_ORDER_REOPEN)
 def reopen_order_edit(request, order_no):
@@ -2189,7 +2214,6 @@ def batch_print_orders(request):
     if not order_nos:
         return HttpResponseBadRequest("请选择至少一个订单")
 
-    # 排除已作废的订单（前端已禁止勾选，后端再做一次保护）
     orders = Order.objects.filter(
         order_no__in=order_nos
     ).exclude(status='cancelled').select_related('customer', 'area', 'creator')
@@ -2198,11 +2222,14 @@ def batch_print_orders(request):
     for order in orders:
         items = order.items.select_related('product')
         items_display = list(items[:18]) + [None] * (18 - min(len(items), 18))
-        has_makeup = any(item.is_makeup_item for item in items)
+        # 使用新函数判断是否有退货/换货
+        has_return_or_exchange = has_return_or_exchange_items(order)
+        float_start = find_float_start(items_display)
         orders_data.append({
             'order': order,
             'items_display': items_display,
-            'has_makeup': has_makeup,
+            'has_return_or_exchange': has_return_or_exchange,  # 改名
+            'float_start': float_start,
         })
 
     context = {

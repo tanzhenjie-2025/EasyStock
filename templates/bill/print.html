@@ -10,15 +10,12 @@
                 size: 140mm 210mm;
                 margin: 0;
             }
-
-            html,
-            body {
+            html, body {
                 margin: 0;
                 padding: 0;
                 font-family: "SimSun", serif;
                 height: auto;
             }
-
             .bill-print {
                 width: 140mm;
                 height: auto;
@@ -27,7 +24,6 @@
                 page-break-inside: avoid;
                 border: none;
             }
-
             .no-print {
                 display: none;
             }
@@ -38,7 +34,6 @@
             font-weight: bold;
         }
 
-        /* 屏幕预览样式 */
         .bill-print {
             width: 140mm;
             height: auto;
@@ -77,42 +72,41 @@
             font-size: 13px;
         }
 
-        .bill-table {
+        /* 表格样式 */
+        .table-wrapper {
+            position: relative;
             width: 90%;
             margin: 0 auto;
+        }
+        .bill-table {
+            width: 100%;
             border-collapse: collapse;
             table-layout: fixed;
         }
         .bill-table th,
         .bill-table td {
             border: 1px solid #000;
-            padding: 4px;
+            padding: 4px 0;
             text-align: center;
             font-size: 14px;
             word-break: break-all;
+            height: 30px;
+            box-sizing: border-box;
+        }
+        .bill-table thead th {
+            height: 30px;
+        }
+        .bill-table tbody td {
+            height: 30px;
         }
 
-        .bill-table .col-index {
-            width: 5%;
-        }
-        .bill-table .col-spec {
-            width: 18%;
-        }
-        .bill-table .col-name {
-            width: 33%;
-        }
-        .bill-table .col-qty {
-            width: 8%;
-        }
-        .bill-table .col-unit {
-            width: 6%;
-        }
-        .bill-table .col-price {
-            width: 15%;
-        }
-        .bill-table .col-total {
-            width: 15%;
-        }
+        .bill-table .col-index { width: 5%; }
+        .bill-table .col-spec  { width: 18%; }
+        .bill-table .col-name  { width: 33%; }
+        .bill-table .col-qty   { width: 8%; }
+        .bill-table .col-unit  { width: 6%; }
+        .bill-table .col-price { width: 15%; }
+        .bill-table .col-total { width: 15%; }
 
         .bill-footer {
             margin-top: 8px;
@@ -135,43 +129,56 @@
             margin-right: auto;
             font-size: 13px;
         }
-
         .bill-bottom .bottom-row {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-top: 12px;
         }
-
         .bill-bottom .bottom-row:first-child {
             margin-top: 0;
         }
-
         .bill-bottom .bottom-row .field-group {
             display: flex;
             align-items: center;
         }
-
         .bill-bottom .bottom-row .field-group .underline {
             display: inline-block;
             width: 120px;
             border-bottom: 1px solid #000;
             margin-left: 4px;
         }
-
         .bill-bottom .bottom-row .field-group .underline-sm {
             width: 100px;
         }
-
         .bill-bottom .bottom-row .field-group-right {
             display: flex;
             align-items: center;
             margin-left: auto;
         }
+
+        /* 浮动消息样式 - 无背景，纯文字漂浮 */
+        .float-msg {
+            position: absolute;
+            left: 0;
+            width: 100%;
+            height: 90px;          /* 三行高度 */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 40px;
+            font-weight: bold;
+            color: #000;           /* 改为黑色 */
+            transform: rotate(-15deg);
+            pointer-events: none;
+            z-index: 10;
+            /* 移除背景和圆角，避免遮挡表格内容 */
+            /* text-shadow 可选，不加也可以 */
+        }
     </style>
 </head>
 <body>
-    <!-- 打印按钮（仅屏幕显示） -->
+    <!-- 打印按钮 -->
     <div class="no-print" style="text-align: center; margin: 20px;">
         <button onclick="printAndMark()">打印三联单</button>
         <a href="/bill/"><button>返回开单页</button></a>
@@ -183,7 +190,6 @@
             <h2>{{ bill_title }}</h2>
             <div class="bill-info-row">
                 <div class="info-group">
-                    
                     <span>
                         客户名称：
                         {% if order.customer_name_snapshot %}
@@ -202,42 +208,47 @@
             </div>
         </div>
 
-        <table class="bill-table">
-    <thead>
-        <tr>
-            <th class="col-index">序号</th>
-            <th class="col-spec">规格</th>
-            <th class="col-name">商品名称</th>
-            <th class="col-qty">数量</th>
-            <th class="col-unit">单位</th>
-            <th class="col-price">单价</th>
-            <th class="col-total">小计</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for item in items_display %}
-        <tr>
-            <td>{{ forloop.counter }}</td>   <!-- 序号固定1~15 -->
-            {% if item %}
-            <td>{{ item.specification|default:"-" }}</td>
-            <td>{{ item.product_name }}</td>
-            <td>{{ item.quantity }}</td>
-            <td>{{ item.unit }}</td>
-            <td>¥{{ item.actual_unit_price }}</td>
-            <td>¥{{ item.amount }}</td>
-            {% else %}
-            <!-- 空白行，保留边框，无内容 -->
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
-            <td></td>
+        <!-- 表格区域（包裹相对定位容器） -->
+        <div class="table-wrapper">
+            <table class="bill-table">
+                <thead>
+                    <tr>
+                        <th class="col-index">序号</th>
+                        <th class="col-spec">规格</th>
+                        <th class="col-name">商品名称</th>
+                        <th class="col-qty">数量</th>
+                        <th class="col-unit">单位</th>
+                        <th class="col-price">单价</th>
+                        <th class="col-total">小计</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items_display %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        {% if item %}
+                        <td>{{ item.specification|default:"-" }}</td>
+                        <td>{{ item.product_name }}</td>
+                        <td>{{ item.quantity }}</td>
+                        <td>{{ item.unit }}</td>
+                        <td>¥{{ item.actual_unit_price }}</td>
+                        <td>¥{{ item.amount }}</td>
+                        {% else %}
+                        <td></td><td></td><td></td><td></td><td></td><td></td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <!-- 浮动留言（仅当有补货且找到连续空行时显示） -->
+            {% if has_return_or_exchange and float_start is not None %}
+                {% widthratio float_start 1 30 as start_px %}
+                <div class="float-msg" style="top: {{ start_px|add:30 }}px;">
+                    带回退货
+                </div>
             {% endif %}
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
+        </div>
 
         <!-- 底部信息 -->
         <div class="bill-footer">
@@ -249,7 +260,6 @@
         <div class="bill-bottom">
             <div class="bottom-row">
                 <span><strong>联系电话：</strong>{{ phone_numbers }}</span>
-                
             </div>
             <div class="bottom-row"> 
                 <span><strong>投诉电话/微信号：</strong>{{ complaint_phone }}</span>
@@ -274,33 +284,30 @@
                     <span class="underline underline-sm">&nbsp;</span>
                 </div>
             </div>
-        <!-- 新增：客服留言行（仅当有补货品项时显示，靠右） -->
-<!-- 制单工号（左） + 客服留言（右）在同一行 -->
-<div class="bottom-row" style="justify-content: space-between;">
-    <div class="field-group">
-        <strong style="font-size: 18px;">制单工号：</strong>
-        <span class="underline underline-sm" style="text-align: center;">
-            <span style="font-size: 22px; font-weight: bold; display: block; width: 100%;">
-                {% if order.order_number_snapshot %}
-                    {{ order.order_number_snapshot }}
-                {% elif order.customer and order.customer.order_number %}
-                    {{ order.customer.order_number }}
-                {% else %}
-                    &nbsp;
+
+            <!-- 同一行：左制单工号，右客服留言（仅当无浮动层时显示） -->
+            <div class="bottom-row" style="justify-content: space-between;">
+                <div class="field-group">
+                    <strong style="font-size: 18px;">制单工号：</strong>
+                    <span class="underline underline-sm" style="text-align: center;">
+                        <span style="font-size: 22px; font-weight: bold; display: block; width: 100%;">
+                            {% if order.order_number_snapshot %}
+                                {{ order.order_number_snapshot }}
+                            {% elif order.customer and order.customer.order_number %}
+                                {{ order.customer.order_number }}
+                            {% else %}
+                                &nbsp;
+                            {% endif %}
+                        </span>
+                    </span>
+                </div>
+                {% if has_return_or_exchange and float_start is None %}
+                <div class="field-group">
+                    <strong style="font-size: 18px;">客服留言：</strong>
+                    <span style="font-size: 22px; font-weight: bold;">带回退货</span>
+                </div>
                 {% endif %}
-            </span>
-        </span>
-    </div>
-    {% if has_makeup %}
-    <div class="field-group">
-        <strong style="font-size: 18px;">客服留言：</strong>
-        <span style="font-size: 22px; font-weight: bold;">带回退货</span>
-    </div>
-    {% endif %}
-</div>
-
-
-
+            </div>
         </div>
     </div>
 
@@ -311,51 +318,48 @@
                 window.location.href = '/bill/';
             }
         });
-         // 防止多次打印重复标记
-    var printMarked = false;
+        var printMarked = false;
 
-    function printAndMark() {
-        window.onafterprint = function() {
-            if (!printMarked) {
-                printMarked = true;
-                // 向服务器发送标记请求
-                fetch('{% url "bill:mark_order_printed" order.order_no %}', {
-                    method: 'POST',
-                    headers: {
-                        'X-CSRFToken': getCookie('csrftoken'),
-                        'Content-Type': 'application/json',
-                    },
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.code === 1) {
-                        console.log('订单状态已更新为“已打印”');
+        function printAndMark() {
+            window.onafterprint = function() {
+                if (!printMarked) {
+                    printMarked = true;
+                    fetch('{% url "bill:mark_order_printed" order.order_no %}', {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRFToken': getCookie('csrftoken'),
+                            'Content-Type': 'application/json',
+                        },
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.code === 1) {
+                            console.log('订单状态已更新为“已打印”');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('标记请求失败:', error);
+                    });
+                }
+                window.onafterprint = null;
+            };
+            window.print();
+        }
+
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
                     }
-                })
-                .catch(error => {
-                    console.error('标记请求失败:', error);
-                });
-            }
-            window.onafterprint = null; // 清除事件，避免残留
-        };
-        window.print();
-    }
-
-    // 通用 Cookie 读取函数（兼容 Django CSRF）
-    function getCookie(name) {
-        let cookieValue = null;
-        if (document.cookie && document.cookie !== '') {
-            const cookies = document.cookie.split(';');
-            for (let i = 0; i < cookies.length; i++) {
-                const cookie = cookies[i].trim();
-                if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                    break;
                 }
             }
+            return cookieValue;
         }
-        return cookieValue;
-    }
     </script>
 </body>
 </html>

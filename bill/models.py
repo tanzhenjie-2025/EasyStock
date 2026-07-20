@@ -154,6 +154,13 @@ class Order(models.Model):
 
 class OrderItem(models.Model):
     """订单明细表（三联单明细）"""
+    OPERATION_TYPE_CHOICES = (
+        ('supplement', '补货'),
+        ('return', '退货'),
+        ('exchange', '换货'),
+        # 也可以增加 'normal' 表示正常商品，但正常商品可不填，默认 null
+    )
+
     product_name = models.CharField('商品名称', max_length=200, blank=True, default='')
     # ✅ 新增单位字段
     unit = models.CharField('单位', max_length=50, blank=True, default='', help_text='开单时的商品单位')
@@ -170,6 +177,14 @@ class OrderItem(models.Model):
     # order/models.py  class OrderItem
     is_makeup_item = models.BooleanField('是否补货品项', default=False,
                                          help_text='补货品项价格为0，用于统计和价格核算时排除')
+    operation_type = models.CharField(
+        '操作类型',
+        max_length=20,
+        choices=OPERATION_TYPE_CHOICES,
+        blank=True,
+        null=True,
+        help_text='仅当 is_makeup_item=True 时填写，用于区分补货/退货/换货'
+    )
 
     # 【新增】价格快照字段
     # 当时的商品标准价

@@ -747,38 +747,56 @@ let isSortDataReady = true;   // 数据已就绪，可随时排序
         // 规格输入框快捷键
 function handleSpecKeydown(e) {
     const input = e.target;
-    // 仅当输入框为空且光标在起始位置时触发（避免干扰已输入内容）
+    // 仅在光标在开头且无内容时触发快捷键，避免干扰已输入内容
     if (input.selectionStart !== 0 || input.value.length > 0) return;
-
-    if (e.key === '1') {
-        e.preventDefault();
-        input.value = '补';
-        updateMakeupFlag(input);
-    } else if (e.key === '2') {
-        e.preventDefault();
-        input.value = '换';
-        updateMakeupFlag(input);
-    } else if (e.key === ' ') {
-        e.preventDefault();
-        input.value = '补';
-        updateMakeupFlag(input);
-    }
+    let char = '';
+    if (e.key === '1') char = '补';
+    else if (e.key === '2') char = '换';
+    else if (e.key === '3') char = '退';
+    else return;
+    e.preventDefault();
+    input.value = char;
+    // 手动触发 input 事件，让 updateMakeupFlag 执行
+    input.dispatchEvent(new Event('input'));
 }
 
 // 根据输入内容自动判断补货标记（只要包含“补”或“换”字即视为补货）
 function updateMakeupFlag(input) {
     const val = input.value.trim();
-    const isMakeup = val.includes('补') || val.includes('换');
-    setMakeupFlag(input, isMakeup);
+    let isMakeup = false;
+    let operationType = '';
 
-    if (isMakeup) {
-        const tr = input.closest('tr');
-        const priceInput = tr.querySelector('.price-input');
-        if (priceInput) {
-            priceInput.value = 0;
-            calcRowAmount(priceInput);
-        }
+    // 关键词判断（优先级：退货优先，但实际互斥，一次只能一种）
+    if (val.includes('退') || val.includes('带')) {
+        isMakeup = true;
+        operationType = 'return';
+    } else if (val.includes('补')) {
+        isMakeup = true;
+        operationType = 'supplement';
+    } else if (val.includes('换')) {
+        isMakeup = true;
+        operationType = 'exchange';
     }
+
+    // 保存状态到 dataset
+    const tr = input.closest('tr');
+    input.dataset.isMakeup = isMakeup ? '1' : '0';
+    input.dataset.operationType = operationType;
+
+    // 行样式
+    if (isMakeup) {
+        tr.classList.add('makeup-row');
+    } else {
+        tr.classList.remove('makeup-row');
+    }
+
+    // 异常商品单价强制归零
+    const priceInput = tr.querySelector('.price-input');
+    if (isMakeup && priceInput) {
+        priceInput.value = 0;
+        calcRowAmount(priceInput);
+    }
+    // 若变为正常，保留用户已输入的单价（不做自动恢复）
 }
 
 // 统一设置行样式和数据标记
@@ -831,7 +849,7 @@ function setMakeupFlag(input, isMakeup) {
 
     const totalPages = Math.ceil(list.length / SUGGEST_PAGE_SIZE);
 
-    
+
     if (suggestCurrentPage >= totalPages) {
         suggestCurrentPage = Math.max(0, totalPages - 1);
     }
@@ -1274,11 +1292,13 @@ function customerGoToPage(delta) {
     input.value = value;
 
     // 规格列专属处理
-    if (className === 'spec-input') {
-        input.placeholder = '规格（1补/2退）';
-        input.addEventListener('keydown', handleSpecKeydown);
-        input.addEventListener('input', updateMakeupFlag);
-    }
+    // 规格列专属处理
+if (className === 'spec-input') {
+    input.placeholder = '规格（1补/2退）';
+    input.addEventListener('keydown', handleSpecKeydown);
+    input.addEventListener('input', updateMakeupFlag);
+    input.addEventListener('change', updateMakeupFlag);  // 新增
+}
 
     // 数量/单价输入实时计算金额
     if (type === 'number') {
@@ -1458,35 +1478,31 @@ function customerGoToPage(delta) {
         }
 
         // ========== 保存/打印/重置 (保持原样) ==========
-        async function saveOrder() {
-            // 如果用户开启了自动排序，先执行排序
+        // ========== 保存/打印/重置 ==========
+async function saveOrder() {
     const autoSortCheckbox = document.getElementById('autoSortCheckbox');
     if (autoSortCheckbox && autoSortCheckbox.checked) {
-        sortBillTable();   // 排序逻辑内部已包含规则检查，无规则时会提示
+        sortBillTable();
     }
     
     const customerInput = document.getElementById('customerInput');
     let customerId = customerInput.dataset.customerId || '';
     const customerName = customerInput.value.trim();
 
-    // ========= 新增必填校验 =========
     if (!customerName) {
         alert('请填写客户名称！');
         customerInput.focus();
         return;
     }
     
-    // 👇 关键修改：如果输入框文本与最初选中的名称不一致，丢弃 customerId
     const savedCustomerName = customerInput.dataset.customerName || '';
     if (customerName !== savedCustomerName) {
-        customerId = '';   // 视为自由输入的客户，不关联原ID
+        customerId = '';
     }
 
-    // 🔥 获取制单号
     const orderNumberInput = document.getElementById('orderNumberInput');
     const orderNumber = orderNumberInput ? orderNumberInput.value.trim() : '';
 
-    // ========= 制单号必填校验（新增） =========
     if (!orderNumber) {
         alert('请输入制单号！');
         orderNumberInput.focus();
@@ -1495,24 +1511,39 @@ function customerGoToPage(delta) {
 
     const items = [];
     document.querySelectorAll('#bill-tbody tr').forEach(tr => {
-        const nameInput = tr.querySelector('.name-input');
-        const name = nameInput.value.trim();
-        const qty = parseInt(tr.querySelector('.quantity-input').value) || 0;
-        const unit = tr.querySelector('.unit-input').value.trim();
-        const price = parseFloat(tr.querySelector('.price-input').value) || 0;
-        const amt = parseFloat(tr.querySelector('.amount-cell').textContent.replace('¥','')) || 0;
-        const productId = nameInput.dataset.productId || '';
-        const spec = tr.querySelector('.spec-input').value.trim();
-        const specInput = tr.querySelector('.spec-input');
-        const isMakeup = specInput && specInput.dataset.isMakeup === '1';   // 新增
+    const nameInput = tr.querySelector('.name-input');
+    const name = nameInput.value.trim();
+    const qty = parseInt(tr.querySelector('.quantity-input').value) || 0;
+    const unit = tr.querySelector('.unit-input').value.trim();
+    const price = parseFloat(tr.querySelector('.price-input').value) || 0;
+    const amt = parseFloat(tr.querySelector('.amount-cell').textContent.replace('¥','')) || 0;
+    const productId = nameInput.dataset.productId || '';
+    const spec = tr.querySelector('.spec-input').value.trim();
 
-        if (name && qty && price >= 0) {
+    // ========== 关键修复 ==========
+    const specInput = tr.querySelector('.spec-input');
+    // 强制更新一次，确保 dataset.isMakeup 和 dataset.operationType 存在
+    if (specInput) {
+        updateMakeupFlag(specInput);
+    }
+    const isMakeup = specInput && specInput.dataset.isMakeup === '1';
+    const operationType = specInput ? (specInput.dataset.operationType || '') : '';
+    // ==============================
+
+    if (name && qty && price >= 0) {
         items.push({
-            id: productId, name, spec, qty, unit, price, amt,
-            is_makeup: isMakeup                    // 新增字段
+            id: productId,
+            name,
+            spec,
+            qty,
+            unit,
+            price,
+            amt,
+            is_makeup: isMakeup,
+            operation_type: operationType
         });
     }
-    });
+});
 
     if (!items.length) { alert('请填写商品'); return; }
     const total = items.reduce((s, i) => s + parseFloat(i.amt), 0).toFixed(2);
@@ -1523,7 +1554,7 @@ function customerGoToPage(delta) {
             total_amount: total,
             customer_id: customerId,
             customer_name: customerName,
-            order_number: orderNumber,    // 👈 新增
+            order_number: orderNumber,
         };
         if (originalOrderNo) {
             requestData.original_order_no = originalOrderNo;
@@ -1538,8 +1569,6 @@ function customerGoToPage(delta) {
         });
         const d = await r.json();
         if (d.code === 1) {
-
-            // 原地跳转
             window.location.href = `/bill/print/${d.order_no}/`;
         } else {
             alert(d.msg);
