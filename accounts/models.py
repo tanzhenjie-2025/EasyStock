@@ -236,24 +236,30 @@ def init_accounts_data(sender, **kwargs):
 
         # 管理员角色
         admin_role = Role.objects.get(code=ROLE_ADMIN)
-        admin_perms = Permission.objects.filter(
-            Q(category='order') | Q(category='product') |
-            Q(code__in=[
-                'area_view', 'area_add', 'area_edit', 'area_delete',
-                'customer_view', 'customer_add', 'customer_edit', 'customer_delete',
-                'customer_repayment', 'customer_price_view', 'customer_price_add',
-                'customer_price_edit', 'customer_price_delete',
-                'log_view', 'log_view_all',
-                'order_view_others', 'order_cancel_own', 'order_cancel_others',
-                'product_sales_rank',
-                'order_price_check',
-                'customer_import',
-                'customer_price_import',
-                'customer_export',
-                'customer_price_export'
-            ])
-        )
-        admin_role.permissions.set(admin_perms)
+
+        # 在 init_accounts_data 中替换 admin_perms 部分
+        admin_permission_codes = [
+            # 订单
+            'order_view', 'order_view_others', 'order_print', 'order_create',
+            'order_reopen', 'order_settle', 'order_unsettle', 'order_summary',
+            'order_price_check', 'order_cancel_own', 'order_cancel_others',
+            # 商品
+            'product_view', 'product_add', 'product_edit', 'product_delete',
+            'product_alias_add', 'product_alias_delete', 'product_import',
+            'product_stock_operation', 'product_detail', 'product_sales_rank','product_search',
+            # 客户
+            'customer_view', 'customer_add', 'customer_edit', 'customer_delete',
+            'customer_repayment', 'customer_price_view', 'customer_price_add',
+            'customer_price_edit', 'customer_price_delete', 'customer_export',
+            'customer_import', 'customer_price_export', 'customer_price_import',
+            # 区域
+            'area_view', 'area_add', 'area_edit', 'area_delete','area_import', 'area_export',
+            'group_view', 'group_add', 'group_edit', 'group_delete',
+            'group_import', 'group_export',
+            # 日志
+            'log_view', 'log_view_all',
+        ]
+        admin_role.permissions.set(Permission.objects.filter(code__in=admin_permission_codes))
 
 # ========== 1. 权限表（替代Django原生Permission） ==========
 class Permission(models.Model):
