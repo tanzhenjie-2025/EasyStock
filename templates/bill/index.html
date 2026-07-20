@@ -1484,7 +1484,7 @@ async function saveOrder() {
     if (autoSortCheckbox && autoSortCheckbox.checked) {
         sortBillTable();
     }
-    
+
     const customerInput = document.getElementById('customerInput');
     let customerId = customerInput.dataset.customerId || '';
     const customerName = customerInput.value.trim();
@@ -1494,7 +1494,7 @@ async function saveOrder() {
         customerInput.focus();
         return;
     }
-    
+
     const savedCustomerName = customerInput.dataset.customerName || '';
     if (customerName !== savedCustomerName) {
         customerId = '';
@@ -1874,6 +1874,23 @@ async function saveOrder() {
             restoreAutoSortSetting();
             initCustomerInput();
             initOrderNumberInput();
+            
+            // ===== 事件委托：监听规格输入（实时 + 回车） =====
+    document.getElementById('bill-tbody').addEventListener('input', function(e) {
+        if (e.target.classList.contains('spec-input')) {
+            updateMakeupFlag(e.target);
+        }
+    });
+    
+    document.getElementById('bill-tbody').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && e.target.classList.contains('spec-input')) {
+            // 回车时强制更新一次（与 input 效果相同，但确保在输入法确认后执行）
+            updateMakeupFlag(e.target);
+            // 可选：阻止默认换行，并跳转到下一格
+            e.preventDefault();
+            handleEnterKey(e.target); // 模拟 Enter 跳转
+        }
+    });
 
             {% if reopen_order_data %}
                 const customerInput = document.getElementById('customerInput');
@@ -1902,6 +1919,8 @@ if (specInput.dataset.isMakeup !== '1') {   // 新增判断
     priceInput.value = 0;
 }
 calcRowAmount(priceInput);
+
+
 });
 
                 if (reopenItems.length === 0) addBlankRow();
