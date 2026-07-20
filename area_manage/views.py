@@ -15,6 +15,8 @@ from customer_manage.models import Customer
 
 import openpyxl
 
+from django.views.decorators.cache import cache_page
+
 from summary.views import export_to_excel
 from django.db.models import Sum, Count, Max, Q, F, DecimalField
 from django.db.models.functions import Coalesce
@@ -326,7 +328,7 @@ def area_delete(request, pk):
         return JsonResponse({'code': 0, 'msg': f'禁用失败：{str(e)}'})
 
 
-# 新增：区域启用功能
+# 区域启用功能
 @login_required
 @permission_required('area_edit')
 def area_enable(request, pk):
@@ -347,7 +349,7 @@ def area_enable(request, pk):
 
 # ===================== 区域组管理 =====================
 @login_required
-@permission_required('area_view')
+@permission_required('group_view')
 def group_list(request):
     try:
         keyword = request.GET.get('keyword', '').strip()
@@ -433,7 +435,7 @@ def group_list(request):
 
 
 @login_required
-@permission_required('area_view')
+@permission_required('group_view')
 def group_detail_api(request, pk):
     try:
         group = get_object_or_404(
@@ -493,7 +495,7 @@ def group_detail_api(request, pk):
 
 
 @login_required
-@permission_required('area_add')
+@permission_required('group_add')
 def group_add(request):
     if request.method == 'POST':
         try:
@@ -521,7 +523,7 @@ def group_add(request):
 
 
 @login_required
-@permission_required('area_edit')
+@permission_required('group_edit')
 def group_edit(request, pk):
     try:
         # 🔧 优化：only()限制字段
@@ -553,7 +555,7 @@ def group_edit(request, pk):
 
 
 @login_required
-@permission_required('area_delete')
+@permission_required('group_delete')
 def group_delete(request, pk):
     try:
         g = get_object_or_404(AreaGroup.objects.only('id', 'name'), pk=pk)
@@ -570,9 +572,9 @@ def group_delete(request, pk):
         return JsonResponse({'code': 0, 'msg': f'禁用失败：{str(e)}'})
 
 
-# 新增：区域组启用功能
+# 区域组启用功能
 @login_required
-@permission_required('area_edit')
+@permission_required('group_edit')
 def group_enable(request, pk):
     try:
         g = get_object_or_404(AreaGroup.objects.only('id', 'name'), pk=pk)
@@ -589,10 +591,11 @@ def group_enable(request, pk):
 
 
 # ===================== 页面入口 =====================
-from django.views.decorators.cache import cache_page
+
 
 
 @login_required
+@permission_required('area_view')
 def area_page(request):
     """根据当前用户权限传递控制变量，禁止缓存全页"""
     can_add = request.user.has_permission('area_add')      # 新增、导入共用此权限
@@ -606,7 +609,7 @@ def area_page(request):
 
 
 @login_required
-# 移除 @cache_page(CACHE_GROUP_PAGE)   <-- 必须去掉，否则权限控制失效
+@permission_required('group_view')
 def group_page(request):
     """区域组管理页面"""
     can_add = request.user.has_permission('area_add')      # 控制新增、导入
@@ -621,8 +624,9 @@ def group_page(request):
 
 @login_required
 @cache_page(CACHE_DETAIL_PAGE)
+@permission_required('area_view')
 def area_detail_page(request, pk):
-    # 🔧 优化：only()限制字段 + 修复update_time错误
+
     area = get_object_or_404(Area.objects.only('id', 'name', 'remark', 'create_time', 'update_time'), pk=pk)
     customer_count = get_area_statistics(pk)['customer_count']
     related_groups = AreaGroup.objects.filter(areas=area)
@@ -640,8 +644,8 @@ def area_detail_page(request, pk):
 
 @login_required
 @cache_page(CACHE_DETAIL_PAGE)
+@permission_required('group_view')
 def group_detail_page(request, pk):
-    # 🔧 优化：only()限制字段 + 修复update_time错误
     group = get_object_or_404(AreaGroup.objects.only('id', 'name', 'remark', 'create_time', 'update_time'), pk=pk)
     customer_count = get_group_statistics(pk)['customer_count']
 
@@ -657,7 +661,7 @@ def group_detail_page(request, pk):
 
 # ===================== 区域管理：导入导出新增代码 =====================
 @login_required
-@permission_required('area_add')
+@permission_required('area_import')
 def area_import(request):
     """
     区域批量导入：
@@ -721,7 +725,7 @@ def area_import(request):
 
 # ========== 区域导出新逻辑（支持字段选择） ==========
 @login_required
-@permission_required('area_view')
+@permission_required('area_export')
 def area_export(request):
     """
     区域批量导出（支持字段选择和自定义字段）
@@ -784,7 +788,7 @@ def area_export(request):
         return JsonResponse({'code': 0, 'msg': '导出失败'})
 
 @login_required
-@permission_required('area_add')
+@permission_required('group_import')
 def group_import(request):
     """
     区域组批量导入（支持覆盖更新）：
@@ -887,7 +891,7 @@ def group_import(request):
 
 
 @login_required
-@permission_required('area_view')
+@permission_required('group_export')
 def group_export(request):
     """
     区域组批量导出（支持字段选择和自定义字段）
@@ -1037,7 +1041,7 @@ def area_statistics_api(request, pk):
 
 # ===================== 新增：区域组深度统计API (模仿区域统计) =====================
 @login_required
-@permission_required('area_view')
+@permission_required('group_view')
 def group_statistics_api(request, pk):
     """
     按需统计：点击按钮才执行的深度计算
@@ -1301,16 +1305,16 @@ def area_portrait_api(request, area_id):
         return JsonResponse({'code': 0, 'msg': f'获取失败：{str(e)}'})
 
 
-# ===================== 新增：区域组统计页面入口 =====================
+# ===================== 区域组统计页面入口 =====================
 @login_required
-@permission_required('area_view')
+@permission_required('group_view')
 def group_stats_page(request):
     return render(request, 'area_manage/group_stats.html')
 
 
-# ===================== 新增：核心区域组统计数据接口 =====================
+# ===================== 核心区域组统计数据接口 =====================
 @login_required
-@permission_required('area_view')
+@permission_required('group_view')
 def calculate_group_stats(request):
     try:
         time_range = request.GET.get('time_range', '30days')

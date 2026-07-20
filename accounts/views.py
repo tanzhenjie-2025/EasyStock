@@ -690,7 +690,7 @@ def role_permission_config(request, role_code):
         'ROLE_SUPER_ADMIN': ROLE_SUPER_ADMIN, 'ROLE_ADMIN': ROLE_ADMIN, 'ROLE_OPERATOR': ROLE_OPERATOR
     })
 
-# ========== 其他视图（无性能问题） ==========
+
 @login_required
 def profile(request):
     user = request.user
@@ -734,7 +734,7 @@ def no_permission(request):
 
 # ===================== 用户管理：导入导出新增代码 =====================
 @login_required
-@permission_required('user_add')   # 建议使用更精确的权限，如 'user_import'
+@permission_required('user_import')   # 建议使用更精确的权限，如 'user_import'
 def user_import(request):
     """
     用户批量导入：
@@ -836,7 +836,7 @@ def user_import(request):
 
 
 @login_required
-@permission_required('area_view')  # 可根据实际权限配置修改，如 'user_view'
+@permission_required('user_export')  # 可根据实际权限配置修改，如 'user_view'
 def user_export(request):
     """
     用户批量导出（支持字段选择和自定义字段）

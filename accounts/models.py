@@ -46,6 +46,15 @@ PERM_AREA_ADD = 'area_add'  # 新增区域/区域组
 PERM_AREA_EDIT = 'area_edit'  # 编辑区域/区域组
 PERM_AREA_DELETE = 'area_delete'  # 删除区域/区域组
 
+# 2.1 区域组管理权限编码
+PERM_GROUP_VIEW = 'group_view'  # 查看区域/区域组
+PERM_GROUP_ADD = 'group_add'
+PERM_GROUP_EDIT = 'group_edit'
+PERM_GROUP_DELETE = 'group_delete'
+PERM_GROUP_IMPORT = 'group_import'
+PERM_GROUP_EXPORT = 'group_export'
+
+
 # 3. 客户管理权限编码
 PERM_CUSTOMER_VIEW = 'customer_view'  # 查看客户
 PERM_CUSTOMER_ADD = 'customer_add'  # 新增客户
@@ -79,6 +88,13 @@ PERM_PRODUCT_STOCK_OP = 'product_stock_operation'  # 商品出入库操作
 PERM_PRODUCT_DETAIL = 'product_detail'  # 查看商品详情（含销量/客户价）
 PERM_PRODUCT_SALES_RANK = 'product_sales_rank'  # 查看商品销售排行
 
+# 6. 用户管理权限编码
+PERM_USER_VIEW = 'user_view'
+PERM_USER_ADD = 'user_add'
+PERM_USER_EDIT = 'user_edit'
+PERM_USER_DELETE = 'user_delete'
+PERM_USER_IMPORT = 'user_import'
+PERM_USER_EXPORT = 'user_export'
 # ========== 合并角色+权限初始化（核心修复） ==========
 @receiver(post_migrate, dispatch_uid='init_accounts_data')
 def init_accounts_data(sender, **kwargs):
@@ -124,6 +140,17 @@ def init_accounts_data(sender, **kwargs):
             ('area_add', '新增区域', 'system', '新增区域'),
             ('area_edit', '编辑区域', 'system', '编辑区域'),
             ('area_delete', '删除区域', 'system', '删除区域'),
+            # 区域导入导出
+            ('area_import', '区域组导入', 'system', '批量导入区域'),
+            ('area_export', '区域组导出', 'system', '批量导出区域'),
+            # 区域组管理
+            ('group_view', '查看区域组', 'system', '查看区域组列表'),
+            ('group_add', '新增区域组', 'system', '新增区域组'),
+            ('group_edit', '编辑区域组', 'system', '编辑区域组'),
+            ('group_delete', '删除区域组', 'system', '删除区域组'),
+            # 区域组导入导出
+            ('group_import', '区域组导入', 'system', '批量导入区域组'),
+            ('group_export', '区域组导出', 'system', '批量导出区域组'),
 
             # 客户管理
             ('customer_view', '查看客户', 'customer', '查看客户列表/详情'),
@@ -157,6 +184,20 @@ def init_accounts_data(sender, **kwargs):
             ('product_stock_operation', '商品出入库', 'product', '快速调整商品库存'),
             ('product_detail', '商品详情', 'product', '查看商品销量/客户价等详情'),
             ('product_sales_rank', '销售排行查看', 'product', '查看商品销售TOP30排行'),
+
+
+
+            # 用户管理
+            ('user_view', '查看用户', 'system', '查看用户列表及基础信息'),
+            ('user_add', '新增用户', 'system', '新增用户'),
+            ('user_edit', '编辑用户', 'system', '编辑用户信息（名称/密码/权限等）'),
+            ('user_delete', '删除用户', 'system', '删除用户'),
+            ('user_reset_password', '重置密码', 'system', '重置用户密码'),
+            ('user_export', '导出用户', 'system', '批量导出用户数据（含角色）'),
+            ('user_import', '导入用户', 'system', '批量导入用户数据（含自动创建角色）'),
+            ('user_role_add', '新增用户角色', 'system', '为用户添加角色'),
+
+
         ]
 
         for code, name, category, desc in perm_data:
@@ -179,7 +220,7 @@ def init_accounts_data(sender, **kwargs):
             'customer_view', 'customer_price_view',
             'log_view', 'product_view', 'product_detail',
             'order_cancel_own',
-            'order_summary',  # ← 新增此行
+            'order_summary',
         ])
         operator_role.permissions.set(operator_perms)
 
@@ -196,8 +237,8 @@ def init_accounts_data(sender, **kwargs):
                 'order_view_others', 'order_cancel_own', 'order_cancel_others',
                 'product_sales_rank',
                 'order_price_check',
-                'customer_import',  # 新增
-                'customer_price_import',  # 新增
+                'customer_import',
+                'customer_price_import',
                 'customer_export',
                 'customer_price_export'
             ])
