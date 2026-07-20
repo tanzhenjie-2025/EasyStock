@@ -29,6 +29,10 @@ PERM_ORDER_VIEW = 'order_view'  # 查看订单/库存
 PERM_ORDER_PRINT = 'order_print'  # 打印订单
 PERM_ORDER_CANCEL = 'order_cancel'  # 作废订单
 PERM_ORDER_REOPEN = 'order_reopen'  # 重开订单
+
+PERM_ORDER_IMPORT = 'order_import'
+PERM_ORDER_EXPORT = 'order_export'
+
 PERM_ORDER_SETTLE = 'order_settle'  # 标记订单结清
 PERM_ORDER_UNSETTLE = 'order_unsettle'  # 撤销订单结清
 PERM_ORDER_SUMMARY = 'order_summary'  # 销售汇总查看/生成

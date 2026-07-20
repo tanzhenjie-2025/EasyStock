@@ -1,24 +1,20 @@
 # ========== 先导入所有必要模块（统一开头，避免重复） ==========
-from django.db import transaction
 from django.db.models.functions import Coalesce
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import HttpResponseBadRequest
 from django.shortcuts import render
 from django.views.decorators.http import require_POST
-from django.contrib.auth.decorators import login_required, permission_required
-from django.utils import timezone
-from .models import Order, OrderItem
 from product.models import Product, ProductAlias, ProductTag
 from customer_manage.models import Customer, CustomerPrice
-from area_manage.models import Area
 
 from django.db.models import Q, Sum, Count, Case, When, DecimalField
-import json
+
 from datetime import datetime, timedelta
 from django.contrib.auth.decorators import login_required
-from functools import wraps
-import decimal
 
+import decimal
+from .models import SortRule, ProductTag
+from django.contrib.auth.decorators import login_required
 from django.conf import settings
 from django.core.cache import cache
 
@@ -472,8 +468,6 @@ def save_order(request):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'开单失败：{str(e)}'})
 
-from .models import SortRule, ProductTag
-from django.contrib.auth.decorators import login_required
 
 @login_required
 def print_order(request, order_no):
@@ -642,7 +636,6 @@ def get_sort_rules(request):
 
 # views.py
 @login_required
-@permission_required(PERM_PRODUCT_SEARCH)  # 或合适的权限
 def get_all_product_tags(request):
     # 只返回启用且有标签的商品
     products = Product.objects.filter(is_active=True).prefetch_related('tags')
@@ -1076,8 +1069,6 @@ def cancel_order(request, order_no):
         except Exception as e:
             # 事务会自动回滚，安全返回错误
             return JsonResponse({'code': 0, 'msg': f'作废失败：{str(e)}'}, status=500)
-
-
 
 
 def has_return_or_exchange_items(order):
@@ -1700,7 +1691,7 @@ from django.db.models import Prefetch
 from urllib.parse import quote
 
 @login_required
-@permission_required(PERM_ORDER_VIEW)
+@permission_required('order_export')
 def export_orders(request):
     """导出当前筛选条件下的订单 Excel（模板可复用，增加订单级字段）"""
     order_no = request.GET.get('order_no', '').strip()
@@ -1836,7 +1827,7 @@ from django.db import transaction
 
 
 @login_required
-@permission_required(PERM_ORDER_CREATE)
+@permission_required('order_import')
 def import_orders(request):
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST'})
@@ -2234,7 +2225,6 @@ def mark_order_printed(request, order_no):
     else:
         # 作废等状态不允许标记
         return JsonResponse({'code': 0, 'msg': f'订单状态为{order.status}，无法标记已打印'})
-
 
 
 
