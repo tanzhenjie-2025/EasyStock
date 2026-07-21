@@ -71,6 +71,10 @@ def summary_page(request):
     return render(request, 'summary/summary.html')
 
 
+
+from django.db.models import Case, When, Value, IntegerField, CharField, DecimalField, F, Sum, Q
+from django.db.models.functions import Coalesce
+
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
 @cache_page(CACHE_HIGH_PRIORITY)
@@ -79,7 +83,7 @@ def summary_by_group(request):
     start_datetime = request.GET.get('start_date')
     end_datetime = request.GET.get('end_date')
     tag_ids_str = request.GET.get('tag_ids', '')
-    creator_id = request.GET.get('creator_id')  # 新增：开单人ID
+    creator_id = request.GET.get('creator_id')
 
     if not all([group_id, start_datetime, end_datetime]):
         return JsonResponse({'code': 0, 'msg': '请选择组和时间范围'})
@@ -93,38 +97,63 @@ def summary_by_group(request):
         return JsonResponse({'code': 0, 'msg': '时间格式错误'})
 
     filters = {
-        'product__isnull': False,
         'order__area_id__in': area_ids,
         'order__create_time__gte': start,
         'order__create_time__lte': end,
         'order__status__in': ['pending', 'printed', 'reopened']
     }
-    # 标签过滤
+
     if tag_ids_str:
         tag_ids = [int(x) for x in tag_ids_str.split(',') if x]
         if tag_ids:
             filters['product__tags__id__in'] = tag_ids
 
-    # 新增：开单人过滤（如果提供了有效ID）
     if creator_id:
         try:
             creator_id = int(creator_id)
             filters['order__creator_id'] = creator_id
         except (ValueError, TypeError):
-            pass  # 无效ID则忽略
+            pass
 
-    # 查询聚合数据，新增 product__specification 字段
+    # 使用带前缀的注释名，避免与模型字段（包括外键的 `_id` 字段）冲突
     items = OrderItem.objects.filter(**filters) \
         .select_related('product') \
-        .values('product__id', 'product__name', 'product__unit', 'product__price', 'product__specification') \
+        .annotate(
+            agg_product_id=Case(
+                When(product__isnull=False, then=F('product__id')),
+                default=Value(-1),
+                output_field=IntegerField()
+            ),
+            agg_product_name=Case(
+                When(product__isnull=False, then=F('product__name')),
+                default=F('product_name'),
+                output_field=CharField()
+            ),
+            agg_product_unit=Case(
+                When(product__isnull=False, then=F('product__unit')),
+                default=F('unit'),
+                output_field=CharField()
+            ),
+            agg_product_price=Case(
+                When(product__isnull=False, then=F('product__price')),
+                default=Coalesce('actual_unit_price', Value(0, output_field=DecimalField())),
+                output_field=DecimalField(max_digits=10, decimal_places=2)
+            ),
+            agg_product_spec=Case(
+                When(product__isnull=False, then=F('product__specification')),
+                default=F('specification'),
+                output_field=CharField()
+            )
+        ) \
+        .values('agg_product_id', 'agg_product_name', 'agg_product_unit', 'agg_product_price', 'agg_product_spec') \
         .annotate(
             total_qty=Sum('quantity'),
             total_amt=Sum('amount')
         ) \
         .order_by('-total_qty')
 
-    # 批量获取商品标签，避免N+1查询
-    product_ids = [item['product__id'] for item in items]
+    # 批量获取正式商品的标签
+    product_ids = [item['agg_product_id'] for item in items if item['agg_product_id'] != -1]
     tags_map = {}
     if product_ids:
         products = Product.objects.filter(id__in=product_ids).prefetch_related('tags')
@@ -136,17 +165,18 @@ def summary_by_group(request):
     for idx, item in enumerate(items, 1):
         item_total_amt = item['total_amt'] or Decimal('0.00')
         total_amount += item_total_amt
-        pid = item['product__id']
+        pid = item['agg_product_id']
+        tags = tags_map.get(pid, []) if pid != -1 else []
         data.append({
             'serial': idx,
-            'pid': pid,
-            'name': item['product__name'],
-            'unit': item['product__unit'],
-            'price': float(item['product__price']),
+            'pid': pid,                     # 前端据此判断自由开单（pid=-1）
+            'name': item['agg_product_name'],
+            'unit': item['agg_product_unit'],
+            'price': float(item['agg_product_price']),
             'total_qty': item['total_qty'] or 0,
             'total_amt': float(item_total_amt),
-            'specification': item.get('product__specification', ''),
-            'tags': tags_map.get(pid, []),
+            'specification': item['agg_product_spec'] or '',
+            'tags': tags,
             'remark': ''
         })
 
