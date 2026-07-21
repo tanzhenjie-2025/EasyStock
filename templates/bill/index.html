@@ -1615,6 +1615,18 @@ function navigateInTable(input, direction) {
                 targetInputs[targetInputIdx].select();
             }
         }
+        
+        // 获取当前表格中商品名称非空的行数（即实际内容行数）
+function getActualRowCount() {
+    const nameInputs = document.querySelectorAll('#bill-tbody .name-input');
+    let count = 0;
+    nameInputs.forEach(input => {
+        if (input.value.trim() !== '') {
+            count++;
+        }
+    });
+    return count;
+}
 
         // ========== 计算逻辑 (保持原样) ==========
         function calcRowAmount(input) {
@@ -1637,24 +1649,30 @@ function navigateInTable(input, direction) {
                 r.querySelector('.serial-cell').textContent = i+1;
             });
         }
-        function addBlankRow(returnRow=false) {
+        function addBlankRow(returnRow = false, ignoreLimit = false) {
+    // 若未忽略限制且实际行数已达16，则阻止添加并提示
+    if (!ignoreLimit && getActualRowCount() >= 16) {
+        alert('开单最多十六行内容，多出的内容不会被显示');
+        if (returnRow) return null;
+        return;
+    }
+
     rowIdCounter++;
     const tbody = document.getElementById('bill-tbody');
     const tr = document.createElement('tr');
     tr.dataset.rowId = rowIdCounter;
     tr.innerHTML = `
-        <td class="serial-cell">${tbody.children.length+1}</td>
+        <td class="serial-cell">${tbody.children.length + 1}</td>
         <!-- 5个输入列单元格 + 金额 + 操作 -->
         <td></td><td></td><td></td><td></td><td></td>
         <td class="amount-cell">¥0.00</td>
         <td><button class="btn-del" onclick="deleteRow(this)">删除</button></td>`;
 
-    tr.cells[1].appendChild(createInputElement('text','name-input','商品名称/拼音'));
-    // 👇 新增规格输入框
-    tr.cells[2].appendChild(createInputElement('text','spec-input','商品规格'));
-    tr.cells[3].appendChild(createInputElement('number','quantity-input','数量',1));
-    tr.cells[4].appendChild(createInputElement('text','unit-input','单位'));
-    tr.cells[5].appendChild(createInputElement('number','price-input','单价'));
+    tr.cells[1].appendChild(createInputElement('text', 'name-input', '商品名称/拼音'));
+    tr.cells[2].appendChild(createInputElement('text', 'spec-input', '商品规格'));
+    tr.cells[3].appendChild(createInputElement('number', 'quantity-input', '数量', 1));
+    tr.cells[4].appendChild(createInputElement('text', 'unit-input', '单位'));
+    tr.cells[5].appendChild(createInputElement('number', 'price-input', '单价'));
 
     tbody.appendChild(tr);
     updateRowNumbers();
@@ -2022,7 +2040,27 @@ async function saveOrder() {
         }
 
         function batchAddToBill() {
-    const count = cartItems.length;
+    // 获取当前实际行数
+    const currentActual = getActualRowCount();
+
+    // 计算本次将要新增的独立商品数量（去重，且排除已在表格中存在的商品）
+    const newProductIds = cartItems.map(item => item.productId);
+    const uniqueNewIds = [...new Set(newProductIds)];
+    const existingProductIds = new Set();
+    document.querySelectorAll('#bill-tbody .name-input').forEach(input => {
+        if (input.dataset.productId) {
+            existingProductIds.add(parseInt(input.dataset.productId));
+        }
+    });
+    const newRowsToAdd = uniqueNewIds.filter(id => !existingProductIds.has(id)).length;
+
+    // 若添加后总行数超过16，则提示并终止
+    if (currentActual + newRowsToAdd > 16) {
+        alert(`当前已有 ${currentActual} 行商品，本次加购会新增 ${newRowsToAdd} 行，超过16行限制，请减少加购商品。`);
+        return;
+    }
+
+    // 原有加购逻辑（此处按原代码保持不变）
     cartItems.forEach(item => {
         let existingRow = null;
         document.querySelectorAll('#bill-tbody tr').forEach(tr => {
@@ -2040,13 +2078,15 @@ async function saveOrder() {
             existingRow.classList.add('highlight-row');
             setTimeout(() => existingRow.classList.remove('highlight-row'), 1000);
         } else {
-            const newRow = addBlankRow(true);
+            // 添加新行（此时已通过预检测，不会超过限制）
+            const newRow = addBlankRow(true, true); // 忽略检测（已预检）
+            if (!newRow) return; // 防御
             const nameInput = newRow.querySelector('.name-input');
             nameInput.value = item.name;
             nameInput.dataset.productId = item.productId;
             const specInput = newRow.querySelector('.spec-input');
             specInput.value = item.spec || '';
-            updateMakeupFlag(specInput);                // 确保补货检测
+            updateMakeupFlag(specInput);
             newRow.querySelector('.quantity-input').value = item.quantity;
             newRow.querySelector('.unit-input').value = item.unit;
             const priceInput = newRow.querySelector('.price-input');
@@ -2076,71 +2116,89 @@ async function saveOrder() {
 
         // ========== 页面加载初始化 ==========
         window.onload = function() {
-            restoreAutoSortSetting();
-            initCustomerInput();
-            initOrderNumberInput();
-            
-            // ===== 事件委托：监听规格输入（实时 + 回车） =====
+    restoreAutoSortSetting();
+    initCustomerInput();
+    initOrderNumberInput();
+
+    // 事件委托：规格输入（实时 + 回车）
     document.getElementById('bill-tbody').addEventListener('input', function(e) {
         if (e.target.classList.contains('spec-input')) {
             updateMakeupFlag(e.target);
         }
     });
-    
+
     document.getElementById('bill-tbody').addEventListener('keydown', function(e) {
         if (e.key === 'Enter' && e.target.classList.contains('spec-input')) {
-            // 回车时强制更新一次（与 input 效果相同，但确保在输入法确认后执行）
             updateMakeupFlag(e.target);
-            // 可选：阻止默认换行，并跳转到下一格
             e.preventDefault();
-            handleEnterKey(e.target); // 模拟 Enter 跳转
+            handleEnterKey(e.target);
         }
     });
 
-            {% if reopen_order_data %}
-                const customerInput = document.getElementById('customerInput');
-                customerInput.value = "{{ reopen_order_data.customer_name }}";  // 改用快照名称
-                customerInput.dataset.customerId = "{{ reopen_order_data.customer_id }}";
-                customerInput.dataset.customerName = "{{ reopen_order_data.customer_name }}";
-                customerInput.dispatchEvent(new Event('change'));
+    {% if reopen_order_data %}
+        // ---------- 重开订单 ----------
+        const customerInput = document.getElementById('customerInput');
+        customerInput.value = "{{ reopen_order_data.customer_name }}";
+        customerInput.dataset.customerId = "{{ reopen_order_data.customer_id }}";
+        customerInput.dataset.customerName = "{{ reopen_order_data.customer_name }}";
+        customerInput.dispatchEvent(new Event('change'));
 
-                document.getElementById('bill-tbody').innerHTML = '';
-                rowIdCounter = 0;
+        document.getElementById('bill-tbody').innerHTML = '';
+        rowIdCounter = 0;
 
-                const reopenItems = {{ reopen_order_data.items|safe }};
-                reopenItems.forEach(item => {const tr = addBlankRow(true);
-const nameInput = tr.querySelector('.name-input');
-nameInput.value = item.name;
-nameInput.dataset.productId = item.id;
-const specInput = tr.querySelector('.spec-input');
-specInput.value = item.spec || '';
-updateMakeupFlag(specInput);                // 新增
-tr.querySelector('.quantity-input').value = item.qty;
-tr.querySelector('.unit-input').value = item.unit;
-const priceInput = tr.querySelector('.price-input');
-if (specInput.dataset.isMakeup !== '1') {   // 新增判断
-    priceInput.value = item.price;
-} else {
-    priceInput.value = 0;
-}
-calcRowAmount(priceInput);
+        const reopenItems = {{ reopen_order_data.items|safe }};
+        reopenItems.forEach(item => {
+            const tr = addBlankRow(true, true);
+            if (!tr) return;
+            const nameInput = tr.querySelector('.name-input');
+            nameInput.value = item.name;
+            nameInput.dataset.productId = item.id;
+            const specInput = tr.querySelector('.spec-input');
+            specInput.value = item.spec || '';
+            updateMakeupFlag(specInput);
+            tr.querySelector('.quantity-input').value = item.qty;
+            tr.querySelector('.unit-input').value = item.unit;
+            const priceInput = tr.querySelector('.price-input');
+            if (specInput.dataset.isMakeup !== '1') {
+                priceInput.value = item.price;
+            } else {
+                priceInput.value = 0;
+            }
+            calcRowAmount(priceInput);
+        });
 
-
-});
-
-                if (reopenItems.length === 0) addBlankRow();
-                const firstProductInput = document.querySelector('#bill-tbody .name-input');
-                if (firstProductInput) { firstProductInput.focus(); firstProductInput.select(); }
-            {% else %}
-                for (let i = 0; i < 3; i++) {
-                    addBlankRow();
+        // 若行数超过16则截断
+        const actualCount = getActualRowCount();
+        if (actualCount > 16) {
+            alert('该订单包含超过16行商品，仅保留前16行。');
+            const rows = document.querySelectorAll('#bill-tbody tr');
+            let count = 0;
+            rows.forEach(tr => {
+                const nameInput = tr.querySelector('.name-input');
+                if (nameInput && nameInput.value.trim() !== '') {
+                    count++;
+                    if (count > 16) {
+                        tr.remove();
+                    }
                 }
-                const customerInput = document.getElementById('customerInput');
-                if (customerInput) customerInput.focus();
-            {% endif %}
+            });
+            updateRowNumbers();
+            calcTotalAmount();
+        }
 
+        if (reopenItems.length === 0) addBlankRow();
+        const firstProductInput = document.querySelector('#bill-tbody .name-input');
+        if (firstProductInput) { firstProductInput.focus(); firstProductInput.select(); }
 
-        };
+    {% else %}
+        // ---------- 正常初始化（非重开） ----------
+        for (let i = 0; i < 3; i++) {
+            addBlankRow();
+        }
+        const customerInput = document.getElementById('customerInput');
+        if (customerInput) customerInput.focus();
+    {% endif %}
+};
 
 
 
