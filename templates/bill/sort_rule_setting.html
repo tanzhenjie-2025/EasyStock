@@ -5,6 +5,7 @@
 <div class="container mt-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <h3>开单排序规则设置（多阶段）</h3>
+        
         <a href="/bill/" class="btn btn-outline-secondary">← 返回开单页</a>
     </div>
 
@@ -18,9 +19,17 @@
     </div>
 
     <div class="mt-3">
-        <button type="button" class="btn btn-success" onclick="addStage()">+ 新增阶段</button>
-        <button type="button" class="btn btn-primary ms-2" onclick="saveRules()">保存规则</button>
-    </div>
+    <button type="button" class="btn btn-success" onclick="addStage()">+ 新增阶段</button>
+    <button type="button" class="btn btn-primary ms-2" onclick="saveRules()">保存规则</button>
+    <!-- 🔥 新增导入导出按钮 -->
+    <button type="button" class="btn btn-outline-info ms-2" onclick="exportRules()">
+        <i class="bi bi-download"></i> 导出规则
+    </button>
+    <button type="button" class="btn btn-outline-warning ms-2" id="importRuleBtn">
+        <i class="bi bi-upload"></i> 导入规则
+    </button>
+    <input type="file" id="importRuleFile" accept=".xlsx" style="display: none;" />
+</div>
 </div>
 
 <script>
@@ -33,6 +42,61 @@
     } catch (e) {
         console.error('数据解析失败', e);
     }
+    
+    // 导出规则
+function exportRules() {
+    // 直接跳转到导出 URL（或使用 window.open）
+    window.location.href = '/bill/sort-rules/export/';
+}
+
+// 导入规则 - 触发文件选择
+document.getElementById('importRuleBtn').addEventListener('click', function() {
+    document.getElementById('importRuleFile').click();
+});
+
+// 监听文件选择
+document.getElementById('importRuleFile').addEventListener('change', function(e) {
+    var file = this.files[0];
+    if (!file) return;
+
+    // 确认是否覆盖现有规则
+    if (!confirm('导入将覆盖当前所有排序规则，确认继续？')) {
+        this.value = '';  // 清空选择
+        return;
+    }
+
+    var formData = new FormData();
+    formData.append('file', file);
+
+    fetch('/bill/sort-rules/import/', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCsrfToken()
+        },
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.code === 1) {
+            alert(data.msg);
+            window.location.reload();  // 刷新页面显示新规则
+        } else {
+            alert('导入失败：' + (data.msg || '未知错误'));
+            if (data.errors) {
+                console.warn('详细错误：', data.errors);
+            }
+        }
+    })
+    .catch(err => {
+        alert('请求异常：' + err.message);
+    })
+    .finally(() => {
+        // 清空 input，允许重复选择同一文件
+        document.getElementById('importRuleFile').value = '';
+    });
+});
+
+// 确保 getCsrfToken 已定义（您已有该函数）
 
     // 渲染所有阶段
     function renderAllStages() {

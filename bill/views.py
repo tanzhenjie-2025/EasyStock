@@ -2889,3 +2889,142 @@ def import_orders_confirm(request):
 # views.py 新增简单页面视图
 def import_order_page(request):
     return render(request, 'bill/import_order.html')
+
+
+import io
+from openpyxl import Workbook, load_workbook
+from django.http import HttpResponse, JsonResponse
+from django.contrib.auth.decorators import login_required, permission_required
+from django.db import transaction
+from urllib.parse import quote
+from .models import SortRule, ProductTag
+
+
+@login_required
+@permission_required('bill.export_sortrule')  # 按需修改权限
+def export_sort_rules(request):
+    """导出所有排序规则为 Excel"""
+    rules = SortRule.objects.select_related('tag').order_by('stage', 'priority', 'id')
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = '排序规则'
+
+    # 表头
+    headers = ['阶段', '规则类型', '标签名称', '规格条件', '优先级', '启用']
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col, value=header)
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal='center')
+
+    # 填充数据
+    for row_num, rule in enumerate(rules, start=2):
+        ws.cell(row=row_num, column=1, value=rule.stage)
+        ws.cell(row=row_num, column=2, value=rule.rule_type)  # 'tag' 或 'spec'
+        if rule.rule_type == 'tag' and rule.tag:
+            ws.cell(row=row_num, column=3, value=rule.tag.name)
+        else:
+            ws.cell(row=row_num, column=3, value='')
+        ws.cell(row=row_num, column=4, value=rule.spec_condition or '')
+        ws.cell(row=row_num, column=5, value=rule.priority)
+        ws.cell(row=row_num, column=6, value='是' if rule.is_active else '否')
+
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    filename = f'排序规则_{timezone.now().strftime("%Y%m%d")}.xlsx'
+    response['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(filename)}"
+    wb.save(response)
+    return response
+
+
+@login_required
+@permission_required('bill.import_sortrule')
+def import_sort_rules(request):
+    """导入排序规则（覆盖现有规则）"""
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持 POST 请求'})
+
+    excel_file = request.FILES.get('file')
+    if not excel_file:
+        return JsonResponse({'code': 0, 'msg': '请上传 Excel 文件'})
+
+    try:
+        wb = load_workbook(excel_file, read_only=True)
+        ws = wb.active
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': f'文件解析失败：{str(e)}'})
+
+    # 读取数据行（从第2行开始）
+    rows = list(ws.iter_rows(min_row=2, values_only=True))
+    if not rows:
+        return JsonResponse({'code': 0, 'msg': 'Excel 中无数据'})
+
+    new_rules = []
+    errors = []
+    # 收集所有标签名称以便批量查询
+    tag_names = set()
+    for row in rows:
+        if len(row) < 6:
+            errors.append(f'行数据不完整（至少需要6列）: {row}')
+            continue
+        stage, rule_type, tag_name, spec_cond, priority, active_str = row[:6]
+        # 基本校验
+        try:
+            stage = int(stage)
+            priority = int(priority) if priority is not None else 0
+        except (ValueError, TypeError):
+            errors.append(f'阶段或优先级必须为数字: {row}')
+            continue
+        if rule_type not in ['tag', 'spec']:
+            errors.append(f'规则类型必须为 "tag" 或 "spec": {row}')
+            continue
+        if rule_type == 'tag' and tag_name:
+            tag_names.add(tag_name)
+        if rule_type == 'spec' and spec_cond not in ['has_spec', 'no_spec']:
+            errors.append(f'规格条件必须为 "has_spec" 或 "no_spec": {row}')
+            continue
+        is_active = active_str in ['是', '1', 'true', 'True']
+        new_rules.append({
+            'stage': stage,
+            'rule_type': rule_type,
+            'tag_name': tag_name,
+            'spec_condition': spec_cond,
+            'priority': priority,
+            'is_active': is_active,
+        })
+
+    if errors:
+        return JsonResponse({'code': 0, 'msg': '数据校验失败', 'errors': errors[:5]})
+
+    # 查询所有标签
+    tag_map = {}
+    if tag_names:
+        tags = ProductTag.objects.filter(name__in=tag_names)
+        tag_map = {tag.name: tag for tag in tags}
+        missing = tag_names - set(tag_map.keys())
+        if missing:
+            return JsonResponse({'code': 0, 'msg': f'以下标签在系统中不存在: {", ".join(missing)}'})
+
+    # 事务：删除旧规则，创建新规则
+    with transaction.atomic():
+        SortRule.objects.all().delete()
+        rules_to_create = []
+        for item in new_rules:
+            rule = SortRule(
+                stage=item['stage'],
+                rule_type=item['rule_type'],
+                priority=item['priority'],
+                is_active=item['is_active'],
+            )
+            if item['rule_type'] == 'tag':
+                rule.tag = tag_map.get(item['tag_name'])
+                rule.spec_condition = None
+            else:
+                rule.tag = None
+                rule.spec_condition = item['spec_condition']
+            rules_to_create.append(rule)
+        if rules_to_create:
+            SortRule.objects.bulk_create(rules_to_create)
+
+    return JsonResponse({'code': 1, 'msg': f'导入成功，共导入 {len(rules_to_create)} 条规则'})

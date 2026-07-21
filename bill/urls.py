@@ -50,5 +50,7 @@ path('orders/batch-mark-printed/', views.batch_mark_printed, name='batch_mark_pr
     path('orders/import/preview/', views.import_orders_preview, name='import_orders_preview'),  # POST → 预览
     path('orders/import/confirm/', views.import_orders_confirm, name='import_orders_confirm'),  # POST → 确认导入
 
+path('sort-rules/export/', views.export_sort_rules, name='export_sort_rules'),
+path('sort-rules/import/', views.import_sort_rules, name='import_sort_rules'),
 
 ]
