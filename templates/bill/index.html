@@ -1294,13 +1294,20 @@ function navigateInTable(input, direction) {
     const inputs = tr.querySelectorAll('input');
     const idx = Array.from(inputs).indexOf(input);
     
+    let target;
     if (direction === 'left' || direction === 'right') {
         const colCount = inputs.length;
         let targetIdx = (direction === 'left') 
             ? (idx - 1 + colCount) % colCount 
             : (idx + 1) % colCount;
-        const target = inputs[targetIdx];
-        focusAndSetCaret(target, direction);
+        target = inputs[targetIdx];
+        // 如果是数量或单价，全选；否则按方向设置光标
+        if (target.classList.contains('quantity-input') || target.classList.contains('price-input')) {
+            target.focus();
+            target.select();
+        } else {
+            focusAndSetCaret(target, direction);
+        }
     } else { // up / down
         const rowCount = allTr.length;
         let targetRowIdx = (direction === 'up')
@@ -1309,8 +1316,31 @@ function navigateInTable(input, direction) {
         const targetTr = allTr[targetRowIdx];
         const targetInputs = targetTr.querySelectorAll('input');
         const targetIdx = Math.min(idx, targetInputs.length - 1);
-        const target = targetInputs[targetIdx];
-        focusAndSetCaret(target, direction);
+        target = targetInputs[targetIdx];
+
+        // 根据当前光标位置决定目标光标位置
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        const len = input.value.length;
+        let caretPos = 'left'; // 默认末尾（'left' 表示光标放在末尾）
+        if (start === 0 && end === 0) {
+            caretPos = 'right'; // 开头（'right' 表示光标放在开头）
+        } else if (start === len && end === len) {
+            caretPos = 'left';  // 末尾
+        } else if (start === 0 && end === len) {
+            // 全选状态：默认末尾（可按需调整）
+            caretPos = 'left';
+        } else {
+            caretPos = 'left';
+        }
+
+        // 如果目标是数量或单价，全选；否则保持水平位置
+        if (target.classList.contains('quantity-input') || target.classList.contains('price-input')) {
+            target.focus();
+            target.select();
+        } else {
+            focusAndSetCaret(target, caretPos);
+        }
     }
 }
 
@@ -1357,31 +1387,52 @@ function navigateInTable(input, direction) {
         // ========== 表格行操作 (保持原样) ==========
         function createInputElement(type, className, placeholder, value = '') {
     const input = document.createElement('input');
-    input.type = type;
+    input.type = type;   // 默认为传入类型
     input.className = className;
     input.placeholder = placeholder;
     input.value = value;
 
-    
-    // 规格列专属处理
-if (className === 'spec-input') {
-    input.placeholder = '商品规格';
-    
-    input.addEventListener('input', updateMakeupFlag);
-    input.addEventListener('change', updateMakeupFlag);  // 新增
-}
+    // 如果是数量或单价，改用文本类型并启用数字键盘
+    if (className === 'quantity-input' || className === 'price-input') {
+        input.type = 'text';
+        input.inputMode = 'decimal';   // 移动端显示数字键盘
+        // 保留 min/step 属性（可选，但类型为 text 时它们无效，可删除）
+        // 但为了兼容，我们保留或删除均可
+        // 由于改为 text，我们会手动处理数值验证，但保存时会 parseFloat，所以可以
+    }
 
-    // 数量/单价输入实时计算金额
-    if (type === 'number') {
-        input.min = className === 'quantity-input' ? 1 : 0;
-        input.step = className === 'price-input' ? 0.01 : 1;
+    // 规格列专属处理
+    if (className === 'spec-input') {
+        input.placeholder = '商品规格';
+        input.addEventListener('input', updateMakeupFlag);
+        input.addEventListener('change', updateMakeupFlag);
+    }
+
+    // 数量/单价输入实时计算金额（无论类型）
+    if (className === 'quantity-input' || className === 'price-input') {
         input.addEventListener('input', () => calcRowAmount(input));
+        // 输入时过滤非数字字符（可选）
+        input.addEventListener('blur', function() {
+            let val = this.value.trim();
+            if (val === '') val = '0';
+            // 如果是数量，转为整数；单价转为浮点数
+            if (className === 'quantity-input') {
+                let num = parseInt(val);
+                if (isNaN(num) || num < 0) num = 1;
+                this.value = num;
+            } else if (className === 'price-input') {
+                let num = parseFloat(val);
+                if (isNaN(num) || num < 0) num = 0;
+                this.value = num.toFixed(2);
+            }
+            calcRowAmount(this);
+        });
     }
 
     // 商品名称：拼音搜索 + 快捷键，并清除 productId
     if (className === 'name-input') {
         input.addEventListener('input', () => {
-            input.dataset.productId = '';          // 手动修改时清除关联产品ID
+            input.dataset.productId = '';
             debouncedProductSearch(input);
         });
         input.addEventListener('keydown', handleProductInputKey);
@@ -1400,7 +1451,7 @@ if (className === 'spec-input') {
         input.addEventListener('keydown', handleUnitInputKey);
     }
 
-    // 通用模糊/建议框保护：名称和单位输入框失焦时延迟隐藏（避免点建议时消失）
+    // 通用模糊/建议框保护
     if (className === 'name-input' || className === 'unit-input') {
         input.addEventListener('blur', function(e) {
             setTimeout(() => {
@@ -1412,7 +1463,7 @@ if (className === 'spec-input') {
         });
     }
 
-    bindInputKeyboardEvents(input);   // 方向键、Enter 等通用逻辑
+    bindInputKeyboardEvents(input);
     return input;
 }
         function bindInputKeyboardEvents(input) {
@@ -1429,22 +1480,22 @@ if (className === 'spec-input') {
         }
         const key = e.key;
         if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key)) {
-            // ---- 左右键：精确控制跳转 ----
+            // ---- 左右键：全选时也跳转 ----
             if (key === 'ArrowLeft') {
                 const start = input.selectionStart;
                 const end = input.selectionEnd;
                 const len = input.value.length;
-                // 空输入框：直接跳转
                 if (len === 0) {
                     e.preventDefault();
                     navigateInTable(input, 'left');
                     return;
                 }
-                // 全选状态：不拦截（让浏览器取消全选）
+                // 全选状态：直接跳转左
                 if (start === 0 && end === len) {
+                    e.preventDefault();
+                    navigateInTable(input, 'left');
                     return;
                 }
-                // 光标在开头：跳转
                 if (start === 0) {
                     e.preventDefault();
                     navigateInTable(input, 'left');
@@ -1461,6 +1512,8 @@ if (className === 'spec-input') {
                     return;
                 }
                 if (start === 0 && end === len) {
+                    e.preventDefault();
+                    navigateInTable(input, 'right');
                     return;
                 }
                 if (start === len) {
@@ -1495,10 +1548,18 @@ if (className === 'spec-input') {
     const inputs = tr.querySelectorAll('input');
     const idx = Array.from(inputs).indexOf(input);
     if (idx < inputColsCount - 1) {
-        focusAndSetCaret(inputs[idx+1], 'right');
+        const target = inputs[idx + 1];
+        // 如果目标是数量或单价，全选
+        if (target.classList.contains('quantity-input') || target.classList.contains('price-input')) {
+            target.focus();
+            target.select();
+        } else {
+            focusAndSetCaret(target, 'right');
+        }
     } else {
         const newTr = addBlankRow(true);
-        focusAndSetCaret(newTr.querySelector('.name-input'), 'right');
+        const target = newTr.querySelector('.name-input');
+        focusAndSetCaret(target, 'right');
     }
 }
         function handleDirectionKeys(input, key) {
