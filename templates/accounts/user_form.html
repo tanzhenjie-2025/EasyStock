@@ -15,7 +15,7 @@
                     <label class="form-label" for="username">用户名 <span class="text-danger">*</span></label>
                     <input type="text" class="form-control form-control-sm" id="username" name="username"
                            value="{% if is_edit %}{{ user.username }}{% else %}{{ form_data.username }}{% endif %}"
-                           {% if is_edit %}readonly{% endif %} required>
+                            required>
                 </div>
                 <div class="col-md-6">
                     <label class="form-label" for="user_code">用户编号 <span class="text-danger">*</span></label>

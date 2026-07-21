@@ -421,6 +421,14 @@ def user_add(request):
             return render(request, 'accounts/user_form.html', {
                 'roles': get_cached_roles(), 'form_data': request.POST, 'is_add': True
             })
+
+        # ---- 检查用户名是否已存在 ----
+        if User.objects.filter(username=username).exists():
+            messages.error(request, f'用户名 "{username}" 已被使用，请换一个。')
+            return render(request, 'accounts/user_form.html', {
+                'roles': get_cached_roles(), 'form_data': request.POST, 'is_add': True
+            })
+
         try:
             user = User.objects.create_user(
                 username=username, user_code=user_code, password=password,
@@ -442,7 +450,8 @@ def user_add(request):
             messages.success(request, f'用户 {user_code} - {username} 创建成功！')
             return redirect('/accounts/user-list/')
         except IntegrityError:
-            messages.error(request, '用户编号已存在！')
+            # 可能由于 user_code 重复引发，或并发导致 username 重复（但已提前检查，概率极低）
+            messages.error(request, '用户编号或用户名已存在！')
         except Exception as e:
             messages.error(request, f'创建失败：{str(e)}')
     return render(request, 'accounts/user_form.html', {'roles': get_cached_roles(), 'is_add': True})
@@ -464,6 +473,15 @@ def user_edit(request, user_id):
             'user_code': user.user_code, 'username': user.username, 'phone': user.phone,
             'role': user.role.name if user.role else '无', 'is_active': user.is_active
         }
+
+        # ---- 检查用户名是否被其他用户占用 ----
+        if User.objects.exclude(id=user.id).filter(username=username).exists():
+            messages.error(request, f'用户名 "{username}" 已被其他用户使用，请换一个。')
+            return render(request, 'accounts/user_form.html', {
+                'user': user, 'roles': get_cached_roles(),
+                'role_id': user.role.id if user.role else '', 'is_edit': True
+            })
+
         try:
             user.username = username
             user.user_code = user_code
@@ -492,7 +510,7 @@ def user_edit(request, user_id):
             messages.success(request, f'用户 {user_code} - {username} 修改成功！')
             return redirect('/accounts/user-list/')
         except IntegrityError:
-            messages.error(request, '用户编号已存在！')
+            messages.error(request, '用户编号或用户名已存在！')
         except Exception as e:
             messages.error(request, f'修改失败：{str(e)}')
     return render(request, 'accounts/user_form.html', {
@@ -695,30 +713,52 @@ def role_permission_config(request, role_code):
 def profile(request):
     user = request.user
     if request.method == 'POST':
+        new_username = request.POST.get('username', '').strip()
+        if not new_username:
+            messages.error(request, '用户名不能为空！')
+            return render(request, 'accounts/profile.html', {'user': user})
+
+        if User.objects.exclude(id=user.id).filter(username=new_username).exists():
+            messages.error(request, f'用户名 "{new_username}" 已被占用，请换一个。')
+            return render(request, 'accounts/profile.html', {'user': user})
+
+        user.username = new_username
         user.first_name = request.POST.get('first_name', user.first_name).strip()
         user.last_name = request.POST.get('last_name', user.last_name).strip()
         user.phone = request.POST.get('phone', user.phone).strip()
         user.address = request.POST.get('address', user.address).strip()
         user.email = request.POST.get('email', user.email).strip()
+
         new_pwd = request.POST.get('new_password', '').strip()
         pwd_changed = False
         if new_pwd:
             old_pwd = request.POST.get('old_password', '').strip()
+            if not old_pwd:
+                messages.error(request, '修改密码必须填写原密码！')
+                return render(request, 'accounts/profile.html', {'user': user})
             if not user.check_password(old_pwd):
                 messages.error(request, '原密码错误！')
                 return render(request, 'accounts/profile.html', {'user': user})
             user.set_password(new_pwd)
             pwd_changed = True
             cache.delete(f"user_perm_{user.id}_*")
+
         user.save()
+
+        # 更新 session 中的用户名展示信息
+        request.session['user_name'] = user.name
+
+        if pwd_changed:
+            login(request, user)  # 重新登录以刷新 session
+
         create_operation_log(
             request=request, op_type=OP_TYPE_UPDATE, obj_type='user',
             obj_id=user.id, obj_name=f"{user.user_code}-{user.username}",
-            detail=f"修改个人信息"
+            detail="修改个人信息" + ("（含密码）" if pwd_changed else "")
         )
         messages.success(request, '个人信息修改成功！')
-        if pwd_changed:
-            login(request, user)
+        return redirect('accounts:profile')
+
     return render(request, 'accounts/profile.html', {'user': user})
 
 
@@ -734,7 +774,7 @@ def no_permission(request):
 
 # ===================== 用户管理：导入导出新增代码 =====================
 @login_required
-@permission_required('user_import')   # 建议使用更精确的权限，如 'user_import'
+@permission_required('user_import')
 def user_import(request):
     """
     用户批量导入：
@@ -780,24 +820,24 @@ def user_import(request):
                     skipped_count += 1
                     continue
 
-                # ---------- 核心改动：用户名缺失处理 ----------
                 # 若用户名为空，则用 user_code 作为用户名
                 if not username:
-                    username = user_code   # 或 f"user_{user_code}"
-                # ------------------------------------------------
+                    username = user_code
+
+                # ---- 检查用户名是否已存在（包括自动生成的） ----
+                if User.objects.filter(username=username).exists():
+                    skipped_count += 1
+                    continue
 
                 # 查找角色（容错：角色名不存在则 role=None）
                 role = role_map.get(role_name) if role_name else None
-
-                # 解析状态
                 is_active = status_str != '禁用'
 
-                # 拆分姓名（保留原有逻辑，也可以直接存为 last_name 或全名）
+                # 拆分姓名
                 first_name = name[:1] if name else ''
                 last_name = name[1:] if len(name) > 1 else ''
 
                 try:
-                    # 创建用户
                     user = User.objects.create(
                         user_code=user_code,
                         username=username,
@@ -813,11 +853,10 @@ def user_import(request):
                     user.save()
                     imported_count += 1
                 except IntegrityError:
-                    # 用户名冲突（自动生成的 username 可能已存在）
+                    # 理论上不该发生，但保留兜底
                     skipped_count += 1
                     continue
 
-            # 记录日志
             create_operation_log(
                 request=request, op_type='import', obj_type='user',
                 obj_id=0, obj_name='批量导入',
