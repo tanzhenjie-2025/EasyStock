@@ -1331,6 +1331,14 @@ function navigateInTable(input, direction) {
         }
         return;
     }
+    
+    // 新增向下键
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        const firstProductInput = document.querySelector('#bill-tbody .name-input');
+        if (firstProductInput) focusAndSetCaret(firstProductInput, 'down');
+        return;
+    }
     // ---- 新增左键边缘跳转到客户名称 ----
     if (e.key === 'ArrowLeft') {
         const start = orderInput.selectionStart;
@@ -1358,7 +1366,7 @@ function navigateInTable(input, direction) {
     // 规格列专属处理
 if (className === 'spec-input') {
     input.placeholder = '商品规格';
-    input.addEventListener('keydown', handleSpecKeydown);
+    
     input.addEventListener('input', updateMakeupFlag);
     input.addEventListener('change', updateMakeupFlag);  // 新增
 }
@@ -1421,11 +1429,23 @@ if (className === 'spec-input') {
         }
         const key = e.key;
         if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key)) {
-            // ---- 左右键：仅当光标在边缘才拦截 ----
+            // ---- 左右键：精确控制跳转 ----
             if (key === 'ArrowLeft') {
                 const start = input.selectionStart;
                 const end = input.selectionEnd;
-                if (start === 0 && end === 0) {
+                const len = input.value.length;
+                // 空输入框：直接跳转
+                if (len === 0) {
+                    e.preventDefault();
+                    navigateInTable(input, 'left');
+                    return;
+                }
+                // 全选状态：不拦截（让浏览器取消全选）
+                if (start === 0 && end === len) {
+                    return;
+                }
+                // 光标在开头：跳转
+                if (start === 0) {
                     e.preventDefault();
                     navigateInTable(input, 'left');
                 }
@@ -1435,7 +1455,15 @@ if (className === 'spec-input') {
                 const start = input.selectionStart;
                 const end = input.selectionEnd;
                 const len = input.value.length;
-                if (start === len && end === len) {
+                if (len === 0) {
+                    e.preventDefault();
+                    navigateInTable(input, 'right');
+                    return;
+                }
+                if (start === 0 && end === len) {
+                    return;
+                }
+                if (start === len) {
                     e.preventDefault();
                     navigateInTable(input, 'right');
                 }
@@ -1443,8 +1471,22 @@ if (className === 'spec-input') {
             }
             // ---- 上下键：始终拦截 ----
             e.preventDefault();
-            if (key === 'ArrowUp') navigateInTable(input, 'up');
-            else if (key === 'ArrowDown') navigateInTable(input, 'down');
+            if (key === 'ArrowUp') {
+                const tr = input.closest('tr');
+                if (tr) {
+                    const allTr = Array.from(document.querySelectorAll('#bill-tbody tr'));
+                    const trIdx = allTr.indexOf(tr);
+                    // 第一行任意输入框 → 跳转到客户名称
+                    if (trIdx === 0) {
+                        const customerInput = document.getElementById('customerInput');
+                        if (customerInput) focusAndSetCaret(customerInput, 'up');
+                        return;
+                    }
+                }
+                navigateInTable(input, 'up');
+            } else if (key === 'ArrowDown') {
+                navigateInTable(input, 'down');
+            }
         }
     });
 }
