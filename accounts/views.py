@@ -455,10 +455,13 @@ def user_add(request):
             messages.error(request, f'创建失败：{str(e)}')
     return render(request, 'accounts/user_form.html', {'roles': get_cached_roles(), 'is_add': True})
 
+
 @login_required
 @permission_required('user_edit')
 def user_edit(request, user_id):
-    user = get_object_or_404(User.objects.select_related('role'), id=user_id)
+    # 改名：user -> edit_user
+    edit_user = get_object_or_404(User.objects.select_related('role'), id=user_id)
+
     if request.method == 'POST':
         username = request.POST.get('username', '').strip()
         user_code = request.POST.get('user_code', '').strip()
@@ -468,42 +471,45 @@ def user_edit(request, user_id):
         is_staff = request.POST.get('is_staff') == 'on'
         new_password = request.POST.get('new_password', '').strip()
 
+        # 旧信息也改用 edit_user
         old_info = {
-            'user_code': user.user_code, 'username': user.username, 'phone': user.phone,
-            'role': user.role.name if user.role else '无', 'is_active': user.is_active
+            'user_code': edit_user.user_code,
+            'username': edit_user.username,
+            'phone': edit_user.phone,
+            'role': edit_user.role.name if edit_user.role else '无',
+            'is_active': edit_user.is_active
         }
 
-        # ---- 检查用户名是否被其他用户占用 ----
-        if User.objects.exclude(id=user.id).filter(username=username).exists():
+        # 检查用户名冲突（排除自身）
+        if User.objects.exclude(id=edit_user.id).filter(username=username).exists():
             messages.error(request, f'用户名 "{username}" 已被其他用户使用，请换一个。')
             return render(request, 'accounts/user_form.html', {
-                'user': user, 'roles': get_cached_roles(),
-                'role_id': user.role.id if user.role else '', 'is_edit': True
+                'edit_user': edit_user,  # 改名
+                'roles': get_cached_roles(),
+                'role_id': edit_user.role.id if edit_user.role else '',
+                'is_edit': True
             })
 
         try:
-            user.username = username
-            user.user_code = user_code
-            user.phone = phone
-            user.is_active = is_active
-            user.is_staff = is_staff
-            pwd_changed = False
+            # 修改 edit_user 的属性
+            edit_user.username = username
+            edit_user.user_code = user_code
+            edit_user.phone = phone
+            edit_user.is_active = is_active
+            edit_user.is_staff = is_staff
             if new_password:
-                user.set_password(new_password)
-                pwd_changed = True
-                cache.delete(f"user_perm_{user.id}_*")
+                edit_user.set_password(new_password)
+                cache.delete(f"user_perm_{edit_user.id}_*")
 
-            new_role_name = old_info['role']
             if role_id:
                 role = get_object_or_404(Role, id=role_id)
-                user.role = role
-                new_role_name = role.name
+                edit_user.role = role
 
-            user.save()
+            edit_user.save()
             cache.delete("system_roles_all")
             create_operation_log(
                 request=request, op_type=OP_TYPE_UPDATE, obj_type='user',
-                obj_id=user.id, obj_name=f"{user_code}-{username}",
+                obj_id=edit_user.id, obj_name=f"{user_code}-{username}",
                 detail=f"编辑用户：原编号={old_info['user_code']}→新编号={user_code}"
             )
             messages.success(request, f'用户 {user_code} - {username} 修改成功！')
@@ -512,8 +518,13 @@ def user_edit(request, user_id):
             messages.error(request, '用户编号或用户名已存在！')
         except Exception as e:
             messages.error(request, f'修改失败：{str(e)}')
+
+    # GET 请求或 POST 失败时渲染
     return render(request, 'accounts/user_form.html', {
-        'user': user, 'roles': get_cached_roles(), 'role_id': user.role.id if user.role else '', 'is_edit': True
+        'edit_user': edit_user,  # 改名
+        'roles': get_cached_roles(),
+        'role_id': edit_user.role.id if edit_user.role else '',
+        'is_edit': True
     })
 
 
