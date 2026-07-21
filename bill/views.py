@@ -548,7 +548,7 @@ def batch_print_orders(request):
     orders_data = []
     for order in orders:
         items = order.items.select_related('product')
-        items_display = list(items[:17]) + [None] * (17 - min(len(items), 17))
+        items_display = list(items[:16]) + [None] * (17 - min(len(items), 16))
         # 使用新函数判断是否有退货/换货
         has_return_or_exchange = has_return_or_exchange_items(order)
         float_start = find_float_start(items_display)
@@ -2244,20 +2244,23 @@ def mark_order_printed(request, order_no):
         return JsonResponse({'code': 0, 'msg': f'订单状态为{order.status}，无法标记已打印'})
 
 
-
 @login_required
 @permission_required(PERM_ORDER_PRINT)
 @require_POST
 def batch_mark_printed(request):
-    """批量标记订单为已打印（仅将pending改为printed）"""
+    """批量标记订单为已打印（将 pending 或 reopened 状态改为 printed）"""
     data = json.loads(request.body)
     order_nos = data.get('order_nos', [])
     if not order_nos:
         return JsonResponse({'code': 0, 'msg': '参数错误'})
+
+    # 定义可打印状态（根据实际模型调整）
+    PRINTABLE_STATUSES = ['pending', 'reopened']  # 若重开状态为其他值，请替换
     updated = Order.objects.filter(
         order_no__in=order_nos,
-        status='pending'
+        status__in=PRINTABLE_STATUSES
     ).update(status='printed')
+
     return JsonResponse({'code': 1, 'msg': f'成功标记 {updated} 个订单为已打印'})
 
 # views.py 顶部新增导入
