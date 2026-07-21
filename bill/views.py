@@ -548,7 +548,7 @@ def batch_print_orders(request):
     orders_data = []
     for order in orders:
         items = order.items.select_related('product')
-        items_display = list(items[:16]) + [None] * (17 - min(len(items), 16))
+        items_display = list(items[:16]) + [None] * (16 - min(len(items), 16))
         # 使用新函数判断是否有退货/换货
         has_return_or_exchange = has_return_or_exchange_items(order)
         float_start = find_float_start(items_display)

@@ -722,6 +722,20 @@ let isSortDataReady = true;   // 数据已就绪，可随时排序
             const btn = document.getElementById('btnRecentBuy');
             btn.disabled = !this.dataset.customerId;
         });
+        
+        // 聚焦并设置光标位置，direction: 'left'|'right'|'up'|'down'
+function focusAndSetCaret(target, direction) {
+    if (!target) return;
+    target.focus();
+    const len = target.value.length;
+    if (direction === 'right' || direction === 'down') {
+        target.setSelectionRange(0, 0);
+    } else if (direction === 'left' || direction === 'up') {
+        target.setSelectionRange(len, len);
+    } else {
+        target.setSelectionRange(0, 0); // fallback
+    }
+}
 
         // ========== 通用候选框逻辑 ==========
         function initSuggestBox() {
@@ -1177,6 +1191,17 @@ function customerGoToPage(delta) {
         }
         return;
     }
+            
+            // 右键边缘跳转至制单号
+if (e.key === 'ArrowRight') {
+    const len = e.target.value.length;
+    if (e.target.selectionStart === len && e.target.selectionEnd === len) {
+        e.preventDefault();
+        const orderInput = document.getElementById('orderNumberInput');
+        focusAndSetCaret(orderInput, 'right');
+    }
+    return; // 阻止后续处理
+}
     // ===== 统一处理 Enter 键（整合制单号逻辑） =====
     if (e.key === 'Enter') {
         e.preventDefault();
@@ -1187,17 +1212,13 @@ function customerGoToPage(delta) {
         const hasOrderNumber = customerInput.dataset.orderNumber && customerInput.dataset.orderNumber.trim() !== '';
 
         if (!hasOrderNumber && customerInput.dataset.customerId) {
-            // 无制单号：跳转到制单号输入框
-            orderNumberInput.focus();
-            orderNumberInput.select();
-        } else {
-            // 有制单号或未选客户：保持原逻辑，跳转到第一个商品输入框
-            const firstProductInput = document.querySelector('#bill-tbody .name-input');
-            if (firstProductInput) {
-                firstProductInput.focus();
-                firstProductInput.select();
-            }
-        }
+    focusAndSetCaret(orderNumberInput, 'right');
+} else {
+    const firstProductInput = document.querySelector('#bill-tbody .name-input');
+    if (firstProductInput) {
+        focusAndSetCaret(firstProductInput, 'right');
+    }
+}
         return;
     }
 
@@ -1265,26 +1286,63 @@ function customerGoToPage(delta) {
     }
 }
 
+function navigateInTable(input, direction) {
+    const tr = input.closest('tr');
+    if (!tr) return;
+    const allTr = Array.from(document.querySelectorAll('#bill-tbody tr'));
+    const trIdx = allTr.indexOf(tr);
+    const inputs = tr.querySelectorAll('input');
+    const idx = Array.from(inputs).indexOf(input);
+    
+    if (direction === 'left' || direction === 'right') {
+        const colCount = inputs.length;
+        let targetIdx = (direction === 'left') 
+            ? (idx - 1 + colCount) % colCount 
+            : (idx + 1) % colCount;
+        const target = inputs[targetIdx];
+        focusAndSetCaret(target, direction);
+    } else { // up / down
+        const rowCount = allTr.length;
+        let targetRowIdx = (direction === 'up')
+            ? (trIdx - 1 + rowCount) % rowCount
+            : (trIdx + 1) % rowCount;
+        const targetTr = allTr[targetRowIdx];
+        const targetInputs = targetTr.querySelectorAll('input');
+        const targetIdx = Math.min(idx, targetInputs.length - 1);
+        const target = targetInputs[targetIdx];
+        focusAndSetCaret(target, direction);
+    }
+}
+
         // ========== 制单号输入框键盘事件（新增） ==========
         function initOrderNumberInput() {
             const orderInput = document.getElementById('orderNumberInput');
             if (orderInput) {
                 orderInput.addEventListener('keydown', function(e) {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        if (e.shiftKey) {
-                            // Shift+Enter 保存订单
-                            saveOrder();
-                        } else {
-                            // 普通 Enter 跳转到第一个商品输入框
-                            const firstProductInput = document.querySelector('#bill-tbody .name-input');
-                            if (firstProductInput) {
-                                firstProductInput.focus();
-                                firstProductInput.select();
-                            }
-                        }
-                    }
-                });
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) {
+            saveOrder();
+        } else {
+            const firstProductInput = document.querySelector('#bill-tbody .name-input');
+            if (firstProductInput) {
+                focusAndSetCaret(firstProductInput, 'right');
+            }
+        }
+        return;
+    }
+    // ---- 新增左键边缘跳转到客户名称 ----
+    if (e.key === 'ArrowLeft') {
+        const start = orderInput.selectionStart;
+        const end = orderInput.selectionEnd;
+        if (start === 0 && end === 0) {
+            e.preventDefault();
+            const customerInput = document.getElementById('customerInput');
+            focusAndSetCaret(customerInput, 'left');
+        }
+        // 否则默认行为
+    }
+});
             }
         }
 
@@ -1350,28 +1408,57 @@ if (className === 'spec-input') {
     return input;
 }
         function bindInputKeyboardEvents(input) {
-            input.addEventListener('keydown', e => {
-                if (e.shiftKey && e.key === 'Enter') { e.preventDefault();
-                    saveOrder(); return; }
-                if (e.key === 'Enter') { e.preventDefault(); handleEnterKey(input); }
-                const dir = ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'];
-                if (dir.includes(e.key)) { e.preventDefault(); handleDirectionKeys(input,e.key); }
-                if (e.shiftKey && (e.key === 'Backspace' || e.key === 'Delete')) {
-                    e.preventDefault(); handleDeleteRowByKey(input);
+    input.addEventListener('keydown', function(e) {
+        if (e.shiftKey && e.key === 'Enter') {
+            e.preventDefault();
+            saveOrder();
+            return;
+        }
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleEnterKey(input);
+            return;
+        }
+        const key = e.key;
+        if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key)) {
+            // ---- 左右键：仅当光标在边缘才拦截 ----
+            if (key === 'ArrowLeft') {
+                const start = input.selectionStart;
+                const end = input.selectionEnd;
+                if (start === 0 && end === 0) {
+                    e.preventDefault();
+                    navigateInTable(input, 'left');
                 }
-            });
-        }
-        function handleEnterKey(input) {
-            const tr = input.closest('tr');
-            const inputs = tr.querySelectorAll('input');
-            const idx = Array.from(inputs).indexOf(input);
-            if (idx < inputColsCount - 1) {
-                inputs[idx+1].focus(); inputs[idx+1].select();
-            } else {
-                const newTr = addBlankRow(true);
-                newTr.querySelector('.name-input').focus();
+                return;
             }
+            if (key === 'ArrowRight') {
+                const start = input.selectionStart;
+                const end = input.selectionEnd;
+                const len = input.value.length;
+                if (start === len && end === len) {
+                    e.preventDefault();
+                    navigateInTable(input, 'right');
+                }
+                return;
+            }
+            // ---- 上下键：始终拦截 ----
+            e.preventDefault();
+            if (key === 'ArrowUp') navigateInTable(input, 'up');
+            else if (key === 'ArrowDown') navigateInTable(input, 'down');
         }
+    });
+}
+        function handleEnterKey(input) {
+    const tr = input.closest('tr');
+    const inputs = tr.querySelectorAll('input');
+    const idx = Array.from(inputs).indexOf(input);
+    if (idx < inputColsCount - 1) {
+        focusAndSetCaret(inputs[idx+1], 'right');
+    } else {
+        const newTr = addBlankRow(true);
+        focusAndSetCaret(newTr.querySelector('.name-input'), 'right');
+    }
+}
         function handleDirectionKeys(input, key) {
     const tr = input.closest('tr');
     const allTr = Array.from(document.querySelectorAll('#bill-tbody tr'));
