@@ -135,11 +135,10 @@ def customer_list(request):
             id_q = Q()
             if keyword.isdigit():
                 id_q = Q(id=int(keyword))
-            # ✅ 修改：电话筛选改为关联子表查询 + 去重
             customers = customers.filter(
                 Q(name__icontains=keyword) |
-                Q(pinyin_full__icontains=keyword) |  # 新增
-                Q(pinyin_abbr__icontains=keyword) |  # 新增
+                Q(pinyin_full__icontains=keyword) |
+                Q(pinyin_abbr__icontains=keyword) |
                 Q(phones__phone__icontains=keyword) |
                 id_q |
                 Q(area__name__icontains=keyword)
@@ -159,13 +158,11 @@ def customer_list(request):
         except EmptyPage:
             customer_page = paginator.page(paginator.num_pages)
 
-        # 批量计算欠款（仅需2次查询，替代N*2次）
+        # 批量计算欠款
         unpaid_dict = {}
         paid_dict = {}
         if with_debt:
             customer_ids = [c.id for c in customer_page]
-
-            # 批量查询未付款金额
             unpaid_orders = Order.objects.filter(
                 customer_id__in=customer_ids,
                 status__in=['pending', 'printed', 'reopened'],
@@ -174,8 +171,6 @@ def customer_list(request):
                 total=Sum(F('total_amount') - F('received_amount'), output_field=models.DecimalField())
             )
             unpaid_dict = {item['customer_id']: item['total'] or 0 for item in unpaid_orders}
-
-            # 批量查询已还款金额
             paid_records = RepaymentRecord.objects.filter(
                 customer_id__in=customer_ids
             ).values('customer_id').annotate(
@@ -183,16 +178,25 @@ def customer_list(request):
             )
             paid_dict = {item['customer_id']: item['total'] or 0 for item in paid_records}
 
+        # ========== 新增：获取当前用户角色编码 ==========
+        role_code = request.user.role.code if request.user.role else None
+
         # 组装返回数据
         result = []
         for c in customer_page:
+            raw_phone = c.primary_phone
+            # 只有超级管理员才显示完整号码，其他角色一律脱敏
+            if role_code != 'super_admin':
+                display_phone = mask_phone(raw_phone)
+            else:
+                display_phone = raw_phone
+
             item = {
                 'id': c.id,
                 'name': c.name,
                 'area_id': c.area.id if c.area else '',
                 'area_name': c.area.name if c.area else '',
-                # ✅ 修改：使用主号码属性替代原 phone 字段
-                'phone': c.primary_phone,
+                'phone': display_phone,          # 脱敏后的号码
                 'remark': c.remark or '',
                 'is_active': c.is_active,
                 'page': int(page),
@@ -220,7 +224,18 @@ def customer_list(request):
         logger.error(f"客户列表查询失败: {str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'})
 
-
+# 示例：放在 customer/utils.py
+def mask_phone(phone: str) -> str:
+    """对手机号/座机进行脱敏，保留前3后4（手机）或前2后2（座机）"""
+    if not phone or len(phone) < 7:
+        return phone
+    # 手机号（11位纯数字）
+    if len(phone) == 11 and phone.isdigit():
+        return phone[:3] + '****' + phone[-4:]
+    # 其他（座机等）：保留前2位和后2位
+    if len(phone) > 6:
+        return phone[:2] + '****' + phone[-2:]
+    return phone
 # ========== 启用客户 ==========
 @login_required
 @permission_required('customer_delete')  # 复用删除权限
@@ -281,7 +296,6 @@ def customer_detail(request, pk):
 
         unpaid_orders = base_orders.filter(is_settled=False)
         unpaid_order_count = unpaid_orders.count()
-        # 精准计算：总欠款 = Sum(订单总额 - 已收金额)
         unpaid_amount = unpaid_orders.aggregate(
             total=Sum(F('total_amount') - F('received_amount'), output_field=models.DecimalField())
         )['total'] or 0
@@ -344,18 +358,29 @@ def customer_detail(request, pk):
                 'last_purchase_time'] else '无'
         } for stat in product_stats]
 
+        # ========== 新增：获取当前用户角色，决定是否脱敏主号码 ==========
+        role_code = request.user.role.code if request.user.role else None
+        raw_phone = customer.primary_phone
+        # 仅开单人查看时脱敏，管理员和超级管理员可见完整
+        if role_code == 'operator':
+            display_phone = mask_phone(raw_phone)
+        else:
+            display_phone = raw_phone
+
         response_data = {
             'code': 1, 'msg': '查询成功',
             'customer_info': {
-                'id': customer.id, 'name': customer.name,
+                'id': customer.id,
+                'name': customer.name,
                 'area_name': customer.area.name if customer.area else '',
-                # ✅ 修改：使用主号码
-                'phone': customer.primary_phone,
+                'phone': display_phone,        # 脱敏后的号码
                 'remark': customer.remark or ''
             },
             'debt_info': {
-                'total_debt': total_debt, 'unpaid_order_count': unpaid_order_count,
-                'unpaid_amount': float(unpaid_amount), 'paid_amount': float(paid_amount)
+                'total_debt': total_debt,
+                'unpaid_order_count': unpaid_order_count,
+                'unpaid_amount': float(unpaid_amount),
+                'paid_amount': float(paid_amount)
             },
             'orders': order_list,
             'current_page': order_page.number,
