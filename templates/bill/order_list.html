@@ -283,31 +283,37 @@
 const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER' %}";
 </script>
     
-<h3>
-    订单列表
-    {% if request.user.role and request.user.role.code == 'operator' %}
-        <span class="badge bg-secondary">仅显示您创建的订单</span>
-    {% else %}
-        <span class="badge bg-secondary">显示所有创建的订单</span>
-    {% endif %}
-
-
-
-    {% if request.user.role and request.user.role.code != 'operator' %}
-        <a href="{% url 'bill:price_check' %}" class="btn btn-sm btn-outline-danger ms-2">
-            <i class="bi bi-calculator"></i> 价格核算
-        </a>
-        <a href="{% url 'bill:order_stats_page' %}" class="btn btn-sm btn-outline-info ms-2">
-            <i class="bi bi-bar-chart"></i> 订单统计
-        </a>
-        <a href="{% url 'bill:export_orders' %}?{{ request.GET.urlencode }}" class="btn btn-sm btn-outline-success ms-2">
-            <i class="bi bi-download"></i> 导出订单
-        </a>
-        <a href="{% url 'bill:import_order_page' %}" class="btn btn-sm btn-outline-warning ms-2">
-            <i class="bi bi-upload"></i> 导入订单
-        </a>
-        <input type="file" id="importOrderFile" accept=".xlsx" style="display: none;" />
-    {% endif %}
+<!-- 🔥 新增：清理缓存按钮（右对齐） -->
+<h3 class="d-flex align-items-center justify-content-between">
+    <span>
+        订单列表
+        {% if request.user.role and request.user.role.code == 'operator' %}
+            <span class="badge bg-secondary">仅显示您创建的订单</span>
+        {% else %}
+            <span class="badge bg-secondary">显示所有创建的订单</span>
+        {% endif %}
+    </span>
+    <span>
+        {% if request.user.role and request.user.role.code != 'operator' %}
+            <a href="{% url 'bill:price_check' %}" class="btn btn-sm btn-outline-danger ms-2">
+                <i class="bi bi-calculator"></i> 价格核算
+            </a>
+            <a href="{% url 'bill:order_stats_page' %}" class="btn btn-sm btn-outline-info ms-2">
+                <i class="bi bi-bar-chart"></i> 订单统计
+            </a>
+            <a href="{% url 'bill:export_orders' %}?{{ request.GET.urlencode }}" class="btn btn-sm btn-outline-success ms-2">
+                <i class="bi bi-download"></i> 导出订单
+            </a>
+            <a href="{% url 'bill:import_order_page' %}" class="btn btn-sm btn-outline-warning ms-2">
+                <i class="bi bi-upload"></i> 导入订单
+            </a>
+            <input type="file" id="importOrderFile" accept=".xlsx" style="display: none;" />
+        {% endif %}
+        <!-- 🔥 新增：清理缓存按钮 -->
+        <button class="btn btn-sm btn-outline-secondary" onclick="clearOrderSelection()">
+            <i class="bi bi-arrow-counterclockwise"></i> 清理缓存
+        </button>
+    </span>
 </h3>
 
 <!-- 🔥 优化：统一的切换按钮 -->
@@ -914,7 +920,7 @@ $(document).ready(function() {
         $('#amountValueInput').val(value);
     });
 
-    // 行点击跳转详情
+    // 行点击跳转详情（跳过选择列和操作列）
     $('.order-row').click(function(e) {
         var target = $(e.target);
         if (target.closest('.op-btn-group').length || target.closest('.col-select').length || target.is('input[type="checkbox"]')) {
@@ -924,6 +930,18 @@ $(document).ready(function() {
         $(this).addClass('selected');
         var orderNo = $(this).data('order-no');
         window.location.href = orderDetailUrlTemplate.replace('ORDER_NO_PLACEHOLDER', orderNo);
+    });
+
+    // 🔥 新增：点击选择列（包括复选框周围区域）切换复选框状态
+    $(document).on('click', 'td.col-select', function(e) {
+        // 如果点击的是复选框本身，让默认行为处理，不干预
+        if (e.target.tagName.toLowerCase() === 'input' && $(e.target).hasClass('orderCheckbox')) {
+            return;
+        }
+        var $checkbox = $(this).find('input.orderCheckbox');
+        if ($checkbox.length && !$checkbox.is(':disabled')) {
+            $checkbox.prop('checked', !$checkbox.prop('checked')).trigger('change');
+        }
     });
 
     // 单个操作按钮
