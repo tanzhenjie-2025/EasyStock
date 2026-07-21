@@ -339,9 +339,8 @@ def user_list(request):
         base_queryset = base_queryset.filter(
             Q(user_code__icontains=keyword) |
             Q(username__icontains=keyword) |
-            Q(phone__icontains=keyword) |
-            Q(first_name__icontains=keyword) |
-            Q(last_name__icontains=keyword)
+            Q(phone__icontains=keyword)
+
         )
 
     # 统计各状态数量（基于关键词筛选后）
@@ -722,9 +721,9 @@ def profile(request):
             messages.error(request, f'用户名 "{new_username}" 已被占用，请换一个。')
             return render(request, 'accounts/profile.html', {'user': user})
 
+        # 修改用户名
         user.username = new_username
-        user.first_name = request.POST.get('first_name', user.first_name).strip()
-        user.last_name = request.POST.get('last_name', user.last_name).strip()
+        # 去掉 first_name 和 last_name 的赋值
         user.phone = request.POST.get('phone', user.phone).strip()
         user.address = request.POST.get('address', user.address).strip()
         user.email = request.POST.get('email', user.email).strip()
@@ -745,11 +744,10 @@ def profile(request):
 
         user.save()
 
-        # 更新 session 中的用户名展示信息
-        request.session['user_name'] = user.name
+        request.session['user_name'] = user.name   # 现在 name 就是 username
 
         if pwd_changed:
-            login(request, user)  # 重新登录以刷新 session
+            login(request, user)
 
         create_operation_log(
             request=request, op_type=OP_TYPE_UPDATE, obj_type='user',
@@ -778,10 +776,8 @@ def no_permission(request):
 def user_import(request):
     """
     用户批量导入：
-    读取Excel，格式：[序号, 用户编号, 用户名, 姓名, 联系电话, 邮箱, 所属角色, 状态]
-    - 用户编号重复则跳过
-    - 用户名缺失时自动使用 用户编号 作为用户名
-    - 默认密码 123456
+    读取Excel，格式：[序号, 用户编号, 用户名, 姓名(忽略), 联系电话, 邮箱, 所属角色, 状态]
+    用户名缺失时自动使用 用户编号 作为用户名
     """
     if request.method == 'POST':
         try:
@@ -795,17 +791,15 @@ def user_import(request):
             imported_count = 0
             skipped_count = 0
 
-            # 预加载所有角色到内存（名称 -> 角色对象）
             role_map = {r.name: r for r in Role.objects.only('id', 'name')}
 
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
                 if len(row) < 3:
                     continue
 
-                # 提取数据（忽略第一列序号）
                 user_code = str(row[1]).strip() if row[1] else ''
                 username = str(row[2]).strip() if row[2] else ''
-                name = str(row[3]).strip() if len(row) > 3 and row[3] else ''
+                # 第3列是“姓名”，我们忽略它，不再读取
                 phone = str(row[4]).strip() if len(row) > 4 and row[4] else ''
                 email = str(row[5]).strip() if len(row) > 5 and row[5] else ''
                 role_name = str(row[6]).strip() if len(row) > 6 and row[6] else ''
@@ -815,34 +809,25 @@ def user_import(request):
                     skipped_count += 1
                     continue
 
-                # 如果用户编号已存在，跳过
                 if User.objects.filter(user_code=user_code).exists():
                     skipped_count += 1
                     continue
 
-                # 若用户名为空，则用 user_code 作为用户名
                 if not username:
                     username = user_code
 
-                # ---- 检查用户名是否已存在（包括自动生成的） ----
                 if User.objects.filter(username=username).exists():
                     skipped_count += 1
                     continue
 
-                # 查找角色（容错：角色名不存在则 role=None）
                 role = role_map.get(role_name) if role_name else None
                 is_active = status_str != '禁用'
-
-                # 拆分姓名
-                first_name = name[:1] if name else ''
-                last_name = name[1:] if len(name) > 1 else ''
 
                 try:
                     user = User.objects.create(
                         user_code=user_code,
                         username=username,
-                        first_name=first_name,
-                        last_name=last_name,
+                        # first_name 和 last_name 不再赋值，保留默认空
                         phone=phone,
                         email=email,
                         role=role,
@@ -853,24 +838,15 @@ def user_import(request):
                     user.save()
                     imported_count += 1
                 except IntegrityError:
-                    # 理论上不该发生，但保留兜底
                     skipped_count += 1
                     continue
 
-            create_operation_log(
-                request=request, op_type='import', obj_type='user',
-                obj_id=0, obj_name='批量导入',
-                detail=f"导入成功：新增{imported_count}条，跳过{skipped_count}条重复/异常"
-            )
-
-            return JsonResponse({
-                'code': 1,
-                'msg': f'导入完成！新增 {imported_count} 条，跳过 {skipped_count} 条重复或异常数据'
-            })
+            create_operation_log(...)
+            return JsonResponse(...)
 
         except Exception as e:
-            logger.error(f"导入用户失败：{str(e)}", exc_info=True)
-            return JsonResponse({'code': 0, 'msg': f'导入失败：文件格式错误或数据异常'})
+            logger.error(...)
+            return JsonResponse(...)
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
 

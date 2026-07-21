@@ -393,7 +393,7 @@ class User(AbstractUser):
     # 便捷属性：姓名展示
     @property
     def name(self):
-        return self.get_full_name() or self.username
+        return self.username
 
     # ========== 核心RBAC权限判断 ==========
     def has_permission(self, permission_code):
