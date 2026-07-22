@@ -126,8 +126,15 @@
 
     <table class="table table-sm table-bordered">
         <thead>
-            <tr><th>ID</th><th>区域名</th><th>备注</th><th>状态</th><th>操作</th></tr>
-        </thead>
+    <tr>
+        <th>ID</th>
+        <th>区域名</th>
+        <th>区域归属</th>   <!-- 新增列 -->
+        <th>备注</th>
+        <th>状态</th>
+        <th>操作</th>
+    </tr>
+</thead>
         <tbody id="list"></tbody>
     </table>
 
@@ -437,54 +444,60 @@
                 let html='';
                 if(res.code === 0){
                     showToast(res.msg, 'error');
-                    $('#list').html(`<tr><td colspan="5" class="no-result">${res.msg}</td></tr>`);
+                    $('#list').html(`<tr><td colspan="6" class="no-result">${res.msg}</td></tr>`);
                     renderPagination(res.pagination);
                     updateTabCounts(res.counts);
                     return;
                 }
                 const list = res.data || [];
                 if(list.length === 0){
-                    html = `<tr><td colspan="5" class="no-result">未搜索到相关内容</td></tr>`;
+                    html = `<tr><td colspan="6" class="no-result">未搜索到相关内容</td></tr>`;
                     $('#list').html(html);
                     renderPagination(res.pagination);
                     updateTabCounts(res.counts);
                     return;
                 }
                 list.forEach(i=>{
-                    const isInactive = !i.is_active;
-                    const rowClass = isInactive ? 'row-inactive' : '';
-                    const statusText = i.is_active ? '正常' : '已停用';
-                    const statusBadgeClass = i.is_active ? 'bg-success' : 'bg-danger';
+    const isInactive = !i.is_active;
+    const rowClass = isInactive ? 'row-inactive' : '';
+    const statusText = i.is_active ? '正常' : '已停用';
+    const statusBadgeClass = i.is_active ? 'bg-success' : 'bg-danger';
 
-                    // 构造操作按钮（根据权限）
-                    let actionBtns = `<button class="btn btn-sm btn-info me-1" onclick="event.stopPropagation();goToDetail(${i.id})">详情</button>`;
-                    if (i.is_active) {
-                        if (PERM.can_edit) {
-                            actionBtns += `<button class="btn btn-sm btn-warning me-1" onclick="event.stopPropagation();edit(${i.id})">改</button>`;
-                        }
-                        if (PERM.can_delete) {
-                            actionBtns += `<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();del(${i.id})">禁用</button>`;
-                        }
-                    } else {
-                        if (PERM.can_edit) {
-                            actionBtns += `<button class="btn btn-sm btn-success" onclick="event.stopPropagation();enable(${i.id})">启用</button>`;
-                        }
-                    }
+    // 处理归属显示：若 group_names 数组非空则用顿号连接，否则显示“无”
+    const groupNames = i.group_names && i.group_names.length > 0 
+        ? i.group_names.join('、') 
+        : '无';
 
-                    html+=`<tr class="${rowClass}" onclick="goToDetail(${i.id})">
-                        <td>${i.id}</td>
-                        <td>${i.name}</td>
-                        <td>${i.remark || '无'}</td>
-                        <td><span class="badge ${statusBadgeClass}">${statusText}</span></td>
-                        <td>${actionBtns}</td>
-                    </tr>`;
-                });
+    // 操作按钮（保持不变）
+    let actionBtns = `<button class="btn btn-sm btn-info me-1" onclick="event.stopPropagation();goToDetail(${i.id})">详情</button>`;
+    if (i.is_active) {
+        if (PERM.can_edit) {
+            actionBtns += `<button class="btn btn-sm btn-warning me-1" onclick="event.stopPropagation();edit(${i.id})">改</button>`;
+        }
+        if (PERM.can_delete) {
+            actionBtns += `<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();del(${i.id})">禁用</button>`;
+        }
+    } else {
+        if (PERM.can_edit) {
+            actionBtns += `<button class="btn btn-sm btn-success" onclick="event.stopPropagation();enable(${i.id})">启用</button>`;
+        }
+    }
+
+    html += `<tr class="${rowClass}" onclick="goToDetail(${i.id})">
+        <td>${i.id}</td>
+        <td>${i.name}</td>
+        <td>${groupNames}</td>   <!-- 新增列 -->
+        <td>${i.remark || '无'}</td>
+        <td><span class="badge ${statusBadgeClass}">${statusText}</span></td>
+        <td>${actionBtns}</td>
+    </tr>`;
+});
                 $('#list').html(html);
                 renderPagination(res.pagination);
                 updateTabCounts(res.counts);
             },'json').fail(function(error){
                 showToast(`加载失败！`, 'error');
-                $('#list').html(`<tr><td colspan="5" class="no-result">加载失败</td></tr>`);
+                $('#list').html(`<tr><td colspan="6" class="no-result">加载失败</td></tr>`);
             });
         }
 

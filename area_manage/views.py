@@ -142,32 +142,40 @@ def area_list(request):
         sort_by = request.GET.get('sort', 'name')
         sort_order = request.GET.get('order', 'asc')
         page = max(int(request.GET.get('page', 1)), 1)
-        status = request.GET.get('status', 'all').strip()  # 新增：状态筛选参数
+        status = request.GET.get('status', 'all').strip()
 
         if sort_by not in ALLOW_SORT_AREA:
             sort_by = 'name'
 
         cache_key = generate_cache_key(request, CACHE_PREFIX['AREA_LIST'], keyword, sort_by, sort_order, page, status)
         cache_data = cache.get(cache_key)
+
+        # 兼容旧缓存：若缓存存在但不含 group_names 字段，则删除重建
+        if cache_data and cache_data.get('data') and len(cache_data['data']) > 0:
+            if 'group_names' not in cache_data['data'][0]:
+                cache.delete(cache_key)
+                cache_data = None
+
         if cache_data:
             return JsonResponse(cache_data)
 
-        # 🔧 优化：仅加载必要字段，包含is_active
+        # 基础查询（仅必要字段）
         base_areas = Area.objects.only('id', 'name', 'remark', 'create_time', 'is_active')
         if keyword:
             base_areas = base_areas.filter(Q(name__icontains=keyword) | Q(remark__icontains=keyword))
 
-        # 根据状态过滤
-        areas = base_areas
+        # 状态过滤
         if status == 'active':
-            areas = areas.filter(is_active=True)
+            areas = base_areas.filter(is_active=True)
         elif status == 'inactive':
-            areas = areas.filter(is_active=False)
+            areas = base_areas.filter(is_active=False)
+        else:
+            areas = base_areas
 
         areas = areas.order_by(f'-{sort_by}' if sort_order == 'desc' else sort_by)
         total = areas.count()
 
-        # 计算各状态数量
+        # 各状态计数
         all_count = base_areas.count()
         active_count = base_areas.filter(is_active=True).count()
         inactive_count = all_count - active_count
@@ -176,6 +184,7 @@ def area_list(request):
         end = start + AREA_PAGE_SIZE
         areas_page = areas[start:end]
 
+        # 批量获取客户数（原有逻辑）
         area_ids = [a.id for a in areas_page]
         customer_count_map = dict(
             Customer.objects.filter(area_id__in=area_ids)
@@ -184,7 +193,21 @@ def area_list(request):
             .values_list('area_id', 'count')
         )
 
-        # 🔧 时间格式化已通过 format_datetime 统一转本地时区
+        # ---------- 新增：批量获取区域归属（区域组名称） ----------
+        group_names_map = {}
+        if area_ids:
+            # 只取启用状态的区域组，可根据业务需求调整（如不需要过滤可去掉 is_active=True）
+            group_records = AreaGroup.objects.filter(
+                areas__id__in=area_ids,
+                is_active=True
+            ).values('areas__id', 'name')
+            for rec in group_records:
+                area_id = rec['areas__id']
+                group_name = rec['name']
+                group_names_map.setdefault(area_id, []).append(group_name)
+        # --------------------------------------------------------
+
+        # 组装返回数据
         result = [
             {
                 'id': a.id,
@@ -192,14 +215,19 @@ def area_list(request):
                 'remark': a.remark or '',
                 'customer_count': customer_count_map.get(a.id, 0),
                 'create_time': format_datetime(a.create_time),
-                'is_active': a.is_active
+                'is_active': a.is_active,
+                'group_names': group_names_map.get(a.id, [])   # 新增字段
             }
             for a in areas_page
         ]
+
         response_data = {
-            'code': 1, 'data': result,
+            'code': 1,
+            'data': result,
             'pagination': {
-                'total': total, 'page': page, 'page_size': AREA_PAGE_SIZE,
+                'total': total,
+                'page': page,
+                'page_size': AREA_PAGE_SIZE,
                 'total_pages': (total + AREA_PAGE_SIZE - 1) // AREA_PAGE_SIZE
             },
             'counts': {
