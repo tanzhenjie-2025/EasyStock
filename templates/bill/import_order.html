@@ -88,29 +88,24 @@
                 <tbody id="areaPreviewBody"></tbody>
             </table>
         </div>
-        <div class="tab-pane fade" id="tab-products">
-            <table class="table">
-                <thead><tr><th>商品名</th><th>单位</th><th>规格</th><th>单价</th><th>操作</th></tr></thead>
-                <tbody id="productPreviewBody"></tbody>
-            </table>
-            <!-- ===== 新增：价格冲突商品展示区域 ===== -->
-            <div id="priceConflictContainer" style="margin-top:20px; display:none;">
-                <h6 class="text-danger">⚠️ 价格冲突商品</h6>
-                <p class="text-muted">以下商品已存在但价格与导入价格不同，勾选“覆盖”将以导入价格更新系统价格</p>
-                <table class="table table-bordered table-sm" id="priceConflictTable">
-                    <thead>
-                        <tr>
-                            <th>商品名</th>
-                            <th>单位</th>
-                            <th>系统价格</th>
-                            <th>导入价格</th>
-                            <th>覆盖</th>
-                        </tr>
-                    </thead>
-                    <tbody id="priceConflictBody"></tbody>
-                </table>
-            </div>
-        </div>
+        <!-- 新建商品标签页 -->
+<div class="tab-pane fade" id="tab-products">
+    <table class="table table-bordered">
+        <thead>
+            <tr>
+                <th>商品名</th>
+                <th>单位</th>
+                <th>规格</th>
+                <th>导入单价</th>
+                <th>系统价格</th>
+                <th>处理方式</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody id="productPreviewBody"></tbody>
+    </table>
+    <!-- 不再需要独立的冲突区域 -->
+</div>
         <div class="tab-pane fade" id="tab-customers">
             <table class="table">
                 <thead><tr><th>客户名</th><th>所属区域</th><th>操作</th></tr></thead>
@@ -150,7 +145,8 @@ function goToStep(num) {
 
 function renderPreview() {
     if (!previewData) return;
-    // 订单明细
+
+    // ========== 1. 订单明细 ==========
     let ordersHtml = '';
     previewData.orders.forEach((o, idx) => {
         const itemsStr = o.items.map(i => {
@@ -163,7 +159,6 @@ function renderPreview() {
         const warnings = o.warnings.map(w => `<span class="badge bg-warning text-dark">${w}</span>`).join(' ');
         const skipChecked = o.skip ? '' : 'checked';
         const hasConflict = o.items.some(item => item.price_conflict);
-        // 补货品项不会产生冲突，故不影响行颜色
         const rowClass = hasConflict ? 'text-danger' : (o.warnings.length ? 'text-warning' : '');
 
         ordersHtml += `
@@ -180,51 +175,58 @@ function renderPreview() {
     });
     $('#orderPreviewBody').html(ordersHtml);
 
-    // 基础数据
-    const areaHtml = previewData.new_areas.map(a => `<tr><td contenteditable="true" class="edit-area-name">${a}</td><td><button class="btn btn-sm btn-warning remove-new-area">不创建</button></td></tr>`).join('');
-    $('#areaPreviewBody').html(areaHtml);
-    const productHtml = previewData.new_products.map(p => `
+    // ========== 2. 新建区域 ==========
+    const areaHtml = previewData.new_areas.map(a => `
         <tr>
-            <td contenteditable="true" class="edit-prod-name">${p.name}</td>
-            <td contenteditable="true" class="edit-prod-unit">${p.unit}</td>
-            <td contenteditable="true" class="edit-prod-spec">${p.spec}</td>
-            <td contenteditable="true" class="edit-prod-price">${p.price}</td>
-            <td><button class="btn btn-sm btn-warning remove-new-product">不创建</button></td>
-        </tr>`).join('');
+            <td contenteditable="true" class="edit-area-name">${a}</td>
+            <td><button class="btn btn-sm btn-warning remove-new-area">不创建</button></td>
+        </tr>
+    `).join('');
+    $('#areaPreviewBody').html(areaHtml);
+
+    // ========== 3. 新建商品（包含冲突和不存在商品） ==========
+    const productHtml = previewData.new_products.map((p, idx) => {
+        const exists = p.exists || false;
+        const dbPrice = p.db_price || '';
+        const action = p.action || 'overwrite';
+        let actionOptions = '';
+        if (exists) {
+            actionOptions = `
+                <select class="prod-action" data-index="${idx}">
+                    <option value="overwrite" ${action==='overwrite'?'selected':''}>覆盖价格</option>
+                    <option value="create" ${action==='create'?'selected':''}>新建商品</option>
+                </select>
+            `;
+        } else {
+            actionOptions = `<span>新建</span><input type="hidden" class="prod-action" value="create">`;
+        }
+        const originalName = p.original_name || p.name;
+        const originalUnit = p.original_unit || p.unit;
+        return `
+            <tr data-index="${idx}" data-original-name="${originalName}" data-original-unit="${originalUnit}">
+                <td contenteditable="true" class="edit-prod-name">${p.name}</td>
+                <td contenteditable="true" class="edit-prod-unit">${p.unit}</td>
+                <td contenteditable="true" class="edit-prod-spec">${p.spec || ''}</td>
+                <td contenteditable="true" class="edit-prod-price">${p.price}</td>
+                <td>${exists ? dbPrice : '—'}</td>
+                <td>${actionOptions}</td>
+                <td><button class="btn btn-sm btn-warning remove-new-product">移除</button></td>
+            </tr>
+        `;
+    }).join('');
     $('#productPreviewBody').html(productHtml);
+
+    // ========== 4. 新建客户 ==========
     const customerHtml = previewData.new_customers.map(c => `
         <tr>
             <td contenteditable="true" class="edit-cust-name">${c.name}</td>
             <td contenteditable="true" class="edit-cust-area">${c.area}</td>
             <td><button class="btn btn-sm btn-warning remove-new-customer">不创建</button></td>
-        </tr>`).join('');
+        </tr>
+    `).join('');
     $('#customerPreviewBody').html(customerHtml);
 
-    // ===== 新增：渲染价格冲突商品 =====
-    const conflictContainer = document.getElementById('priceConflictContainer');
-    const conflictBody = document.getElementById('priceConflictBody');
-    if (previewData.price_conflicts && previewData.price_conflicts.length) {
-        conflictContainer.style.display = 'block';
-        let html = '';
-        previewData.price_conflicts.forEach(function(p) {
-            html += `
-                <tr>
-                    <td>${p.name}</td>
-                    <td>${p.unit}</td>
-                    <td>${p.db_price}</td>
-                    <td>${p.import_price}</td>
-                    <td>
-                        <input type="checkbox" class="overwrite-price" data-key="${p.key}" data-newprice="${p.import_price}">
-                    </td>
-                </tr>
-            `;
-        });
-        conflictBody.innerHTML = html;
-    } else {
-        conflictContainer.style.display = 'none';
-    }
-
-    // 事件绑定
+    // ========== 5. 事件绑定 ==========
     $('.remove-order').click(function() {
         const idx = $(this).data('index');
         previewData.orders[idx].skip = true;
@@ -306,95 +308,106 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // ===== 确认导入按钮（增加覆盖商品收集） =====
     $('#confirmImportBtn').click(function() {
-        const $btn = $(this);
-        if ($btn.prop('disabled')) return;
+    const $btn = $(this);
+    if ($btn.prop('disabled')) return;
 
-        if (!previewData) {
-            alert('没有预览数据，请先上传文件');
-            return;
+    if (!previewData) {
+        alert('没有预览数据，请先上传文件');
+        return;
+    }
+
+    $btn.prop('disabled', true).text('导入中...');
+    $('#importResult').html('<div class="alert alert-info"><i class="bi bi-hourglass-split"></i> 正在导入订单，请稍候…</div>');
+
+    // 1. 收集订单数据
+    const finalOrders = previewData.orders.map((o, idx) => {
+        const checkbox = $(`.order-select[data-index="${idx}"]`);
+        if (checkbox.length) {
+            o.skip = !checkbox.prop('checked');
         }
+        return o;
+    });
 
-        $btn.prop('disabled', true).text('导入中...');
-        $('#importResult').html('<div class="alert alert-info"><i class="bi bi-hourglass-split"></i> 正在导入订单，请稍候…</div>');
+    // 2. 收集新建区域
+    const newAreas = [];
+    $('#areaPreviewBody tr').each(function() {
+        const name = $(this).find('.edit-area-name').text().trim();
+        if (name) newAreas.push({ name });
+    });
 
-        // 收集订单数据
-        const finalOrders = previewData.orders.map((o, idx) => {
-            const checkbox = $(`.order-select[data-index="${idx}"]`);
-            if (checkbox.length) {
-                o.skip = !checkbox.prop('checked');
-            }
-            return o;
-        });
+    // 3. 收集新建商品（包含处理方式）
+    const newProducts = [];
+    $('#productPreviewBody tr').each(function() {
+        const $tr = $(this);
+        const name = $tr.find('.edit-prod-name').text().trim();
+        const unit = $tr.find('.edit-prod-unit').text().trim();
+        const spec = $tr.find('.edit-prod-spec').text().trim();
+        const price = $tr.find('.edit-prod-price').text().trim();
+        if (!name) return;
 
-        const newAreas = [];
-        $('#areaPreviewBody tr').each(function() {
-            const name = $(this).find('.edit-area-name').text().trim();
-            if (name) newAreas.push({ name });
-        });
-        const newProducts = [];
-        $('#productPreviewBody tr').each(function() {
-            const name = $(this).find('.edit-prod-name').text().trim();
-            const unit = $(this).find('.edit-prod-unit').text().trim();
-            const spec = $(this).find('.edit-prod-spec').text().trim();
-            const price = $(this).find('.edit-prod-price').text().trim();
-            if (name) newProducts.push({ name, unit, spec, price });
-        });
-        const newCustomers = [];
-        $('#customerPreviewBody tr').each(function() {
-            const name = $(this).find('.edit-cust-name').text().trim();
-            const area = $(this).find('.edit-cust-area').text().trim();
-            if (name) newCustomers.push({ name, area });
-        });
+        const originalName = $tr.data('original-name') || name;
+        const originalUnit = $tr.data('original-unit') || unit;
+        let action = $tr.find('.prod-action').val();
+        if (!action) action = 'create';
 
-        // ===== 新增：收集覆盖商品 =====
-        const overwriteProducts = [];
-        $('.overwrite-price:checked').each(function() {
-            const key = $(this).data('key');
-            const newPrice = $(this).data('newprice');
-            if (key && newPrice) {
-                overwriteProducts.push({ key: key, new_price: newPrice });
-            }
-        });
-
-        const payload = {
-            orders: finalOrders,
-            new_areas: newAreas,
-            new_products: newProducts,
-            new_customers: newCustomers,
-            overwrite_products: overwriteProducts,   // 新增字段
-        };
-
-        // 发起请求
-        fetch('{% url "bill:import_orders_confirm" %}', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCsrfToken(),
-                'X-Requested-With': 'XMLHttpRequest',
-            },
-            body: JSON.stringify(payload)
-        })
-        .then(res => res.json())
-        .then(data => {
-            let html = '';
-            if (data.code === 1) {
-                html += `<div class="alert alert-success">${data.msg}</div>`;
-                if (data.errors && data.errors.length) {
-                    html += '<div class="alert alert-warning"><ul>' + data.errors.map(e => `<li>${e}</li>`).join('') + '</ul></div>';
-                }
-            } else {
-                html += `<div class="alert alert-danger">${data.msg}</div>`;
-            }
-            $('#importResult').html(html);
-            goToStep(3);
-        })
-        .catch(err => {
-            $('#importResult').html(`<div class="alert alert-danger">导入请求失败：${err.message}</div>`);
-        })
-        .finally(() => {
-            $btn.prop('disabled', false).text('确认导入');
+        newProducts.push({
+            original_name: originalName,
+            original_unit: originalUnit,
+            name: name,
+            unit: unit,
+            spec: spec,
+            price: price,
+            action: action,
         });
     });
+
+    // 4. 收集新建客户
+    const newCustomers = [];
+    $('#customerPreviewBody tr').each(function() {
+        const name = $(this).find('.edit-cust-name').text().trim();
+        const area = $(this).find('.edit-cust-area').text().trim();
+        if (name) newCustomers.push({ name, area });
+    });
+
+    // 5. 组装提交数据
+    const payload = {
+        orders: finalOrders,
+        new_areas: newAreas,
+        new_products: newProducts,
+        new_customers: newCustomers,
+    };
+
+    // 6. 发起请求
+    fetch('{% url "bill:import_orders_confirm" %}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken(),
+            'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify(payload)
+    })
+    .then(res => res.json())
+    .then(data => {
+        let html = '';
+        if (data.code === 1) {
+            html += `<div class="alert alert-success">${data.msg}</div>`;
+            if (data.errors && data.errors.length) {
+                html += '<div class="alert alert-warning"><ul>' + data.errors.map(e => `<li>${e}</li>`).join('') + '</ul></div>';
+            }
+        } else {
+            html += `<div class="alert alert-danger">${data.msg}</div>`;
+        }
+        $('#importResult').html(html);
+        goToStep(3);
+    })
+    .catch(err => {
+        $('#importResult').html(`<div class="alert alert-danger">导入请求失败：${err.message}</div>`);
+    })
+    .finally(() => {
+        $btn.prop('disabled', false).text('确认导入');
+    });
+});
 
     // 初始化步骤
     goToStep(1);
