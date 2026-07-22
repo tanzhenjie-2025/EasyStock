@@ -191,19 +191,29 @@ const CUSTOMER_STORAGE_KEY = 'customer_summary_data';
 // 加载区域组列表（修改：添加恢复数据逻辑）
 function loadGroup(){
     $.get('/summary/group/list/', function(res) {
-        if (res.code === 0) {
-            alert(res.msg);
-            return;
+        // 兼容两种返回格式：直接数组 或 {code, data}
+        let groupList = res;
+        if (res && typeof res === 'object' && 'code' in res) {
+            if (res.code !== 1) {
+                alert(res.msg || '加载区域组失败');
+                return;
+            }
+            groupList = res.data || [];
         }
+        // 如果 groupList 不是数组，则置空
+        if (!Array.isArray(groupList)) {
+            groupList = [];
+        }
+        
         let opt = '<option value="">请选择区域组</option>';
-        res.forEach(g => opt += `<option value="${g.id}">${g.name}</option>`);
+        groupList.forEach(g => opt += `<option value="${g.id}">${g.name}</option>`);
         $('#group').html(opt);
         
-        // ========== 核心新增：区域组加载完成后恢复汇总数据 ==========
+        // 区域组加载完成后恢复汇总数据
         restoreCustomerSummaryData();
     }).fail(function() {
-        alert('加载区域组失败，请检查接口是否正常');
-        // 即使加载失败，也尝试恢复数据
+        alert('加载区域组失败，请检查网络或接口');
+        // 即使加载失败，也尝试恢复数据（可能之前有缓存）
         restoreCustomerSummaryData();
     });
 }
