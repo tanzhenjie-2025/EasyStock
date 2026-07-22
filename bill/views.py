@@ -2505,20 +2505,16 @@ def import_orders_preview(request):
     # ----- 商品 -----
     product_names = data['product_names']
     existing_products = Product.objects.filter(name__in=product_names, is_active=True)
-    product_map = {(p.name, p.unit): p for p in existing_products}          # 用于判断是否存在
-    product_obj_map = {(p.name, p.unit): p for p in existing_products}      # 用于获取价格
+    product_map = {(p.name, p.unit): p for p in existing_products}
+    product_obj_map = {(p.name, p.unit): p for p in existing_products}
 
-    # ===== 重构：新建商品列表，包含不存在和价格冲突的商品 =====
-    new_products = []        # 将保存所有需要用户决策的商品
-    conflict_keys = set()    # 用于标记订单项冲突
-
+    new_products = []
+    conflict_keys = set()
     for (pname, punit), info in product_create_info.items():
         if (pname, punit) in product_map:
-            # 商品已存在，比较价格
             db_price = product_obj_map[(pname, punit)].price
             import_price = Decimal(info['price'])
             if db_price != import_price:
-                # 价格不一致，列入新建商品（标记为冲突）
                 new_products.append({
                     'name': pname,
                     'unit': punit,
@@ -2526,16 +2522,12 @@ def import_orders_preview(request):
                     'price': str(import_price),
                     'exists': True,
                     'db_price': str(db_price),
-                    'action': 'overwrite',          # 默认操作：覆盖价格
+                    'action': 'overwrite',
                     'original_name': pname,
                     'original_unit': punit,
                 })
                 conflict_keys.add(f"{pname}|{punit}")
-            else:
-                # 价格一致，直接使用，无需用户操作
-                pass
         else:
-            # 商品不存在，直接新建（用户可修改名称/单位）
             new_products.append({
                 'name': pname,
                 'unit': punit,
@@ -2543,20 +2535,30 @@ def import_orders_preview(request):
                 'price': str(info['price']),
                 'exists': False,
                 'db_price': None,
-                'action': 'create',                # 只能新建
+                'action': 'create',
                 'original_name': pname,
                 'original_unit': punit,
             })
 
-    # ----- 客户 -----
+    # ----- 客户（新增：收集客户制单号） -----
     existing_customers = Customer.objects.filter(name__in=pure_customer_names, is_active=True)
     customer_map = {c.name: c for c in existing_customers}
+
+    # 建立客户名 → 制单号映射（取首次出现的制单号）
+    customer_order_number_map = {}
+    for g in order_groups.values():
+        pure_name = g['items'][0]['pure_customer_name']
+        order_number = g.get('order_number_snapshot', '')
+        if pure_name and pure_name not in customer_order_number_map:
+            customer_order_number_map[pure_name] = order_number
+
     new_customers = []
     for name in pure_customer_names:
         if name not in customer_map:
             new_customers.append({
                 'name': name,
                 'area': pure_name_area.get(name, ''),
+                'order_number': customer_order_number_map.get(name, ''),  # 新增制单号字段
             })
 
     # ----- 已存在订单编号 -----
@@ -2578,7 +2580,7 @@ def import_orders_preview(request):
         users = User.objects.filter(username__in=all_creator_usernames | all_settled_by_usernames)
         user_map = {u.username: u for u in users}
 
-    # ----- 组装订单预览（加入冲突标记与警告） -----
+    # ----- 组装订单预览 -----
     order_preview_list = []
     for key, g in order_groups.items():
         order_no = g['order_no']
@@ -2603,7 +2605,6 @@ def import_orders_preview(request):
         for item in g['items']:
             is_makeup = item.get('is_makeup_item', False)
             item_key = f"{item['product_name']}|{item['unit']}"
-            # 非补货且存在冲突，则标记
             item_conflict = (not is_makeup) and (item_key in conflict_keys)
             items_preview.append({
                 'product_name': item['product_name'],
@@ -2641,11 +2642,10 @@ def import_orders_preview(request):
 
     preview_data = {
         'new_areas': new_areas,
-        'new_products': new_products,            # 包含价格冲突和不存在商品
-        'new_customers': new_customers,
+        'new_products': new_products,
+        'new_customers': new_customers,           # 现在包含 order_number
         'orders': order_preview_list,
         'parse_errors': data['row_errors'],
-        # 不再返回 price_conflicts
     }
 
     return JsonResponse({'code': 1, 'data': preview_data})
@@ -2665,14 +2665,14 @@ def import_orders_confirm(request):
 
     orders_data = payload.get('orders', [])
     new_areas_data = payload.get('new_areas', [])
-    new_products_data = payload.get('new_products', [])   # 新格式：包含 action, exists 等
+    new_products_data = payload.get('new_products', [])
     new_customers_data = payload.get('new_customers', [])
 
     valid_orders = [o for o in orders_data if not o.get('skip')]
     if not valid_orders:
         return JsonResponse({'code': 0, 'msg': '没有可导入的订单，请检查是否全被跳过'})
 
-    # ---- 1. 处理区域（不变） ----
+    # ---- 1. 处理区域 ----
     area_map = {}
     if new_areas_data:
         names = set(a['name'] if isinstance(a, dict) else a for a in new_areas_data)
@@ -2684,26 +2684,21 @@ def import_orders_confirm(request):
             Area.objects.bulk_create(new_objs)
             fresh = Area.objects.filter(name__in=missing).values('name', 'id')
             area_map.update({a['name']: a['id'] for a in fresh})
-    else:
-        area_map = {}
 
-    # ---- 2. 处理商品（重构） ----
-    # 先处理用户选择的覆盖/新建
-    product_map = {}  # 用于存储最终使用的商品对象（key: (name, unit) -> Product）
+    # ---- 2. 处理商品 ----
+    product_map = {}
     product_error_messages = []
 
     for p in new_products_data:
         original_name = p.get('original_name', p['name'])
         original_unit = p.get('original_unit', p['unit'])
         action = p.get('action', 'create')
-        # 用户可能修改了名称/单位/规格/价格
         new_name = p['name'].strip()
         new_unit = p['unit'].strip()
         new_spec = p.get('spec', '').strip()
         new_price = Decimal(p['price'])
 
         if action == 'overwrite':
-            # 覆盖价格：查找原商品（按原始名称+单位）
             try:
                 prod = Product.objects.get(name=original_name, unit=original_unit, is_active=True)
                 if prod.price != new_price:
@@ -2715,13 +2710,10 @@ def import_orders_confirm(request):
                 continue
 
         elif action == 'create':
-            # 新建商品：使用修改后的名称+单位
-            # 检查是否与现有商品冲突（包括软删除的？这里我们只查启用的，如果冲突则报错）
             existing = Product.objects.filter(name=new_name, unit=new_unit, is_active=True).first()
             if existing:
                 product_error_messages.append(f'新建商品失败：{new_name}（{new_unit}）已存在，请修改名称或单位')
                 continue
-            # 创建新商品
             pinyin_full = ''.join(lazy_pinyin(new_name, style=0))
             pinyin_abbr = ''.join([x[0] for x in lazy_pinyin(new_name, style=0)])
             new_prod = Product(
@@ -2742,14 +2734,13 @@ def import_orders_confirm(request):
     if product_error_messages:
         return JsonResponse({'code': 0, 'msg': '商品处理失败：' + '；'.join(product_error_messages)})
 
-    # 对于未在 new_products 中的商品（价格一致，直接使用），我们也会在后续查询
-
-    # ---- 3. 创建客户（不变） ----
+    # ---- 3. 创建客户（新增：设置制单号） ----
     customer_map = {}
     if new_customers_data:
         for c in new_customers_data:
             cname = c['name']
             carea = c.get('area', '')
+            order_number = c.get('order_number', '')          # 获取制单号
             area_obj = Area.objects.filter(name=carea).first() if carea else None
             existing = Customer.objects.filter(name=cname, is_active=True).first()
             if existing:
@@ -2762,11 +2753,12 @@ def import_orders_confirm(request):
                 area=area_obj,
                 pinyin_full=pinyin_full,
                 pinyin_abbr=pinyin_abbr,
+                order_number=order_number,   # 保存制单号
             )
             new_cust.save()
             customer_map[cname] = new_cust
 
-    # ---- 4. 收集所有订单需要的基础数据（包括未处理的价格一致商品） ----
+    # ---- 4. 收集所有订单需要的基础数据 ----
     all_area_names = set()
     all_product_keys = set()
     all_customer_names = set()
@@ -2782,22 +2774,18 @@ def import_orders_confirm(request):
         if pure_customer:
             all_customer_names.add(pure_customer)
 
-    # 查询已存在的区域
     area_full_map = {}
     if all_area_names:
         areas = Area.objects.filter(name__in=all_area_names, is_active=True)
         area_full_map = {a.name: a for a in areas}
-    # 补充新创建的区域
     if new_areas_data:
         for a in new_areas_data:
             name = a if isinstance(a, str) else a.get('name')
             if name and name not in area_full_map:
-                # 从数据库重新获取
                 obj = Area.objects.filter(name=name).first()
                 if obj:
                     area_full_map[name] = obj
 
-    # 查询已存在的商品（价格一致的商品未在 product_map 中，需要补充）
     if all_product_keys:
         q = Q()
         for name, unit in all_product_keys:
@@ -2806,17 +2794,15 @@ def import_orders_confirm(request):
         existing_product_map = {(p.name, p.unit): p for p in products}
     else:
         existing_product_map = {}
-    # 合并 product_map（覆盖/新建的商品优先）
     product_full_map = {**existing_product_map, **product_map}
 
-    # 查询已存在的客户
     customer_full_map = {}
     if all_customer_names:
         customers = Customer.objects.filter(name__in=all_customer_names, is_active=True)
         customer_full_map = {c.name: c for c in customers}
     customer_full_map.update(customer_map)
 
-    # ---- 5. 预查询用户（不变） ----
+    # ---- 5. 预查询用户 ----
     all_creator_usernames = set()
     all_settled_usernames = set()
     for order in valid_orders:
@@ -2893,11 +2879,9 @@ def import_orders_confirm(request):
                     amount = price * qty
                     total += amount
 
-                    # 查找商品（先在 product_full_map 中查找，若没有则可能为 None）
                     product = product_full_map.get((prod_name, unit))
                     is_makeup = item.get('is_makeup_item', False)
 
-                    # 关键：snapshot_standard_price 存储开单价格（导入价格）
                     items_to_create.append(OrderItem(
                         order=order,
                         product=product,
@@ -2907,7 +2891,7 @@ def import_orders_confirm(request):
                         quantity=qty,
                         amount=amount,
                         actual_unit_price=price,
-                        snapshot_standard_price=price,      # 修改为开单价格
+                        snapshot_standard_price=price,
                         snapshot_customer_price=None,
                         is_makeup_item=is_makeup,
                     ))
@@ -2919,8 +2903,7 @@ def import_orders_confirm(request):
             except Exception as e:
                 errors.append(f'订单 {order_data.get("order_no", "未知")} 导入失败: {str(e)}')
 
-    clear_order_cache()  # 确保函数存在
-
+    clear_order_cache()
     return JsonResponse({
         'code': 1,
         'msg': f'成功导入 {success} 个订单',
