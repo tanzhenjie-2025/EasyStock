@@ -158,7 +158,7 @@ def customer_list(request):
         except EmptyPage:
             customer_page = paginator.page(paginator.num_pages)
 
-        # 批量计算欠款
+        # 批量计算欠款（如需）
         unpaid_dict = {}
         paid_dict = {}
         if with_debt:
@@ -178,7 +178,7 @@ def customer_list(request):
             )
             paid_dict = {item['customer_id']: item['total'] or 0 for item in paid_records}
 
-        # ========== 新增：获取当前用户角色编码 ==========
+        # 获取当前用户角色编码
         role_code = request.user.role.code if request.user.role else None
 
         # 组装返回数据
@@ -205,7 +205,10 @@ def customer_list(request):
                     'all': all_count,
                     'active': active_count,
                     'disabled': disabled_count
-                }
+                },
+                # ========== 新增字段 ==========
+                'pinyin_abbr': c.pinyin_abbr or '',   # 拼音缩写
+                'order_number': c.order_number or '', # 制单号
             }
 
             # 从预查询的字典中取欠款数据
@@ -223,7 +226,6 @@ def customer_list(request):
     except Exception as e:
         logger.error(f"客户列表查询失败: {str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'查询失败：{str(e)}'})
-
 # 示例：放在 customer/utils.py
 def mask_phone(phone: str) -> str:
     """对手机号/座机进行脱敏，保留前3后4（手机）或前2后2（座机）"""

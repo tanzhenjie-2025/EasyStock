@@ -516,16 +516,20 @@
     <div class="table-container">
         <table class="table table-sm table-bordered table-hover table-fixed">
             <thead class="table-light">
-                <tr>
-                    <th style="width: 8%;">ID</th>
-                    <th style="width: 18%;">客户名称</th>
-                    <th style="width: 15%;">所属区域</th>
-                    <th style="width: 15%;">联系电话</th>
-                    <th style="width: 10%;">状态</th>
-                    <th style="width: 19%;">备注</th>
-                    <th style="width: 15%;">操作</th>
-                </tr>
-            </thead>
+    <tr>
+        <th style="width: 8%;">ID</th>
+        <th style="width: 15%;">客户名称</th>
+        <!-- 新增列：拼音缩写 -->
+        <th style="width: 10%;">拼音缩写</th>
+        <th style="width: 13%;">所属区域</th>
+        <th style="width: 12%;">联系电话</th>
+        <!-- 新增列：制单号 -->
+        <th style="width: 10%;">制单号</th>
+        <th style="width: 8%;">状态</th>
+        <th style="width: 14%;">备注</th>
+        <th style="width: 10%;">操作</th>
+    </tr>
+</thead>
             <tbody id="customerList">
                 <!-- JS 动态填充 -->
             </tbody>
@@ -813,12 +817,10 @@
         let html = '';
         let pageInfo = { page: 1, total: 0 };
         if (Array.isArray(res) && res.length > 0) {
-            // 更新Tab数量
             if (res[0].counts) updateTabCounts(res[0].counts);
             pageInfo.page = parseInt(res[0].page) || 1;
             pageInfo.total = parseInt(res[0].total) || 0;
             
-            // 🔥 从全局变量判断当前是否为开单人
             const isOperator = (userRoleCode === 'operator');
             
             res.forEach(customer => {
@@ -827,20 +829,19 @@
                 let phone = highlightKeyword(phoneText, keyword);
                 let areaName = highlightKeyword(customer.area_name || '无', keyword);
                 let id = highlightKeyword(customer.id.toString(), keyword);
+                // 新增：拼音缩写和制单号（也可高亮）
+                let pinyinAbbr = customer.pinyin_abbr || '';
+                let orderNumber = customer.order_number || '';
                 
-                // 状态相关
                 const isActive = customer.is_active;
                 const rowClass = isActive ? '' : 'disabled-row';
                 const statusBadge = isActive 
                     ? '<span class="status-badge active">正常</span>' 
                     : '<span class="status-badge disabled">已停用</span>';
                 
-                // 🔥 操作列按钮 —— 按角色与状态组合控制
                 let actionBtns = '';
                 if (isActive) {
-                    // 详情按钮：所有人可见
                     actionBtns = `<button class="btn btn-sm btn-info me-1" onclick="openCustomerDetail(${customer.id}); event.stopPropagation();">详情</button>`;
-                    // 编辑、停用按钮：仅非开单人可见
                     if (!isOperator) {
                         actionBtns += `
                             <button class="btn btn-sm btn-warning me-1" onclick="openEditModal(${customer.id}); event.stopPropagation();">编辑</button>
@@ -848,7 +849,6 @@
                         `;
                     }
                 } else {
-                    // 启用按钮：仅非开单人可见，开单人显示灰色提示
                     if (!isOperator) {
                         actionBtns = `<button class="btn btn-sm btn-success" onclick="enableCustomer(${customer.id}); event.stopPropagation();">启用</button>`;
                     } else {
@@ -856,18 +856,22 @@
                     }
                 }
                 
+                // 注意：列数增加了两列，所以 colspan 等需要相应调整（此处无 colspan，直接增加 td）
                 html += `<tr class="${rowClass}" onclick="openCustomerDetail(${customer.id})">
                     <td>${id}</td>
                     <td>${name}</td>
+                    <td>${pinyinAbbr}</td>           <!-- 新增 -->
                     <td>${areaName}</td>
                     <td>${phone}</td>
+                    <td>${orderNumber}</td>          <!-- 新增 -->
                     <td>${statusBadge}</td>
                     <td>${customer.remark || '无'}</td>
                     <td>${actionBtns}</td>
                 </tr>`;
             });
         } else {
-            html = '<tr><td colspan="7" class="no-result">暂无匹配的客户，请更换关键词重试</td></tr>';
+            // 列数改为9（原7+2）
+            html = '<tr><td colspan="9" class="no-result">暂无匹配的客户，请更换关键词重试</td></tr>';
         }
         $('#customerList').html(html);
         renderPagination(pageInfo.page, pageInfo.total);
