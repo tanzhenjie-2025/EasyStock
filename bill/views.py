@@ -811,7 +811,7 @@ def order_list(request):
                         (order.creator != request.user and request.user.has_permission('order_cancel_others')):
                     can_cancel = True
             elif is_operator:
-                if order.creator == request.user and time_diff <= 5 and request.user.has_permission('order_cancel_own'):
+                if order.creator == request.user and time_diff <= 30 and request.user.has_permission('order_cancel_own'):
                     can_cancel = True
         order.can_cancel = can_cancel
 
@@ -923,7 +923,7 @@ def order_detail(request, order_no):
                     order.creator != request.user and can_cancel_others):
                 show_cancel_btn = True
         elif is_operator:
-            if order.creator == request.user and can_cancel_own and time_diff <= 5:
+            if order.creator == request.user and can_cancel_own and time_diff <= 30:
                 show_cancel_btn = True
 
     # 🔥 优化4：使用已优化的明细数据（模板必须用这个，禁止用order.items.all）

@@ -232,8 +232,8 @@
     {% elif order.status != 'cancelled' and not order.is_settled %}
     <button class="btn btn-danger ms-2" disabled>
         {% if is_operator and order.creator == request.user %}
-            {% if time_diff > 5 %}
-                作废订单（已超过5分钟时效）
+            {% if time_diff > 30 %}
+                作废订单（已超过30分钟时效）
             {% else %}
                 作废订单（无操作权限）
             {% endif %}
