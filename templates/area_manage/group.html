@@ -113,6 +113,12 @@
         {% if can_add %}
             <button class="btn btn-sm btn-warning" onclick="showImportModal()">📤 导入数据</button>
         {% endif %}
+        
+        <!-- 清理缓存并刷新按钮 -->
+<button class="btn btn-sm btn-secondary" id="btn-refresh-cache" onclick="refreshCache()">
+    <span id="refresh-text">🔄 刷新缓存</span>
+    <span id="refresh-spinner" class="spinner-border spinner-border-sm" role="status" style="display:none;"></span>
+</button>
     </div>
 
     <!-- 状态Tab切换 -->
@@ -387,6 +393,38 @@
                 });
             });
         }
+        
+        function refreshCache() {
+    var $btn = $('#btn-refresh-cache');
+    var $text = $('#refresh-text');
+    var $spinner = $('#refresh-spinner');
+    // 防止重复点击
+    if ($btn.prop('disabled')) return;
+    // 禁用按钮并显示动画
+    $btn.prop('disabled', true);
+    $text.hide();
+    $spinner.show();
+
+    $.ajax({
+        url: '/area-manage/api/group/clear-cache/',
+        type: 'POST',
+        headers: {'X-CSRFToken': getCsrfToken()},
+        dataType: 'json',
+        success: function(res) {
+            showToast(res.msg || '缓存已刷新', 'success');
+            load(); // 重新加载列表（保留当前搜索和分页状态，如需可传参）
+        },
+        error: function() {
+            showToast('刷新缓存失败，请重试', 'error');
+        },
+        complete: function() {
+            // 恢复按钮
+            $btn.prop('disabled', false);
+            $text.show();
+            $spinner.hide();
+        }
+    });
+}
 
         // ==================== 导出相关函数 ====================
         function exportData() {

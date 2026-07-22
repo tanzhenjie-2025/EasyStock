@@ -87,7 +87,18 @@ def clear_group_cache(group_id: int = None):
         cache.delete(f"{CACHE_PREFIX['GROUP_DETAIL']}{group_id}")
     cache.delete_pattern(f"{CACHE_PREFIX['GROUP_LIST']}*")
 
-
+@login_required
+def clear_cache_api(request):
+    """
+    清理区域及区域组相关缓存，用于前端刷新按钮
+    """
+    try:
+        clear_area_cache()
+        clear_group_cache()
+        return JsonResponse({'code': 1, 'msg': '缓存已清理，数据已刷新'})
+    except Exception as e:
+        logger.error(f"清理缓存失败：{str(e)}", exc_info=True)
+        return JsonResponse({'code': 0, 'msg': '清理缓存失败，请稍后重试'})
 # ===================== 统计函数 =====================
 def get_area_statistics(area_id):
     cache_key = f"{CACHE_PREFIX['AREA_STAT']}{area_id}"

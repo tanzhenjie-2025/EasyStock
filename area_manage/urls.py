@@ -45,4 +45,5 @@ path('api/group/stats/<int:pk>/', views.group_statistics_api, name='group_stats_
     path('group/stats/', views.group_stats_page, name='group_stats_page'),
     # 🔥 新增：区域组统计数据 API
     path('api/group/stats/calculate/', views.calculate_group_stats, name='calculate_group_stats'),
+path('api/group/clear-cache/', views.clear_cache_api, name='clear_cache_api'),
 ]
