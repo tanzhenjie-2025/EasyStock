@@ -338,14 +338,14 @@ def save_order(request):
                     # 提取交付方式（优先级：自提 > 寄件，先出现的为准）
                     if '自' in spec:
                         delivery_method = 'pickup'
-                        print('备注行：自提')
+
                     elif '寄' in spec:
                         delivery_method = 'express'
-                        print('备注行：寄件')
+
                     # 提取退货标记
                     if '退' in spec or '换' in spec:
                         has_return = True
-                        print('备注行：退货标记')
+
                     # 备注行不加入订单明细，直接跳过
                     continue
 
@@ -506,6 +506,7 @@ def print_order(request, order_no):
     )
     items = order.items.select_related('product')
 
+    # 原有补货/换货检测（用于浮动提示“带回退货”）
     has_return_or_exchange = order.items.filter(
         is_makeup_item=True,
         operation_type__in=['return', 'exchange']
@@ -515,15 +516,15 @@ def print_order(request, order_no):
     items_display.extend([None] * (16 - len(items_display)))
     float_start = find_float_start(items_display)
 
-    # ========== 新增：根据交付方式生成水印文字 ==========
+    # ========== 交付方式水印 ==========
     watermark_text = None
     if order.delivery_method == 'pickup':
         watermark_text = '客户自提'
     elif order.delivery_method == 'express':
         watermark_text = '快递寄件'
-    print(f"生成的水印文字: {watermark_text}")
-    # delivery 时不显示
-    # =================================================
+
+    # ========== 退货标记水印（新增） ==========
+    has_return = order.has_return  # 订单级的退货标记
 
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
 
@@ -536,7 +537,8 @@ def print_order(request, order_no):
         'phone_numbers': settings.PHONE_NUMBERS,
         'complaint_phone': settings.COMPLAINT_PHONE,
         'bill_title': settings.BILL_TITLE,
-        'watermark_text': watermark_text,        # 新增
+        'watermark_text': watermark_text,
+        'has_return': has_return,   # 新增
     }
 
     response = render(request, 'bill/print.html', context)
@@ -564,20 +566,20 @@ def batch_print_orders(request):
         has_return_or_exchange = has_return_or_exchange_items(order)
         float_start = find_float_start(items_display)
 
-        # ========== 新增：交付方式水印 ==========
+        # 交付方式水印
         watermark_text = None
         if order.delivery_method == 'pickup':
             watermark_text = '客户自提'
         elif order.delivery_method == 'express':
             watermark_text = '快递寄件'
-        # =====================================
 
         orders_data.append({
             'order': order,
             'items_display': items_display,
             'has_return_or_exchange': has_return_or_exchange,
             'float_start': float_start,
-            'watermark_text': watermark_text,   # 新增
+            'watermark_text': watermark_text,
+            'has_return': order.has_return,   # 新增
         })
 
     context = {

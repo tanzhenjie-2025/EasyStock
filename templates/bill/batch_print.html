@@ -23,6 +23,20 @@
                 page-break-inside: avoid;
                 border: none;
             }
+            .watermark-return {
+    position: absolute;
+    left: 0;
+    top: 40%;                /* 与交付方式水印错开，避免重叠 */
+    transform: translateY(-50%) rotate(-15deg);
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    font-size: 40px;
+    font-weight: bold;
+    color: #000;             /* 红色更醒目 */
+    pointer-events: none;
+    z-index: 25;
+}
             .no-print {
                 display: none;
             }
@@ -259,18 +273,16 @@
                 </table>
 
                 <!-- 浮动留言 -->
-                {% if item.has_return_or_exchange and item.float_start is not None %}
-                    {% widthratio item.float_start 1 30 as start_px %}
-                    <div class="float-msg" style="top: {{ start_px|add:30 }}px;">
-                        带回退货
-                    </div>
-                {% endif %}
+                
             
             <!-- ========== 新增：交付方式水印 ========== -->
 {% if item.watermark_text %}
     <div class="watermark-delivery">
         {{ item.watermark_text }}
     </div>
+{% endif %}
+            {% if item.has_return %}
+    <div class="watermark-return">带回退货</div>
 {% endif %}
             </div>
 

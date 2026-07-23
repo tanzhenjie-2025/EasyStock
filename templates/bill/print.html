@@ -107,6 +107,21 @@
         .bill-table .col-unit  { width: 6%; }
         .bill-table .col-price { width: 15%; }
         .bill-table .col-total { width: 15%; }
+        
+        .watermark-return {
+    position: absolute;
+    left: 0;
+    top: 40%;                /* 与交付方式水印错开，避免重叠 */
+    transform: translateY(-50%) rotate(-15deg);
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    font-size: 40px;
+    font-weight: bold;
+    color: #000;             /* 红色更醒目 */
+    pointer-events: none;
+    z-index: 25;
+}
 
         .bill-footer {
             margin-top: 8px;
@@ -258,13 +273,10 @@
             </table>
 
             <!-- 浮动留言（仅当有补货且找到连续空行时显示） -->
-            {% if has_return_or_exchange and float_start is not None %}
-                {% widthratio float_start 1 30 as start_px %}
-                <div class="float-msg" style="top: {{ start_px|add:30 }}px;">
-                    带回退货
-                </div>
-            {% endif %}
-        
+            {% if has_return %}
+    <div class="watermark-return">带回退货</div>
+{% endif %}
+
         {% if watermark_text %}
     <div class="watermark-delivery">
         {{ watermark_text }}
