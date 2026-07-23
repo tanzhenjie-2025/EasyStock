@@ -268,6 +268,9 @@ def summary_customer_by_group(request):
 
 
 # ========== Excel导出（优化索引匹配） ==========
+from openpyxl.styles import Border, Side  # 新增导入
+from openpyxl.utils import get_column_letter
+
 def export_to_excel(data, title, headers, selected_fields, custom_fields, file_name, total_row=None):
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -291,21 +294,32 @@ def export_to_excel(data, title, headers, selected_fields, custom_fields, file_n
             except ValueError:
                 final_fields.append(custom_field_key)
 
+    # ========== 新增：交换数量和单位的位置 ==========
+    if 'unit' in final_fields and 'total_qty' in final_fields:
+        unit_idx = final_fields.index('unit')
+        qty_idx = final_fields.index('total_qty')
+        # 互换
+        final_fields[unit_idx], final_fields[qty_idx] = final_fields[qty_idx], final_fields[unit_idx]
+
     selected_headers = [final_headers[field] for field in final_fields]
     title_font = Font(bold=True, size=12)
     alignment = Alignment(horizontal='center')
 
+    # ---------- 标题行 ----------
     for col, header in enumerate(selected_headers, 1):
         cell = ws.cell(row=1, column=col, value=header)
         cell.font = title_font
         cell.alignment = alignment
 
+    # ---------- 数据行 ----------
     for row, item in enumerate(data, 2):
         for col, field in enumerate(final_fields, 1):
             value = item.get(field, '') if not field.startswith('custom_') else ''
-            if isinstance(value, float): value = round(value, 2)
+            if isinstance(value, float):
+                value = round(value, 2)
             ws.cell(row=row, column=col, value=value)
 
+    # ---------- 总计行 ----------
     if total_row:
         total_row_num = len(data) + 2
         total_font = Font(bold=True, color="FFFFFF")
@@ -319,9 +333,27 @@ def export_to_excel(data, title, headers, selected_fields, custom_fields, file_n
                 cell.fill = total_fill
                 cell.alignment = Alignment(horizontal='center')
 
+    # ---------- 设置列宽 ----------
     for col in range(1, len(selected_headers) + 1):
-        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = 15
+        ws.column_dimensions[get_column_letter(col)].width = 15
 
+    # ========== 新增：为所有数据区域添加全边框 ==========
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    max_row = len(data) + 1  # 数据从第2行开始
+    if total_row:
+        max_row += 1
+    max_col = len(selected_headers)
+    for row in range(1, max_row + 1):
+        for col in range(1, max_col + 1):
+            cell = ws.cell(row=row, column=col)
+            cell.border = thin_border
+
+    # ---------- 保存并返回 ----------
     buffer = BytesIO()
     wb.save(buffer)
     buffer.seek(0)
