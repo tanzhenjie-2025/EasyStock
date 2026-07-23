@@ -97,6 +97,21 @@ class Order(models.Model):
         help_text="该订单累计已收到的货款"
     )
 
+    DELIVERY_METHOD_CHOICES = (
+        ('pickup', '客户自提'),
+        ('delivery', '送货上门'),
+        ('express', '快递寄送'),
+        # 未来可扩展：('express', '快递寄送') 等
+    )
+
+    delivery_method = models.CharField(
+        '交付方式',
+        max_length=20,
+        choices=DELIVERY_METHOD_CHOICES,
+        default='delivery',  # 默认送货（根据业务习惯可改为 pickup）
+        help_text='货物交付方式：客户自提或送货上门'
+    )
+
     def get_overdue_days(self):
         if self.is_settled:
             return 0

@@ -337,7 +337,6 @@ def save_order(request):
                 if not isinstance(qty, int) or qty <= 0:
                     return JsonResponse({'code': 0, 'msg': f'商品{name}数量无效'})
 
-                # 判断是否为有效商品ID（正数）
                 product_id_int = None
                 if pid_raw:
                     try:
@@ -345,15 +344,11 @@ def save_order(request):
                         if pid_int > 0:
                             product_id_int = pid_int
                             valid_product_ids.append(pid_int)
-                        else:
-                            # 负数或零视为自由商品，不加入查询列表
-                            product_id_int = None
                     except (ValueError, TypeError):
-                        # 非数字字符串视为自由商品
-                        product_id_int = None
+                        pass
 
                 item_data_list.append({
-                    'pid': product_id_int,          # 若为 None 则表示自由商品
+                    'pid': product_id_int,
                     'name': name,
                     'spec': spec,
                     'unit': unit,
@@ -366,15 +361,12 @@ def save_order(request):
             # ---------- 2. 批量查询有效商品 ----------
             products_map = {}
             if valid_product_ids:
-                # 注意：使用 all_objects 可获取软删除商品，但若商品被禁用，我们也应视为不存在，降级为自由商品
-                # 这里只查询 is_active=True 的商品，若商品已禁用则不会返回，后续降级处理
                 products_map = Product.objects.filter(
                     id__in=valid_product_ids,
                     is_active=True
                 ).in_bulk()
 
-            # ---------- 3. 查询客户专属价（仅对有效且存在的商品） ----------
-            # 注意：这里只对 products_map 中存在的商品查询客户价
+            # ---------- 3. 查询客户专属价 ----------
             existing_product_ids = list(products_map.keys())
             customer_prices_dict = {}
             if customer_id and existing_product_ids:
@@ -384,17 +376,28 @@ def save_order(request):
                 )
                 customer_prices_dict = {cp.product_id: cp.custom_price for cp in cp_list}
 
+            # ========== 判断交付方式（基于所有行，包括备注行） ==========
+            delivery_method = 'delivery'   # 默认送货上门
+            for item_data in item_data_list:
+                spec = item_data['spec']
+                if '自' in spec:
+                    delivery_method = 'pickup'
+                    break
+                elif '寄' in spec:
+                    delivery_method = 'express'
+            # =========================================================
+
             # ---------- 4. 创建订单主表 ----------
             order = Order()
             order.creator = request.user
             order.customer_name_snapshot = customer_name
             order.order_number_snapshot = order_number or None
+            order.delivery_method = delivery_method
 
             if customer_id:
                 customer = get_object_or_404(Customer, id=customer_id)
                 order.customer = customer
                 order.area = customer.area
-                # 更新客户制单号
                 if order_number and customer.order_number != order_number:
                     customer.order_number = order_number
                     customer.save(update_fields=['order_number'])
@@ -406,35 +409,41 @@ def save_order(request):
                 order.original_order = original_order
                 order.status = 'reopened'
 
-            # ---------- 5. 生成订单明细 ----------
+            # ---------- 5. 生成订单明细（过滤备注行） ----------
             total_amount = 0
             order_items = []
             update_stock_products = []
 
             for item_data in item_data_list:
+                spec = item_data['spec']
+                # ========== 核心修改：规格包含“自”或“寄”的行视为备注行，不保存 ==========
+                if '自' in spec or '寄' in spec:
+                    continue   # 跳过该行，不生成订单明细，不扣库存，不计入总金额
+                # ====================================================================
+
                 pid = item_data['pid']
                 name = item_data['name']
-                spec = item_data['spec']
                 qty = item_data['qty']
-                input_price = item_data['price']  # Decimal
+                input_price = item_data['price']
                 amount = input_price * qty
                 total_amount += amount
 
-                # 如果 pid 存在但不在 products_map 中，说明商品已不存在或已被禁用，降级为自由商品
+                # 规格快照（备注行已跳过，正常商品规格原样保存）
+                save_spec = spec
+
                 if pid is not None and pid in products_map:
                     product = products_map[pid]
                     snap_standard = product.price
                     snap_customer = customer_prices_dict.get(pid, None)
-                    # 扣减库存（仅当商品有效）
                     product.stock_system -= qty
                     update_stock_products.append(product)
 
                     order_items.append(OrderItem(
                         order=order,
                         product=product,
-                        product_name=product.name,          # 使用系统名称
+                        product_name=product.name,
                         unit=item_data['unit'],
-                        specification=spec,
+                        specification=save_spec,
                         quantity=qty,
                         amount=amount,
                         actual_unit_price=input_price,
@@ -444,13 +453,12 @@ def save_order(request):
                         operation_type=item_data['operation_type'],
                     ))
                 else:
-                    # 自由商品（包括原本无 ID、负 ID、或商品不存在/禁用）
                     order_items.append(OrderItem(
                         order=order,
                         product=None,
-                        product_name=name,                  # 使用前端传入名称
+                        product_name=name,
                         unit=item_data['unit'],
-                        specification=spec,
+                        specification=save_spec,
                         quantity=qty,
                         amount=amount,
                         actual_unit_price=input_price,
@@ -459,9 +467,6 @@ def save_order(request):
                         is_makeup_item=item_data['is_makeup'],
                         operation_type=item_data['operation_type'],
                     ))
-                    # 如果有 pid 但未找到商品，可记录日志（可选）
-                    if pid is not None:
-                        logger.warning(f"商品ID {pid} 不存在或已禁用，订单明细降级为自由商品，名称：{name}")
 
             # ---------- 6. 保存 ----------
             order.total_amount = total_amount
@@ -485,7 +490,6 @@ def save_order(request):
         logger.error(f"开单失败：{str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'开单失败：{str(e)}'})
 
-
 @login_required
 def print_order(request, order_no):
     """订单打印页面（手动缓存版）"""
@@ -495,36 +499,43 @@ def print_order(request, order_no):
     if cached_data:
         return HttpResponse(cached_data)
 
-    # 预加载订单及关联数据
     order = get_object_or_404(
         Order.objects.select_related('customer', 'area', 'creator'),
         order_no=order_no
     )
     items = order.items.select_related('product')
 
-    # 判断是否有补货品项
     has_return_or_exchange = order.items.filter(
         is_makeup_item=True,
         operation_type__in=['return', 'exchange']
     ).exists()
 
-    # 构建固定18行的商品列表（保留原有逻辑）
     items_display = list(items[:16])
     items_display.extend([None] * (16 - len(items_display)))
     float_start = find_float_start(items_display)
 
-    # RBAC权限判断
+    # ========== 新增：根据交付方式生成水印文字 ==========
+    watermark_text = None
+    if order.delivery_method == 'pickup':
+        watermark_text = '客户自提'
+    elif order.delivery_method == 'express':
+        watermark_text = '快递寄件'
+    print(f"生成的水印文字: {watermark_text}")
+    # delivery 时不显示
+    # =================================================
+
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
 
     context = {
         'order': order,
         'items_display': items_display,
         'is_super_admin': is_super_admin,
-        'has_return_or_exchange': has_return_or_exchange,                # 新增
-        'float_start': float_start,  # 新增
+        'has_return_or_exchange': has_return_or_exchange,
+        'float_start': float_start,
         'phone_numbers': settings.PHONE_NUMBERS,
         'complaint_phone': settings.COMPLAINT_PHONE,
         'bill_title': settings.BILL_TITLE,
+        'watermark_text': watermark_text,        # 新增
     }
 
     response = render(request, 'bill/print.html', context)
@@ -549,14 +560,23 @@ def batch_print_orders(request):
     for order in orders:
         items = order.items.select_related('product')
         items_display = list(items[:16]) + [None] * (16 - min(len(items), 16))
-        # 使用新函数判断是否有退货/换货
         has_return_or_exchange = has_return_or_exchange_items(order)
         float_start = find_float_start(items_display)
+
+        # ========== 新增：交付方式水印 ==========
+        watermark_text = None
+        if order.delivery_method == 'pickup':
+            watermark_text = '客户自提'
+        elif order.delivery_method == 'express':
+            watermark_text = '快递寄件'
+        # =====================================
+
         orders_data.append({
             'order': order,
             'items_display': items_display,
-            'has_return_or_exchange': has_return_or_exchange,  # 改名
+            'has_return_or_exchange': has_return_or_exchange,
             'float_start': float_start,
+            'watermark_text': watermark_text,   # 新增
         })
 
     context = {
