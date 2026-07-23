@@ -225,6 +225,23 @@
     pointer-events: none;
     z-index: 20;        /* 可根据需要调整层级，但不会同时出现 */
 }
+
+.watermark-general {
+    position: absolute;
+    left: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 40px;
+    font-weight: bold;
+    color: #000;
+    transform: rotate(-15deg);
+    pointer-events: none;
+    z-index: 30;   /* 可选，略高于其他水印 */
+}
     </style>
 </head>
 <body>
@@ -293,16 +310,16 @@
                 <!-- 浮动留言 -->
                 
             
-            <!-- ========== 新增：交付方式水印 ========== -->
-{% if item.watermark_text %}
-    <div class="watermark-delivery">
-        {{ item.watermark_text }}
-    </div>
+            {% if item.general_remark %}
+    <div class="watermark-general">{{ item.general_remark }}</div>
+{% else %}
+    {% if item.watermark_text %}
+        <div class="watermark-delivery">{{ item.watermark_text }}</div>
+    {% endif %}
+    {% if item.has_return %}
+        <div class="watermark-return">带回退货</div>
+    {% endif %}
 {% endif %}
-            {% if item.has_return %}
-    <div class="watermark-return">带回退货</div>
-{% endif %}
-            </div>
 
             <!-- 底部信息 -->
             <div class="bill-footer">
@@ -360,7 +377,9 @@
                         <span style="font-size: 22px; font-weight: bold;">带回退货</span>
                     </div>
                     {% endif %}
+                
                 </div>
+            </div>
             </div>
         </div>
 

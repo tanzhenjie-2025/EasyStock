@@ -114,6 +114,8 @@ class Order(models.Model):
 
     has_return = models.BooleanField('是否包含退货', default=False, db_index=True)
 
+    remark = models.TextField('订单备注', blank=True, default='', help_text='加急、特殊要求等')
+
     def get_overdue_days(self):
         if self.is_settled:
             return 0

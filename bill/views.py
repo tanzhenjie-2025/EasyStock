@@ -322,7 +322,8 @@ def save_order(request):
             valid_product_ids = []
             item_data_list = []
             has_return = False
-            delivery_method = 'delivery'  # 默认送货上门
+            delivery_method = 'delivery'
+            general_remarks = []          # 新增：收集通用备注
 
             for item in items:
                 name = item.get('name', '').strip()
@@ -338,13 +339,16 @@ def save_order(request):
                     # 提取交付方式（优先级：自提 > 寄件，先出现的为准）
                     if '自' in spec:
                         delivery_method = 'pickup'
-
                     elif '寄' in spec:
                         delivery_method = 'express'
 
                     # 提取退货标记
                     if '退' in spec or '换' in spec:
                         has_return = True
+
+                    # 如果没有命中以上任何关键词 → 视为通用备注
+                    if not ('自' in spec or '寄' in spec or '退' in spec or '换' in spec):
+                        general_remarks.append(spec)
 
                     # 备注行不加入订单明细，直接跳过
                     continue
@@ -411,16 +415,14 @@ def save_order(request):
                     customer.order_number = order_number
                     customer.save(update_fields=['order_number'])
 
-            # ====== 关键修改：处理 original_order_no（加单/重开） ======
+            # ====== 处理 original_order_no（加单/重开） ======
             original_order = None
             if original_order_no:
                 original_order = get_object_or_404(Order, order_no=original_order_no)
                 if original_order.status == 'cancelled':
-                    # 如果原单已作废，则视为“重开”，直接关联，不再作废
                     order.original_order = original_order
                     order.status = 'reopened'
                 else:
-                    # 否则视为“加单”，自动作废原单，再关联
                     original_order.status = 'cancelled'
                     original_order.cancelled_by = request.user
                     original_order.cancelled_time = timezone.now()
@@ -428,10 +430,7 @@ def save_order(request):
                     original_order.save(update_fields=['status', 'cancelled_by', 'cancelled_time', 'cancelled_reason'])
                     create_operation_log(request, 'cancel_order', 'order', str(original_order.id),
                                          f"订单-{original_order.order_no}", "加单自动作废")
-                    # 若需要恢复库存（可选），在此处处理
-                    # 注意：原订单的库存已在创建时扣减，作废时需加回，新订单再扣减
-                    # 可复用恢复库存的逻辑，但本例暂略
-                    clear_order_cache()  # 清理缓存
+                    clear_order_cache()
                     order.original_order = original_order
                     order.status = 'reopened'
 
@@ -486,8 +485,10 @@ def save_order(request):
                         operation_type=item_data['operation_type'],
                     ))
 
-            # ---------- 6. 保存 ----------
+            # ---------- 6. 保存（新增通用备注写入） ----------
             order.total_amount = total_amount
+            if general_remarks:
+                order.remark = '；'.join(general_remarks)   # 多条备注用中文分号分隔
             order.save()
             OrderItem.objects.bulk_create(order_items)
 
@@ -540,6 +541,8 @@ def print_order(request, order_no):
     elif order.delivery_method == 'express':
         watermark_text = '快递寄件'
 
+    general_remark = order.remark.strip() if order.remark else None
+
     # ========== 退货标记水印（新增） ==========
     has_return = order.has_return  # 订单级的退货标记
 
@@ -556,6 +559,7 @@ def print_order(request, order_no):
         'bill_title': settings.BILL_TITLE,
         'watermark_text': watermark_text,
         'has_return': has_return,   # 新增
+        'general_remark': general_remark,  # 新增
     }
 
     response = render(request, 'bill/print.html', context)
@@ -590,6 +594,8 @@ def batch_print_orders(request):
         elif order.delivery_method == 'express':
             watermark_text = '快递寄件'
 
+        general_remark = order.remark.strip() if order.remark else None
+
         orders_data.append({
             'order': order,
             'items_display': items_display,
@@ -597,6 +603,7 @@ def batch_print_orders(request):
             'float_start': float_start,
             'watermark_text': watermark_text,
             'has_return': order.has_return,   # 新增
+            'general_remark': general_remark,  # 新增
         })
 
     context = {
