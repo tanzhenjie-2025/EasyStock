@@ -1730,7 +1730,7 @@ from urllib.parse import quote
 @login_required
 @permission_required('order_export')
 def export_orders(request):
-    """导出当前筛选条件下的订单 Excel（模板可复用，增加订单级字段）"""
+    """导出当前筛选条件下的订单 Excel（模板可复用，增加交付方式字段）"""
     order_no = request.GET.get('order_no', '').strip()
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
@@ -1742,7 +1742,6 @@ def export_orders(request):
 
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
     can_view_others = request.user.has_permission('order_view_others')
-    # 关键修改：增加 select_related 预加载 creator 和 settled_by
     orders = Order.objects.select_related('area', 'creator', 'settled_by').order_by('-create_time')
     if not is_super_admin and not can_view_others:
         orders = orders.filter(creator=request.user)
@@ -1793,11 +1792,11 @@ def export_orders(request):
     ws = wb.active
     ws.title = "订单数据"
 
-    # 表头扩展，增加订单级字段
+    # ===== 修改点 1：表头增加“交付方式” =====
     headers = [
         '订单编号', '客户名称', '区域', '商品名称', '规格', '单位',
-        '数量', '单价', '小计金额', '订单状态', '创建时间',
-        '开单人', '订单总金额', '是否结清', '已收金额',
+        '数量', '单价', '小计金额', '订单状态', '交付方式',    # 新增
+        '创建时间', '开单人', '订单总金额', '是否结清', '已收金额',
         '结清人', '结清时间', '制单号快照', '是否补货'
     ]
     header_font = Font(bold=True)
@@ -1813,7 +1812,6 @@ def export_orders(request):
         order_no_text = order.order_no
         create_time_val = timezone.localtime(order.create_time).replace(tzinfo=None)
 
-        # 订单级字段（同一订单的所有明细行都相同）
         creator_name = order.creator.username if order.creator else ''
         total_amount = float(order.total_amount)
         is_settled_text = '是' if order.is_settled else '否'
@@ -1821,33 +1819,36 @@ def export_orders(request):
         settled_by_name = order.settled_by.username if order.settled_by else ''
         settled_time_val = timezone.localtime(order.settled_time).replace(tzinfo=None) if order.settled_time else ''
         order_number_snap = order.order_number_snapshot or ''
+        # ===== 修改点 2：提取交付方式 =====
+        delivery_method = order.delivery_method  # 存储键值，如 'pickup', 'delivery', 'express'
 
         for item in order.items.all():
-            ws.cell(row=row, column=1, value=order_no_text)
-            ws.cell(row=row, column=2, value=customer_name_snap)
-            ws.cell(row=row, column=3, value=area_name)
-            ws.cell(row=row, column=4, value=item.product_name)
-            ws.cell(row=row, column=5, value=item.specification)
-            ws.cell(row=row, column=6, value=item.unit)
-            ws.cell(row=row, column=7, value=item.quantity)
+            # 列号重新调整
+            col = 1
+            ws.cell(row=row, column=col, value=order_no_text); col += 1
+            ws.cell(row=row, column=col, value=customer_name_snap); col += 1
+            ws.cell(row=row, column=col, value=area_name); col += 1
+            ws.cell(row=row, column=col, value=item.product_name); col += 1
+            ws.cell(row=row, column=col, value=item.specification); col += 1
+            ws.cell(row=row, column=col, value=item.unit); col += 1
+            ws.cell(row=row, column=col, value=item.quantity); col += 1
             price = float(item.actual_unit_price) if item.actual_unit_price else 0.0
-            ws.cell(row=row, column=8, value=price)
+            ws.cell(row=row, column=col, value=price); col += 1
             amt = float(item.amount) if item.amount else 0.0
-            ws.cell(row=row, column=9, value=amt)
-            ws.cell(row=row, column=10, value=order.status)
-            ws.cell(row=row, column=11, value=create_time_val)
-
-            # 新增列
-            ws.cell(row=row, column=12, value=creator_name)
-            ws.cell(row=row, column=13, value=total_amount)
-            ws.cell(row=row, column=14, value=is_settled_text)
-            ws.cell(row=row, column=15, value=received_amount)
-            ws.cell(row=row, column=16, value=settled_by_name)
-            ws.cell(row=row, column=17, value=settled_time_val)
-            ws.cell(row=row, column=18, value=order_number_snap)
-
+            ws.cell(row=row, column=col, value=amt); col += 1
+            ws.cell(row=row, column=col, value=order.status); col += 1
+            # 新增交付方式列
+            ws.cell(row=row, column=col, value=delivery_method); col += 1
+            ws.cell(row=row, column=col, value=create_time_val); col += 1
+            ws.cell(row=row, column=col, value=creator_name); col += 1
+            ws.cell(row=row, column=col, value=total_amount); col += 1
+            ws.cell(row=row, column=col, value=is_settled_text); col += 1
+            ws.cell(row=row, column=col, value=received_amount); col += 1
+            ws.cell(row=row, column=col, value=settled_by_name); col += 1
+            ws.cell(row=row, column=col, value=settled_time_val); col += 1
+            ws.cell(row=row, column=col, value=order_number_snap); col += 1
             is_makeup_text = '是' if item.is_makeup_item else ''
-            ws.cell(row=row, column=19, value=is_makeup_text)
+            ws.cell(row=row, column=col, value=is_makeup_text)
             row += 1
 
     response = HttpResponse(
@@ -1858,9 +1859,6 @@ def export_orders(request):
     response['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(filename)}"
     wb.save(response)
     return response
-
-
-from django.db import transaction
 
 
 @login_required
@@ -1879,12 +1877,42 @@ def import_orders(request):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'文件解析失败：{str(e)}'})
 
+    # ===== 修改点 1：读取表头，建立列名→索引映射 =====
+    header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), None)
+    if not header_row:
+        return JsonResponse({'code': 0, 'msg': 'Excel 无表头'})
+    # 清理可能存在的空白、前后空格
+    header_map = {}
+    for idx, val in enumerate(header_row):
+        if val is not None:
+            key = str(val).strip()
+            header_map[key] = idx
+
+    # 定义需要的列名
+    COL_ORDER_NO = '订单编号'
+    COL_CUSTOMER_NAME = '客户名称'
+    COL_AREA = '区域'
+    COL_PRODUCT_NAME = '商品名称'
+    COL_SPEC = '规格'
+    COL_UNIT = '单位'
+    COL_QTY = '数量'
+    COL_PRICE = '单价'
+    COL_STATUS = '订单状态'
+    COL_DELIVERY = '交付方式'        # 新增
+    COL_CREATE_TIME = '创建时间'
+    COL_CREATOR = '开单人'
+    COL_SETTLED = '是否结清'
+    COL_RECEIVED = '已收金额'
+    COL_SETTLED_BY = '结清人'
+    COL_SETTLED_TIME = '结清时间'
+    COL_ORDER_SNAP = '制单号快照'
+    COL_IS_MAKEUP = '是否补货'
+
     rows = list(ws.iter_rows(min_row=2, values_only=True))
     if not rows:
         return JsonResponse({'code': 0, 'msg': 'Excel 无数据'})
 
-    # 数据结构扩展，增加订单级字段
-    order_groups = {}   # key -> {'items': [...], 'create_time': ..., 'creator_username': ..., ...}
+    order_groups = {}
     area_names = set()
     product_names = set()
     pure_customer_names = set()
@@ -1909,38 +1937,49 @@ def import_orders(request):
                 return "", raw_name
 
     for row in rows:
-        # 兼容不同列数：最少需要11列（旧模板），新增列缺失时默认为空
-        if len(row) < 11:
-            continue
+        # 通过列名取值，不存在则返回 None
+        def get_val(col_name):
+            idx = header_map.get(col_name)
+            if idx is not None and idx < len(row):
+                return row[idx]
+            return None
 
-        order_no = str(row[0]).strip() if row[0] else ''
-        raw_customer_name = str(row[1]).strip() if row[1] else ''
-        area_name = str(row[2]).strip() if row[2] else ''
-        prod_name = str(row[3]).strip() if row[3] else ''
-        spec = str(row[4]).strip() if row[4] else ''
-        unit = str(row[5]).strip() if row[5] else ''
+        order_no = str(get_val(COL_ORDER_NO) or '').strip()
+        raw_customer_name = str(get_val(COL_CUSTOMER_NAME) or '').strip()
+        area_name = str(get_val(COL_AREA) or '').strip()
+        prod_name = str(get_val(COL_PRODUCT_NAME) or '').strip()
+        spec = str(get_val(COL_SPEC) or '').strip()
+        unit = str(get_val(COL_UNIT) or '').strip()
+        qty_val = get_val(COL_QTY)
         try:
-            qty = int(row[6])
+            qty = int(qty_val) if qty_val is not None else 0
         except:
             continue
+        price_val = get_val(COL_PRICE)
         try:
-            price = Decimal(str(row[7]))
+            price = Decimal(str(price_val)) if price_val is not None else Decimal('0')
         except:
             price = Decimal('0')
-        status = str(row[9]).strip() if len(row) > 9 and row[9] else 'pending'
+        status = str(get_val(COL_STATUS) or 'pending').strip()
+        # ===== 修改点 2：读取交付方式，若缺失则使用默认值 =====
+        delivery_method = str(get_val(COL_DELIVERY) or 'delivery').strip()
+        # 验证是否在合法 choices 中，若不在则置为默认
+        valid_delivery_choices = dict(Order.DELIVERY_METHOD_CHOICES).keys()
+        if delivery_method not in valid_delivery_choices:
+            delivery_method = 'delivery'
 
-        # 创建时间解析（索引10）
+        # 创建时间
         create_time = None
-        if len(row) > 10 and row[10]:
-            val = row[10]
-            if isinstance(val, datetime):
-                dt = val
+        dt_val = get_val(COL_CREATE_TIME)
+        if dt_val is not None:
+            if isinstance(dt_val, datetime):
+                dt = dt_val
             else:
                 try:
-                    dt = datetime.strptime(str(val).strip(), '%Y-%m-%d %H:%M:%S')
+                    dt = datetime.strptime(str(dt_val).strip(), '%Y-%m-%d %H:%M:%S')
                 except ValueError:
                     try:
-                        dt = datetime.strptime(str(val).strip(), '%Y-%m-%d')
+                        dt = datetime.strptime(str(dt_val).strip(), '%Y-%m-%d')
                     except Exception:
                         dt = None
             if dt is not None:
@@ -1949,27 +1988,27 @@ def import_orders(request):
                 else:
                     create_time = dt
 
-        # 新增字段解析（索引 11~17）
-        creator_username = str(row[11]).strip() if len(row) > 11 and row[11] else ''
-        # 订单总金额（索引12）可忽略，后续用明细重新计算
-        is_settled_str = str(row[13]).strip() if len(row) > 13 and row[13] else ''
-        is_settled = (is_settled_str == '是')   # 默认 False
+        # 其他字段
+        creator_username = str(get_val(COL_CREATOR) or '').strip()
+        is_settled_str = str(get_val(COL_SETTLED) or '').strip()
+        is_settled = (is_settled_str == '是')
+        received_val = get_val(COL_RECEIVED)
         try:
-            received_amount = Decimal(str(row[14])) if len(row) > 14 and row[14] else Decimal('0')
+            received_amount = Decimal(str(received_val)) if received_val is not None else Decimal('0')
         except:
             received_amount = Decimal('0')
-        settled_by_username = str(row[15]).strip() if len(row) > 15 and row[15] else ''
+        settled_by_username = str(get_val(COL_SETTLED_BY) or '').strip()
         settled_time = None
-        if len(row) > 16 and row[16]:
-            val = row[16]
-            if isinstance(val, datetime):
-                dt = val
+        st_val = get_val(COL_SETTLED_TIME)
+        if st_val is not None:
+            if isinstance(st_val, datetime):
+                dt = st_val
             else:
                 try:
-                    dt = datetime.strptime(str(val).strip(), '%Y-%m-%d %H:%M:%S')
+                    dt = datetime.strptime(str(st_val).strip(), '%Y-%m-%d %H:%M:%S')
                 except ValueError:
                     try:
-                        dt = datetime.strptime(str(val).strip(), '%Y-%m-%d')
+                        dt = datetime.strptime(str(st_val).strip(), '%Y-%m-%d')
                     except Exception:
                         dt = None
             if dt is not None:
@@ -1977,9 +2016,9 @@ def import_orders(request):
                     settled_time = timezone.make_aware(dt, timezone.get_current_timezone())
                 else:
                     settled_time = dt
-        order_number_snapshot = str(row[17]).strip() if len(row) > 17 and row[17] else ''
+        order_number_snapshot = str(get_val(COL_ORDER_SNAP) or '').strip()
 
-        is_makeup_str = str(row[18]).strip() if len(row) > 18 and row[18] else ''
+        is_makeup_str = str(get_val(COL_IS_MAKEUP) or '').strip()
         is_makeup_item = is_makeup_str in ['是', '1', 'true', 'True']
 
         final_area, pure_customer_name = parse_customer_name(raw_customer_name, area_name)
@@ -1989,13 +2028,13 @@ def import_orders(request):
             order_groups[order_key] = {
                 'items': [],
                 'create_time': None,
-                # 订单级字段（取第一行）
                 'creator_username': creator_username,
                 'is_settled': is_settled,
                 'received_amount': received_amount,
                 'settled_by_username': settled_by_username,
                 'settled_time': settled_time,
                 'order_number_snapshot': order_number_snapshot,
+                'delivery_method': delivery_method,      # 新增
             }
         order_groups[order_key]['items'].append({
             'product_name': prod_name,
@@ -2011,7 +2050,6 @@ def import_orders(request):
         if create_time and not order_groups[order_key]['create_time']:
             order_groups[order_key]['create_time'] = create_time
 
-        # 仅有效订单收集区域、客户、商品信息
         if status != 'cancelled':
             if final_area:
                 area_names.add(final_area)
@@ -2027,7 +2065,7 @@ def import_orders(request):
                     'price': price,
                 }
 
-    # ========== 1. 批量查询/创建区域 ==========
+    # ========== 批量查询/创建区域、商品、客户（保持不变） ==========
     area_map = {}
     if area_names:
         existing_areas = Area.objects.filter(name__in=area_names)
@@ -2041,10 +2079,8 @@ def import_orders(request):
                 for area in fresh_areas:
                     area_map[area.name] = area
 
-    # ========== 2. 批量查询/创建商品（带拼音）==========
     existing_products = Product.objects.filter(name__in=product_names) if product_names else []
     product_map = {(p.name, p.unit): p for p in existing_products}
-
     missing_product_keys = set(product_create_info.keys()) - set(product_map.keys())
     if missing_product_keys:
         new_products = []
@@ -2072,13 +2108,11 @@ def import_orders(request):
                 for p in fresh_products:
                     product_map[(p.name, p.unit)] = p
 
-    # ========== 3. 批量查询/创建客户（带拼音）==========
     customer_map = {}
     if pure_customer_names:
         existing_customers = Customer.objects.filter(name__in=pure_customer_names)
         customer_map = {c.name: c for c in existing_customers}
         missing_names = pure_customer_names - set(customer_map.keys())
-
         if missing_names:
             new_customers = []
             for pure_name in missing_names:
@@ -2108,7 +2142,6 @@ def import_orders(request):
                     )
                     customer_map[obj.name] = obj
 
-    # ========== 4. 预查询 User 对象（用于开单人、结清人）==========
     all_creator_usernames = set()
     all_settled_by_usernames = set()
     for group_data in order_groups.values():
@@ -2121,7 +2154,6 @@ def import_orders(request):
         users = User.objects.filter(username__in=all_creator_usernames | all_settled_by_usernames)
         user_map = {u.username: u for u in users}
 
-    # ========== 5. 已存在订单编号检查 ==========
     existing_orders = set(
         Order.objects.filter(order_no__in=[k[0] for k in order_groups if k[0]])
         .values_list('order_no', flat=True)
@@ -2149,11 +2181,10 @@ def import_orders(request):
                 pure_customer_name = items[0]['pure_customer_name']
                 customer = customer_map.get(pure_customer_name) if pure_customer_name else None
 
-            # 确定开单人
             creator_username = group_data['creator_username']
             creator = user_map.get(creator_username) if creator_username else None
             if not creator:
-                creator = request.user   # 找不到则默认为当前用户
+                creator = request.user
 
             order = Order(
                 order_no=order_no if order_no else '',
@@ -2164,7 +2195,8 @@ def import_orders(request):
                 total_amount=0,
                 status=status,
                 order_number_snapshot=group_data.get('order_number_snapshot') or '',
-                # 结算相关字段仅在非作废订单时设置
+                # ===== 修改点 3：设置交付方式 =====
+                delivery_method=group_data.get('delivery_method', 'delivery'),
                 is_settled=False,
                 received_amount=Decimal('0'),
             )
@@ -2172,7 +2204,6 @@ def import_orders(request):
                 order.create_time = order_create_time
             order.save()
 
-            # 处理结算字段
             if status != 'cancelled':
                 is_settled = group_data['is_settled']
                 received_amount = group_data['received_amount']
@@ -2183,7 +2214,6 @@ def import_orders(request):
                     settled_by = user_map.get(settled_by_username) if settled_by_username else None
                     order.settled_by = settled_by
                     order.settled_time = group_data['settled_time']
-                    # 没有结清备注，不设置
                     order.save(update_fields=['is_settled', 'received_amount', 'settled_by', 'settled_time'])
 
             if status == 'cancelled':
