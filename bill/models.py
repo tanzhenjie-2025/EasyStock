@@ -112,6 +112,8 @@ class Order(models.Model):
         help_text='货物交付方式：客户自提或送货上门'
     )
 
+    has_return = models.BooleanField('是否包含退货', default=False, db_index=True)
+
     def get_overdue_days(self):
         if self.is_settled:
             return 0

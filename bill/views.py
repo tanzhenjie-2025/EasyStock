@@ -318,12 +318,13 @@ def save_order(request):
             if not items:
                 return JsonResponse({'code': 0, 'msg': '无订单明细'})
 
-            # ---------- 1. 分离有效商品ID和临时商品 ----------
+            # ---------- 1. 分离有效商品和备注行 ----------
             valid_product_ids = []
             item_data_list = []
+            has_return = False
+            delivery_method = 'delivery'  # 默认送货上门
 
             for item in items:
-                pid_raw = item.get('id', '').strip()
                 name = item.get('name', '').strip()
                 spec = item.get('spec', '').strip()
                 unit = item.get('unit', '').strip()
@@ -332,12 +333,30 @@ def save_order(request):
                 is_makeup = item.get('is_makeup', False)
                 operation_type = item.get('operation_type', '')
 
+                # ---------- 备注行处理（名称空 + 规格非空） ----------
+                if not name and spec:
+                    # 提取交付方式（优先级：自提 > 寄件，先出现的为准）
+                    if '自' in spec:
+                        delivery_method = 'pickup'
+                        print('备注行：自提')
+                    elif '寄' in spec:
+                        delivery_method = 'express'
+                        print('备注行：寄件')
+                    # 提取退货标记
+                    if '退' in spec or '换' in spec:
+                        has_return = True
+                        print('备注行：退货标记')
+                    # 备注行不加入订单明细，直接跳过
+                    continue
+
+                # ---------- 普通商品行 ----------
                 if not name:
                     return JsonResponse({'code': 0, 'msg': '商品名称不能为空'})
                 if not isinstance(qty, int) or qty <= 0:
                     return JsonResponse({'code': 0, 'msg': f'商品{name}数量无效'})
 
                 product_id_int = None
+                pid_raw = item.get('id', '').strip()
                 if pid_raw:
                     try:
                         pid_int = int(pid_raw)
@@ -376,23 +395,13 @@ def save_order(request):
                 )
                 customer_prices_dict = {cp.product_id: cp.custom_price for cp in cp_list}
 
-            # ========== 判断交付方式（基于所有行，包括备注行） ==========
-            delivery_method = 'delivery'   # 默认送货上门
-            for item_data in item_data_list:
-                spec = item_data['spec']
-                if '自' in spec:
-                    delivery_method = 'pickup'
-                    break
-                elif '寄' in spec:
-                    delivery_method = 'express'
-            # =========================================================
-
             # ---------- 4. 创建订单主表 ----------
             order = Order()
             order.creator = request.user
             order.customer_name_snapshot = customer_name
             order.order_number_snapshot = order_number or None
             order.delivery_method = delivery_method
+            order.has_return = has_return
 
             if customer_id:
                 customer = get_object_or_404(Customer, id=customer_id)
@@ -409,27 +418,19 @@ def save_order(request):
                 order.original_order = original_order
                 order.status = 'reopened'
 
-            # ---------- 5. 生成订单明细（过滤备注行） ----------
+            # ---------- 5. 生成订单明细（只处理普通商品） ----------
             total_amount = 0
             order_items = []
             update_stock_products = []
 
             for item_data in item_data_list:
-                spec = item_data['spec']
-                # ========== 核心修改：规格包含“自”或“寄”的行视为备注行，不保存 ==========
-                if '自' in spec or '寄' in spec:
-                    continue   # 跳过该行，不生成订单明细，不扣库存，不计入总金额
-                # ====================================================================
-
                 pid = item_data['pid']
                 name = item_data['name']
                 qty = item_data['qty']
                 input_price = item_data['price']
                 amount = input_price * qty
                 total_amount += amount
-
-                # 规格快照（备注行已跳过，正常商品规格原样保存）
-                save_spec = spec
+                save_spec = item_data['spec']
 
                 if pid is not None and pid in products_map:
                     product = products_map[pid]
@@ -2313,21 +2314,6 @@ def batch_mark_printed(request):
 
     return JsonResponse({'code': 1, 'msg': f'成功标记 {updated} 个订单为已打印'})
 
-# views.py 顶部新增导入
-import json
-from openpyxl import load_workbook
-from collections import defaultdict
-from decimal import Decimal
-from django.http import JsonResponse
-from django.contrib.auth.decorators import login_required, permission_required
-from django.utils import timezone
-from django.db.models import Q
-from pypinyin import lazy_pinyin
-from accounts.models import User
-from .models import Order, OrderItem
-from area_manage.models import Area
-from customer_manage.models import Customer
-from product.models import Product
 
 # 提取解析 Excel 到结构化数据的公共函数
 def parse_excel_to_structure(workbook):

@@ -1734,39 +1734,38 @@ async function saveOrder() {
 
     const items = [];
     document.querySelectorAll('#bill-tbody tr').forEach(tr => {
-    const nameInput = tr.querySelector('.name-input');
-    const name = nameInput.value.trim();
-    const qty = parseInt(tr.querySelector('.quantity-input').value) || 0;
-    const unit = tr.querySelector('.unit-input').value.trim();
-    const price = parseFloat(tr.querySelector('.price-input').value) || 0;
-    const amt = parseFloat(tr.querySelector('.amount-cell').textContent.replace('¥','')) || 0;
-    const productId = nameInput.dataset.productId || '';
-    const spec = tr.querySelector('.spec-input').value.trim();
+        const nameInput = tr.querySelector('.name-input');
+        const name = nameInput.value.trim();
+        const qty = parseInt(tr.querySelector('.quantity-input').value) || 0;
+        const unit = tr.querySelector('.unit-input').value.trim();
+        const price = parseFloat(tr.querySelector('.price-input').value) || 0;
+        const amt = parseFloat(tr.querySelector('.amount-cell').textContent.replace('¥','')) || 0;
+        const productId = nameInput.dataset.productId || '';
+        const spec = tr.querySelector('.spec-input').value.trim();
 
-    // ========== 关键修复 ==========
-    const specInput = tr.querySelector('.spec-input');
-    // 强制更新一次，确保 dataset.isMakeup 和 dataset.operationType 存在
-    if (specInput) {
-        updateMakeupFlag(specInput);
-    }
-    const isMakeup = specInput && specInput.dataset.isMakeup === '1';
-    const operationType = specInput ? (specInput.dataset.operationType || '') : '';
-    // ==============================
+        const specInput = tr.querySelector('.spec-input');
+        if (specInput) {
+            updateMakeupFlag(specInput);
+        }
+        const isMakeup = specInput && specInput.dataset.isMakeup === '1';
+        const operationType = specInput ? (specInput.dataset.operationType || '') : '';
 
-    if (name && qty && price >= 0) {
-        items.push({
-            id: productId,
-            name,
-            spec,
-            qty,
-            unit,
-            price,
-            amt,
-            is_makeup: isMakeup,
-            operation_type: operationType
-        });
-    }
-});
+        // 判断是否为备注行：商品名称为空 且 规格非空 且 包含“退”或“换”
+        const isRemark = (name === '' && spec !== '');          // 只要名称空、规格非空就是备注行
+if (isRemark || (name && qty && price >= 0)) {
+    items.push({
+        id: productId,
+        name: name,
+        spec: spec,
+        qty: isRemark ? 0 : qty,
+        unit: unit,
+        price: isRemark ? 0 : price,
+        amt: isRemark ? 0 : amt,
+        is_makeup: isMakeup,
+        operation_type: operationType,
+    });
+}
+    });
 
     if (!items.length) { alert('请填写商品'); return; }
     const total = items.reduce((s, i) => s + parseFloat(i.amt), 0).toFixed(2);
