@@ -530,10 +530,15 @@ box-sizing: border-box;
         </div>
     </div>
 
-    <!-- 重开订单标识 -->
     {% if reopen_order_data %}
-        <div class="reopen-tag">🔄 重开订单：原作废单号 {{ reopen_order_data.order_no }}</div>
-    {% endif %}
+    <div class="reopen-tag">
+        {% if reopen_order_data.is_add %}
+            ➕ 加单：原订单号 {{ reopen_order_data.order_no }}
+        {% else %}
+            🔄 重开订单：原作废单号 {{ reopen_order_data.order_no }}
+        {% endif %}
+    </div>
+{% endif %}
 
     <!-- 客户输入框 + 最近购买按钮 -->
     <div class="mb-3 customer-area">

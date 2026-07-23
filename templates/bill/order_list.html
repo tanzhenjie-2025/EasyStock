@@ -595,6 +595,9 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
                     {# 正常状态订单操作 #}
                     <a href="{% url 'bill:print_order' order.order_no %}" class="btn btn-sm btn-primary">打印</a>
                     <a href="{% url 'bill:order_detail' order.order_no %}" class="btn btn-sm btn-info">详情</a>
+                    <a href="{% url 'bill:add_order_from_existing' order.order_no %}" class="btn btn-sm btn-warning">
+        <i class="bi bi-plus-circle"></i> 加单
+    </a>
                     {% if request.user.role and request.user.role.code != 'operator' %}
     <button class="btn btn-sm btn-success settleBtn" data-order-no="{{ order.order_no }}">标记结清</button>
     <button class="btn btn-sm btn-warning unsettleBtn" data-order-no="{{ order.order_no }}">撤销结清</button>

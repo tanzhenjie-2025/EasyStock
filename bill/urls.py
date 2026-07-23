@@ -53,4 +53,6 @@ path('orders/batch-mark-printed/', views.batch_mark_printed, name='batch_mark_pr
 path('sort-rules/export/', views.export_sort_rules, name='export_sort_rules'),
 path('sort-rules/import/', views.import_sort_rules, name='import_sort_rules'),
 
+path('add-order-from/<str:order_no>/', views.add_order_from_existing, name='add_order_from_existing'),
+
 ]

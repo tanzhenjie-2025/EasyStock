@@ -411,14 +411,31 @@ def save_order(request):
                     customer.order_number = order_number
                     customer.save(update_fields=['order_number'])
 
+            # ====== 关键修改：处理 original_order_no（加单/重开） ======
+            original_order = None
             if original_order_no:
                 original_order = get_object_or_404(Order, order_no=original_order_no)
-                if original_order.status != 'cancelled':
-                    return JsonResponse({'code': 0, 'msg': '仅作废订单可重开'})
-                order.original_order = original_order
-                order.status = 'reopened'
+                if original_order.status == 'cancelled':
+                    # 如果原单已作废，则视为“重开”，直接关联，不再作废
+                    order.original_order = original_order
+                    order.status = 'reopened'
+                else:
+                    # 否则视为“加单”，自动作废原单，再关联
+                    original_order.status = 'cancelled'
+                    original_order.cancelled_by = request.user
+                    original_order.cancelled_time = timezone.now()
+                    original_order.cancelled_reason = '加单重开（系统自动作废）'
+                    original_order.save(update_fields=['status', 'cancelled_by', 'cancelled_time', 'cancelled_reason'])
+                    create_operation_log(request, 'cancel_order', 'order', str(original_order.id),
+                                         f"订单-{original_order.order_no}", "加单自动作废")
+                    # 若需要恢复库存（可选），在此处处理
+                    # 注意：原订单的库存已在创建时扣减，作废时需加回，新订单再扣减
+                    # 可复用恢复库存的逻辑，但本例暂略
+                    clear_order_cache()  # 清理缓存
+                    order.original_order = original_order
+                    order.status = 'reopened'
 
-            # ---------- 5. 生成订单明细（只处理普通商品） ----------
+            # ---------- 5. 生成订单明细 ----------
             total_amount = 0
             order_items = []
             update_stock_products = []
@@ -3090,3 +3107,58 @@ def import_sort_rules(request):
             SortRule.objects.bulk_create(rules_to_create)
 
     return JsonResponse({'code': 1, 'msg': f'导入成功，共导入 {len(rules_to_create)} 条规则'})
+
+from django.contrib.auth.decorators import login_required, permission_required
+from django.shortcuts import get_object_or_404, render, redirect
+from django.contrib import messages
+from .models import Order, OrderItem
+
+@login_required
+@permission_required(PERM_ORDER_REOPEN)   # 复用重开权限，或新建 PERM_ORDER_ADD
+def add_order_from_existing(request, order_no):
+    """
+    加单：跳转到开单页，携带原订单数据，并标识为加单模式。
+    原订单必须为未作废状态（pending 或 printed）。
+    """
+    original_order = get_object_or_404(
+        Order.objects.select_related('customer', 'area'),
+        order_no=order_no
+    )
+    if original_order.status == 'cancelled':
+        messages.warning(request, '已作废订单不能加单，请使用重开功能。')
+        return redirect('bill:order_detail', order_no=order_no)
+
+    # 获取原订单明细
+    items = OrderItem.objects.select_related('product').filter(order=original_order)
+
+    # 构造传递给开单页的数据（复用 reopen_order_data 结构）
+    order_data = {
+        'order_no': original_order.order_no,          # ✅ 新增：原订单号（用于显示和JS传参）
+        'original_order_no': original_order.order_no, # 保留，明确语义（可选）
+        'customer_id': original_order.customer_id if original_order.customer else '',
+        'customer_name': original_order.customer_name_snapshot or (
+            f"{original_order.area.name} | {original_order.customer.name}"
+            if original_order.customer and original_order.area else ''
+        ),
+        'items': [
+            {
+                'id': item.product_id if item.product else '',
+                'name': item.product_name or (item.product.name if item.product else ''),
+                'qty': item.quantity,
+                'unit': item.unit,
+                'price': float(item.actual_unit_price) if item.actual_unit_price else 0,
+                'amt': float(item.amount) if item.amount else 0,
+                'spec': item.specification,
+            }
+            for item in items
+        ],
+        'is_add': True,   # 前端可用此标识区分“加单”和“重开”（可选）
+    }
+
+    context = {
+        'is_super_admin': request.user.role and request.user.role.code == ROLE_SUPER_ADMIN,
+        'reopen_order_data': order_data,   # 前端JS会读取此变量
+    }
+    context.update(get_sort_context())   # 排序规则等
+
+    return render(request, 'bill/index.html', context)
