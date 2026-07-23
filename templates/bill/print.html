@@ -192,19 +192,22 @@
         }
         /* 交付方式水印（独立于补货水印） */
 /* 交付方式水印 - 与补货水印风格一致，覆盖整个表格容器 */
-.watermark-delivery {
+.watermark-delivery,
+.watermark-return {
     position: absolute;
     left: 0;
-    top: 50%;                /* 垂直居中 */
-    transform: translateY(-50%) rotate(-15deg);
-    width: 100%;
+    top: 0;
+    right: 0;
+    bottom: 0;          /* 铺满整个 .table-wrapper */
     display: flex;
+    align-items: center;
     justify-content: center;
     font-size: 40px;
     font-weight: bold;
     color: #000;
+    transform: rotate(-15deg);
     pointer-events: none;
-    z-index: 20;             /* 更高层级 */
+    z-index: 20;        /* 可根据需要调整层级，但不会同时出现 */
 }
     </style>
 </head>

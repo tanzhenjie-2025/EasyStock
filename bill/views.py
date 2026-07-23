@@ -512,8 +512,8 @@ def print_order(request, order_no):
         operation_type__in=['return', 'exchange']
     ).exists()
 
-    items_display = list(items[:16])
-    items_display.extend([None] * (16 - len(items_display)))
+    items_display = list(items[:15])
+    items_display.extend([None] * (15 - len(items_display)))
     float_start = find_float_start(items_display)
 
     # ========== 交付方式水印 ==========
@@ -562,7 +562,7 @@ def batch_print_orders(request):
     orders_data = []
     for order in orders:
         items = order.items.select_related('product')
-        items_display = list(items[:16]) + [None] * (16 - min(len(items), 16))
+        items_display = list(items[:15]) + [None] * (15 - min(len(items), 15))
         has_return_or_exchange = has_return_or_exchange_items(order)
         float_start = find_float_start(items_display)
 
@@ -1124,7 +1124,7 @@ def has_return_or_exchange_items(order):
 
 def find_float_start(items_display):
     """从第11行（索引10）开始，查找连续3个空行，返回起始索引，否则返回None"""
-    for start in range(10, 13):  # 索引10~15，保证有3行
+    for start in range(10, 12):  # 索引10~15，保证有3行
         if all(items_display[start + i] is None for i in range(3)):
             return start
     return None
