@@ -465,6 +465,7 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
     {% endif %}
 <!-- 在 <div class="mb-3"> 内，batchSettleBtn 之后添加 -->
 <button class="btn btn-sm btn-primary" id="batchPrintBtn" disabled>批量打印选中订单</button>
+<button class="btn btn-sm btn-outline-dark" id="batchPrintDataBtn" disabled>批量打印数据(需模板)</button>
 </div>
 
 
@@ -903,6 +904,7 @@ $(document).ready(function() {
         var checkedCount = stored ? JSON.parse(stored).length : 0;
         $('#batchSettleBtn').prop('disabled', checkedCount === 0);
         $('#batchPrintBtn').prop('disabled', checkedCount === 0);
+        $('#batchPrintDataBtn').prop('disabled', checkedCount === 0);
     }
 
     window.clearOrderSelection = function() {
@@ -1074,6 +1076,14 @@ $(document).ready(function() {
         var url = '{% url "bill:batch_print_orders" %}' + '?order_nos=' + selected.join(',');
         window.open(url, '_blank');
     });
+    
+    $('#batchPrintDataBtn').click(function() {
+    var stored = localStorage.getItem('selectedOrders');
+    var selected = stored ? JSON.parse(stored) : [];
+    if (selected.length === 0) return;
+    var url = '{% url "bill:batch_print_key_data" %}' + '?order_nos=' + selected.join(',');
+    window.open(url, '_blank');
+});
 
     // ================================================================
     // 三、通用辅助函数

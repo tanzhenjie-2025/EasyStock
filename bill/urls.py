@@ -57,5 +57,6 @@ path('add-order-from/<str:order_no>/', views.add_order_from_existing, name='add_
 # 位置：bill/urls.py - urlpatterns 内
 path('print-empty-template/', views.print_empty_template, name='print_empty_template'),
 path('print-key-data/<str:order_no>/', views.print_key_data, name='print_key_data'),
+path('batch-print-key-data/', views.batch_print_key_data, name='batch_print_key_data'),
 
 ]

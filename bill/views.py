@@ -652,6 +652,37 @@ def print_key_data(request, order_no):
     # 改为渲染专用套打模板
     return render(request, 'bill/print_key_data.html', context)
 
+
+@login_required
+@permission_required(PERM_ORDER_PRINT)
+def batch_print_key_data(request):
+    """批量打印关键数据（套打）"""
+    order_nos_param = request.GET.get('order_nos', '')
+    order_nos = [no.strip() for no in order_nos_param.split(',') if no.strip()]
+    if not order_nos:
+        return HttpResponseBadRequest("请选择至少一个订单")
+
+    orders = Order.objects.filter(
+        order_no__in=order_nos
+    ).exclude(status='cancelled').select_related('customer', 'area', 'creator')
+
+    orders_data = []
+    for order in orders:
+        items = order.items.select_related('product')
+        items_display = list(items[:15]) + [None] * (15 - min(len(items), 15))
+        orders_data.append({
+            'order': order,
+            'items_display': items_display,
+        })
+
+    context = {
+        'orders_data': orders_data,
+        'phone_numbers': settings.PHONE_NUMBERS,
+        'complaint_phone': settings.COMPLAINT_PHONE,
+        'bill_title': settings.BILL_TITLE,
+    }
+    return render(request, 'bill/batch_print_key_data.html', context)
+
 @login_required
 @permission_required(PERM_ORDER_CREATE)
 def sort_rule_setting(request):
@@ -2872,3 +2903,5 @@ def add_order_from_existing(request, order_no):
     context.update(get_sort_context())   # 排序规则等
 
     return render(request, 'bill/index.html', context)
+
+

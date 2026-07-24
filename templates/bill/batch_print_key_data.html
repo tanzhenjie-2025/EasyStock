@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>打印关键数据 - {{ order.order_no }}</title>
+    <title>批量打印关键数据</title>
     <style>
         @media print {
             @page {
@@ -19,18 +19,21 @@
                 padding: 7mm 5mm 5mm 5mm;
                 box-sizing: border-box;
                 border: none;
-                margin: 0;                     /* 去除屏幕外边距 */
+                margin: 0;
+            }
+            /* 前一个模板之后分页，最后一张后不分页 */
+            .bill-print + .bill-print {
+                page-break-before: always;
             }
             .no-print { display: none; }
 
-            /* 关键：静态标签透明，保留占位；动态数据正常显示 */
+            /* 套打规则：静态文字透明，动态数据正常 */
             .label-text {
                 color: transparent !important;
             }
             .data-value {
                 color: #000 !important;
             }
-            /* 隐藏不需要的行，但用 visibility 保持高度 */
             .hide-row {
                 visibility: hidden;
             }
@@ -38,11 +41,30 @@
                 display: none !important;
             }
             .bill-table, .bill-table th, .bill-table td {
-    border: none !important;
-}
+                border: none !important;
+            }
+            /* 保持原有表格尺寸 */
+            .bill-table th, .bill-table td {
+                height: 30px;
+                font-size: 14px;
+                padding: 4px 0;
+            }
+            .bill-header h2 { font-size: 26px; margin: 0 0 4px 0; }
+            .bill-info-row { width: 90%; }
+            .bill-info-row span { font-size: 13px; }
+            .bill-footer { margin-top: 8px; font-size: 14px; width: 90%; }
+            .bill-footer .total-amount { font-size: 22px; }
+            .bill-bottom { margin-top: 16px; width: 90%; font-size: 13px; }
+            .bill-bottom .bottom-row { margin-top: 12px; }
+            .bill-bottom .bottom-row .field-group .underline {
+                width: 120px;
+            }
+            .bill-bottom .bottom-row .field-group .underline-sm {
+                width: 100px;
+            }
         }
 
-        /* ===== 屏幕显示样式（与空白模板一致） ===== */
+        /* 屏幕预览样式（与单批次模板完全一致） */
         .bill-print {
             width: 140mm;
             border: none;
@@ -51,14 +73,8 @@
             box-sizing: border-box;
             box-shadow: 0 0 4px rgba(0,0,0,0.1);
         }
-        .bill-header {
-            text-align: center;
-            margin-bottom: 8px;
-        }
-        .bill-header h2 {
-            margin: 0 0 4px 0;
-            font-size: 26px;
-        }
+        .bill-header { text-align: center; margin-bottom: 8px; }
+        .bill-header h2 { margin: 0 0 4px 0; font-size: 26px; }
         .bill-info-row {
             display: flex;
             justify-content: space-between;
@@ -67,11 +83,7 @@
             flex-wrap: wrap;
         }
         .bill-info-row span { white-space: nowrap; }
-        .table-wrapper {
-            position: relative;
-            width: 90%;
-            margin: 0 auto;
-        }
+        .table-wrapper { position: relative; width: 90%; margin: 0 auto; }
         .bill-table {
             width: 100%;
             border-collapse: collapse;
@@ -125,27 +137,25 @@
 </head>
 <body>
     <div class="no-print" style="text-align: center; margin: 20px;">
-        <button onclick="window.print()">打印关键数据</button>
-        <button onclick="window.close()">关闭</button>
+        <button onclick="window.print()">一键打印所有关键数据</button>
+        <a href="javascript:window.close()"><button>关闭窗口</button></a>
     </div>
 
+    {% for item in orders_data %}
     <div class="bill-print">
-        <!-- 标题区域：静态文字透明 -->
         <div class="bill-header">
             <h2><span class="label-text">{{ bill_title }}</span></h2>
             <div class="bill-info-row">
                 <div class="info-group">
-                    <!-- “客户名称：”透明，后面直接跟数据值 -->
-                    <span class="label-text">客户名称：</span><span class="data-value">{{ order.customer_name_snapshot|default:order.customer.name|default:"无" }}</span>
+                    <span class="label-text">客户名称：</span><span class="data-value">{{ item.order.customer_name_snapshot|default:item.order.customer.name|default:"无" }}</span>
                 </div>
                 <div class="info-group">
-                    <span class="label-text">订单编号：</span><span class="data-value">{{ order.order_no }}</span>
-                    <span class="label-text">开单时间：</span><span class="data-value">{{ order.create_time|date:"Y-m-d H:i:s" }}</span>
+                    <span class="label-text">订单编号：</span><span class="data-value">{{ item.order.order_no }}</span>
+                    <span class="label-text">开单时间：</span><span class="data-value">{{ item.order.create_time|date:"Y-m-d H:i:s" }}</span>
                 </div>
             </div>
         </div>
 
-        <!-- 表格区域 -->
         <div class="table-wrapper">
             <table class="bill-table">
                 <thead>
@@ -160,35 +170,32 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for item in items_display %}
+                    {% for line in item.items_display %}
                     <tr>
                         <td></td>
-                        {% if item %}
-                        <td class="data-value">{{ item.specification|default:"-" }}</td>
-                        <td class="data-value">{{ item.product_name }}</td>
-                        <td class="data-value">{{ item.quantity }}</td>
-                        <td class="data-value">{{ item.unit }}</td>
-                        <td class="data-value">¥{{ item.actual_unit_price }}</td>
-                        <td class="data-value">¥{{ item.amount }}</td>
+                        {% if line %}
+                            <td class="data-value">{{ line.specification|default:"-" }}</td>
+                            <td class="data-value">{{ line.product_name }}</td>
+                            <td class="data-value">{{ line.quantity }}</td>
+                            <td class="data-value">{{ line.unit }}</td>
+                            <td class="data-value">¥{{ line.actual_unit_price }}</td>
+                            <td class="data-value">¥{{ line.amount }}</td>
                         {% else %}
-                        <td></td><td></td><td></td><td></td><td></td><td></td>
+                            <td></td><td></td><td></td><td></td><td></td><td></td>
                         {% endif %}
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
-            <!-- 水印全部隐藏（已在打印样式中处理） -->
         </div>
 
-        <!-- 底部信息 -->
         <div class="bill-footer">
-            <span class="label-text">开单人员：</span><span class="data-value">{{ order.creator.name|default:"未知" }}</span>
+            <span class="label-text">开单人员：</span><span class="data-value">{{ item.order.creator.name|default:"未知" }}</span>
             <span></span>
-            <span class="label-text">总金额：</span><span class="data-value" style="margin-right: 5mm;">¥{{ order.total_amount }}</span>
+            <span class="label-text">总金额：</span><span class="data-value" style="margin-right: 5mm;">¥{{ item.order.total_amount }}</span>
         </div>
 
         <div class="bill-bottom">
-            <!-- 以下整行保持占位，但内容透明，以确保制单工号位置不变 -->
             <div class="bottom-row hide-row">
                 <span><strong>联系电话：</strong>{{ phone_numbers }}</span>
             </div>
@@ -215,29 +222,23 @@
                     <span class="underline underline-sm">&nbsp;</span>
                 </div>
             </div>
-
-            <!-- 制单工号：静态标签透明，数据正常显示 -->
             <div class="bottom-row" style="justify-content: space-between;">
                 <div class="field-group">
                     <strong class="label-text">制单工号：</strong>
                     <span style="text-align: center; border: none !important;">
                         <span class="data-value" style="font-size: 22px; font-weight: bold;">
-    {% if order.order_number_snapshot %}
-        {{ order.order_number_snapshot }}
-    {% elif order.customer and order.customer.order_number %}
-        {{ order.customer.order_number }}
-    {% endif %}
-</span>
+                            {% if item.order.order_number_snapshot %}
+                                {{ item.order.order_number_snapshot }}
+                            {% elif item.order.customer and item.order.customer.order_number %}
+                                {{ item.order.customer.order_number }}
+                            {% endif %}
+                        </span>
                     </span>
-                </div>
-                <!-- 如有退货提示，也可按需保留，这里先隐藏 -->
-                <div class="field-group hide-row">
-                    <strong>客服留言：</strong>
-                    <span style="font-size: 22px; font-weight: bold;">带回退货</span>
                 </div>
             </div>
         </div>
     </div>
+    {% endfor %}
 
     <script>
     function getCookie(name) {
@@ -255,31 +256,28 @@
         return cookieValue;
     }
 
-    var printMarked = false;
+    var orderNos = [{% for item in orders_data %}"{{ item.order.order_no }}"{% if not forloop.last %},{% endif %}{% endfor %}];
 
-    function autoPrintAndMark() {
+    function batchPrintAndMark() {
         window.onafterprint = function() {
-            if (!printMarked) {
-                printMarked = true;
-                fetch('{% url "bill:mark_order_printed" order.order_no %}', {
-                    method: 'POST',
-                    headers: {
-                        'X-CSRFToken': getCookie('csrftoken'),
-                        'Content-Type': 'application/json',
-                    },
-                })
-                .then(response => response.json())
-                .then(data => {
-                    console.log(data.msg);
-                })
-                .catch(error => console.error('标记失败:', error));
-            }
+            fetch('{% url "bill:batch_mark_printed" %}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken'),
+                },
+                body: JSON.stringify({order_nos: orderNos}),
+            })
+            .then(r => r.json())
+            .then(data => {
+                console.log(data.msg);
+            });
             window.onafterprint = null;
         };
         window.print();
     }
 
-    window.onload = autoPrintAndMark;
+    window.onload = batchPrintAndMark;
 </script>
 </body>
 </html>
