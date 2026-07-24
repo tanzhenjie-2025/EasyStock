@@ -4,6 +4,8 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.http import HttpResponseBadRequest
 from django.shortcuts import render
 from django.views.decorators.http import require_POST
+from mpmath import re
+
 from product.models import Product, ProductAlias, ProductTag
 from customer_manage.models import Customer, CustomerPrice
 
@@ -1790,7 +1792,38 @@ from openpyxl.styles import Font, Alignment
 from django.http import HttpResponse
 from django.db.models import Prefetch
 from urllib.parse import quote
+from openpyxl.utils.datetime import from_excel   # 将 Excel 序列号转为 datetime
+from datetime import datetime, date              # 明确导入类，方便类型检查
 
+def parse_datetime_cell(value):
+    """解析日期单元格，支持字符串、datetime对象和Excel序列号"""
+    if value is None:
+        return None
+    # 若已是 datetime 或 date，直接转换
+    if isinstance(value, (datetime, date)):
+        dt = value
+    # 若为数字（int/float），作为 Excel 序列号处理
+    elif isinstance(value, (int, float)):
+        try:
+            dt = from_excel(value)
+        except Exception:
+            return None
+    # 否则尝试作为字符串解析
+    else:
+        s = str(value).strip()
+        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
+            try:
+                dt = datetime.strptime(s, fmt)
+                break
+            except ValueError:
+                continue
+        else:
+            return None
+    # 转换为 timezone-aware（假设导入时间与当前时区一致）
+    if dt is not None:
+        if timezone.is_naive(dt):
+            dt = timezone.make_aware(dt, timezone.get_current_timezone())
+    return dt
 @login_required
 @permission_required('order_export')
 def export_orders(request):
@@ -1925,405 +1958,7 @@ def export_orders(request):
     return response
 
 
-@login_required
-@permission_required('order_import')
-def import_orders(request):
-    if request.method != 'POST':
-        return JsonResponse({'code': 0, 'msg': '仅支持POST'})
 
-    excel_file = request.FILES.get('file')
-    if not excel_file:
-        return JsonResponse({'code': 0, 'msg': '请上传文件'})
-
-    try:
-        wb = load_workbook(excel_file, read_only=True)
-        ws = wb.active
-    except Exception as e:
-        return JsonResponse({'code': 0, 'msg': f'文件解析失败：{str(e)}'})
-
-    # ===== 修改点 1：读取表头，建立列名→索引映射 =====
-    header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), None)
-    if not header_row:
-        return JsonResponse({'code': 0, 'msg': 'Excel 无表头'})
-    # 清理可能存在的空白、前后空格
-    header_map = {}
-    for idx, val in enumerate(header_row):
-        if val is not None:
-            key = str(val).strip()
-            header_map[key] = idx
-
-    # 定义需要的列名
-    COL_ORDER_NO = '订单编号'
-    COL_CUSTOMER_NAME = '客户名称'
-    COL_AREA = '区域'
-    COL_PRODUCT_NAME = '商品名称'
-    COL_SPEC = '规格'
-    COL_UNIT = '单位'
-    COL_QTY = '数量'
-    COL_PRICE = '单价'
-    COL_STATUS = '订单状态'
-    COL_DELIVERY = '交付方式'        # 新增
-    COL_CREATE_TIME = '创建时间'
-    COL_CREATOR = '开单人'
-    COL_SETTLED = '是否结清'
-    COL_RECEIVED = '已收金额'
-    COL_SETTLED_BY = '结清人'
-    COL_SETTLED_TIME = '结清时间'
-    COL_ORDER_SNAP = '制单号快照'
-    COL_IS_MAKEUP = '是否补货'
-
-    rows = list(ws.iter_rows(min_row=2, values_only=True))
-    if not rows:
-        return JsonResponse({'code': 0, 'msg': 'Excel 无数据'})
-
-    order_groups = {}
-    area_names = set()
-    product_names = set()
-    pure_customer_names = set()
-    pure_name_area = {}
-    product_create_info = {}
-
-    def parse_customer_name(raw_name, given_area):
-        if given_area:
-            prefix = given_area + " | "
-            if raw_name.startswith(prefix):
-                pure = raw_name[len(prefix):].strip()
-            else:
-                pure = raw_name
-            return given_area, pure
-        else:
-            if " | " in raw_name:
-                parts = raw_name.split(" | ", 1)
-                extracted_area = parts[0].strip()
-                pure = parts[1].strip()
-                return extracted_area, pure
-            else:
-                return "", raw_name
-
-    for row in rows:
-        # 通过列名取值，不存在则返回 None
-        def get_val(col_name):
-            idx = header_map.get(col_name)
-            if idx is not None and idx < len(row):
-                return row[idx]
-            return None
-
-        order_no = str(get_val(COL_ORDER_NO) or '').strip()
-        raw_customer_name = str(get_val(COL_CUSTOMER_NAME) or '').strip()
-        area_name = str(get_val(COL_AREA) or '').strip()
-        prod_name = str(get_val(COL_PRODUCT_NAME) or '').strip()
-        spec = str(get_val(COL_SPEC) or '').strip()
-        unit = str(get_val(COL_UNIT) or '').strip()
-        qty_val = get_val(COL_QTY)
-        try:
-            qty = int(qty_val) if qty_val is not None else 0
-        except:
-            continue
-        price_val = get_val(COL_PRICE)
-        try:
-            price = Decimal(str(price_val)) if price_val is not None else Decimal('0')
-        except:
-            price = Decimal('0')
-        status = str(get_val(COL_STATUS) or 'pending').strip()
-        # ===== 修改点 2：读取交付方式，若缺失则使用默认值 =====
-        delivery_method = str(get_val(COL_DELIVERY) or 'delivery').strip()
-        # 验证是否在合法 choices 中，若不在则置为默认
-        valid_delivery_choices = dict(Order.DELIVERY_METHOD_CHOICES).keys()
-        if delivery_method not in valid_delivery_choices:
-            delivery_method = 'delivery'
-
-        # 创建时间
-        create_time = None
-        dt_val = get_val(COL_CREATE_TIME)
-        if dt_val is not None:
-            if isinstance(dt_val, datetime):
-                dt = dt_val
-            else:
-                try:
-                    dt = datetime.strptime(str(dt_val).strip(), '%Y-%m-%d %H:%M:%S')
-                except ValueError:
-                    try:
-                        dt = datetime.strptime(str(dt_val).strip(), '%Y-%m-%d')
-                    except Exception:
-                        dt = None
-            if dt is not None:
-                if timezone.is_naive(dt):
-                    create_time = timezone.make_aware(dt, timezone.get_current_timezone())
-                else:
-                    create_time = dt
-
-        # 其他字段
-        creator_username = str(get_val(COL_CREATOR) or '').strip()
-        is_settled_str = str(get_val(COL_SETTLED) or '').strip()
-        is_settled = (is_settled_str == '是')
-        received_val = get_val(COL_RECEIVED)
-        try:
-            received_amount = Decimal(str(received_val)) if received_val is not None else Decimal('0')
-        except:
-            received_amount = Decimal('0')
-        settled_by_username = str(get_val(COL_SETTLED_BY) or '').strip()
-        settled_time = None
-        st_val = get_val(COL_SETTLED_TIME)
-        if st_val is not None:
-            if isinstance(st_val, datetime):
-                dt = st_val
-            else:
-                try:
-                    dt = datetime.strptime(str(st_val).strip(), '%Y-%m-%d %H:%M:%S')
-                except ValueError:
-                    try:
-                        dt = datetime.strptime(str(st_val).strip(), '%Y-%m-%d')
-                    except Exception:
-                        dt = None
-            if dt is not None:
-                if timezone.is_naive(dt):
-                    settled_time = timezone.make_aware(dt, timezone.get_current_timezone())
-                else:
-                    settled_time = dt
-        order_number_snapshot = str(get_val(COL_ORDER_SNAP) or '').strip()
-
-        is_makeup_str = str(get_val(COL_IS_MAKEUP) or '').strip()
-        is_makeup_item = is_makeup_str in ['是', '1', 'true', 'True']
-
-        final_area, pure_customer_name = parse_customer_name(raw_customer_name, area_name)
-
-        order_key = (order_no, raw_customer_name, area_name)
-        if order_key not in order_groups:
-            order_groups[order_key] = {
-                'items': [],
-                'create_time': None,
-                'creator_username': creator_username,
-                'is_settled': is_settled,
-                'received_amount': received_amount,
-                'settled_by_username': settled_by_username,
-                'settled_time': settled_time,
-                'order_number_snapshot': order_number_snapshot,
-                'delivery_method': delivery_method,      # 新增
-            }
-        order_groups[order_key]['items'].append({
-            'product_name': prod_name,
-            'spec': spec,
-            'unit': unit,
-            'qty': qty,
-            'price': price,
-            'status': status,
-            'pure_customer_name': pure_customer_name,
-            'area_name': final_area,
-            'is_makeup_item': is_makeup_item,
-        })
-        if create_time and not order_groups[order_key]['create_time']:
-            order_groups[order_key]['create_time'] = create_time
-
-        if status != 'cancelled':
-            if final_area:
-                area_names.add(final_area)
-            if pure_customer_name:
-                pure_customer_names.add(pure_customer_name)
-                if pure_customer_name not in pure_name_area:
-                    pure_name_area[pure_customer_name] = final_area
-            product_names.add(prod_name)
-            product_key = (prod_name, unit)
-            if product_key not in product_create_info:
-                product_create_info[product_key] = {
-                    'spec': spec,
-                    'price': price,
-                }
-
-    # ========== 批量查询/创建区域、商品、客户（保持不变） ==========
-    area_map = {}
-    if area_names:
-        existing_areas = Area.objects.filter(name__in=area_names)
-        area_map = {a.name: a for a in existing_areas}
-        missing_areas = area_names - set(area_map.keys())
-        if missing_areas:
-            new_areas = [Area(name=name) for name in missing_areas if name]
-            if new_areas:
-                Area.objects.bulk_create(new_areas)
-                fresh_areas = Area.objects.filter(name__in=[a.name for a in new_areas])
-                for area in fresh_areas:
-                    area_map[area.name] = area
-
-    existing_products = Product.objects.filter(name__in=product_names) if product_names else []
-    product_map = {(p.name, p.unit): p for p in existing_products}
-    missing_product_keys = set(product_create_info.keys()) - set(product_map.keys())
-    if missing_product_keys:
-        new_products = []
-        for pname, punit in missing_product_keys:
-            info = product_create_info[(pname, punit)]
-            pinyin_full = ''.join(lazy_pinyin(pname, style=0))
-            pinyin_abbr = ''.join([p[0] for p in lazy_pinyin(pname, style=0)])
-            new_products.append(Product(
-                name=pname,
-                unit=punit,
-                specification=info['spec'],
-                price=info['price'],
-                stock_system=0,
-                stock_actual=0,
-                pinyin_full=pinyin_full,
-                pinyin_abbr=pinyin_abbr,
-            ))
-        if new_products:
-            created = Product.objects.bulk_create(new_products)
-            q_filter = Q()
-            for p in created:
-                q_filter |= Q(name=p.name, unit=p.unit)
-            if q_filter:
-                fresh_products = Product.objects.filter(q_filter)
-                for p in fresh_products:
-                    product_map[(p.name, p.unit)] = p
-
-    customer_map = {}
-    if pure_customer_names:
-        existing_customers = Customer.objects.filter(name__in=pure_customer_names)
-        customer_map = {c.name: c for c in existing_customers}
-        missing_names = pure_customer_names - set(customer_map.keys())
-        if missing_names:
-            new_customers = []
-            for pure_name in missing_names:
-                area_name_for_customer = pure_name_area.get(pure_name)
-                area = area_map.get(area_name_for_customer) if area_name_for_customer else None
-                pinyin_full = ''.join(lazy_pinyin(pure_name, style=0))
-                pinyin_abbr = ''.join([p[0] for p in lazy_pinyin(pure_name, style=0)])
-                new_customers.append(Customer(
-                    name=pure_name,
-                    area=area,
-                    pinyin_full=pinyin_full,
-                    pinyin_abbr=pinyin_abbr,
-                ))
-            try:
-                Customer.objects.bulk_create(new_customers, ignore_conflicts=True)
-                for c in Customer.objects.filter(name__in=missing_names):
-                    customer_map[c.name] = c
-            except Exception:
-                for c_obj in new_customers:
-                    obj, created = Customer.objects.get_or_create(
-                        name=c_obj.name,
-                        defaults={
-                            'area': c_obj.area,
-                            'pinyin_full': c_obj.pinyin_full,
-                            'pinyin_abbr': c_obj.pinyin_abbr,
-                        }
-                    )
-                    customer_map[obj.name] = obj
-
-    all_creator_usernames = set()
-    all_settled_by_usernames = set()
-    for group_data in order_groups.values():
-        if group_data['creator_username']:
-            all_creator_usernames.add(group_data['creator_username'])
-        if group_data['settled_by_username']:
-            all_settled_by_usernames.add(group_data['settled_by_username'])
-    user_map = {}
-    if all_creator_usernames or all_settled_by_usernames:
-        users = User.objects.filter(username__in=all_creator_usernames | all_settled_by_usernames)
-        user_map = {u.username: u for u in users}
-
-    existing_orders = set(
-        Order.objects.filter(order_no__in=[k[0] for k in order_groups if k[0]])
-        .values_list('order_no', flat=True)
-    )
-
-    success_count = 0
-    skip_count = 0
-
-    with transaction.atomic():
-        for (order_no, raw_customer_name, area_name), group_data in order_groups.items():
-            if order_no and order_no in existing_orders:
-                skip_count += 1
-                continue
-
-            items = group_data['items']
-            order_create_time = group_data['create_time']
-            status = items[0]['status']
-
-            if status == 'cancelled':
-                area = None
-                customer = None
-            else:
-                final_area_name = items[0]['area_name']
-                area = area_map.get(final_area_name) if final_area_name else None
-                pure_customer_name = items[0]['pure_customer_name']
-                customer = customer_map.get(pure_customer_name) if pure_customer_name else None
-
-            creator_username = group_data['creator_username']
-            creator = user_map.get(creator_username) if creator_username else None
-            if not creator:
-                creator = request.user
-
-            order = Order(
-                order_no=order_no if order_no else '',
-                customer_name_snapshot=raw_customer_name,
-                area=area,
-                customer=customer,
-                creator=creator,
-                total_amount=0,
-                status=status,
-                order_number_snapshot=group_data.get('order_number_snapshot') or '',
-                # ===== 修改点 3：设置交付方式 =====
-                delivery_method=group_data.get('delivery_method', 'delivery'),
-                is_settled=False,
-                received_amount=Decimal('0'),
-            )
-            if order_create_time:
-                order.create_time = order_create_time
-            order.save()
-
-            if status != 'cancelled':
-                is_settled = group_data['is_settled']
-                received_amount = group_data['received_amount']
-                if is_settled or received_amount > 0:
-                    order.is_settled = is_settled
-                    order.received_amount = received_amount
-                    settled_by_username = group_data['settled_by_username']
-                    settled_by = user_map.get(settled_by_username) if settled_by_username else None
-                    order.settled_by = settled_by
-                    order.settled_time = group_data['settled_time']
-                    order.save(update_fields=['is_settled', 'received_amount', 'settled_by', 'settled_time'])
-
-            if status == 'cancelled':
-                order.cancelled_by = request.user
-                order.cancelled_time = timezone.now()
-                order.cancelled_reason = '从 Excel 导入（原作废订单）'
-                order.save(update_fields=['cancelled_by', 'cancelled_time', 'cancelled_reason'])
-
-            total = Decimal('0')
-            order_items = []
-            for item_data in items:
-                prod_name = item_data['product_name']
-                spec = item_data['spec']
-                unit = item_data['unit']
-                price = item_data['price']
-                qty = item_data['qty']
-                amount = price * qty
-                total += amount
-
-                product = None if status == 'cancelled' else product_map.get((prod_name, unit))
-
-                order_items.append(OrderItem(
-                    order=order,
-                    product=product,
-                    product_name=prod_name if not product else product.name,
-                    specification=spec,
-                    unit=unit,
-                    quantity=qty,
-                    amount=amount,
-                    actual_unit_price=price,
-                    snapshot_standard_price=product.price if product else None,
-                    snapshot_customer_price=None,
-                    is_makeup_item=item_data.get('is_makeup_item', False),
-                ))
-
-            OrderItem.objects.bulk_create(order_items)
-            order.total_amount = total
-            order.save(update_fields=['total_amount'])
-            success_count += 1
-
-    clear_order_cache()
-
-    msg = f'导入完成：成功 {success_count} 个订单'
-    if skip_count:
-        msg += f'，跳过 {skip_count} 个重复订单'
-    return JsonResponse({'code': 1, 'msg': msg})
 
 @login_required
 @permission_required(PERM_ORDER_PRINT)
@@ -2379,24 +2014,27 @@ def batch_mark_printed(request):
 
 
 # 提取解析 Excel 到结构化数据的公共函数
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from django.utils import timezone
+
 def parse_excel_to_structure(workbook):
     """
-    解析 Excel，返回：
-    {
-        'order_groups': {},     # key->订单信息
-        'area_names': set,
-        'product_names': set,
-        'pure_customer_names': set,
-        'pure_name_area': dict,
-        'product_create_info': dict,
-        'row_errors': [],       # 逐行错误
-    }
+    解析 Excel，返回结构化数据。
+    无论 Excel 列顺序如何变化，只要表头文字不变，解析不受影响。
     """
     ws = workbook.active
-    rows = list(ws.iter_rows(min_row=2, values_only=True))
-    if not rows:
-        raise ValueError("Excel 无数据")
+    all_rows = list(ws.iter_rows(values_only=True))
+    if len(all_rows) < 2:
+        raise ValueError("Excel 无数据或只有标题行")
 
+    # 建立列名到列索引的映射
+    header = [str(c).strip() if c else "" for c in all_rows[0]]
+    col_map = {name: idx for idx, name in enumerate(header)}
+
+    rows = all_rows[1:]
+
+    # 初始化数据结构
     order_groups = {}
     area_names = set()
     product_names = set()
@@ -2405,7 +2043,16 @@ def parse_excel_to_structure(workbook):
     product_create_info = {}
     row_errors = []
 
+    def get_val(row, field, default=""):
+        """根据列名获取单元格值，不存在或空时返回默认值"""
+        idx = col_map.get(field)
+        if idx is not None and idx < len(row):
+            val = row[idx]
+            return str(val).strip() if val is not None else default
+        return default
+
     def parse_customer_name(raw_name, given_area):
+        """从客户名称中拆分区域和纯客户名"""
         if given_area:
             prefix = given_area + " | "
             if raw_name.startswith(prefix):
@@ -2423,81 +2070,96 @@ def parse_excel_to_structure(workbook):
                 return "", raw_name
 
     for idx, row in enumerate(rows, start=2):  # 行号从2开始
-        if len(row) < 11:
-            row_errors.append({'row': idx, 'error': '列数不足'})
+        # 基本字段读取（全部通过列名）
+        order_no = get_val(row, "订单编号")
+        raw_customer_name = get_val(row, "客户名称")
+        area_name = get_val(row, "区域")
+        prod_name = get_val(row, "商品名称")
+        spec = get_val(row, "规格")
+        unit = get_val(row, "单位")
+
+        # 数量
+        qty_str = get_val(row, "数量", "0")
+        try:
+            qty = int(qty_str)
+        except ValueError:
+            row_errors.append({'row': idx, 'error': f'数量格式错误: {qty_str}'})
             continue
 
-        order_no = str(row[0]).strip() if row[0] else ''
-        raw_customer_name = str(row[1]).strip() if row[1] else ''
-        area_name = str(row[2]).strip() if row[2] else ''
-        prod_name = str(row[3]).strip() if row[3] else ''
-        spec = str(row[4]).strip() if row[4] else ''
-        unit = str(row[5]).strip() if row[5] else ''
+        # 单价
+        price_str = get_val(row, "单价", "0")
         try:
-            qty = int(row[6])
-        except:
-            row_errors.append({'row': idx, 'error': f'数量格式错误: {row[6]}'})
-            continue
-        try:
-            price = Decimal(str(row[7]))
-        except:
+            price = Decimal(price_str)
+        except InvalidOperation:
             price = Decimal('0')
-        status = str(row[9]).strip() if len(row) > 9 and row[9] else 'pending'
+
+        # 订单状态
+        status = get_val(row, "订单状态", "pending")
+        if not status:
+            status = "pending"
 
         # 创建时间解析
         create_time = None
-        if len(row) > 10 and row[10]:
-            val = row[10]
-            if isinstance(val, datetime):
-                dt = val
-            else:
+        create_time_str = get_val(row, "创建时间")
+        if create_time_str:
+            try:
+                dt = datetime.strptime(create_time_str, '%Y-%m-%d %H:%M:%S')
+            except ValueError:
                 try:
-                    dt = datetime.strptime(str(val).strip(), '%Y-%m-%d %H:%M:%S')
+                    dt = datetime.strptime(create_time_str, '%Y-%m-%d')
                 except ValueError:
-                    try:
-                        dt = datetime.strptime(str(val).strip(), '%Y-%m-%d')
-                    except:
-                        dt = None
+                    dt = None
             if dt:
                 if timezone.is_naive(dt):
                     create_time = timezone.make_aware(dt, timezone.get_current_timezone())
                 else:
                     create_time = dt
 
-        # 扩展字段
-        creator_username = str(row[11]).strip() if len(row) > 11 and row[11] else ''
-        is_settled_str = str(row[13]).strip() if len(row) > 13 and row[13] else ''
+        # 开单人
+        creator_username = get_val(row, "开单人")
+
+        # 是否结清
+        is_settled_str = get_val(row, "是否结清", "否")
         is_settled = (is_settled_str == '是')
+
+        # 已收金额
+        received_str = get_val(row, "已收金额", "0")
         try:
-            received_amount = Decimal(str(row[14])) if len(row) > 14 and row[14] else Decimal('0')
-        except:
+            received_amount = Decimal(received_str)
+        except InvalidOperation:
             received_amount = Decimal('0')
-        settled_by_username = str(row[15]).strip() if len(row) > 15 and row[15] else ''
+
+        # 结清人
+        settled_by_username = get_val(row, "结清人")
+
+        # 结清时间
         settled_time = None
-        if len(row) > 16 and row[16]:
-            val = row[16]
-            if isinstance(val, datetime):
-                dt = val
-            else:
+        settled_time_str = get_val(row, "结清时间")
+        if settled_time_str:
+            try:
+                dt = datetime.strptime(settled_time_str, '%Y-%m-%d %H:%M:%S')
+            except ValueError:
                 try:
-                    dt = datetime.strptime(str(val).strip(), '%Y-%m-%d %H:%M:%S')
+                    dt = datetime.strptime(settled_time_str, '%Y-%m-%d')
                 except ValueError:
-                    try:
-                        dt = datetime.strptime(str(val).strip(), '%Y-%m-%d')
-                    except:
-                        dt = None
+                    dt = None
             if dt:
                 if timezone.is_naive(dt):
                     settled_time = timezone.make_aware(dt, timezone.get_current_timezone())
                 else:
                     settled_time = dt
-        order_number_snapshot = str(row[17]).strip() if len(row) > 17 and row[17] else ''
 
-        is_makeup_str = str(row[18]).strip() if len(row) > 18 and row[18] else ''
+        # 制单号快照
+        order_number_snapshot = get_val(row, "制单号快照")
+
+        # 是否补货
+        is_makeup_str = get_val(row, "是否补货")
         is_makeup_item = is_makeup_str in ['是', '1', 'true', 'True']
 
+        # 处理客户名
         final_area, pure_customer_name = parse_customer_name(raw_customer_name, area_name)
 
+        # 按订单分组
         order_key = (order_no, raw_customer_name, area_name)
         if order_key not in order_groups:
             order_groups[order_key] = {
@@ -2513,6 +2175,8 @@ def parse_excel_to_structure(workbook):
                 'settled_time': settled_time,
                 'order_number_snapshot': order_number_snapshot,
             }
+
+        # 添加明细行
         order_groups[order_key]['items'].append({
             'product_name': prod_name,
             'spec': spec,
@@ -2524,11 +2188,13 @@ def parse_excel_to_structure(workbook):
             'area_name': final_area,
             'is_makeup_item': is_makeup_item,
         })
+
+        # 只在第一次出现时记录订单级别的创建时间
         if create_time and not order_groups[order_key]['create_time']:
             order_groups[order_key]['create_time'] = create_time
 
-        # 收集基础数据（仅有效订单）
-        if status != 'cancelled'and not is_makeup_item:
+        # 收集非作废、非补货品项的基础数据
+        if status != 'cancelled' and not is_makeup_item:
             if final_area:
                 area_names.add(final_area)
             if pure_customer_name:
