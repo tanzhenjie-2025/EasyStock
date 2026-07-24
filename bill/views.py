@@ -1817,12 +1817,12 @@ def calculate_order_stats(request):
         logger.error(f"订单统计计算失败：{str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'统计失败：{str(e)}'})
 
-import io
-from openpyxl import Workbook
+
+
 from openpyxl.styles import Font, Alignment
-from django.http import HttpResponse
+
 from django.db.models import Prefetch
-from urllib.parse import quote
+
 from openpyxl.utils.datetime import from_excel   # 将 Excel 序列号转为 datetime
 from datetime import datetime, date              # 明确导入类，方便类型检查
 
@@ -2047,7 +2047,7 @@ def batch_mark_printed(request):
 # 提取解析 Excel 到结构化数据的公共函数
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from django.utils import timezone
+
 
 def parse_excel_to_structure(workbook):
     """
@@ -2253,17 +2253,17 @@ def parse_excel_to_structure(workbook):
 
 # views.py 顶部导入保持不变
 import json
-from openpyxl import load_workbook
-from collections import defaultdict
+
+
 from decimal import Decimal
-from django.http import JsonResponse
+
 from django.contrib.auth.decorators import login_required, permission_required
 from django.utils import timezone
-from django.db import transaction
+
 from django.db.models import Q
 from pypinyin import lazy_pinyin
 from accounts.models import User
-from .models import Order, OrderItem
+
 from area_manage.models import Area
 from customer_manage.models import Customer
 from product.models import Product
