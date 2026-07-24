@@ -5,77 +5,34 @@
     <title>打印空白模板</title>
     <style>
         @media print {
-    @page {
-        size: 5.5in 9.5in;
-        margin: 0;
-    }
-    html, body {
-        margin: 0;
-        padding: 0;
-        font-family: "SimSun", serif;
-    }
-    .bill-print {
-        width: 9.2in;                  /* 留出左右内边距 */
-        height: auto;
-        padding: 2mm 4mm 2mm 4mm;     /* 极小的上下内边距 */
-        box-sizing: border-box;
-        border: none;
-        margin: 0;
-    }
-    /* 相邻模板之间分页，避免最后空白页 */
-    .bill-print + .bill-print {
-        page-break-before: always;
-    }
-    .no-print {
-        display: none;
-    }
-
-    /* ===== 压缩所有垂直空间 ===== */
-    .bill-header h2 {
-        font-size: 16px;
-        margin: 0 0 2px 0;
-    }
-    .bill-info-row span {
-        font-size: 10px;
-    }
-    .bill-table th, .bill-table td {
-        height: 18px;                 /* 大幅压缩行高 */
-        font-size: 10px;
-        padding: 0 2px;
-    }
-    /* 列宽微调（可根据实际表格调整） */
-    .bill-table .col-index { width: 4%; }
-    .bill-table .col-spec  { width: 16%; }
-    .bill-table .col-name  { width: 34%; }
-    .bill-table .col-qty   { width: 6%; }
-    .bill-table .col-unit  { width: 6%; }
-    .bill-table .col-price { width: 16%; }
-    .bill-table .col-total { width: 18%; }
-
-    .bill-footer {
-        margin-top: 2px;
-        font-size: 10px;
-        width: 94%;
-    }
-    .bill-footer .total-amount {
-        font-size: 16px;
-    }
-    .bill-bottom {
-        margin-top: 2px;
-        width: 94%;
-        font-size: 9px;
-    }
-    .bill-bottom .bottom-row {
-        margin-top: 2px;
-    }
-    .bill-bottom .bottom-row .field-group .underline {
-        width: 80px;
-        border-bottom-width: 1px;
-    }
-    .bill-bottom .bottom-row .field-group .underline-sm {
-        width: 60px;
-    }
+            @page {
+                size: 140mm 210mm;
+                margin: 0;
+            }
+            html, body {
+                margin: 0;
+                padding: 0;
+                font-family: "SimSun", serif;
+            }
+            .bill-print {
+                width: 140mm;
+                height: auto;
+                padding: 7mm 5mm 5mm 5mm;
+                box-sizing: border-box;
+                page-break-after: always;
+                border: none;
+            }
+            .bill-print:last-child {
+                page-break-after: auto;
+            }
+            .no-print {
+                display: none;
+            }
+            /* 位置：empty_template_print.html → <style> → @media print 内部末尾 */
+.bill-print {
+    margin: 0;          /* 去除屏幕样式残留的外边距 */
 }
+        }
 
         .bill-print {
             width: 140mm;
