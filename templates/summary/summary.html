@@ -177,6 +177,18 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
+            <!-- 新增：多选区域组 -->
+<div class="form-group mb-2">
+    <label class="form-label-sm">选择区域组（可多选）</label>
+    <div id="exportGroupContainer" style="display: flex; flex-wrap: wrap; gap: 6px;
+         max-height: 120px; overflow-y: auto; border: 1px solid #ced4da;
+         padding: 8px; border-radius: 4px; background: #fff;">
+    </div>
+    <div style="margin-top: 4px;">
+        <a href="javascript:void(0)" onclick="selectAllExportGroups(true)">全选</a> |
+        <a href="javascript:void(0)" onclick="selectAllExportGroups(false)">全不选</a>
+    </div>
+</div>
                 <div class="select-all-btn">
                     <button type="button" class="btn btn-xs btn-outline-primary" onclick="selectAllFields(true)">全选</button>
                     <button type="button" class="btn btn-xs btn-outline-secondary ms-1" onclick="selectAllFields(false)">取消全选</button>
@@ -209,6 +221,7 @@
                     <input type="checkbox" id="field_remark" name="export_fields" value="remark" checked>
                     <label for="field_remark">备注</label>
                 </div>
+
                 <div class="custom-fields-section">
                     <h6>自定义字段（用于手动填写）</h6>
                     <div id="customFieldsContainer"></div>
@@ -473,8 +486,51 @@ function showExportModal() {
     }
     customFieldCount = 0;
     $('#customFieldsContainer').empty();
-    const modal = new bootstrap.Modal(document.getElementById('exportModal'));
-    modal.show();
+
+    // ---------- 加载区域组列表并渲染多选框 ----------
+    $.get('/summary/group/list/', function(res) {
+        if (res.code === 1) {
+            let html = '';
+            // 先加入“全部区域”选项（id='0'）
+            html += `<label style="display: inline-flex; align-items: center; margin-right: 8px;">
+                <input type="checkbox" class="export-group-checkbox" value="0" style="margin-right: 4px;">
+                <span>全部区域</span>
+            </label>`;
+            res.data.forEach(g => {
+                if (g.id === '0') return; // 已手动添加
+                const checked = (g.id == queryParams.group_id) ? 'checked' : '';
+                html += `<label style="display: inline-flex; align-items: center; margin-right: 8px;">
+                    <input type="checkbox" class="export-group-checkbox" value="${g.id}" ${checked} style="margin-right: 4px;">
+                    <span>${g.name}</span>
+                </label>`;
+            });
+            $('#exportGroupContainer').html(html);
+
+            // 若当前查询是“全部区域”（group_id='0'），则默认选中“全部区域”
+            if (queryParams.group_id === '0') {
+                $('.export-group-checkbox[value="0"]').prop('checked', true);
+            }
+
+            const modal = new bootstrap.Modal(document.getElementById('exportModal'));
+            modal.show();
+        } else {
+            alert('加载区域组失败，请刷新重试');
+        }
+    }).fail(function() {
+        alert('加载区域组失败，请检查网络');
+    });
+}
+
+// ---------- 全选/全不选导出区域组 ----------
+function selectAllExportGroups(select) {
+    $('.export-group-checkbox').prop('checked', select);
+    // 如果全选时勾选了“全部区域”和具体组，自动互斥：若“全部区域”被选，则取消其他组
+    if (select) {
+        const allChecked = $('.export-group-checkbox:checked');
+        if (allChecked.length > 1 && allChecked.filter('[value="0"]').length > 0) {
+            $('.export-group-checkbox:not([value="0"])').prop('checked', false);
+        }
+    }
 }
 
 function selectAllFields(isSelect) {
@@ -510,12 +566,27 @@ function removeCustomField(index) {
 }
 
 function exportExcel() {
+    // ----- 获取选中的导出字段 -----
     let selectedFields = [];
     $('input[name="export_fields"]:checked').each(function() {
         selectedFields.push($(this).val());
     });
     if (selectedFields.length === 0) return alert('请至少选择一个导出字段');
 
+    // ----- 获取选中的区域组ID列表 -----
+    let selectedGroups = [];
+    $('.export-group-checkbox:checked').each(function() {
+        selectedGroups.push($(this).val());
+    });
+    if (selectedGroups.length === 0) return alert('请至少选择一个区域组');
+
+    // 若包含“全部区域”（'0'），则只保留“全部区域”
+    if (selectedGroups.includes('0')) {
+        selectedGroups = ['0'];
+    }
+    const groupIdsStr = selectedGroups.join(',');
+
+    // ----- 获取自定义字段 -----
     let customFields = [];
     $('.custom-field-item').each(function() {
         const name = $(this).find('.custom-field-name').val().trim();
@@ -524,6 +595,7 @@ function exportExcel() {
         if (name) customFields.push({ name, position, target });
     });
 
+    // ----- 收集当前表格数据（用于前端排序后的数据） -----
     let sortedData = [];
     $('#data tr:not(.total-row)').each(function() {
         const cells = $(this).find('td');
@@ -538,8 +610,9 @@ function exportExcel() {
         });
     });
 
+    // ----- 构造请求 -----
     let formData = new FormData();
-    formData.append('group_id', queryParams.group_id);
+    formData.append('group_ids', groupIdsStr);
     formData.append('start_date', queryParams.start_date);
     formData.append('end_date', queryParams.end_date);
     formData.append('custom_fields', JSON.stringify(customFields));
@@ -556,23 +629,44 @@ function exportExcel() {
         xhrFields: { responseType: 'blob' },
         success: function(res, status, xhr) {
             const contentType = xhr.getResponseHeader('Content-Type');
-            if (contentType.includes('application/json')) {
+            if (contentType && contentType.includes('application/json')) {
                 const reader = new FileReader();
                 reader.onload = function() {
-                    alert('导出失败：' + JSON.parse(this.result).msg);
+                    const msg = JSON.parse(this.result);
+                    alert('导出失败：' + (msg.msg || '未知错误'));
                 };
                 reader.readAsText(res);
                 return;
             }
+
+            // 从 Content-Disposition 提取文件名
+            let filename = null;
+            const disposition = xhr.getResponseHeader('Content-Disposition');
+            if (disposition) {
+                const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+                if (match && match[1]) {
+                    filename = match[1].replace(/['"]/g, '');
+                }
+            }
+            if (!filename) {
+                const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+                let ext = 'xlsx';
+                if (contentType && contentType.includes('zip')) {
+                    ext = 'zip';
+                }
+                filename = `${today}商品汇总.${ext}`;
+            }
+
             const modal = bootstrap.Modal.getInstance(document.getElementById('exportModal'));
-            modal.hide();
+            if (modal) modal.hide();
+
             const url = window.URL.createObjectURL(res);
             const a = document.createElement('a');
             a.href = url;
-            let groupName = $('#group option:selected').text() || '商品汇总';
-            let today = new Date().toISOString().split('T')[0].replace(/-/g, '');
-            a.download = `${today}商品汇总_${groupName}.xlsx`;
+            a.download = filename;
+            document.body.appendChild(a);
             a.click();
+            document.body.removeChild(a);
             window.URL.revokeObjectURL(url);
         },
         error: function(xhr) {

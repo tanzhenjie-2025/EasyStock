@@ -362,66 +362,60 @@ def export_to_excel(data, title, headers, selected_fields, custom_fields, file_n
     return response
 
 
+import zipfile
+from io import BytesIO
+from django.http import HttpResponse
+
 @login_required
 @permission_required(PERM_ORDER_SUMMARY)
 def export_product_summary(request):
-    """商品导出 - 支持前端排序数据优先，命中OrderItem统一索引"""
-    if request.method == 'POST':
-        try:
-            # ---- 1. 尝试使用前端提交的排序数据 ----
-            sorted_data_str = request.POST.get('sorted_data')
-            if sorted_data_str:
-                try:
-                    export_data = json.loads(sorted_data_str)
-                    if not isinstance(export_data, list) or len(export_data) == 0:
-                        return JsonResponse({'code': 0, 'msg': '排序数据无效'}, status=400)
+    """商品导出 - 多区域组时打包为ZIP（每个区域组一个独立Excel）"""
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '请求方式错误'}, status=405)
 
-                    group_id = request.POST.get('group_id')
-                    if not group_id:
-                        return JsonResponse({'code': 0, 'msg': '缺少组ID'})
-                    group_name = '全部区域' if group_id == '0' else AreaGroup.objects.get(id=group_id).name
-                    selected_fields = request.POST.getlist('fields[]')
-                    custom_fields = json.loads(request.POST.get('custom_fields', '[]'))
+    try:
+        # ---------- 获取通用参数 ----------
+        group_ids_str = request.POST.get('group_ids', '').strip()
+        if not group_ids_str:
+            return JsonResponse({'code': 0, 'msg': '请选择区域组'})
 
-                    total_amount = sum(item.get('total_amt', 0) for item in export_data)
+        start_datetime = request.POST.get('start_date')
+        end_datetime = request.POST.get('end_date')
+        selected_fields = request.POST.getlist('fields[]')
+        custom_fields = json.loads(request.POST.get('custom_fields', '[]'))
+        tag_ids_str = request.POST.get('tag_ids', '')
+        # sorted_data 本次实现不再使用（多区域组时无法共用），忽略即可
 
-                    create_summary_operation_log(request=request, operation_type='export', object_type='product_summary')
-                    file_date_str = timezone.localdate().strftime("%Y%m%d")
-                    return export_to_excel(
-                        data=export_data,
-                        title='商品汇总',
-                        headers={
-                            'serial': '序号', 'name': '商品名称', 'unit': '单位', 'price': '单价',
-                            'total_qty': '数量', 'total_amt': '总金额', 'remark': '备注'
-                        },
-                        selected_fields=selected_fields,
-                        custom_fields=custom_fields,
-                        file_name=f'{file_date_str}商品汇总_{group_name}',
-                        total_row={'total_amt': total_amount}
-                    )
-                except (json.JSONDecodeError, ValueError):
-                    pass   # 数据格式错误时回退到数据库查询
+        if not all([start_datetime, end_datetime, selected_fields]):
+            return JsonResponse({'code': 0, 'msg': '参数不完整'})
 
-            # ---- 2. 原有数据库查询逻辑（无 sorted_data 或解析失败时） ----
-            data = request.POST
-            group_id = data.get('group_id')
-            start_datetime = data.get('start_date')
-            end_datetime = data.get('end_date')
-            selected_fields = data.getlist('fields[]')
-            custom_fields = json.loads(data.get('custom_fields', '[]'))
-            tag_ids_str = data.get('tag_ids', '')
+        start = parse_datetime(start_datetime)
+        end = parse_datetime(end_datetime)
+        if not start or not end:
+            return JsonResponse({'code': 0, 'msg': '时间格式错误'})
 
-            if not all([group_id, start_datetime, end_datetime, selected_fields]):
-                return JsonResponse({'code': 0, 'msg': '参数不完整'})
+        # ---------- 解析区域组列表 ----------
+        group_ids = [gid for gid in group_ids_str.split(',') if gid]
+        if not group_ids:
+            return JsonResponse({'code': 0, 'msg': '未选择有效区域组'})
 
-            start = parse_datetime(start_datetime)
-            end = parse_datetime(end_datetime)
-            if not start or not end:
-                return JsonResponse({'code': 0, 'msg': '时间格式错误'})
+        # 若包含 '0'（全部区域），则只处理 '0'
+        if '0' in group_ids:
+            group_ids = ['0']
 
-            area_ids = get_area_ids_by_group(group_id)
-            group_name = '全部区域' if group_id == '0' else AreaGroup.objects.get(id=group_id).name
+        # 定义表头映射
+        headers_map = {
+            'serial': '序号', 'name': '商品名称', 'unit': '单位', 'price': '单价',
+            'total_qty': '数量', 'total_amt': '总金额', 'remark': '备注'
+        }
 
+        # ---------- 辅助函数：生成单个区域组的Excel ----------
+        def generate_excel_for_group(gid):
+            """返回 (file_name, excel_bytes)"""
+            group_name = '全部区域' if gid == '0' else AreaGroup.objects.get(id=gid).name
+
+            # 查询数据
+            area_ids = get_area_ids_by_group(gid)
             filters = {
                 'product__isnull': False,
                 'order__area_id__in': area_ids,
@@ -443,7 +437,10 @@ def export_product_summary(request):
                 ) \
                 .order_by('-total_qty')
 
-            total_amount = items.aggregate(total=Coalesce(Sum('total_amt'), 0, output_field=DecimalField()))['total']
+            total_amount = items.aggregate(
+                total=Coalesce(Sum('total_amt'), 0, output_field=DecimalField())
+            )['total']
+
             export_data = [{
                 'serial': idx,
                 'name': item['product__name'],
@@ -454,24 +451,136 @@ def export_product_summary(request):
                 'remark': ''
             } for idx, item in enumerate(items, 1)]
 
-            create_summary_operation_log(request=request, operation_type='export', object_type='product_summary')
-            file_date_str = timezone.localdate().strftime("%Y%m%d")
+            # 创建工作簿
+            wb = openpyxl.Workbook()
+            ws = wb.active
+            ws.title = '商品汇总'
 
-            return export_to_excel(
-                data=export_data,
-                title='商品汇总',
-                headers={
-                    'serial': '序号', 'name': '商品名称', 'unit': '单位', 'price': '单价',
-                    'total_qty': '数量', 'total_amt': '总金额', 'remark': '备注'
-                },
-                selected_fields=selected_fields,
-                custom_fields=custom_fields,
-                file_name=f'{file_date_str}商品汇总_{group_name}',
-                total_row={'total_amt': total_amount}
+            # 字段处理
+            final_fields = selected_fields.copy()
+            final_headers = {field: headers_map[field] for field in selected_fields}
+
+            if custom_fields:
+                for cf in custom_fields:
+                    cf_name = cf.get('name', '').strip()
+                    cf_position = cf.get('position', 'after')
+                    cf_target = cf.get('target', '')
+                    if not cf_name or not cf_target:
+                        continue
+                    custom_field_key = f'custom_{cf_name.replace(" ", "_")}_{len(final_fields)}'
+                    final_headers[custom_field_key] = cf_name
+                    try:
+                        target_index = final_fields.index(cf_target)
+                        insert_index = target_index + 1 if cf_position == 'after' else target_index
+                        final_fields.insert(insert_index, custom_field_key)
+                    except ValueError:
+                        final_fields.append(custom_field_key)
+
+            # 交换单位与数量
+            if 'unit' in final_fields and 'total_qty' in final_fields:
+                unit_idx = final_fields.index('unit')
+                qty_idx = final_fields.index('total_qty')
+                final_fields[unit_idx], final_fields[qty_idx] = final_fields[qty_idx], final_fields[unit_idx]
+
+            # 写入表头
+            title_font = Font(bold=True, size=12)
+            alignment = Alignment(horizontal='center')
+            for col, field_name in enumerate(final_fields, 1):
+                cell = ws.cell(row=1, column=col, value=final_headers[field_name])
+                cell.font = title_font
+                cell.alignment = alignment
+
+            # 写入数据
+            for row_idx, item in enumerate(export_data, 2):
+                for col_idx, field in enumerate(final_fields, 1):
+                    value = item.get(field, '') if not field.startswith('custom_') else ''
+                    if isinstance(value, float):
+                        value = round(value, 2)
+                    ws.cell(row=row_idx, column=col_idx, value=value)
+
+            # 总计行
+            if export_data:
+                total_row_num = len(export_data) + 2
+                total_font = Font(bold=True, color="FFFFFF")
+                total_fill = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
+                ws.cell(row=total_row_num, column=1, value="总计").font = total_font
+                ws.cell(row=total_row_num, column=1).fill = total_fill
+                if 'total_amt' in final_fields:
+                    col_idx = final_fields.index('total_amt') + 1
+                    cell = ws.cell(row=total_row_num, column=col_idx, value=round(float(total_amount), 2))
+                    cell.font = total_font
+                    cell.fill = total_fill
+                    cell.alignment = Alignment(horizontal='center')
+
+            # 列宽
+            for col in range(1, len(final_fields) + 1):
+                ws.column_dimensions[get_column_letter(col)].width = 15
+
+            # 边框
+            thin_border = Border(
+                left=Side(style='thin'), right=Side(style='thin'),
+                top=Side(style='thin'), bottom=Side(style='thin')
             )
-        except Exception as e:
-            return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'}, status=500)
-    return JsonResponse({'code': 0, 'msg': '请求方式错误'}, status=405)
+            max_row = len(export_data) + 1
+            if export_data:
+                max_row += 1
+            for row in range(1, max_row + 1):
+                for col in range(1, len(final_fields) + 1):
+                    cell = ws.cell(row=row, column=col)
+                    cell.border = thin_border
+
+            # 保存到内存
+            buffer = BytesIO()
+            wb.save(buffer)
+            buffer.seek(0)
+            # 文件名：日期_区域组名.xlsx
+            file_date_str = timezone.localdate().strftime("%Y%m%d")
+            safe_name = group_name.replace('/', '_').replace('\\', '_')[:50]
+            file_name = f"{file_date_str}商品汇总_{safe_name}.xlsx"
+            return file_name, buffer
+
+        # ---------- 判断数量，决定返回单个还是ZIP ----------
+        if len(group_ids) == 1:
+            # 单个区域组：直接返回Excel
+            file_name, buffer = generate_excel_for_group(group_ids[0])
+            response = HttpResponse(
+                buffer.getvalue(),
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+            response['Content-Disposition'] = f'attachment; filename="{file_name}"'
+            # 记录日志
+            create_summary_operation_log(
+                request=request, operation_type='export', object_type='product_summary',
+                object_name=f'导出 {file_name}',
+                operation_detail=f'时间范围 {start_datetime} ~ {end_datetime}'
+            )
+            return response
+
+        else:
+            # 多个区域组：打包为ZIP
+            zip_buffer = BytesIO()
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                for gid in group_ids:
+                    file_name, excel_buffer = generate_excel_for_group(gid)
+                    zip_file.writestr(file_name, excel_buffer.getvalue())
+
+            zip_buffer.seek(0)
+            response = HttpResponse(
+                zip_buffer.getvalue(),
+                content_type='application/zip'
+            )
+            file_date_str = timezone.localdate().strftime("%Y%m%d")
+            response['Content-Disposition'] = f'attachment; filename="{file_date_str}商品汇总_多区域组.zip"'
+            # 记录日志
+            create_summary_operation_log(
+                request=request, operation_type='export', object_type='product_summary',
+                object_name=f'批量导出 {len(group_ids)} 个区域组',
+                operation_detail=f'时间范围 {start_datetime} ~ {end_datetime}, 组数: {len(group_ids)}'
+            )
+            return response
+
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'}, status=500)
 
 
 @login_required
