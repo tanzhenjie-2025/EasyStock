@@ -171,6 +171,9 @@
             align-items: center;
             margin-left: auto;
         }
+        
+     
+
 
         /* 浮动消息样式 - 无背景，纯文字漂浮 */
         .float-msg {
@@ -312,28 +315,28 @@
         </div>
 
         <div class="bill-bottom">
-            <div class="bottom-row">
-                <span><strong>联系电话：</strong>{{ phone_numbers }}</span>
-            </div>
-            <div class="bottom-row"> 
-                <span><strong>投诉电话/微信号：</strong>{{ complaint_phone }}</span>
-            </div>
-            <div class="bottom-row">
+            <div class="bottom-row ">
+    <span><strong>联系电话：</strong>{{ phone_numbers }}</span>
+</div>
+<div class="bottom-row}"> 
+    <span><strong>投诉电话/微信号：</strong>{{ complaint_phone }}</span>
+</div>
+            <div class="bottom-row ">
                 <div class="field-group">
                     <strong>拣货人员：</strong>
                     <span class="underline">&nbsp;</span>
                 </div>
-                <div class="field-group">
+                <div class="field-group ">
                     <strong>收款备注：</strong>
                     <span class="underline underline-sm">&nbsp;</span>
                 </div>
             </div>
-            <div class="bottom-row">
+            <div class="bottom-row ">
                 <div class="field-group">
                     <strong>件数备注：</strong>
                     <span class="underline">&nbsp;</span>
                 </div>
-                <div class="field-group">
+                <div class="field-group ">
                     <strong>收货签署：</strong>
                     <span class="underline underline-sm">&nbsp;</span>
                 </div>
@@ -344,15 +347,13 @@
                 <div class="field-group">
                     <strong style="font-size: 18px;">制单工号：</strong>
                     <span class="underline underline-sm" style="text-align: center;">
-                        <span style="font-size: 22px; font-weight: bold; display: block; width: 100%;">
-                            {% if order.order_number_snapshot %}
-                                {{ order.order_number_snapshot }}
-                            {% elif order.customer and order.customer.order_number %}
-                                {{ order.customer.order_number }}
-                            {% else %}
-                                &nbsp;
-                            {% endif %}
-                        </span>
+                        <span class="data-value" style="font-size: 22px; font-weight: bold;">
+    {% if order.order_number_snapshot %}
+        {{ order.order_number_snapshot }}
+    {% elif order.customer and order.customer.order_number %}
+        {{ order.customer.order_number }}
+    {% endif %}
+</span>
                     </span>
                 </div>
                 {% if has_return_or_exchange and float_start is None %}
@@ -414,6 +415,8 @@
             }
             return cookieValue;
         }
+        
+       
     </script>
 </body>
 </html>

@@ -613,6 +613,43 @@ def batch_print_orders(request):
         'bill_title': settings.BILL_TITLE,
     }
     return render(request, 'bill/batch_print.html', context)
+
+# 位置：bill/views.py - 在文件末尾添加
+
+@login_required
+def print_empty_template(request):
+    """打印空白模板，通过 GET 参数 count 指定张数（默认1）"""
+    count = int(request.GET.get('count', 1))
+    count = max(1, min(count, 100))  # 限制 1~100 张
+    context = {
+        'count': range(count),
+        'phone_numbers': settings.PHONE_NUMBERS,
+        'complaint_phone': settings.COMPLAINT_PHONE,
+        'bill_title': settings.BILL_TITLE,
+    }
+    return render(request, 'bill/empty_template_print.html', context)
+
+
+# 位置：bill/views.py → print_key_data 函数
+def print_key_data(request, order_no):
+    order = get_object_or_404(
+        Order.objects.select_related('customer', 'area', 'creator'),
+        order_no=order_no
+    )
+    items = order.items.select_related('product')
+    # 保持与空白模板相同的15行结构
+    items_display = list(items[:15]) + [None] * (15 - min(len(items), 15))
+
+    context = {
+        'order': order,
+        'items_display': items_display,
+        'phone_numbers': settings.PHONE_NUMBERS,
+        'complaint_phone': settings.COMPLAINT_PHONE,
+        'bill_title': settings.BILL_TITLE,
+    }
+    # 改为渲染专用套打模板
+    return render(request, 'bill/print_key_data.html', context)
+
 @login_required
 @permission_required(PERM_ORDER_CREATE)
 def sort_rule_setting(request):

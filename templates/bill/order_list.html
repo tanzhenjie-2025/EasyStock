@@ -309,6 +309,15 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
             </a>
             <input type="file" id="importOrderFile" accept=".xlsx" style="display: none;" />
         {% endif %}
+    
+    <!-- 位置：订单列表模板，<h3> 内部右侧按钮组，在清理缓存按钮之前 -->
+<span class="ms-3">
+    <input type="number" id="emptyTemplateCount" class="form-control form-control-sm d-inline-block"
+           style="width: 60px;" placeholder="张数" min="1" value="1">
+    <button class="btn btn-sm btn-outline-dark" onclick="printEmptyTemplate()">
+        <i class="bi bi-printer"></i> 打印空模板
+    </button>
+</span>
         <!-- 🔥 新增：清理缓存按钮 -->
         <button class="btn btn-sm btn-outline-secondary" onclick="clearOrderSelection()">
             <i class="bi bi-arrow-counterclockwise"></i> 清理缓存
@@ -593,6 +602,9 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
             <td class="col-operation op-btn-group">
                 {% if order.status != 'cancelled' %}
                     {# 正常状态订单操作 #}
+                    <a href="{% url 'bill:print_key_data' order.order_no %}" class="btn btn-sm btn-outline-secondary" target="_blank">
+    <i class="bi bi-printer-fill"></i> 数据
+</a>
                     <a href="{% url 'bill:print_order' order.order_no %}" class="btn btn-sm btn-primary">打印</a>
                     <a href="{% url 'bill:order_detail' order.order_no %}" class="btn btn-sm btn-info">详情</a>
                     <a href="{% url 'bill:add_order_from_existing' order.order_no %}" class="btn btn-sm btn-warning">
@@ -857,6 +869,8 @@ $(document).ready(function() {
         updateSelectAllState();
         updateBatchBtnStatus();
     }
+    
+    
 
     function restoreSelection() {
         var stored = localStorage.getItem('selectedOrders');
@@ -1189,6 +1203,8 @@ $(document).ready(function() {
         })
         .catch(function(err) { alert('作废失败：' + err.message); });
     };
+    
+    
 
     window.submitBatchSettle = function() {
         var orderList = [];
@@ -1283,5 +1299,16 @@ $(document).ready(function() {
     window.addEventListener('beforeunload', function() { saveSelection(); });
     $(document).on('click', '.page-link', function() { saveSelection(); });
 });
+
+// 位置：订单列表模板，
+function printEmptyTemplate() {
+    var count = document.getElementById('emptyTemplateCount').value;
+    if (!count || count < 1) {
+        alert('请输入有效张数（1-100）');
+        return;
+    }
+    var url = '{% url "bill:print_empty_template" %}' + '?count=' + count;
+    window.open(url, '_blank');
+}
 </script>
 {% endblock %}

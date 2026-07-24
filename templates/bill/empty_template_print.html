@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>打印空白模板</title>
+    <style>
+        @media print {
+            @page {
+                size: 140mm 210mm;
+                margin: 0;
+            }
+            html, body {
+                margin: 0;
+                padding: 0;
+                font-family: "SimSun", serif;
+            }
+            .bill-print {
+                width: 140mm;
+                height: auto;
+                padding: 7mm 5mm 5mm 5mm;
+                box-sizing: border-box;
+                page-break-after: always;
+                border: none;
+            }
+            .bill-print:last-child {
+                page-break-after: auto;
+            }
+            .no-print {
+                display: none;
+            }
+            /* 位置：empty_template_print.html → <style> → @media print 内部末尾 */
+.bill-print {
+    margin: 0;          /* 去除屏幕样式残留的外边距 */
+}
+        }
+
+        .bill-print {
+            width: 140mm;
+            height: auto;
+            border: none;
+            margin: 20px auto;
+            padding: 7mm 5mm 5mm 5mm;
+            box-sizing: border-box;
+            box-shadow: 0 0 4px rgba(0,0,0,0.1);
+        }
+
+        .bill-header {
+            text-align: center;
+            margin-bottom: 8px;
+        }
+        .bill-header h2 {
+            margin: 0 0 4px 0;
+            font-size: 26px;
+        }
+
+        .bill-info-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 2px auto;
+            width: 90%;
+            flex-wrap: wrap;
+        }
+        .bill-info-row span {
+            white-space: nowrap;
+        }
+
+        .table-wrapper {
+            position: relative;
+            width: 90%;
+            margin: 0 auto;
+        }
+        .bill-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        .bill-table th,
+        .bill-table td {
+            border: 1px solid #000;
+            padding: 4px 0;
+            text-align: center;
+            font-size: 14px;
+            word-break: break-all;
+            height: 30px;
+            box-sizing: border-box;
+        }
+        .bill-table .col-index { width: 5%; }
+        .bill-table .col-spec  { width: 18%; }
+        .bill-table .col-name  { width: 33%; }
+        .bill-table .col-qty   { width: 8%; }
+        .bill-table .col-unit  { width: 6%; }
+        .bill-table .col-price { width: 15%; }
+        .bill-table .col-total { width: 15%; }
+
+        .bill-footer {
+            margin-top: 8px;
+            margin-left: auto;
+            margin-right: auto;
+            width: 90%;
+            display: flex;
+            justify-content: space-between;
+            font-size: 14px;
+        }
+
+        .bill-bottom {
+            margin-top: 16px;
+            width: 90%;
+            margin-left: auto;
+            margin-right: auto;
+            font-size: 13px;
+        }
+        .bill-bottom .bottom-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 12px;
+        }
+        .bill-bottom .bottom-row .field-group .underline {
+            display: inline-block;
+            width: 120px;
+            border-bottom: 1px solid #000;
+            margin-left: 4px;
+        }
+        .bill-bottom .bottom-row .field-group .underline-sm {
+            width: 100px;
+        }
+    </style>
+</head>
+<body>
+    <div class="no-print" style="text-align: center; margin: 20px;">
+        <button onclick="window.print()">打印全部空白模板</button>
+        <button onclick="window.close()">关闭</button>
+    </div>
+
+    {% for i in count %}
+    <div class="bill-print">
+    <div class="bill-header">
+    <h2>{{ bill_title }}</h2>
+</div>
+        <div class="bill-info-row" style="display: block; width: 90%; margin: 0 auto;">
+    <div style="text-align: left; font-size: 18px; margin-bottom: 2px;">
+        <span>客户名称：</span>
+    </div>
+    <div style="display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 2px;">
+    <span>订单编号：</span>
+</div>
+
+</div>
+
+        <div class="table-wrapper">
+            <table class="bill-table">
+                <thead>
+                    <tr>
+                        <th class="col-index">序号</th>
+                        <th class="col-spec">规格</th>
+                        <th class="col-name">商品名称</th>
+                        <th class="col-qty">数量</th>
+                        <th class="col-unit">单位</th>
+                        <th class="col-price">单价</th>
+                        <th class="col-total">小计</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for j in "123456789012345" %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="bill-footer">
+    <span>开单人员：</span>
+    <span></span>
+    <span class="total-amount" style="padding-right: 12mm;">总金额：</span>
+</div>
+
+        <div class="bill-bottom">
+            <div class="bottom-row">
+                <span><strong>联系电话：</strong>{{ phone_numbers }}</span>
+            </div>
+            <div class="bottom-row"> 
+                <span><strong>投诉电话/微信号：</strong>{{ complaint_phone }}</span>
+            </div>
+            <div class="bottom-row">
+                <div class="field-group">
+                    <strong>拣货人员：</strong>
+                    <span class="underline">&nbsp;</span>
+                </div>
+                <div class="field-group">
+                    <strong>收款备注：</strong>
+                    <span class="underline underline-sm">&nbsp;</span>
+                </div>
+            </div>
+            <div class="bottom-row">
+                <div class="field-group">
+                    <strong>件数备注：</strong>
+                    <span class="underline">&nbsp;</span>
+                </div>
+                <div class="field-group">
+                    <strong>收货签署：</strong>
+                    <span class="underline underline-sm">&nbsp;</span>
+                </div>
+            </div>
+            <div class="bottom-row" style="justify-content: space-between;">
+                <div class="field-group">
+    <strong style="font-size: 18px;">制单工号：</strong>
+    <span class="underline underline-sm" style="text-align: center;">
+        <span style="font-size: 22px; font-weight: bold;">&nbsp;</span>
+    </span>
+</div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</body>
+</html>

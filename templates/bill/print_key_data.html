@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>打印关键数据 - {{ order.order_no }}</title>
+    <style>
+        @media print {
+            @page {
+                size: 140mm 210mm;
+                margin: 0;
+            }
+            html, body {
+                margin: 0;
+                padding: 0;
+                font-family: "SimSun", serif;
+            }
+            .bill-print {
+                width: 140mm;
+                padding: 7mm 5mm 5mm 5mm;
+                box-sizing: border-box;
+                border: none;
+                margin: 0;                     /* 去除屏幕外边距 */
+            }
+            .no-print { display: none; }
+
+            /* 关键：静态标签透明，保留占位；动态数据正常显示 */
+            .label-text {
+                color: transparent !important;
+            }
+            .data-value {
+                color: #000 !important;
+            }
+            /* 隐藏不需要的行，但用 visibility 保持高度 */
+            .hide-row {
+                visibility: hidden;
+            }
+            .watermark-delivery, .watermark-return, .watermark-general {
+                display: none !important;
+            }
+            .bill-table, .bill-table th, .bill-table td {
+    border: none !important;
+}
+        }
+
+        /* ===== 屏幕显示样式（与空白模板一致） ===== */
+        .bill-print {
+            width: 140mm;
+            border: none;
+            margin: 20px auto;
+            padding: 7mm 5mm 5mm 5mm;
+            box-sizing: border-box;
+            box-shadow: 0 0 4px rgba(0,0,0,0.1);
+        }
+        .bill-header {
+            text-align: center;
+            margin-bottom: 8px;
+        }
+        .bill-header h2 {
+            margin: 0 0 4px 0;
+            font-size: 26px;
+        }
+        .bill-info-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 2px auto;
+            width: 90%;
+            flex-wrap: wrap;
+        }
+        .bill-info-row span { white-space: nowrap; }
+        .table-wrapper {
+            position: relative;
+            width: 90%;
+            margin: 0 auto;
+        }
+        .bill-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        .bill-table th, .bill-table td {
+            border: 1px solid #000;
+            padding: 4px 0;
+            text-align: center;
+            font-size: 14px;
+            height: 30px;
+            box-sizing: border-box;
+        }
+        .bill-table .col-index { width: 5%; }
+        .bill-table .col-spec  { width: 18%; }
+        .bill-table .col-name  { width: 33%; }
+        .bill-table .col-qty   { width: 8%; }
+        .bill-table .col-unit  { width: 6%; }
+        .bill-table .col-price { width: 15%; }
+        .bill-table .col-total { width: 15%; }
+        .bill-footer {
+            margin-top: 8px;
+            margin-left: auto; margin-right: auto;
+            width: 90%;
+            display: flex;
+            justify-content: space-between;
+            font-size: 14px;
+        }
+        .bill-footer .total-amount { font-size: 22px; font-weight: bold; }
+        .bill-bottom {
+            margin-top: 16px;
+            width: 90%;
+            margin-left: auto; margin-right: auto;
+            font-size: 13px;
+        }
+        .bill-bottom .bottom-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 12px;
+        }
+        .bill-bottom .bottom-row .field-group { display: flex; align-items: center; }
+        .bill-bottom .bottom-row .field-group .underline {
+            display: inline-block;
+            width: 120px;
+            border-bottom: 1px solid #000;
+            margin-left: 4px;
+        }
+        .bill-bottom .bottom-row .field-group .underline-sm { width: 100px; }
+    </style>
+</head>
+<body>
+    <div class="no-print" style="text-align: center; margin: 20px;">
+        <button onclick="window.print()">打印关键数据</button>
+        <button onclick="window.close()">关闭</button>
+    </div>
+
+    <div class="bill-print">
+        <!-- 标题区域：静态文字透明 -->
+        <div class="bill-header">
+            <h2><span class="label-text">{{ bill_title }}</span></h2>
+            <div class="bill-info-row">
+                <div class="info-group">
+                    <!-- “客户名称：”透明，后面直接跟数据值 -->
+                    <span class="label-text">客户名称：</span><span class="data-value">{{ order.customer_name_snapshot|default:order.customer.name|default:"无" }}</span>
+                </div>
+                <div class="info-group">
+                    <span class="label-text">订单编号：</span><span class="data-value">{{ order.order_no }}</span>
+                    <span class="label-text">开单时间：</span><span class="data-value">{{ order.create_time|date:"Y-m-d H:i:s" }}</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 表格区域 -->
+        <div class="table-wrapper">
+            <table class="bill-table">
+                <thead>
+                    <tr>
+                        <th class="col-index"><span class="label-text">序号</span></th>
+                        <th class="col-spec"><span class="label-text">规格</span></th>
+                        <th class="col-name"><span class="label-text">商品名称</span></th>
+                        <th class="col-qty"><span class="label-text">数量</span></th>
+                        <th class="col-unit"><span class="label-text">单位</span></th>
+                        <th class="col-price"><span class="label-text">单价</span></th>
+                        <th class="col-total"><span class="label-text">小计</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in items_display %}
+                    <tr>
+                        <td></td>
+                        {% if item %}
+                        <td class="data-value">{{ item.specification|default:"-" }}</td>
+                        <td class="data-value">{{ item.product_name }}</td>
+                        <td class="data-value">{{ item.quantity }}</td>
+                        <td class="data-value">{{ item.unit }}</td>
+                        <td class="data-value">¥{{ item.actual_unit_price }}</td>
+                        <td class="data-value">¥{{ item.amount }}</td>
+                        {% else %}
+                        <td></td><td></td><td></td><td></td><td></td><td></td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <!-- 水印全部隐藏（已在打印样式中处理） -->
+        </div>
+
+        <!-- 底部信息 -->
+        <div class="bill-footer">
+            <span class="label-text">开单人员：</span><span class="data-value">{{ order.creator.name|default:"未知" }}</span>
+            <span></span>
+            <span class="label-text">总金额：</span><span class="data-value" style="margin-right: 5mm;">¥{{ order.total_amount }}</span>
+        </div>
+
+        <div class="bill-bottom">
+            <!-- 以下整行保持占位，但内容透明，以确保制单工号位置不变 -->
+            <div class="bottom-row hide-row">
+                <span><strong>联系电话：</strong>{{ phone_numbers }}</span>
+            </div>
+            <div class="bottom-row hide-row">
+                <span><strong>投诉电话/微信号：</strong>{{ complaint_phone }}</span>
+            </div>
+            <div class="bottom-row hide-row">
+                <div class="field-group">
+                    <strong>拣货人员：</strong>
+                    <span class="underline">&nbsp;</span>
+                </div>
+                <div class="field-group">
+                    <strong>收款备注：</strong>
+                    <span class="underline underline-sm">&nbsp;</span>
+                </div>
+            </div>
+            <div class="bottom-row hide-row">
+                <div class="field-group">
+                    <strong>件数备注：</strong>
+                    <span class="underline">&nbsp;</span>
+                </div>
+                <div class="field-group">
+                    <strong>收货签署：</strong>
+                    <span class="underline underline-sm">&nbsp;</span>
+                </div>
+            </div>
+
+            <!-- 制单工号：静态标签透明，数据正常显示 -->
+            <div class="bottom-row" style="justify-content: space-between;">
+                <div class="field-group">
+                    <strong class="label-text">制单工号：</strong>
+                    <span style="text-align: center; border: none !important;">
+                        <span class="data-value" style="font-size: 22px; font-weight: bold;">
+    {% if order.order_number_snapshot %}
+        {{ order.order_number_snapshot }}
+    {% elif order.customer and order.customer.order_number %}
+        {{ order.customer.order_number }}
+    {% endif %}
+</span>
+                    </span>
+                </div>
+                <!-- 如有退货提示，也可按需保留，这里先隐藏 -->
+                <div class="field-group hide-row">
+                    <strong>客服留言：</strong>
+                    <span style="font-size: 22px; font-weight: bold;">带回退货</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        window.onload = function() { window.print(); };
+    </script>
+</body>
+</html>
