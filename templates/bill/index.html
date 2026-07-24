@@ -527,6 +527,9 @@ box-sizing: border-box;
     <label class="ms-2" title="保存时自动排序（偏好会缓存在本地）">
         <input type="checkbox" id="autoSortCheckbox" onchange="saveAutoSortSetting()"> 默认排序
     </label>
+            <label class="ms-2" title="只打印数据（需模板）">
+    <input type="checkbox" id="onlyPrintDataCheckbox" onchange="saveOnlyPrintDataSetting()"> 只打印数据
+</label>
         </div>
     </div>
 
@@ -739,6 +742,20 @@ function focusAndSetCaret(target, direction) {
         target.setSelectionRange(len, len);
     } else {
         target.setSelectionRange(0, 0); // fallback
+    }
+}
+
+// 只打印数据复选框的设置保存与恢复
+function saveOnlyPrintDataSetting() {
+    const checkbox = document.getElementById('onlyPrintDataCheckbox');
+    localStorage.setItem('bill_only_print_data', checkbox.checked ? 'true' : 'false');
+}
+
+function restoreOnlyPrintDataSetting() {
+    const checkbox = document.getElementById('onlyPrintDataCheckbox');
+    if (checkbox) {
+        const saved = localStorage.getItem('bill_only_print_data');
+        checkbox.checked = (saved === 'true');
     }
 }
 
@@ -1755,21 +1772,20 @@ async function saveOrder() {
         const isMakeup = specInput && specInput.dataset.isMakeup === '1';
         const operationType = specInput ? (specInput.dataset.operationType || '') : '';
 
-        // 判断是否为备注行：商品名称为空 且 规格非空 且 包含“退”或“换”
-        const isRemark = (name === '' && spec !== '');          // 只要名称空、规格非空就是备注行
-if (isRemark || (name && qty && price >= 0)) {
-    items.push({
-        id: productId,
-        name: name,
-        spec: spec,
-        qty: isRemark ? 0 : qty,
-        unit: unit,
-        price: isRemark ? 0 : price,
-        amt: isRemark ? 0 : amt,
-        is_makeup: isMakeup,
-        operation_type: operationType,
-    });
-}
+        const isRemark = (name === '' && spec !== '');
+        if (isRemark || (name && qty && price >= 0)) {
+            items.push({
+                id: productId,
+                name: name,
+                spec: spec,
+                qty: isRemark ? 0 : qty,
+                unit: unit,
+                price: isRemark ? 0 : price,
+                amt: isRemark ? 0 : amt,
+                is_makeup: isMakeup,
+                operation_type: operationType,
+            });
+        }
     });
 
     if (!items.length) { alert('请填写商品'); return; }
@@ -1796,7 +1812,14 @@ if (isRemark || (name && qty && price >= 0)) {
         });
         const d = await r.json();
         if (d.code === 1) {
-            window.location.href = `/bill/print/${d.order_no}/`;
+            // ========== 修改点：根据“只打印数据”复选框选择跳转地址 ==========
+            const onlyPrintDataCheckbox = document.getElementById('onlyPrintDataCheckbox');
+            const onlyPrintData = onlyPrintDataCheckbox ? onlyPrintDataCheckbox.checked : false;
+            const printUrl = onlyPrintData
+                ? `/bill/print-key-data/${d.order_no}/`   // 只打印数据接口
+                : `/bill/print/${d.order_no}/`;           // 完整打印接口
+            window.location.href = printUrl;
+            // ============================================================
         } else {
             alert(d.msg);
         }
@@ -2123,6 +2146,7 @@ if (isRemark || (name && qty && price >= 0)) {
     restoreAutoSortSetting();
     initCustomerInput();
     initOrderNumberInput();
+    restoreOnlyPrintDataSetting(); 
 
     // 事件委托：规格输入（实时 + 回车）
     document.getElementById('bill-tbody').addEventListener('input', function(e) {
