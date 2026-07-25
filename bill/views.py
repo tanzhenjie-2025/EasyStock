@@ -96,6 +96,11 @@ from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from openpyxl.utils.datetime import from_excel
 from datetime import datetime, date
+
+from django.contrib.auth.decorators import login_required, permission_required
+from django.shortcuts import get_object_or_404, render, redirect
+from django.contrib import messages
+from .models import Order, OrderItem
 def accounts_permission_required(perm_code):
     """自定义权限装饰器，使用项目的 has_permission 检查"""
     def decorator(view_func):
@@ -1625,7 +1630,7 @@ def get_customer_recent_products(request):
 # ===================== 2. 新增：价格核算视图 =====================
 
 @login_required
-@permission_required(PERM_ORDER_PRICE_CHECK)  # 复用查看权限，或者你可以新建一个 PERM_ORDER_PRICE_CHECK
+@permission_required(PERM_ORDER_PRICE_CHECK)
 def price_check_view(request):
     """价格核算页面入口"""
     date_from = request.GET.get('date_from', (timezone.now() - timedelta(days=7)).strftime('%Y-%m-%d'))
@@ -1976,9 +1981,9 @@ def export_orders(request):
     # ===== 修改点 1：表头增加“交付方式” =====
     headers = [
         '订单编号', '客户名称', '区域', '商品名称', '规格', '单位',
-        '数量', '单价', '小计金额', '订单状态', '交付方式',    # 新增
+        '数量', '单价', '小计金额', '订单状态', '交付方式',
         '创建时间', '开单人', '订单总金额', '是否结清', '已收金额',
-        '结清人', '结清时间', '制单号快照', '是否补货'
+        '结清人', '结清时间', '制单号快照', '是否补货', '审核状态'  # 新增列
     ]
     header_font = Font(bold=True)
     for col_num, header in enumerate(headers, 1):
@@ -2002,34 +2007,54 @@ def export_orders(request):
         order_number_snap = order.order_number_snapshot or ''
         # ===== 修改点 2：提取交付方式 =====
         delivery_method = order.delivery_method  # 存储键值，如 'pickup', 'delivery', 'express'
+        is_verified_text = '是' if order.is_verified else '否'  # 审核状态
 
         for item in order.items.all():
-            # 列号重新调整
             col = 1
-            ws.cell(row=row, column=col, value=order_no_text); col += 1
-            ws.cell(row=row, column=col, value=customer_name_snap); col += 1
-            ws.cell(row=row, column=col, value=area_name); col += 1
-            ws.cell(row=row, column=col, value=item.product_name); col += 1
-            ws.cell(row=row, column=col, value=item.specification); col += 1
-            ws.cell(row=row, column=col, value=item.unit); col += 1
-            ws.cell(row=row, column=col, value=item.quantity); col += 1
+            ws.cell(row=row, column=col, value=order_no_text);
+            col += 1
+            ws.cell(row=row, column=col, value=customer_name_snap);
+            col += 1
+            ws.cell(row=row, column=col, value=area_name);
+            col += 1
+            ws.cell(row=row, column=col, value=item.product_name);
+            col += 1
+            ws.cell(row=row, column=col, value=item.specification);
+            col += 1
+            ws.cell(row=row, column=col, value=item.unit);
+            col += 1
+            ws.cell(row=row, column=col, value=item.quantity);
+            col += 1
             price = float(item.actual_unit_price) if item.actual_unit_price else 0.0
-            ws.cell(row=row, column=col, value=price); col += 1
+            ws.cell(row=row, column=col, value=price);
+            col += 1
             amt = float(item.amount) if item.amount else 0.0
-            ws.cell(row=row, column=col, value=amt); col += 1
-            ws.cell(row=row, column=col, value=order.status); col += 1
-            # 新增交付方式列
-            ws.cell(row=row, column=col, value=delivery_method); col += 1
-            ws.cell(row=row, column=col, value=create_time_val); col += 1
-            ws.cell(row=row, column=col, value=creator_name); col += 1
-            ws.cell(row=row, column=col, value=total_amount); col += 1
-            ws.cell(row=row, column=col, value=is_settled_text); col += 1
-            ws.cell(row=row, column=col, value=received_amount); col += 1
-            ws.cell(row=row, column=col, value=settled_by_name); col += 1
-            ws.cell(row=row, column=col, value=settled_time_val); col += 1
-            ws.cell(row=row, column=col, value=order_number_snap); col += 1
+            ws.cell(row=row, column=col, value=amt);
+            col += 1
+            ws.cell(row=row, column=col, value=order.status);
+            col += 1
+            ws.cell(row=row, column=col, value=delivery_method);
+            col += 1
+            ws.cell(row=row, column=col, value=create_time_val);
+            col += 1
+            ws.cell(row=row, column=col, value=creator_name);
+            col += 1
+            ws.cell(row=row, column=col, value=total_amount);
+            col += 1
+            ws.cell(row=row, column=col, value=is_settled_text);
+            col += 1
+            ws.cell(row=row, column=col, value=received_amount);
+            col += 1
+            ws.cell(row=row, column=col, value=settled_by_name);
+            col += 1
+            ws.cell(row=row, column=col, value=settled_time_val);
+            col += 1
+            ws.cell(row=row, column=col, value=order_number_snap);
+            col += 1
             is_makeup_text = '是' if item.is_makeup_item else ''
-            ws.cell(row=row, column=col, value=is_makeup_text)
+            ws.cell(row=row, column=col, value=is_makeup_text);
+            col += 1
+            ws.cell(row=row, column=col, value=is_verified_text)  # 审核状态列
             row += 1
 
     response = HttpResponse(
@@ -2121,6 +2146,10 @@ def parse_excel_to_structure(workbook):
         if not status:
             status = "pending"
 
+        # 审核状态读取
+        is_verified_str = get_val(row, "审核状态", "否")
+        is_verified = is_verified_str in ['是', '1', 'true', 'True', 'TRUE']
+
         # 创建时间解析
         create_time = None
         create_time_str = get_val(row, "创建时间")
@@ -2197,6 +2226,7 @@ def parse_excel_to_structure(workbook):
                 'settled_by_username': settled_by_username,
                 'settled_time': settled_time,
                 'order_number_snapshot': order_number_snapshot,
+                'is_verified': is_verified,  # 新增
             }
 
         # 添加明细行
@@ -2404,6 +2434,7 @@ def import_orders_preview(request):
             'settled_by_username': g['settled_by_username'],
             'settled_time': g['settled_time'].strftime('%Y-%m-%d %H:%M:%S') if g['settled_time'] else '',
             'order_number_snapshot': g.get('order_number_snapshot', ''),
+            'is_verified': g.get('is_verified', False),  # 新增
             'items': items_preview,
             'warnings': order_warnings,
             'skip': duplicate,
@@ -2423,7 +2454,7 @@ def import_orders_preview(request):
 @login_required
 @permission_required(PERM_ORDER_CREATE)
 def import_orders_confirm(request):
-    """第二步：接收用户确认的数据，执行导入"""
+    """第二步：接收用户确认的数据，执行导入（区分审核状态）"""
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST'})
 
@@ -2441,6 +2472,14 @@ def import_orders_confirm(request):
     if not valid_orders:
         return JsonResponse({'code': 0, 'msg': '没有可导入的订单，请检查是否全被跳过'})
 
+    # ---- 0. 批量预查订单号是否已存在（避免 N+1） ----
+    all_order_nos = [o['order_no'] for o in valid_orders if o.get('order_no')]
+    existing_order_nos = set()
+    if all_order_nos:
+        existing_order_nos = set(
+            Order.objects.filter(order_no__in=all_order_nos).values_list('order_no', flat=True)
+        )
+
     # ---- 1. 处理区域 ----
     area_map = {}
     if new_areas_data:
@@ -2454,13 +2493,27 @@ def import_orders_confirm(request):
             fresh = Area.objects.filter(name__in=missing).values('name', 'id')
             area_map.update({a['name']: a['id'] for a in fresh})
 
-    # ---- 2. 处理商品 ----
+    # ---- 2. 处理商品（区分审核状态：仅未审核订单才进行价格检测与覆盖/新建） ----
+    # 收集未审核订单所涉及的所有商品键 (name, unit)
+    unverified_product_keys = set()
+    for order in valid_orders:
+        if not order.get('is_verified', False):
+            for item in order.get('items', []):
+                pname = item.get('product_name', '')
+                unit = item.get('unit', '')
+                if pname:
+                    unverified_product_keys.add((pname, unit))
+
     product_map = {}
     product_error_messages = []
-
     for p in new_products_data:
         original_name = p.get('original_name', p['name'])
         original_unit = p.get('original_unit', p['unit'])
+        key = (original_name, original_unit)
+        # 仅处理属于未审核订单的商品
+        if key not in unverified_product_keys:
+            continue
+
         action = p.get('action', 'create')
         new_name = p['name'].strip()
         new_unit = p['unit'].strip()
@@ -2473,11 +2526,10 @@ def import_orders_confirm(request):
                 if prod.price != new_price:
                     prod.price = new_price
                     prod.save(update_fields=['price'])
-                product_map[(original_name, original_unit)] = prod
+                product_map[key] = prod
             except Product.DoesNotExist:
                 product_error_messages.append(f'覆盖价格失败：商品 {original_name}（{original_unit}）不存在或已禁用')
                 continue
-
         elif action == 'create':
             existing = Product.objects.filter(name=new_name, unit=new_unit, is_active=True).first()
             if existing:
@@ -2496,20 +2548,20 @@ def import_orders_confirm(request):
                 pinyin_abbr=pinyin_abbr,
             )
             new_prod.save()
-            product_map[(new_name, new_unit)] = new_prod
+            product_map[key] = new_prod
         else:
             product_error_messages.append(f'未知操作类型：{action}，商品 {original_name} 处理失败')
 
     if product_error_messages:
         return JsonResponse({'code': 0, 'msg': '商品处理失败：' + '；'.join(product_error_messages)})
 
-    # ---- 3. 创建客户（新增：设置制单号） ----
+    # ---- 3. 创建客户（包含制单号） ----
     customer_map = {}
     if new_customers_data:
         for c in new_customers_data:
             cname = c['name']
             carea = c.get('area', '')
-            order_number = c.get('order_number', '')          # 获取制单号
+            order_number = c.get('order_number', '')
             area_obj = Area.objects.filter(name=carea).first() if carea else None
             existing = Customer.objects.filter(name=cname, is_active=True).first()
             if existing:
@@ -2522,12 +2574,12 @@ def import_orders_confirm(request):
                 area=area_obj,
                 pinyin_full=pinyin_full,
                 pinyin_abbr=pinyin_abbr,
-                order_number=order_number,   # 保存制单号
+                order_number=order_number,
             )
             new_cust.save()
             customer_map[cname] = new_cust
 
-    # ---- 4. 收集所有订单需要的基础数据 ----
+    # ---- 4. 预加载所有订单需要的基础数据（区域、商品、客户） ----
     all_area_names = set()
     all_product_keys = set()
     all_customer_names = set()
@@ -2538,11 +2590,13 @@ def import_orders_confirm(request):
         for item in order.get('items', []):
             prod_name = item.get('product_name', '')
             unit = item.get('unit', '')
-            all_product_keys.add((prod_name, unit))
+            if prod_name:
+                all_product_keys.add((prod_name, unit))
         pure_customer = order.get('pure_customer_name', '')
         if pure_customer:
             all_customer_names.add(pure_customer)
 
+    # 区域
     area_full_map = {}
     if all_area_names:
         areas = Area.objects.filter(name__in=all_area_names, is_active=True)
@@ -2555,16 +2609,17 @@ def import_orders_confirm(request):
                 if obj:
                     area_full_map[name] = obj
 
+    # 商品（合并系统已有商品和本次新建/覆盖的商品）
     if all_product_keys:
         q = Q()
         for name, unit in all_product_keys:
             q |= Q(name=name, unit=unit, is_active=True)
-        products = Product.objects.filter(q)
-        existing_product_map = {(p.name, p.unit): p for p in products}
+        existing_product_map = {(p.name, p.unit): p for p in Product.objects.filter(q)}
     else:
         existing_product_map = {}
     product_full_map = {**existing_product_map, **product_map}
 
+    # 客户
     customer_full_map = {}
     if all_customer_names:
         customers = Customer.objects.filter(name__in=all_customer_names, is_active=True)
@@ -2584,22 +2639,30 @@ def import_orders_confirm(request):
         users = User.objects.filter(username__in=all_creator_usernames | all_settled_usernames)
         user_map = {u.username: u for u in users}
 
-    # ---- 6. 执行导入 ----
+    # ---- 6. 处理已存在客户的制单号更新（若客户存在且制单号为空，则用导入的制单号快照填充） ----
+    for order in valid_orders:
+        customer = customer_full_map.get(order.get('pure_customer_name'))
+        if customer and not customer.order_number:
+            snap_number = order.get('order_number_snapshot', '')
+            if snap_number:
+                customer.order_number = snap_number
+                customer.save(update_fields=['order_number'])
+
+    # ---- 7. 执行导入 ----
     success = 0
     errors = []
     with transaction.atomic():
         for idx, order_data in enumerate(valid_orders):
-            try:
-                order_no = order_data['order_no']
+            order_no = order_data['order_no']
+            # 使用预查集合判断是否已存在
+            if order_no in existing_order_nos:
+                errors.append(f'订单 {order_no} 已存在，跳过')
+                continue
 
-                # ---------- 新增检查 ----------
+            try:
                 items = order_data.get('items', [])
                 if not items:
                     errors.append(f'订单 {order_no} 缺少明细行，跳过')
-                    continue
-                # -----------------------------
-                if Order.objects.filter(order_no=order_no).exists():
-                    errors.append(f'订单 {order_no} 已存在，跳过')
                     continue
 
                 status = order_data['status']
@@ -2626,9 +2689,11 @@ def import_orders_confirm(request):
                     is_settled=False,
                     received_amount=Decimal('0'),
                     create_time=create_time,
+                    is_verified=True,   # 导入即审核
                 )
                 order.save()
 
+                # 处理结清状态（仅针对非作废订单）
                 if status != 'cancelled':
                     is_settled = order_data.get('is_settled', False)
                     received = Decimal(order_data.get('received_amount', '0'))
@@ -2872,10 +2937,7 @@ def import_sort_rules(request):
 
     return JsonResponse({'code': 1, 'msg': f'导入成功，共导入 {len(rules_to_create)} 条规则'})
 
-from django.contrib.auth.decorators import login_required, permission_required
-from django.shortcuts import get_object_or_404, render, redirect
-from django.contrib import messages
-from .models import Order, OrderItem
+
 
 @login_required
 @permission_required(PERM_ORDER_REOPEN)   # 复用重开权限，或新建 PERM_ORDER_ADD

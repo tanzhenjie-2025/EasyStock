@@ -46,6 +46,9 @@ class Order(models.Model):
     # 新增字段
     order_number_snapshot = models.CharField(max_length=100, blank=True, null=True, verbose_name='制单号快照')
 
+    is_verified = models.BooleanField('是否审核', default=False,
+                                      help_text='订单价格是否已审核，导入后自动标记为已审核')
+
     cancelled_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
