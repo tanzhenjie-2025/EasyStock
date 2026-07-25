@@ -2274,6 +2274,7 @@ async function saveOrder() {
     initCustomerInput();
     initOrderNumberInput();
     restoreOnlyPrintDataSetting();
+    focusOnFirstEmptyField();
 
     // 事件委托：规格输入（实时 + 回车）
     document.getElementById('bill-tbody').addEventListener('input', function(e) {
@@ -2455,6 +2456,44 @@ function restoreAutoSortSetting() {
     }
 }
 
+/**
+ * 自动聚焦到页面中第一个未填写的字段
+ * 顺序：客户名称 -> 制单号 -> 表格中商品名称（按行，找到第一个空）
+ */
+function focusOnFirstEmptyField() {
+    // 1. 客户名称
+    const customerInput = document.getElementById('customerInput');
+    if (customerInput && !customerInput.value.trim()) {
+        customerInput.focus();
+        return;
+    }
 
+    // 2. 制单号
+    const orderInput = document.getElementById('orderNumberInput');
+    if (orderInput && !orderInput.value.trim()) {
+        orderInput.focus();
+        return;
+    }
+
+    // 3. 表格中的商品名称（按顺序找第一个空行）
+    const rows = document.querySelectorAll('#bill-tbody tr');
+    for (let tr of rows) {
+        const nameInput = tr.querySelector('.name-input');
+        if (nameInput && !nameInput.value.trim()) {
+            nameInput.focus();
+            return;
+        }
+    }
+
+    // 4. 所有商品名称都有值：聚焦到最后一行商品名称（方便继续新增）
+    if (rows.length > 0) {
+        const lastRow = rows[rows.length - 1];
+        const lastNameInput = lastRow.querySelector('.name-input');
+        if (lastNameInput) {
+            lastNameInput.focus();
+            lastNameInput.select(); // 可选，全选方便替换
+        }
+    }
+}
     </script>
 {% endblock %}
