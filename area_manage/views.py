@@ -1518,3 +1518,133 @@ def calculate_group_stats(request):
     except Exception as e:
         logger.error(f"区域组统计计算失败：{str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'统计失败：{str(e)}'})
+
+
+# area_manage/views.py
+# 在文件末尾添加以下函数
+
+# utils/excel_utils.py
+import io
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill
+
+def export_to_excel_buffer(data, title, headers, selected_fields, custom_fields=None, file_name='导出', total_row=None):
+    """
+    与 export_to_excel 逻辑相同，但最终返回 BytesIO 对象
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = title
+
+    # 构建列映射（根据 selected_fields 顺序）
+    field_order = selected_fields.copy()
+    # 若包含自定义字段，插入到指定位置（此处略去复杂逻辑，简化）
+    # ...
+
+    # 写入表头
+    header_font = Font(bold=True)
+    for col_num, field in enumerate(field_order, 1):
+        header_text = headers.get(field, field)
+        cell = ws.cell(row=1, column=col_num, value=header_text)
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center')
+        # 设置列宽（可选）
+
+    # 写入数据
+    for row_num, record in enumerate(data, 2):
+        for col_num, field in enumerate(field_order, 1):
+            value = record.get(field, '')
+            ws.cell(row=row_num, column=col_num, value=value)
+
+
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+def export_areas_to_io(areas=None):
+    """
+    导出区域数据为 Excel 的 BytesIO 对象
+    用于全量备份，不依赖 request
+    """
+    if areas is None:
+        areas = Area.objects.only('id', 'name', 'remark').order_by('id')
+
+    data = []
+    seq = 1
+    for area in areas:
+        data.append({
+            'serial': seq,
+            'id': area.id,
+            'name': area.name,
+            'remark': area.remark or ''
+        })
+        seq += 1
+
+    # 定义表头映射
+    headers = {
+        'serial': '序号',
+        'id': 'ID',
+        'name': '区域名',
+        'remark': '备注'
+    }
+    # 使用通用导出函数（返回 BytesIO）
+    buffer = export_to_excel_buffer(
+        data=data,
+        title='区域列表',
+        headers=headers,
+        selected_fields=['serial', 'id', 'name', 'remark'],  # 全部导出
+        file_name='区域导出'
+    )
+    return buffer
+
+# area_manage/views.py
+
+def import_areas_from_io(file_obj, strategy='append'):
+    """
+    从 BytesIO 对象导入区域数据
+    strategy: 'append' 或 'overwrite'，目前先实现 append
+    返回: {'success': int, 'skipped': int, 'errors': list}
+    """
+    try:
+        wb = openpyxl.load_workbook(file_obj)
+        ws = wb.active
+    except Exception as e:
+        return {'success': 0, 'skipped': 0, 'errors': [f'文件解析失败: {str(e)}']}
+
+    headers = [cell.value for cell in ws[1]]
+    expected_map = {'区域名': 'name', '备注': 'remark'}
+    col_mapping = get_column_mapping(headers, expected_map)
+    if col_mapping is None:
+        return {'success': 0, 'skipped': 0, 'errors': ['缺少“区域名”列']}
+
+    imported_count = 0
+    skipped_count = 0
+    errors = []
+
+    # 如果策略是 overwrite，则先清空（谨慎使用）
+    if strategy == 'overwrite':
+        Area.objects.all().delete()
+
+    for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+        name_idx = col_mapping.get('name')
+        remark_idx = col_mapping.get('remark')
+        if name_idx is None or len(row) <= name_idx:
+            continue
+        area_name = str(row[name_idx]).strip() if row[name_idx] else ''
+        remark = str(row[remark_idx]).strip() if remark_idx is not None and len(row) > remark_idx and row[remark_idx] else ''
+        if not area_name:
+            continue
+        if Area.objects.filter(name=area_name).exists():
+            skipped_count += 1
+            continue
+        try:
+            Area.objects.create(name=area_name, remark=remark)
+            imported_count += 1
+        except Exception as e:
+            errors.append(f'第{row_idx}行导入失败: {str(e)}')
+
+    clear_area_cache()
+    return {'success': imported_count, 'skipped': skipped_count, 'errors': errors}
+

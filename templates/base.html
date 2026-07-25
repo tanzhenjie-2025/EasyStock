@@ -151,6 +151,7 @@
                     {% endif %}
                     {% if user|has_perm:"user_view" %}
                         <li class="nav-item"><a class="nav-link" href="{% url 'accounts:user_list' %}">用户管理</a></li>
+                        <li class="nav-item"><a class="nav-link" href="{% url 'export_import:data_migration_page' %}">数据迁移</a></li>
                     {% endif %}
                     {% if user|has_any_perm:"log_view,log_view_all" %}
                         <li class="nav-item"><a class="nav-link" href="{% url 'operation_log:log_list' %}">操作日志</a></li>

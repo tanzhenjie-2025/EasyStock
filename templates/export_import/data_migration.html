@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block title %}数据迁移 - EasyStock{% endblock %}
+
+{% block extra_css %}
+<style>
+    .migration-card {
+        max-width: 600px;
+        margin: 20px auto;
+    }
+    .drop-zone {
+        border: 2px dashed #ccc;
+        padding: 30px;
+        text-align: center;
+        cursor: pointer;
+        border-radius: 8px;
+        transition: all 0.3s;
+    }
+    .drop-zone:hover {
+        border-color: #0d6efd;
+        background-color: #f8f9fa;
+    }
+    .drop-zone.dragover {
+        border-color: #0d6efd;
+        background-color: #e9ecef;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h3 class="mb-4">数据迁移中心</h3>
+<div class="row">
+    <!-- 导出卡片 -->
+    <div class="col-md-6">
+        <div class="card migration-card">
+            <div class="card-header bg-primary text-white">
+                <i class="bi bi-download"></i> 一键导出全部数据
+            </div>
+            <div class="card-body text-center">
+                <p class="card-text">导出所有模块数据（区域、客户、商品、订单等）为一个 ZIP 压缩包。</p>
+                <button class="btn btn-primary btn-lg" id="exportBtn">
+                    <i class="bi bi-cloud-download"></i> 导出备份
+                </button>
+                <div id="exportStatus" class="mt-2"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 导入卡片 -->
+    <div class="col-md-6">
+        <div class="card migration-card">
+            <div class="card-header bg-success text-white">
+                <i class="bi bi-upload"></i> 一键导入备份包
+            </div>
+            <div class="card-body">
+                <p class="card-text">上传之前导出的 ZIP 备份包，恢复全部数据（谨慎操作）。</p>
+                <div class="drop-zone" id="dropZone">
+                    <p><i class="bi bi-cloud-upload fs-1"></i></p>
+                    <p>点击或拖拽上传 .zip 文件</p>
+                    <input type="file" id="fileInput" accept=".zip" style="display:none">
+                </div>
+                <div id="importStatus" class="mt-2"></div>
+                <button class="btn btn-success mt-3" id="importBtn" disabled>开始导入</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function getCsrfToken() {
+    const match = document.cookie.match(/csrftoken=([^;]+)/);
+    return match ? match[1] : null;
+}
+
+// ---------- 导出 ----------
+document.getElementById('exportBtn').addEventListener('click', function() {
+    const statusDiv = document.getElementById('exportStatus');
+    statusDiv.innerHTML = '<div class="spinner-border text-primary" role="status"></div> 正在生成备份...';
+    // 通过隐藏表单提交或直接使用 window.location 下载（若为 GET 请求）
+    window.location.href = "{% url 'export_import:full_export' %}";
+    // 由于下载会跳转，这里简单提示
+    setTimeout(() => {
+        statusDiv.innerHTML = '<span class="text-success">下载已开始，请等待...</span>';
+    }, 1000);
+});
+
+// ---------- 导入 ----------
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+const importBtn = document.getElementById('importBtn');
+let selectedFile = null;
+
+dropZone.addEventListener('click', () => fileInput.click());
+
+dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+});
+dropZone.addEventListener('dragleave', () => {
+    dropZone.classList.remove('dragover');
+});
+dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) {
+        fileInput.files = e.dataTransfer.files;
+        handleFileSelect(e.dataTransfer.files[0]);
+    }
+});
+
+fileInput.addEventListener('change', function() {
+    if (this.files.length) {
+        handleFileSelect(this.files[0]);
+    }
+});
+
+function handleFileSelect(file) {
+    if (!file.name.endsWith('.zip')) {
+        alert('请选择 .zip 格式的备份文件');
+        return;
+    }
+    selectedFile = file;
+    importBtn.disabled = false;
+    document.querySelector('.drop-zone p:last-child').textContent = `已选择: ${file.name}`;
+}
+
+importBtn.addEventListener('click', function() {
+    if (!selectedFile) return;
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+    const statusDiv = document.getElementById('importStatus');
+    statusDiv.innerHTML = '<div class="spinner-border text-success" role="status"></div> 正在导入...';
+    this.disabled = true;
+
+    fetch("{% url 'export_import:full_import' %}", {
+        method: 'POST',
+        body: formData,
+        headers: { 'X-CSRFToken': getCsrfToken() }
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.code === 1) {
+            statusDiv.innerHTML = `<div class="alert alert-success">${data.msg}</div><pre class="small">${JSON.stringify(data.details, null, 2)}</pre>`;
+        } else {
+            statusDiv.innerHTML = `<div class="alert alert-danger">${data.msg}</div>`;
+        }
+    })
+    .catch(err => {
+        statusDiv.innerHTML = `<div class="alert alert-danger">请求失败: ${err.message}</div>`;
+    })
+    .finally(() => {
+        this.disabled = false;
+        // 重置选择状态（可选）
+    });
+});
+</script>
+{% endblock %}
