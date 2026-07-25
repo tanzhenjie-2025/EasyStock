@@ -231,20 +231,30 @@
                     <strong>收货签署：</strong>
                     <span class="underline underline-sm">&nbsp;</span>
                 </div>
+                
             </div>
             <div class="bottom-row" style="justify-content: space-between;">
-                <div class="field-group">
-                    <strong class="label-text">制单工号：</strong>
-                    <span class="data-value" style="font-size: 22px; font-weight: bold;">
-    {{ item.order_number_display }}
-</span>
-                </div>
-            </div>
+        <div class="field-group">
+            <strong class="label-text">制单工号：</strong>
+            <span class="underline underline-sm" style="text-align: center;">
+                <span class="data-value" style="font-size: 22px; font-weight: bold; display: block; width: 100%;">
+                    {{ item.order_number_display }}
+                </span>
+            </span>
+        </div>
+    </div>
         </div>
     </div>
     {% endfor %}
 
     <script>
+        
+        document.addEventListener('keydown', function(e) {
+    if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && e.key === 'Enter') {
+        e.preventDefault();
+        window.location.href = '/bill/';
+    }
+});
     function getCookie(name) {
         let cookieValue = null;
         if (document.cookie && document.cookie !== '') {
@@ -281,7 +291,7 @@
         window.print();
     }
 
-    window.onload = batchPrintAndMark;
+    
 </script>
 </body>
 </html>
