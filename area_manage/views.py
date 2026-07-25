@@ -20,8 +20,46 @@ from django.views.decorators.cache import cache_page
 from summary.views import export_to_excel
 from django.db.models import Sum, Count, Max, Q, F, DecimalField
 from django.db.models.functions import Coalesce
-# 配置日志
+
+import openpyxl
+import json
+from django.utils import timezone
+from django.db.models import Count, Sum, OuterRef, Subquery, Prefetch
+from django.db.models.functions import Coalesce
+from django.http import JsonResponse
+from django.contrib.auth.decorators import login_required, permission_required
+from django.core.exceptions import PermissionDenied
+import logging
+
 logger = logging.getLogger(__name__)
+
+
+def get_column_mapping(headers, expected_map):
+    """
+    根据表头列表和预期字段映射，返回 {字段名: 列索引} 的字典。
+    :param headers: list of str，第一行的表头内容
+    :param expected_map: dict，例如 {'区域名': 'name', '备注': 'remark'}
+    :return: dict，例如 {'name': 1, 'remark': 2}，若必须字段缺失则返回 None
+    """
+    mapping = {}
+    # 去除表头中的空白字符，并转为字符串
+    for col_idx, header in enumerate(headers):
+        if header is None:
+            continue
+        header_str = str(header).strip()
+        for display_name, field_name in expected_map.items():
+            if header_str == display_name:
+                mapping[field_name] = col_idx
+                break
+
+    # 检查必须字段（区域名/组名为必须）
+    required_fields = ['name']
+    if 'areas' in expected_map:  # 区域组导入时需要包含区域列，但允许缺失（视为空）
+        required_fields.append('areas')
+    for req in required_fields:
+        if req not in mapping and req != 'areas':  # areas 不是必须
+            return None
+    return mapping
 
 
 # ===================== 工具函数（统一优化）=====================
@@ -703,8 +741,8 @@ def group_detail_page(request, pk):
 @permission_required('area_import')
 def area_import(request):
     """
-    区域批量导入：
-    读取Excel，跳过表头和序号列，区域名重复则跳过
+    区域批量导入（基于表头映射）：
+    读取Excel，根据表头自动匹配列，区域名重复则跳过。
     """
     if request.method == 'POST':
         try:
@@ -715,24 +753,34 @@ def area_import(request):
             wb = openpyxl.load_workbook(file)
             ws = wb.active
 
+            # 读取表头（第一行）
+            headers = [cell.value for cell in ws[1]]
+            # 定义字段映射：显示名称 -> 模型字段名
+            expected_map = {'区域名': 'name', '备注': 'remark'}
+            col_mapping = get_column_mapping(headers, expected_map)
+            if col_mapping is None:
+                return JsonResponse({'code': 0, 'msg': 'Excel表头缺少“区域名”列，请检查格式'})
+
             imported_count = 0
             skipped_count = 0
             errors = []
 
-            # 从第2行开始遍历（第1行是表头）
+            # 从第2行开始遍历
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-                # row结构: (序号, 区域名, 备注)
-                if len(row) < 2:
+                # 根据映射提取数据
+                name_idx = col_mapping.get('name')
+                remark_idx = col_mapping.get('remark')
+
+                if name_idx is None or len(row) <= name_idx:
                     continue
 
-                # 提取数据，忽略第一列序号
-                area_name = str(row[1]).strip() if row[1] else ''
-                remark = str(row[2]).strip() if len(row) > 2 and row[2] else ''
+                area_name = str(row[name_idx]).strip() if row[name_idx] else ''
+                remark = str(row[remark_idx]).strip() if remark_idx is not None and len(row) > remark_idx and row[remark_idx] else ''
 
                 if not area_name:
                     continue
 
-                # 检查是否已存在
+                # 检查是否已存在（包括软删除的，用默认管理器）
                 if Area.objects.filter(name=area_name).exists():
                     skipped_count += 1
                     continue
@@ -830,9 +878,8 @@ def area_export(request):
 @permission_required('group_import')
 def group_import(request):
     """
-    区域组批量导入（支持覆盖更新）：
-    读取Excel，格式：[序号, 组名, 包含区域(逗号/中文逗号/空格分隔), 备注]
-    组名存在则更新区域列表，不存在则新建；区域名不存在则自动创建。
+    区域组批量导入（基于表头映射，支持覆盖更新）：
+    读取Excel，根据表头匹配列，组名存在则更新区域列表，不存在则新建；区域名不存在则自动创建。
     """
     if request.method == 'POST':
         try:
@@ -843,32 +890,45 @@ def group_import(request):
             wb = openpyxl.load_workbook(file)
             ws = wb.active
 
+            # 读取表头
+            headers = [cell.value for cell in ws[1]]
+            expected_map = {'组名': 'name', '包含区域': 'areas', '备注': 'remark'}
+            col_mapping = get_column_mapping(headers, expected_map)
+            if col_mapping is None:
+                return JsonResponse({'code': 0, 'msg': 'Excel表头缺少“组名”列，请检查格式'})
+
             created_count = 0      # 新增组数
             updated_count = 0      # 更新组数
-            skipped_count = 0      # 跳过行数（无效数据）
+            skipped_count = 0      # 跳过行数
             created_area_count = 0 # 新建区域数
 
-            # 预加载所有区域（包括禁用的），便于匹配和新建
+            # 预加载所有区域（包括禁用的）
             area_map = {a.name: a for a in Area.objects.only('id', 'name')}
 
             # 从第2行开始遍历
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-                if len(row) < 2:
+                name_idx = col_mapping.get('name')
+                areas_idx = col_mapping.get('areas')
+                remark_idx = col_mapping.get('remark')
+
+                if name_idx is None or len(row) <= name_idx:
                     continue
 
-                group_name = str(row[1]).strip() if row[1] else ''
-                area_names_str = str(row[2]).strip() if len(row) > 2 and row[2] else ''
-                remark = str(row[3]).strip() if len(row) > 3 and row[3] else ''
+                group_name = str(row[name_idx]).strip() if row[name_idx] else ''
+                remark = str(row[remark_idx]).strip() if remark_idx is not None and len(row) > remark_idx and row[remark_idx] else ''
 
                 if not group_name:
                     continue
 
-                # 处理分隔符：支持中文逗号、英文逗号、空格（多个空格合并）
-                # 先将中文逗号替换为英文逗号，再按英文逗号分割，最后按空格分割并过滤空字符串
+                # 处理“包含区域”列（可能缺失）
+                area_names_str = ''
+                if areas_idx is not None and len(row) > areas_idx and row[areas_idx]:
+                    area_names_str = str(row[areas_idx]).strip()
+
+                # 解析区域名称列表（支持中文逗号、英文逗号、空格分隔）
                 if area_names_str:
-                    # 统一替换中文逗号为英文逗号
+                    # 统一替换为英文逗号
                     area_names_str = area_names_str.replace('，', ',').replace('、', ',')
-                    # 按英文逗号分割，再按空格分割，最后过滤空字符串
                     raw_names = []
                     for part in area_names_str.split(','):
                         for sub in part.split():
@@ -878,13 +938,12 @@ def group_import(request):
                 else:
                     area_names = []
 
-                # 解析区域对象
+                # 获取或创建区域对象
                 valid_areas = []
                 for name in area_names:
                     if name in area_map:
                         valid_areas.append(area_map[name])
                     else:
-                        # 区域不存在，创建新区域（默认启用）
                         new_area = Area.objects.create(name=name, remark='')
                         area_map[name] = new_area
                         valid_areas.append(new_area)
@@ -899,19 +958,18 @@ def group_import(request):
                 if created:
                     created_count += 1
                 else:
-                    # 更新备注（若Excel有提供新备注，可覆盖；否则保留原备注）
                     if remark:
                         group.remark = remark
                         group.save()
                     updated_count += 1
 
-                # 更新区域关联（先清空再设置）
+                # 更新区域关联
                 group.areas.set(valid_areas)
 
             # 清理缓存
             clear_group_cache()
 
-            # 记录操作日志
+            # 记录日志
             create_operation_log(
                 request=request, op_type='import', obj_type='area_group',
                 obj_id=0, obj_name='批量导入',
