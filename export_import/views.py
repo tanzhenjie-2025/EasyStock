@@ -25,7 +25,7 @@ import tempfile, zipfile, os, json
 from django.http import FileResponse, JsonResponse
 # ... 其他导入
 
-@staff_member_required
+
 def full_export(request):
     # 手动创建临时目录（不会自动清理）
     tmpdir = tempfile.mkdtemp()

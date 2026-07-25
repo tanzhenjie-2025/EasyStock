@@ -6,6 +6,9 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib import messages
 from django.db import IntegrityError
 import logging
+
+from openpyxl.workbook import Workbook
+
 from bill.models import Order, Area
 from django.views.decorators.csrf import ensure_csrf_cookie
 
@@ -1006,3 +1009,202 @@ def user_export(request):
     except Exception as e:
         logger.error(f"导出用户失败：{str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': '导出失败'})
+
+# accounts/views.py 末尾添加以下函数
+
+import io
+import openpyxl
+from django.db import transaction
+from django.contrib.auth import get_user_model
+from .models import Role
+import logging
+
+def export_to_excel_buffer(data, title, headers, selected_fields, custom_fields=None, file_name='导出', total_row=None):
+    """
+    返回 BytesIO 对象的 Excel 文件
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = title
+
+    # 确定最终字段列表（简化，不处理自定义字段位置）
+    field_order = selected_fields
+    # 若存在自定义字段，简单追加（可根据需求扩展）
+    if custom_fields:
+        for cf in custom_fields:
+            if cf.get('name') not in field_order:
+                field_order.append('custom_' + cf['name'])
+
+    # 写入表头
+    header_font = Font(bold=True)
+    for col_num, field in enumerate(field_order, 1):
+        header_text = headers.get(field, field)
+        cell = ws.cell(row=1, column=col_num, value=header_text)
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center')
+
+    # 写入数据
+    for row_num, record in enumerate(data, 2):
+        for col_num, field in enumerate(field_order, 1):
+            value = record.get(field, '')
+            ws.cell(row=row_num, column=col_num, value=value)
+
+    # 若有合计行（略）
+    if total_row:
+        pass
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+def export_users_to_io(users=None):
+    """
+    导出用户数据为 BytesIO 对象（全量字段）
+    用于一键备份
+    """
+    if users is None:
+        users = User.objects.select_related('role').only(
+            'id', 'user_code', 'username', 'first_name', 'last_name',
+            'phone', 'email', 'role', 'is_active', 'date_joined'
+        ).order_by('id')
+
+    data = []
+    seq = 1
+    for user in users:
+        data.append({
+            'serial': seq,
+            'id': user.id,
+            'user_code': user.user_code,
+            'username': user.username,
+            'name': user.name,
+            'phone': user.phone or '',
+            'email': user.email or '',
+            'role': user.role.name if user.role else '未分配',
+            'status': '正常' if user.is_active else '禁用',
+            'create_time': user.date_joined.strftime('%Y-%m-%d %H:%M:%S') if user.date_joined else ''
+        })
+        seq += 1
+
+    headers = {
+        'serial': '序号',
+        'id': 'ID',
+        'user_code': '用户编号',
+        'username': '用户名',
+        'name': '姓名',
+        'phone': '联系电话',
+        'email': '邮箱',
+        'role': '所属角色',
+        'status': '状态',
+        'create_time': '创建时间'
+    }
+    selected_fields = ['serial', 'id', 'user_code', 'username', 'name', 'phone', 'email', 'role', 'status', 'create_time']
+
+    buffer = export_to_excel_buffer(
+        data=data,
+        title='用户列表',
+        headers=headers,
+        selected_fields=selected_fields,
+        file_name='用户导出'
+    )
+    return buffer
+
+
+def import_users_from_io(file_obj, strategy='append'):
+    """
+    从 BytesIO 对象导入用户数据
+    策略：'append' 跳过重复（user_code 或 username 冲突），'overwrite' 暂不支持
+    返回：{'success': int, 'skipped': int, 'errors': list}
+    """
+    try:
+        wb = openpyxl.load_workbook(file_obj)
+        ws = wb.active
+    except Exception as e:
+        return {'success': 0, 'skipped': 0, 'errors': [f'文件解析失败: {str(e)}']}
+
+    headers = [cell.value for cell in ws[1]]
+    expected_map = {
+        '用户编号': 'user_code',
+        '用户名': 'username',
+        '姓名': 'name',
+        '联系电话': 'phone',
+        '邮箱': 'email',
+        '所属角色': 'role',
+        '状态': 'status'
+    }
+    col_mapping = get_column_mapping(headers, expected_map)
+    if col_mapping is None or 'user_code' not in col_mapping:
+        return {'success': 0, 'skipped': 0, 'errors': ['缺少“用户编号”列']}
+
+    imported_count = 0
+    skipped_count = 0
+    errors = []
+
+    # 预加载角色映射
+    role_map = {r.name: r for r in Role.objects.only('id', 'name')}
+
+    for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+        try:
+            def get_val(field):
+                idx = col_mapping.get(field)
+                if idx is not None and idx < len(row):
+                    val = row[idx]
+                    return str(val).strip() if val is not None else ''
+                return ''
+
+            user_code = get_val('user_code')
+            if not user_code:
+                errors.append(f'第{row_idx}行：用户编号为空，跳过')
+                skipped_count += 1
+                continue
+
+            username = get_val('username') or user_code
+            name = get_val('name') or ''
+            phone = get_val('phone')
+            email = get_val('email')
+            role_name = get_val('role')
+            status_str = get_val('status') or '正常'
+
+            # 检查唯一性
+            if User.objects.filter(user_code=user_code).exists():
+                skipped_count += 1
+                continue
+            if User.objects.filter(username=username).exists():
+                skipped_count += 1
+                continue
+
+            role = role_map.get(role_name) if role_name else None
+            is_active = status_str != '禁用'
+
+            with transaction.atomic():
+                user = User.objects.create(
+                    user_code=user_code,
+                    username=username,
+                    first_name=name,
+                    last_name='',
+                    phone=phone,
+                    email=email,
+                    role=role,
+                    is_active=is_active,
+                    force_password_change=True
+                )
+                user.set_password('123456')
+                user.save()
+                imported_count += 1
+
+        except Exception as e:
+            errors.append(f'第{row_idx}行：导入失败 - {str(e)}')
+            skipped_count += 1
+
+    # 清理缓存（若有）
+    try:
+        from .cache import clear_user_cache
+        clear_user_cache()
+    except ImportError:
+        pass
+
+    return {
+        'success': imported_count,
+        'skipped': skipped_count,
+        'errors': errors,
+    }

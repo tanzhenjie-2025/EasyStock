@@ -1791,3 +1791,216 @@ def calculate_customer_stats(request):
     except Exception as e:
         logger.error(f"客户统计失败：{str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'统计失败：{str(e)}'})
+
+# customer_manage/views.py
+import io
+import openpyxl
+from django.db import transaction
+
+from .models import Customer, CustomerPhone, Area
+import logging
+# utils/excel_utils.py
+import io
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment
+
+def export_to_excel_buffer(data, title, headers, selected_fields, custom_fields=None, file_name='导出', total_row=None):
+    """
+    返回 BytesIO 对象的 Excel 文件
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = title
+
+    # 确定最终字段列表（简化，不处理自定义字段位置）
+    field_order = selected_fields
+    # 若存在自定义字段，简单追加（可根据需求扩展）
+    if custom_fields:
+        for cf in custom_fields:
+            if cf.get('name') not in field_order:
+                field_order.append('custom_' + cf['name'])
+
+    # 写入表头
+    header_font = Font(bold=True)
+    for col_num, field in enumerate(field_order, 1):
+        header_text = headers.get(field, field)
+        cell = ws.cell(row=1, column=col_num, value=header_text)
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center')
+
+    # 写入数据
+    for row_num, record in enumerate(data, 2):
+        for col_num, field in enumerate(field_order, 1):
+            value = record.get(field, '')
+            ws.cell(row=row_num, column=col_num, value=value)
+
+    # 若有合计行（略）
+    if total_row:
+        pass
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+def export_customers_to_io(customers=None):
+    """
+    导出客户数据为 BytesIO 对象（全量字段，用于一键备份）
+    返回 Excel 的 BytesIO
+    """
+    if customers is None:
+        customers = Customer.objects.select_related('area').prefetch_related('phones').order_by('-create_time')
+
+    data = []
+    seq = 1
+    for customer in customers:
+        data.append({
+            'serial': seq,
+            'id': customer.id,
+            'name': customer.name,
+            'area_name': customer.area.name if customer.area else '无',
+            'phone': customer.primary_phone,
+            'remark': customer.remark or '',
+            'order_number': customer.order_number or ''
+        })
+        seq += 1
+
+    # 定义表头映射（全量字段）
+    headers = {
+        'serial': '序号',
+        'id': 'ID',
+        'name': '客户名称',
+        'area_name': '所属区域',
+        'phone': '联系电话',
+        'remark': '备注',
+        'order_number': '制单号'
+    }
+
+    # 全部导出，selected_fields 使用所有字段
+    selected_fields = ['serial', 'id', 'name', 'area_name', 'phone', 'remark', 'order_number']
+
+    # 调用通用工具返回 BytesIO
+    buffer = export_to_excel_buffer(
+        data=data,
+        title='客户列表',
+        headers=headers,
+        selected_fields=selected_fields,
+        file_name='客户导出'
+    )
+    return buffer
+
+
+def import_customers_from_io(file_obj, strategy='append'):
+    """
+    从 BytesIO 对象导入客户数据
+    支持自动创建区域（如果不存在）
+    策略：'append' 跳过重复，'overwrite' 暂不支持（可扩展）
+    返回：{'success': int, 'skipped': int, 'errors': list}
+    """
+    try:
+        wb = openpyxl.load_workbook(file_obj)
+        ws = wb.active
+    except Exception as e:
+        return {'success': 0, 'skipped': 0, 'errors': [f'文件解析失败: {str(e)}']}
+
+    # 读取表头并映射
+    headers = [cell.value for cell in ws[1]]
+    expected_map = {
+        '客户名称': 'name',
+        '所属区域': 'area',
+        '联系电话': 'phone',
+        '备注': 'remark',
+        '制单号': 'order_number'
+    }
+    col_mapping = get_column_mapping(headers, expected_map)
+    if col_mapping is None or 'name' not in col_mapping:
+        return {'success': 0, 'skipped': 0, 'errors': ['缺少“客户名称”列，请使用正确的模板']}
+
+    new_count = 0
+    skip_count = 0
+    new_area_count = 0
+    errors = []
+
+    # 如果策略是覆盖（可选），先清空客户表（需注意外键级联，谨慎）
+    if strategy == 'overwrite':
+        # 建议不使用覆盖，因为涉及外键，此处仅作占位
+        pass
+
+    # 预加载现有区域缓存，提高性能
+    area_map = {area.name: area for area in Area.objects.all()}
+
+    for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+        if not any(row):
+            continue
+
+        # 按索引提取值
+        def get_val(field):
+            idx = col_mapping.get(field)
+            if idx is not None and idx < len(row):
+                val = row[idx]
+                return str(val).strip() if val is not None else ''
+            return ''
+
+        name = get_val('name')
+        area_name = get_val('area')
+        phone = get_val('phone')
+        remark = get_val('remark')
+        order_number = get_val('order_number')
+
+        if not name:
+            errors.append(f'第{row_idx}行：客户名称为空，跳过')
+            continue
+
+        # 处理区域
+        area_obj = None
+        if area_name and area_name != '无':
+            area_obj = area_map.get(area_name)
+            if not area_obj:
+                try:
+                    area_obj = Area.objects.create(
+                        name=area_name,
+                        remark='导入自动创建',
+                        is_active=True
+                    )
+                    area_map[area_name] = area_obj
+                    new_area_count += 1
+                except Exception as e:
+                    errors.append(f'第{row_idx}行：自动创建区域“{area_name}”失败（{str(e)}）')
+                    continue
+
+        # 检查重复（同一区域下客户名称唯一）
+        if Customer.objects.filter(name=name, area=area_obj).exists():
+            skip_count += 1
+            continue
+
+        try:
+            with transaction.atomic():
+                customer = Customer.objects.create(
+                    name=name,
+                    area=area_obj,
+                    remark=remark,
+                    order_number=order_number
+                )
+                if phone:
+                    CustomerPhone.objects.create(
+                        customer=customer,
+                        phone=phone.strip(),
+                        is_primary=True
+                    )
+                new_count += 1
+        except Exception as e:
+            errors.append(f'第{row_idx}行：保存失败（{str(e)}）')
+
+    # 清除缓存（若有）
+    try:
+        from .cache import clear_customer_cache
+        clear_customer_cache()
+    except ImportError:
+        pass
+
+    return {
+        'success': new_count,
+        'skipped': skip_count,
+        'errors': errors,
+        'new_areas': new_area_count  # 可选项
+    }

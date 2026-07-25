@@ -1523,3 +1523,313 @@ def unit_toggle_status(request):
     unit.is_active = not unit.is_active
     unit.save(update_fields=['is_active'])
     return JsonResponse({'code': 1, 'msg': '状态已更新'})
+
+
+# product/views.py 末尾添加以下函数
+
+import io
+import openpyxl
+from django.db import transaction
+
+from .models import Product, ProductTag, ProductAlias
+import logging
+
+def export_to_excel_buffer(data, title, headers, selected_fields, custom_fields=None, file_name='导出', total_row=None):
+    """
+    返回 BytesIO 对象的 Excel 文件
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = title
+
+    # 确定最终字段列表（简化，不处理自定义字段位置）
+    field_order = selected_fields
+    # 若存在自定义字段，简单追加（可根据需求扩展）
+    if custom_fields:
+        for cf in custom_fields:
+            if cf.get('name') not in field_order:
+                field_order.append('custom_' + cf['name'])
+
+    # 写入表头
+    header_font = Font(bold=True)
+    for col_num, field in enumerate(field_order, 1):
+        header_text = headers.get(field, field)
+        cell = ws.cell(row=1, column=col_num, value=header_text)
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center')
+
+    # 写入数据
+    for row_num, record in enumerate(data, 2):
+        for col_num, field in enumerate(field_order, 1):
+            value = record.get(field, '')
+            ws.cell(row=row_num, column=col_num, value=value)
+
+    # 若有合计行（略）
+    if total_row:
+        pass
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+def export_products_to_io(products=None):
+    """
+    导出商品数据为 BytesIO 对象（全量字段）
+    用于一键备份
+    """
+    if products is None:
+        products = Product.objects.prefetch_related('aliases', 'tags').order_by('name')
+
+    data = []
+    seq = 1
+    for product in products:
+        # 获取别名列表
+        aliases = ','.join([a.alias_name for a in product.aliases.all()])
+        # 获取标签列表
+        tags = ','.join([tag.name for tag in product.tags.all()])
+        data.append({
+            'serial': seq,
+            'id': product.id,
+            'name': product.name,
+            'price': float(product.price) if product.price else 0.0,
+            'unit': product.unit,
+            'specification': product.specification or '',
+            'stock_system': product.stock_system,
+            'stock_actual': product.stock_actual,
+            'aliases': aliases,
+            'status': '启用' if product.is_active else '停用',
+            'tags': tags,
+        })
+        seq += 1
+
+    headers = {
+        'serial': '序号',
+        'id': 'ID',
+        'name': '商品名称',
+        'price': '单价（元）',
+        'unit': '单位',
+        'specification': '商品规格',
+        'stock_system': '系统库存',
+        'stock_actual': '实际库存',
+        'aliases': '别名',
+        'status': '状态',
+        'tags': '商品标签'
+    }
+    selected_fields = ['serial', 'id', 'name', 'price', 'unit', 'specification',
+                       'stock_system', 'stock_actual', 'aliases', 'status', 'tags']
+
+    buffer = export_to_excel_buffer(
+        data=data,
+        title='商品列表',
+        headers=headers,
+        selected_fields=selected_fields,
+        file_name='商品导出'
+    )
+    return buffer
+
+
+def import_products_from_io(file_obj, strategy='append'):
+    """
+    从 BytesIO 对象导入商品数据
+    支持自动创建标签（如果不存在）
+    策略：'append' 跳过重复（相同名称+单位），'overwrite' 暂不支持
+    返回：{'success': int, 'skipped': int, 'errors': list}
+    """
+    try:
+        # 兼容 xlsx 和 xls
+        if hasattr(file_obj, 'name') and file_obj.name.endswith('.xls'):
+            import xlrd
+            wb = xlrd.open_workbook(file_contents=file_obj.read())
+            sheet = wb.sheet_by_index(0)
+            rows = [sheet.row_values(i) for i in range(sheet.nrows)]
+        else:
+            wb = openpyxl.load_workbook(file_obj)
+            sheet = wb.active
+            rows = list(sheet.iter_rows(values_only=True))
+    except Exception as e:
+        return {'success': 0, 'skipped': 0, 'errors': [f'文件解析失败: {str(e)}']}
+
+    if not rows:
+        return {'success': 0, 'skipped': 0, 'errors': ['文件为空']}
+
+    # 映射表头
+    header_to_field = {
+        '序号': 'serial',
+        'ID': 'id',
+        '商品名称': 'name',
+        '单价（元）': 'price',
+        '单位': 'unit',
+        '商品规格': 'specification',
+        '系统库存': 'stock_system',
+        '实际库存': 'stock_actual',
+        '别名': 'aliases',
+        '状态': 'status',
+        '商品标签': 'tags',
+    }
+    headers = rows[0]
+    col_map = {}
+    for idx, h in enumerate(headers):
+        h = str(h).strip()
+        field = header_to_field.get(h)
+        if field:
+            col_map[field] = idx
+
+    if 'name' not in col_map:
+        return {'success': 0, 'skipped': 0, 'errors': ['缺少“商品名称”列']}
+
+    success_count = 0
+    fail_count = 0
+    errors = []
+    new_products = []
+    updated_products = []
+    tag_cache = {}
+    processed_key_map = {}
+
+    for row_idx, row in enumerate(rows[1:], start=2):
+        try:
+            def get_val(field):
+                idx = col_map.get(field)
+                if idx is not None and idx < len(row):
+                    val = row[idx]
+                    return str(val).strip() if val is not None else ''
+                return ''
+
+            name = get_val('name')
+            if not name:
+                errors.append(f'第{row_idx}行：商品名称不能为空')
+                fail_count += 1
+                continue
+
+            unit = get_val('unit') or '件'
+            price_str = get_val('price')
+            try:
+                price = float(price_str) if price_str else 0.0
+            except:
+                price = 0.0
+
+            specification = get_val('specification')
+            stock_system_str = get_val('stock_system')
+            try:
+                stock_system = int(float(stock_system_str)) if stock_system_str else 0
+            except:
+                stock_system = 0
+
+            stock_actual_str = get_val('stock_actual')
+            try:
+                stock_actual = int(float(stock_actual_str)) if stock_actual_str else 0
+            except:
+                stock_actual = 0
+
+            status_val = get_val('status')
+            is_active = status_val != '停用'
+
+            # 处理标签
+            tags_str = get_val('tags')
+            tag_names = [t.strip() for t in tags_str.split(',') if t.strip()] if tags_str else []
+            tag_objs = []
+            for tname in tag_names:
+                if tname not in tag_cache:
+                    tag_obj, created = ProductTag.objects.get_or_create(
+                        name=tname,
+                        defaults={'color': '#3498db', 'is_active': True}
+                    )
+                    if not created and not tag_obj.is_active:
+                        tag_obj.is_active = True
+                        tag_obj.save()
+                    tag_cache[tname] = tag_obj
+                else:
+                    tag_obj = tag_cache[tname]
+                tag_objs.append(tag_obj)
+
+            # 查找或创建商品
+            key = (name, unit)
+            product = None
+
+            # 尝试通过ID更新（若提供）
+            id_val = get_val('id')
+            if id_val:
+                try:
+                    pid = int(float(id_val))
+                    product = Product.all_objects.filter(id=pid).first()
+                except:
+                    pass
+
+            if not product and key in processed_key_map:
+                product = processed_key_map[key]
+
+            if not product:
+                product = Product.objects.filter(name=name, unit=unit).first()
+                if not product:
+                    product = Product.all_objects.filter(name=name, unit=unit, is_active=False).first()
+                if product:
+                    processed_key_map[key] = product
+
+            if not product:
+                # 新建
+                product = Product(
+                    name=name,
+                    unit=unit,
+                    price=price,
+                    specification=specification,
+                    stock_system=stock_system,
+                    stock_actual=stock_actual,
+                    is_active=is_active
+                )
+                new_products.append(product)
+                processed_key_map[key] = product
+            else:
+                # 更新现有
+                product.name = name
+                product.unit = unit
+                product.price = price
+                product.specification = specification
+                product.stock_system = stock_system
+                product.stock_actual = stock_actual
+                product.is_active = is_active
+                updated_products.append(product)
+
+            # 暂存标签，后续设置
+            product._import_tags = tag_objs
+            success_count += 1
+
+        except Exception as e:
+            fail_count += 1
+            errors.append(f'第{row_idx}行：处理错误 - {str(e)}')
+
+    # 持久化
+    try:
+        with transaction.atomic():
+            # 先保存新商品（bulk_create 不触发 save，需单独处理拼音）
+            for prod in new_products:
+
+                prod.pinyin_full = ''.join(lazy_pinyin(prod.name, style=0))
+                prod.pinyin_abbr = ''.join([p[0] for p in lazy_pinyin(prod.name, style=0)])
+            Product.objects.bulk_create(new_products)
+
+            # 更新现有商品
+            for prod in updated_products:
+                prod.save()
+
+            # 设置标签
+            all_products = new_products + updated_products
+            for prod in all_products:
+                if hasattr(prod, '_import_tags'):
+                    prod.tags.set(prod._import_tags)
+
+    except Exception as e:
+        logger.error(f"商品导入持久化失败: {str(e)}")
+        return {'success': 0, 'skipped': 0, 'errors': [f'数据保存失败: {str(e)}']}
+
+    # 清理缓存
+    try:
+        from .cache import clear_product_all_cache
+        clear_product_all_cache()
+    except ImportError:
+        pass
+
+    return {
+        'success': success_count,
+        'skipped': fail_count,  # 注意：这里 fail_count 实际上是被跳过的行数，我们将其作为 skipped
+        'errors': errors,
+    }
