@@ -148,44 +148,48 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     document.getElementById('confirmImportBtn').addEventListener('click', function() {
-        if (!previewData) return;
-        const btn = this;
-        btn.disabled = true;
-        btn.textContent = '导入中...';
+    if (!previewData) return;
+    const btn = this;
+    btn.disabled = true;
+    btn.textContent = '导入中...';
 
-        // 提交时只传 orders（不再包含新基础数据）
-        fetch('{% url "bill:import_orders_confirm" %}', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCsrfToken(),
-                'X-Requested-With': 'XMLHttpRequest',
-            },
-            body: JSON.stringify({ orders: previewData.orders })
-        })
-        .then(res => res.json())
-        .then(data => {
-            let html = '';
-            if (data.code === 1) {
-                html += `<div class="alert alert-success">${data.msg}</div>`;
-                if (data.errors.length) {
-                    html += '<div class="alert alert-warning"><ul>' + data.errors.map(e => `<li>${e}</li>`).join('') + '</ul></div>';
-                }
-            } else {
-                html += `<div class="alert alert-danger">${data.msg}</div>`;
+    // 显式构建待提交订单数组，确保 is_verified 字段存在
+    const ordersToSubmit = previewData.orders.map(o => ({
+        ...o,
+        is_verified: o.is_verified === undefined ? false : o.is_verified
+    }));
+
+    fetch('{% url "bill:import_orders_confirm" %}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken(),
+            'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: JSON.stringify({ orders: ordersToSubmit })
+    })
+    .then(res => res.json())
+    .then(data => {
+        let html = '';
+        if (data.code === 1) {
+            html += `<div class="alert alert-success">${data.msg}</div>`;
+            if (data.errors.length) {
+                html += '<div class="alert alert-warning"><ul>' + data.errors.map(e => `<li>${e}</li>`).join('') + '</ul></div>';
             }
-            document.getElementById('importResult').innerHTML = html;
-            goToStep(3);
-        })
-        .catch(err => {
-            document.getElementById('importResult').innerHTML = `<div class="alert alert-danger">导入请求失败：${err.message}</div>`;
-        })
-        .finally(() => {
-            btn.disabled = false;
-            btn.textContent = '确认导入';
-        });
+        } else {
+            html += `<div class="alert alert-danger">${data.msg}</div>`;
+        }
+        document.getElementById('importResult').innerHTML = html;
+        goToStep(3);
+    })
+    .catch(err => {
+        document.getElementById('importResult').innerHTML = `<div class="alert alert-danger">导入请求失败：${err.message}</div>`;
+    })
+    .finally(() => {
+        btn.disabled = false;
+        btn.textContent = '确认导入';
     });
-
+});
     goToStep(1);
 });
 </script>

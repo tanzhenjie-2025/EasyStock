@@ -2275,7 +2275,7 @@ def parse_excel_to_structure(workbook):
 @login_required
 @permission_required(PERM_ORDER_CREATE)
 def import_orders_preview(request):
-    """第一步：上传 Excel，返回预览数据（只做订单存在性检查，不检测基础数据）"""
+    """第一步：上传 Excel，返回预览数据（保留审核状态）"""
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST'})
 
@@ -2285,27 +2285,25 @@ def import_orders_preview(request):
 
     try:
         wb = load_workbook(excel_file, read_only=True)
-        data = parse_excel_to_structure(wb)   # 复用原有解析函数
+        data = parse_excel_to_structure(wb)
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'文件解析失败：{str(e)}'})
 
     order_groups = data['order_groups']
 
-    # 批量查询所有涉及订单号的存在状态和审核状态
+    # 批量查询已存在订单
     all_order_nos = [g['order_no'] for g in order_groups.values() if g['order_no']]
-    existing_orders_map = {}   # order_no -> is_verified
+    existing_orders_map = {}
     if all_order_nos:
         existing_orders = Order.objects.filter(order_no__in=all_order_nos).only('order_no', 'is_verified')
         existing_orders_map = {o.order_no: o.is_verified for o in existing_orders}
 
-    # 组装订单预览列表
     order_preview_list = []
     for key, g in order_groups.items():
         order_no = g['order_no']
         items_preview = []
         order_status = g['items'][0]['status']
 
-        # 判断是否跳过
         skip = False
         warnings = []
         if order_no:
@@ -2318,9 +2316,6 @@ def import_orders_preview(request):
         else:
             warnings.append('订单编号为空，无法导入')
             skip = True
-
-        # 用户不存在警告（可保留，不影响导入结果）
-        # 为简化，此处省略用户检查，可直接在确认导入时处理
 
         for item in g['items']:
             items_preview.append({
@@ -2350,9 +2345,9 @@ def import_orders_preview(request):
             'items': items_preview,
             'warnings': warnings,
             'skip': skip,
+            'is_verified': g.get('is_verified', False),  # 保留 Excel 中的审核状态
         })
 
-    # 不再返回 new_areas, new_products, new_customers
     return JsonResponse({
         'code': 1,
         'data': {
@@ -2365,7 +2360,7 @@ def import_orders_preview(request):
 @login_required
 @permission_required(PERM_ORDER_CREATE)
 def import_orders_confirm(request):
-    """第二步：执行纯导入，不创建任何区域/商品/客户"""
+    """第二步：执行纯导入，使用 Excel 中的审核状态"""
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST'})
 
@@ -2387,7 +2382,7 @@ def import_orders_confirm(request):
         if conflicts:
             return JsonResponse({'code': 0, 'msg': f'以下订单号已存在，无法导入：{", ".join(conflicts)}'})
 
-    # 预加载可能用到的已有区域和客户（仅查询不创建）
+    # 预加载区域、客户、用户
     all_area_names = set()
     all_customer_names = set()
     for order in valid_orders:
@@ -2408,7 +2403,6 @@ def import_orders_confirm(request):
         customers = Customer.objects.filter(name__in=all_customer_names, is_active=True)
         customer_full_map = {c.name: c for c in customers}
 
-    # 用户映射
     all_creator_usernames = set()
     for order in valid_orders:
         if order.get('creator_username'):
@@ -2433,7 +2427,7 @@ def import_orders_confirm(request):
                     continue
 
                 status = order_data['status']
-                area = area_full_map.get(order_data.get('area_name'))    # 找不到则为 None
+                area = area_full_map.get(order_data.get('area_name'))
                 customer = customer_full_map.get(order_data.get('pure_customer_name'))
                 creator = user_map.get(order_data.get('creator_username', ''), request.user)
 
@@ -2444,6 +2438,20 @@ def import_orders_confirm(request):
                         create_time = timezone.make_aware(datetime.strptime(create_time_str, '%Y-%m-%d %H:%M:%S'))
                     except:
                         pass
+
+                # ---------- 处理审核状态（增强兼容性 + 日志） ----------
+                raw_verified = order_data.get('is_verified', False)
+                if isinstance(raw_verified, str):
+                    # 兼容 'True', 'true', '是', '1' 等字符串
+                    is_verified = raw_verified.strip().lower() in ['true', '是', '1']
+                else:
+                    is_verified = bool(raw_verified)
+
+                logger.info(
+                    "订单 %s 的 is_verified 原始值: %s (类型: %s), 解析后: %s",
+                    order_no, raw_verified, type(raw_verified).__name__, is_verified
+                )
+                # -------------------------------------------------------
 
                 order = Order(
                     order_no=order_no,
@@ -2457,18 +2465,16 @@ def import_orders_confirm(request):
                     is_settled=False,
                     received_amount=Decimal('0'),
                     create_time=create_time,
-                    is_verified=False,
+                    is_verified=is_verified,      # 使用解析后的值
                 )
                 order.save()
 
-                # 结清处理（仅当 Excel 中标记结清时）
                 if status != 'cancelled':
                     is_settled = order_data.get('is_settled', False)
                     received = Decimal(order_data.get('received_amount', '0'))
                     if is_settled or received > 0:
                         order.is_settled = is_settled
                         order.received_amount = received
-                        # 不处理 settled_by 等，因为不再查找用户（可后续完善）
                         order.save(update_fields=['is_settled', 'received_amount'])
 
                 total = Decimal('0')
@@ -2481,7 +2487,6 @@ def import_orders_confirm(request):
                     amount = price * qty
                     total += amount
 
-                    # 不查询 Product 关联，直接留空
                     is_makeup = item.get('is_makeup_item', False)
                     items_to_create.append(OrderItem(
                         order=order,
@@ -2502,6 +2507,7 @@ def import_orders_confirm(request):
                 success += 1
 
             except Exception as e:
+                logger.exception("订单 %s 导入失败", order_no)
                 errors.append(f'订单 {order_no} 导入失败: {str(e)}')
 
     clear_order_cache()
@@ -2525,7 +2531,8 @@ def parse_customer_name(customer_snapshot, area_name=''):
         return (parts[0].strip(), parts[1].strip())
     return (area_name, customer_snapshot.strip())
 
-
+from django.views.decorators.cache import never_cache
+@never_cache
 @login_required
 @permission_required(PERM_ORDER_CREATE)
 def audit_orders_preview(request):
