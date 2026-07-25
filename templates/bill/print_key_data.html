@@ -37,12 +37,18 @@
             .watermark-delivery, .watermark-return, .watermark-general {
                 display: none !important;
             }
-            .bill-table th, .bill-table td {
+ .bill-table, .bill-table th, .bill-table td {
+    border: none !important;
+}
+.bill-table th, .bill-table td {
     height: 30px;
     font-size: 14px;
     padding: 4px 0;
     white-space: nowrap;
     overflow: hidden;
+}
+.underline, .underline-sm {
+    border: none !important;
 }
         }
 
@@ -140,7 +146,7 @@
             <div class="bill-info-row">
                 <div class="info-group">
                     <!-- “客户名称：”透明，后面直接跟数据值 -->
-                    <span class="label-text">客户名称：</span><span class="data-value">{{ order.customer_name_snapshot|default:order.customer.name|default:"无" }}</span>
+                    <span class="label-text">客户名称：</span><span class="data-value">{{ customer_name_display }}</span>
                 </div>
                 <div class="info-group">
                     <span class="label-text">订单编号：</span><span class="data-value">{{ order.order_no }}</span>
@@ -186,7 +192,7 @@
 
         <!-- 底部信息 -->
         <div class="bill-footer">
-            <span class="label-text">开单人员：</span><span class="data-value">{{ order.creator.name|default:"未知" }}</span>
+            <span class="label-text">开单人员：</span><span class="data-value">{{ creator_name }}</span>
             <span></span>
             <span class="label-text">总金额：</span><span class="data-value" style="margin-right: 5mm;">¥{{ order.total_amount }}</span>
         </div>
@@ -224,15 +230,9 @@
             <div class="bottom-row" style="justify-content: space-between;">
                 <div class="field-group">
                     <strong class="label-text">制单工号：</strong>
-                    <span style="text-align: center; border: none !important;">
-                        <span class="data-value" style="font-size: 22px; font-weight: bold;">
-    {% if order.order_number_snapshot %}
-        {{ order.order_number_snapshot }}
-    {% elif order.customer and order.customer.order_number %}
-        {{ order.customer.order_number }}
-    {% endif %}
+                    <span class="data-value" style="font-size: 22px; font-weight: bold;">
+    {{ order_number_display }}
 </span>
-                    </span>
                 </div>
                 <!-- 如有退货提示，也可按需保留，这里先隐藏 -->
                 <div class="field-group hide-row">

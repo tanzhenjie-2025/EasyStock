@@ -40,12 +40,19 @@
             .watermark-delivery, .watermark-return, .watermark-general {
                 display: none !important;
             }
-            .bill-table th, .bill-table td {
+            .bill-table, .bill-table th, .bill-table td {
+    border: none !important;
+}
+.bill-table th, .bill-table td {
     height: 30px;
     font-size: 14px;
     padding: 4px 0;
     white-space: nowrap;
     overflow: hidden;
+}
+/* 底部下划线也隐藏（若存在可见的） */
+.underline, .underline-sm {
+    border: none !important;
 }
             /* 保持原有表格尺寸 */
             .bill-table th, .bill-table td {
@@ -151,8 +158,7 @@
             <h2><span class="label-text">{{ bill_title }}</span></h2>
             <div class="bill-info-row">
                 <div class="info-group">
-                    <span class="label-text">客户名称：</span><span class="data-value">{{ item.order.customer_name_snapshot|default:item.order.customer.name|default:"无" }}</span>
-                </div>
+                    <span class="label-text">客户名称：</span><span class="data-value">{{ item.customer_name_display }}</span></div>
                 <div class="info-group">
                     <span class="label-text">订单编号：</span><span class="data-value">{{ item.order.order_no }}</span>
                     <span class="label-text">开单时间：</span><span class="data-value">{{ item.order.create_time|date:"Y-m-d H:i:s" }}</span>
@@ -194,7 +200,7 @@
         </div>
 
         <div class="bill-footer">
-            <span class="label-text">开单人员：</span><span class="data-value">{{ item.order.creator.name|default:"未知" }}</span>
+           <span class="label-text">开单人员：</span><span class="data-value">{{ item.creator_name }}</span>
             <span></span>
             <span class="label-text">总金额：</span><span class="data-value" style="margin-right: 5mm;">¥{{ item.order.total_amount }}</span>
         </div>
@@ -229,15 +235,9 @@
             <div class="bottom-row" style="justify-content: space-between;">
                 <div class="field-group">
                     <strong class="label-text">制单工号：</strong>
-                    <span style="text-align: center; border: none !important;">
-                        <span class="data-value" style="font-size: 22px; font-weight: bold;">
-                            {% if item.order.order_number_snapshot %}
-                                {{ item.order.order_number_snapshot }}
-                            {% elif item.order.customer and item.order.customer.order_number %}
-                                {{ item.order.customer.order_number }}
-                            {% endif %}
-                        </span>
-                    </span>
+                    <span class="data-value" style="font-size: 22px; font-weight: bold;">
+    {{ item.order_number_display }}
+</span>
                 </div>
             </div>
         </div>

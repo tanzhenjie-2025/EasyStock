@@ -639,17 +639,37 @@ def print_key_data(request, order_no):
         order_no=order_no
     )
     items = order.items.select_related('product')
-    # 保持与空白模板相同的15行结构
     items_display = list(items[:15]) + [None] * (15 - min(len(items), 15))
+
+    # 安全处理客户名称
+    if order.customer_name_snapshot:
+        customer_name_display = order.customer_name_snapshot
+    elif order.customer:
+        customer_name_display = order.customer.name
+    else:
+        customer_name_display = '无'
+
+    # 安全处理制单工号
+    if order.order_number_snapshot:
+        order_number_display = order.order_number_snapshot
+    elif order.customer and order.customer.order_number:
+        order_number_display = order.customer.order_number
+    else:
+        order_number_display = ''
+
+    # 开单人员（creator 通常存在，但仍做防御）
+    creator_name = order.creator.name if order.creator else '未知'
 
     context = {
         'order': order,
         'items_display': items_display,
+        'customer_name_display': customer_name_display,
+        'order_number_display': order_number_display,
+        'creator_name': creator_name,
         'phone_numbers': settings.PHONE_NUMBERS,
         'complaint_phone': settings.COMPLAINT_PHONE,
         'bill_title': settings.BILL_TITLE,
     }
-    # 改为渲染专用套打模板
     return render(request, 'bill/print_key_data.html', context)
 
 
@@ -670,9 +690,31 @@ def batch_print_key_data(request):
     for order in orders:
         items = order.items.select_related('product')
         items_display = list(items[:15]) + [None] * (15 - min(len(items), 15))
+
+        # 安全处理客户名称
+        if order.customer_name_snapshot:
+            c_name = order.customer_name_snapshot
+        elif order.customer:
+            c_name = order.customer.name
+        else:
+            c_name = '无'
+
+        # 安全处理制单工号
+        if order.order_number_snapshot:
+            o_num = order.order_number_snapshot
+        elif order.customer and order.customer.order_number:
+            o_num = order.customer.order_number
+        else:
+            o_num = ''
+
+        creator_name = order.creator.name if order.creator else '未知'
+
         orders_data.append({
             'order': order,
             'items_display': items_display,
+            'customer_name_display': c_name,
+            'order_number_display': o_num,
+            'creator_name': creator_name,
         })
 
     context = {
