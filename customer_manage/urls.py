@@ -48,5 +48,8 @@ urlpatterns = [
 
 path('stats/page/', views.customer_stats_page, name='customer_stats_page'),  # 统计页面
     path('api/stats/calculate/', views.calculate_customer_stats, name='calculate_customer_stats'),  # 统计接口
+
+    path('customer/clear-cache/', views.clear_customer_cache_view, name='clear_customer_cache'),
+
 ]
 

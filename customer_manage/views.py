@@ -2,6 +2,7 @@
 from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse, HttpResponse
 from django.core.cache import cache
+from django.views.decorators.http import require_POST
 
 from accounts.models import ROLE_SUPER_ADMIN, PERM_LOG_VIEW_ALL
 from bill.models import OrderItem, Order
@@ -88,6 +89,23 @@ def clear_customer_price_cache():
 
     logger.info(f"已清理客户专属价格全量缓存")
 
+
+@login_required
+@require_POST
+def clear_customer_cache_view(request):
+    """
+    清理客户管理所有缓存（列表、详情、价格、排行）
+    """
+    try:
+        # 清理客户相关缓存（含列表、详情、排行）
+        clear_customer_cache()
+        # 清理客户专属价格相关缓存（列表、搜索等）
+        clear_customer_price_cache()
+        logger.info(f"用户 {request.user.username} 手动清理了客户缓存")
+        return JsonResponse({'code': 1, 'msg': '缓存已清理，数据已刷新'})
+    except Exception as e:
+        logger.error(f"清理缓存失败: {e}")
+        return JsonResponse({'code': 0, 'msg': f'清理失败：{str(e)}'})
 
 def full_to_half(s):
     """将全角字符转换为半角"""

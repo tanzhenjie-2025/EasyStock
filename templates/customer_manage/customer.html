@@ -474,6 +474,9 @@
 <button class="btn btn-success" onclick="openRepaymentModal()">还款登记</button>
 <button class="btn btn-info" onclick="showExportModal()">📥 导出数据</button>
 <button class="btn btn-warning" onclick="showImportModal()">📤 导入数据</button>
+<button class="btn btn-outline-secondary" id="clearCacheBtn" onclick="clearCache()">
+        🔄 清理缓存
+    </button>
 {% endif %}
             </div>
         </div>
@@ -1415,5 +1418,33 @@
             }
         });
     }
+    
+    // ===================== 清理缓存 =====================
+function clearCache() {
+    // 防止重复点击
+    const btn = $('#clearCacheBtn');
+    if (btn.prop('disabled')) return;
+    btn.prop('disabled', true).text('清理中...');
+
+    $.ajax({
+        url: '/customer-manage/customer/clear-cache/',
+        type: 'POST',
+        headers: {'X-CSRFToken': getCsrfToken()},
+        dataType: 'json',
+        success: function(res) {
+            alert(res.msg);
+            if (res.code === 1) {
+                // 刷新当前列表（保留搜索关键词和状态）
+                searchCustomers(1);
+            }
+        },
+        error: function(xhr) {
+            alert('清理缓存失败：' + (xhr.responseJSON?.msg || '网络错误'));
+        },
+        complete: function() {
+            btn.prop('disabled', false).text('🔄 清理缓存');
+        }
+    });
+}
 </script>
 {% endblock %}
