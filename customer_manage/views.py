@@ -1376,18 +1376,23 @@ def customer_import(request):
             wb = load_workbook(file_obj)
             ws = wb.active
 
-            # ---------- 1. 读取表头，建立映射 ----------
-            headers = [cell.value for cell in ws[1]]
-            expected_map = {
-                '客户名称': 'name',
-                '所属区域': 'area',
-                '联系电话': 'phone',
-                '备注': 'remark',
-                '制单号': 'order_number'
-            }
-            col_mapping = get_column_mapping(headers, expected_map)
-            if col_mapping is None:
+            # ---------- 1. 读取表头，建立 显示名→列索引 映射 ----------
+            header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
+            col_map = {}
+            for idx, cell in enumerate(header_row):
+                if cell:
+                    col_map[str(cell).strip()] = idx
+
+            # 必须检查“客户名称”列是否存在
+            if '客户名称' not in col_map:
                 return JsonResponse({'code': 0, 'msg': 'Excel表头缺少“客户名称”列，请使用正确的导出模板'})
+
+            # 获取各列索引（允许缺失）
+            name_idx = col_map.get('客户名称')
+            area_idx = col_map.get('所属区域')
+            phone_idx = col_map.get('联系电话')
+            remark_idx = col_map.get('备注')
+            order_number_idx = col_map.get('制单号')
 
             new_count = 0
             skip_count = 0
@@ -1400,16 +1405,10 @@ def customer_import(request):
                 if not any(row):
                     continue
 
-                # 根据映射提取数据
-                name_idx = col_mapping.get('name')
-                area_idx = col_mapping.get('area')
-                phone_idx = col_mapping.get('phone')
-                remark_idx = col_mapping.get('remark')
-                order_number_idx = col_mapping.get('order_number')
-
                 # 转为列表方便按索引取
                 cells = [str(cell).strip() if cell else '' for cell in row]
 
+                # 按索引取值（若索引超出范围则取空字符串）
                 name = cells[name_idx] if name_idx is not None and name_idx < len(cells) else ''
                 area_name = cells[area_idx] if area_idx is not None and area_idx < len(cells) else ''
                 phone = cells[phone_idx] if phone_idx is not None and phone_idx < len(cells) else ''
