@@ -71,6 +71,7 @@ INSTALLED_APPS = [
     "customer_manage.apps.CustomerManageConfig",
     "operation_log.apps.OperationLogConfig",
 'dbbackup',
+'export_import.apps.ExportImportConfig',
 
 ]
 

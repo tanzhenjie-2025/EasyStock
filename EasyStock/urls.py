@@ -27,4 +27,5 @@ urlpatterns = [
     path('product/', include('product.urls')),
     path('accounts/', include('accounts.urls')),
     path('operation-log/', include('operation_log.urls')),
+path('export-import/', include('export_import.urls')),
 ]
