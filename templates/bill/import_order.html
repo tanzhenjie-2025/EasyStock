@@ -13,17 +13,12 @@
     }
     .upload-area:hover { border-color: #0d6efd; }
     .preview-table th, .preview-table td { vertical-align: middle; }
-    .text-warning { background-color: #fff3cd !important; }
-    .text-danger { background-color: #f8d7da !important; }
-    .new-badge { font-size: 0.75rem; }
-    /* 新增：价格冲突表格样式 */
-    .price-conflict-row { background-color: #f8d7da; }
-    #priceConflictContainer { border: 1px solid #dc3545; border-radius: 5px; padding: 15px; background: #f8f9fa; }
+    .skip-row { background-color: #f8d7da !important; }
 </style>
 {% endblock %}
 
 {% block content %}
-<h3>订单导入 <small class="text-muted">—— 上传 Excel 并预览确认</small></h3>
+<h3>订单导入 <small class="text-muted">—— 上传 Excel 并导入</small></h3>
 
 <!-- 步骤条 -->
 <div class="mb-4">
@@ -54,66 +49,20 @@
 
 <!-- 步骤2：预览 -->
 <div class="step" id="step2">
-    <div class="d-flex justify-content-between mb-2">
-        <h5>数据预览</h5>
-        <div>
-            <button class="btn btn-sm btn-outline-primary" id="allowAllNew">一键允许创建所有新基础数据</button>
-            <button class="btn btn-sm btn-outline-warning" id="skipAllWarnings">跳过所有警告订单</button>
-        </div>
-    </div>
-
-    <!-- 基础数据预览 -->
-    <ul class="nav nav-tabs" id="previewTabs" role="tablist">
-        <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-orders">订单明细</a></li>
-        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-areas">新建区域</a></li>
-        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-products">新建商品</a></li>
-        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-customers">新建客户</a></li>
-    </ul>
-
-    <div class="tab-content mt-3">
-        <div class="tab-pane fade show active" id="tab-orders">
-            <table class="table table-bordered preview-table">
-                <thead>
-                    <tr>
-                        <th><input type="checkbox" id="selectAllOrders"></th>
-                        <th>订单编号</th><th>客户</th><th>区域</th><th>商品明细</th><th>状态</th><th>警告</th><th>操作</th>
-                    </tr>
-                </thead>
-                <tbody id="orderPreviewBody"></tbody>
-            </table>
-        </div>
-        <div class="tab-pane fade" id="tab-areas">
-            <table class="table">
-                <thead><tr><th>区域名称</th><th>操作</th></tr></thead>
-                <tbody id="areaPreviewBody"></tbody>
-            </table>
-        </div>
-        <!-- 新建商品标签页 -->
-<div class="tab-pane fade" id="tab-products">
-    <table class="table table-bordered">
+    <h5>订单预览</h5>
+    <table class="table table-bordered preview-table">
         <thead>
             <tr>
-                <th>商品名</th>
-                <th>单位</th>
-                <th>规格</th>
-                <th>导入单价</th>
-                <th>系统价格</th>
-                <th>处理方式</th>
-                <th>操作</th>
+                <th>订单编号</th>
+                <th>客户</th>
+                <th>区域</th>
+                <th>商品明细</th>
+                <th>状态</th>
+                <th>警告</th>
             </tr>
         </thead>
-        <tbody id="productPreviewBody"></tbody>
+        <tbody id="orderPreviewBody"></tbody>
     </table>
-    <!-- 不再需要独立的冲突区域 -->
-</div>
-        <div class="tab-pane fade" id="tab-customers">
-            <table class="table">
-                <thead><tr><th>客户名</th><th>所属区域</th><th>操作</th></tr></thead>
-                <tbody id="customerPreviewBody"></tbody>
-            </table>
-        </div>
-    </div>
-
     <div class="mt-3">
         <button class="btn btn-secondary" onclick="goToStep(1)">返回</button>
         <button class="btn btn-success" id="confirmImportBtn">确认导入</button>
@@ -130,153 +79,58 @@
 
 {% block extra_js %}
 <script>
-// 全局变量
 let previewData = null;
 
-// 全局函数（供 onclick 或其他地方调用）
 function goToStep(num) {
-    const steps = document.querySelectorAll('.step');
-    steps.forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
     document.getElementById(`step${num}`).classList.add('active');
-    const indicators = document.querySelectorAll('.step-indicator');
-    indicators.forEach(ind => ind.classList.remove('active'));
+    document.querySelectorAll('.step-indicator').forEach(ind => ind.classList.remove('active'));
     document.getElementById(`step${num}Indicator`).classList.add('active');
 }
 
 function renderPreview() {
     if (!previewData) return;
-
-    // ========== 1. 订单明细 ==========
-    let ordersHtml = '';
-    previewData.orders.forEach((o, idx) => {
+    let html = '';
+    previewData.orders.forEach(o => {
         const itemsStr = o.items.map(i => {
-            const conflictMark = i.price_conflict ? ' ⚠️' : '';
-            const makeupBadge = i.is_makeup ? ' <span class="badge bg-info">补货</span>' : '';
-            const priceShow = i.is_makeup ? '0（补）' : i.price;
-            return `${i.product_name}${conflictMark}${makeupBadge}(${i.unit}) x${i.qty}  ¥${priceShow}`;
+            const makeup = i.is_makeup ? ' <span class="badge bg-info">补货</span>' : '';
+            return `${i.product_name}${makeup} (${i.unit}) x${i.qty}  ¥${i.price}`;
         }).join('<br>');
-
         const warnings = o.warnings.map(w => `<span class="badge bg-warning text-dark">${w}</span>`).join(' ');
-        const skipChecked = o.skip ? '' : 'checked';
-        const hasConflict = o.items.some(item => item.price_conflict);
-        const rowClass = hasConflict ? 'text-danger' : (o.warnings.length ? 'text-warning' : '');
-
-        ordersHtml += `
-        <tr class="${rowClass}">
-            <td><input type="checkbox" class="order-select" data-index="${idx}" ${skipChecked}></td>
+        const rowClass = o.skip ? 'skip-row' : '';
+        html += `<tr class="${rowClass}">
             <td>${o.order_no}</td>
             <td>${o.raw_customer_name}</td>
             <td>${o.area_name}</td>
             <td>${itemsStr}</td>
             <td>${o.status}</td>
             <td>${warnings}</td>
-            <td><button class="btn btn-sm btn-danger remove-order" data-index="${idx}">跳过</button></td>
         </tr>`;
     });
-    $('#orderPreviewBody').html(ordersHtml);
-
-    // ========== 2. 新建区域 ==========
-    const areaHtml = previewData.new_areas.map(a => `
-        <tr>
-            <td contenteditable="true" class="edit-area-name">${a}</td>
-            <td><button class="btn btn-sm btn-warning remove-new-area">不创建</button></td>
-        </tr>
-    `).join('');
-    $('#areaPreviewBody').html(areaHtml);
-
-    // ========== 3. 新建商品（包含冲突和不存在商品） ==========
-    const productHtml = previewData.new_products.map((p, idx) => {
-        const exists = p.exists || false;
-        const dbPrice = p.db_price || '';
-        const action = p.action || 'overwrite';
-        let actionOptions = '';
-        if (exists) {
-            actionOptions = `
-                <select class="prod-action" data-index="${idx}">
-                    <option value="overwrite" ${action==='overwrite'?'selected':''}>覆盖价格</option>
-                    <option value="create" ${action==='create'?'selected':''}>新建商品</option>
-                </select>
-            `;
-        } else {
-            actionOptions = `<span>新建</span><input type="hidden" class="prod-action" value="create">`;
-        }
-        const originalName = p.original_name || p.name;
-        const originalUnit = p.original_unit || p.unit;
-        return `
-            <tr data-index="${idx}" data-original-name="${originalName}" data-original-unit="${originalUnit}">
-                <td contenteditable="true" class="edit-prod-name">${p.name}</td>
-                <td contenteditable="true" class="edit-prod-unit">${p.unit}</td>
-                <td contenteditable="true" class="edit-prod-spec">${p.spec || ''}</td>
-                <td contenteditable="true" class="edit-prod-price">${p.price}</td>
-                <td>${exists ? dbPrice : '—'}</td>
-                <td>${actionOptions}</td>
-                <td><button class="btn btn-sm btn-warning remove-new-product">移除</button></td>
-            </tr>
-        `;
-    }).join('');
-    $('#productPreviewBody').html(productHtml);
-
-    // ========== 4. 新建客户 ==========
-    const customerHtml = previewData.new_customers.map(c => `
-        <tr>
-            <td contenteditable="true" class="edit-cust-name">${c.name}</td>
-            <td contenteditable="true" class="edit-cust-area">${c.area}</td>
-            <td><button class="btn btn-sm btn-warning remove-new-customer">不创建</button></td>
-        </tr>
-    `).join('');
-    $('#customerPreviewBody').html(customerHtml);
-
-    // ========== 5. 事件绑定 ==========
-    $('.remove-order').click(function() {
-        const idx = $(this).data('index');
-        previewData.orders[idx].skip = true;
-        $(this).closest('tr').addClass('text-danger');
-        $(this).closest('tr').find('.order-select').prop('checked', true);
-    });
-    $('.remove-new-area, .remove-new-product, .remove-new-customer').click(function() {
-        $(this).closest('tr').remove();
-    });
-    $('#selectAllOrders').change(function() {
-        $('.order-select').prop('checked', this.checked);
-    });
+    document.getElementById('orderPreviewBody').innerHTML = html;
 }
 
 function getCsrfToken() {
-    let cookieValue = null;
-    if (document.cookie && document.cookie !== '') {
-        const cookies = document.cookie.split(';');
-        for (let i = 0; i < cookies.length; i++) {
-            const cookie = cookies[i].trim();
-            if (cookie.substring(0, 10) === 'csrftoken=') {
-                cookieValue = decodeURIComponent(cookie.substring(10));
-                break;
-            }
-        }
-    }
-    return cookieValue;
+    const match = document.cookie.match(/csrftoken=([^;]+)/);
+    return match ? match[1] : null;
 }
 
-// DOM 加载完成后绑定所有事件
 document.addEventListener('DOMContentLoaded', function() {
-    // ----- 上传区域 -----
     const uploadArea = document.getElementById('uploadArea');
     const fileInput = document.getElementById('excelFileInput');
-    uploadArea.addEventListener('click', function(e) {
-        fileInput.click();
-    });
+    uploadArea.addEventListener('click', () => fileInput.click());
 
     fileInput.addEventListener('change', function() {
         const file = this.files[0];
         if (!file) return;
         const formData = new FormData();
         formData.append('file', file);
-        formData.append('csrfmiddlewaretoken', getCsrfToken());
 
         document.getElementById('uploadMsg').innerHTML = '<div class="alert alert-info">正在解析...</div>';
         fetch('{% url "bill:import_orders_preview" %}', {
             method: 'POST',
             body: formData,
-            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': getCsrfToken() }
         })
         .then(res => res.json())
         .then(data => {
@@ -293,123 +147,45 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // ----- 其他按钮 -----
-    $('#allowAllNew').click(() => {
-        alert('所有显示的基础数据将在导入时创建');
-    });
-
-    $('#skipAllWarnings').click(() => {
+    document.getElementById('confirmImportBtn').addEventListener('click', function() {
         if (!previewData) return;
-        previewData.orders.forEach(o => {
-            if (o.warnings.length) o.skip = true;
-        });
-        renderPreview();
-    });
+        const btn = this;
+        btn.disabled = true;
+        btn.textContent = '导入中...';
 
-    // ===== 确认导入按钮（增加覆盖商品收集） =====
-    $('#confirmImportBtn').click(function() {
-    const $btn = $(this);
-    if ($btn.prop('disabled')) return;
-
-    if (!previewData) {
-        alert('没有预览数据，请先上传文件');
-        return;
-    }
-
-    $btn.prop('disabled', true).text('导入中...');
-    $('#importResult').html('<div class="alert alert-info"><i class="bi bi-hourglass-split"></i> 正在导入订单，请稍候…</div>');
-
-    // 1. 收集订单数据
-    const finalOrders = previewData.orders.map((o, idx) => {
-        const checkbox = $(`.order-select[data-index="${idx}"]`);
-        if (checkbox.length) {
-            o.skip = !checkbox.prop('checked');
-        }
-        return o;
-    });
-
-    // 2. 收集新建区域
-    const newAreas = [];
-    $('#areaPreviewBody tr').each(function() {
-        const name = $(this).find('.edit-area-name').text().trim();
-        if (name) newAreas.push({ name });
-    });
-
-    // 3. 收集新建商品（包含处理方式）
-    const newProducts = [];
-    $('#productPreviewBody tr').each(function() {
-        const $tr = $(this);
-        const name = $tr.find('.edit-prod-name').text().trim();
-        const unit = $tr.find('.edit-prod-unit').text().trim();
-        const spec = $tr.find('.edit-prod-spec').text().trim();
-        const price = $tr.find('.edit-prod-price').text().trim();
-        if (!name) return;
-
-        const originalName = $tr.data('original-name') || name;
-        const originalUnit = $tr.data('original-unit') || unit;
-        let action = $tr.find('.prod-action').val();
-        if (!action) action = 'create';
-
-        newProducts.push({
-            original_name: originalName,
-            original_unit: originalUnit,
-            name: name,
-            unit: unit,
-            spec: spec,
-            price: price,
-            action: action,
-        });
-    });
-
-    // 4. 收集新建客户
-    const newCustomers = [];
-    $('#customerPreviewBody tr').each(function() {
-        const name = $(this).find('.edit-cust-name').text().trim();
-        const area = $(this).find('.edit-cust-area').text().trim();
-        if (name) newCustomers.push({ name, area });
-    });
-
-    // 5. 组装提交数据
-    const payload = {
-        orders: finalOrders,
-        new_areas: newAreas,
-        new_products: newProducts,
-        new_customers: newCustomers,
-    };
-
-    // 6. 发起请求
-    fetch('{% url "bill:import_orders_confirm" %}', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRFToken': getCsrfToken(),
-            'X-Requested-With': 'XMLHttpRequest',
-        },
-        body: JSON.stringify(payload)
-    })
-    .then(res => res.json())
-    .then(data => {
-        let html = '';
-        if (data.code === 1) {
-            html += `<div class="alert alert-success">${data.msg}</div>`;
-            if (data.errors && data.errors.length) {
-                html += '<div class="alert alert-warning"><ul>' + data.errors.map(e => `<li>${e}</li>`).join('') + '</ul></div>';
+        // 提交时只传 orders（不再包含新基础数据）
+        fetch('{% url "bill:import_orders_confirm" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken(),
+                'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: JSON.stringify({ orders: previewData.orders })
+        })
+        .then(res => res.json())
+        .then(data => {
+            let html = '';
+            if (data.code === 1) {
+                html += `<div class="alert alert-success">${data.msg}</div>`;
+                if (data.errors.length) {
+                    html += '<div class="alert alert-warning"><ul>' + data.errors.map(e => `<li>${e}</li>`).join('') + '</ul></div>';
+                }
+            } else {
+                html += `<div class="alert alert-danger">${data.msg}</div>`;
             }
-        } else {
-            html += `<div class="alert alert-danger">${data.msg}</div>`;
-        }
-        $('#importResult').html(html);
-        goToStep(3);
-    })
-    .catch(err => {
-        $('#importResult').html(`<div class="alert alert-danger">导入请求失败：${err.message}</div>`);
-    })
-    .finally(() => {
-        $btn.prop('disabled', false).text('确认导入');
+            document.getElementById('importResult').innerHTML = html;
+            goToStep(3);
+        })
+        .catch(err => {
+            document.getElementById('importResult').innerHTML = `<div class="alert alert-danger">导入请求失败：${err.message}</div>`;
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.textContent = '确认导入';
+        });
     });
-});
 
-    // 初始化步骤
     goToStep(1);
 });
 </script>
