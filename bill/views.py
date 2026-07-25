@@ -2357,10 +2357,10 @@ def import_orders_preview(request):
             new_customers.append({
                 'name': name,
                 'area': pure_name_area.get(name, ''),
-                'order_number': customer_order_number_map.get(name, ''),  # 新增制单号字段
+                'order_number': customer_order_number_map.get(name, ''),
             })
 
-    # ----- 已存在订单编号 -----
+    # ----- 已存在订单编号（改为获取已存在订单信息，不再直接跳过）-----
     all_order_nos = [g['order_no'] for g in order_groups.values() if g['order_no']]
     existing_orders = set(
         Order.objects.filter(order_no__in=all_order_nos).values_list('order_no', flat=True)
@@ -2386,19 +2386,18 @@ def import_orders_preview(request):
         items_preview = []
         order_status = g['items'][0]['status']
         duplicate = order_no in existing_orders if order_no else False
+
+        # 警告信息（已存在订单会提示将更新审核状态）
+        warnings = []
+        if duplicate:
+            warnings.append('该订单已存在，导入后将更新为已审核状态（价格将覆盖现有商品）')
         creator_warning = ''
         if g['creator_username'] and g['creator_username'] not in user_map:
             creator_warning = f"用户 '{g['creator_username']}' 不存在，将使用当前用户"
+            warnings.append(creator_warning)
         settled_by_warning = ''
         if g['settled_by_username'] and g['settled_by_username'] not in user_map:
             settled_by_warning = f"用户 '{g['settled_by_username']}' 不存在"
-
-        warnings = []
-        if duplicate:
-            warnings.append('订单编号已存在')
-        if creator_warning:
-            warnings.append(creator_warning)
-        if settled_by_warning:
             warnings.append(settled_by_warning)
 
         for item in g['items']:
@@ -2417,9 +2416,8 @@ def import_orders_preview(request):
                 'price_conflict': item_conflict,
             })
 
-        order_warnings = warnings[:]
         if any(item.get('price_conflict', False) for item in items_preview):
-            order_warnings.append('存在商品价格与系统不一致，请在"新建商品"标签页处理')
+            warnings.append('存在商品价格与系统不一致，将在导入时自动更新')
 
         order_preview_list.append({
             'order_no': order_no,
@@ -2434,16 +2432,17 @@ def import_orders_preview(request):
             'settled_by_username': g['settled_by_username'],
             'settled_time': g['settled_time'].strftime('%Y-%m-%d %H:%M:%S') if g['settled_time'] else '',
             'order_number_snapshot': g.get('order_number_snapshot', ''),
-            'is_verified': g.get('is_verified', False),  # 新增
+            'is_verified': g.get('is_verified', False),
             'items': items_preview,
-            'warnings': order_warnings,
-            'skip': duplicate,
+            'warnings': warnings,
+            'skip': False,            # 核心修改：不再跳过已存在的订单
+            'duplicate': duplicate,   # 传递是否已存在标识，方便前端特殊展示
         })
 
     preview_data = {
         'new_areas': new_areas,
         'new_products': new_products,
-        'new_customers': new_customers,           # 现在包含 order_number
+        'new_customers': new_customers,
         'orders': order_preview_list,
         'parse_errors': data['row_errors'],
     }
@@ -2454,7 +2453,7 @@ def import_orders_preview(request):
 @login_required
 @permission_required(PERM_ORDER_CREATE)
 def import_orders_confirm(request):
-    """第二步：接收用户确认的数据，执行导入（区分审核状态）"""
+    """第二步：接收用户确认的数据，执行导入（区分新建/更新，审核标记按需设置）"""
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST'})
 
@@ -2472,13 +2471,12 @@ def import_orders_confirm(request):
     if not valid_orders:
         return JsonResponse({'code': 0, 'msg': '没有可导入的订单，请检查是否全被跳过'})
 
-    # ---- 0. 批量预查订单号是否已存在（避免 N+1） ----
+    # ---- 0. 预查已存在订单 ----
     all_order_nos = [o['order_no'] for o in valid_orders if o.get('order_no')]
-    existing_order_nos = set()
+    existing_orders_map = {}
     if all_order_nos:
-        existing_order_nos = set(
-            Order.objects.filter(order_no__in=all_order_nos).values_list('order_no', flat=True)
-        )
+        existing_orders_qs = Order.objects.filter(order_no__in=all_order_nos)
+        existing_orders_map = {o.order_no: o for o in existing_orders_qs}
 
     # ---- 1. 处理区域 ----
     area_map = {}
@@ -2493,27 +2491,13 @@ def import_orders_confirm(request):
             fresh = Area.objects.filter(name__in=missing).values('name', 'id')
             area_map.update({a['name']: a['id'] for a in fresh})
 
-    # ---- 2. 处理商品（区分审核状态：仅未审核订单才进行价格检测与覆盖/新建） ----
-    # 收集未审核订单所涉及的所有商品键 (name, unit)
-    unverified_product_keys = set()
-    for order in valid_orders:
-        if not order.get('is_verified', False):
-            for item in order.get('items', []):
-                pname = item.get('product_name', '')
-                unit = item.get('unit', '')
-                if pname:
-                    unverified_product_keys.add((pname, unit))
-
+    # ---- 2. 处理商品（所有导入均执行创建/覆盖，不区分审核状态） ----
     product_map = {}
     product_error_messages = []
+
     for p in new_products_data:
         original_name = p.get('original_name', p['name'])
         original_unit = p.get('original_unit', p['unit'])
-        key = (original_name, original_unit)
-        # 仅处理属于未审核订单的商品
-        if key not in unverified_product_keys:
-            continue
-
         action = p.get('action', 'create')
         new_name = p['name'].strip()
         new_unit = p['unit'].strip()
@@ -2526,7 +2510,7 @@ def import_orders_confirm(request):
                 if prod.price != new_price:
                     prod.price = new_price
                     prod.save(update_fields=['price'])
-                product_map[key] = prod
+                product_map[(original_name, original_unit)] = prod
             except Product.DoesNotExist:
                 product_error_messages.append(f'覆盖价格失败：商品 {original_name}（{original_unit}）不存在或已禁用')
                 continue
@@ -2548,7 +2532,7 @@ def import_orders_confirm(request):
                 pinyin_abbr=pinyin_abbr,
             )
             new_prod.save()
-            product_map[key] = new_prod
+            product_map[(new_name, new_unit)] = new_prod
         else:
             product_error_messages.append(f'未知操作类型：{action}，商品 {original_name} 处理失败')
 
@@ -2579,7 +2563,7 @@ def import_orders_confirm(request):
             new_cust.save()
             customer_map[cname] = new_cust
 
-    # ---- 4. 预加载所有订单需要的基础数据（区域、商品、客户） ----
+    # ---- 4. 预加载基础数据 ----
     all_area_names = set()
     all_product_keys = set()
     all_customer_names = set()
@@ -2609,7 +2593,7 @@ def import_orders_confirm(request):
                 if obj:
                     area_full_map[name] = obj
 
-    # 商品（合并系统已有商品和本次新建/覆盖的商品）
+    # 商品
     if all_product_keys:
         q = Q()
         for name, unit in all_product_keys:
@@ -2639,7 +2623,7 @@ def import_orders_confirm(request):
         users = User.objects.filter(username__in=all_creator_usernames | all_settled_usernames)
         user_map = {u.username: u for u in users}
 
-    # ---- 6. 处理已存在客户的制单号更新（若客户存在且制单号为空，则用导入的制单号快照填充） ----
+    # ---- 6. 制单号更新（已存在客户且为空则填充） ----
     for order in valid_orders:
         customer = customer_full_map.get(order.get('pure_customer_name'))
         if customer and not customer.order_number:
@@ -2652,11 +2636,10 @@ def import_orders_confirm(request):
     success = 0
     errors = []
     with transaction.atomic():
-        for idx, order_data in enumerate(valid_orders):
+        for order_data in valid_orders:
             order_no = order_data['order_no']
-            # 使用预查集合判断是否已存在
-            if order_no in existing_order_nos:
-                errors.append(f'订单 {order_no} 已存在，跳过')
+            if not order_no:
+                errors.append('订单编号不能为空，跳过')
                 continue
 
             try:
@@ -2665,36 +2648,41 @@ def import_orders_confirm(request):
                     errors.append(f'订单 {order_no} 缺少明细行，跳过')
                     continue
 
-                status = order_data['status']
-                area = area_full_map.get(order_data.get('area_name'))
-                customer = customer_full_map.get(order_data.get('pure_customer_name'))
-                creator = user_map.get(order_data.get('creator_username', ''), request.user)
-                create_time_str = order_data.get('create_time')
-                create_time = timezone.now()
-                if create_time_str:
-                    try:
-                        create_time = timezone.make_aware(datetime.strptime(create_time_str, '%Y-%m-%d %H:%M:%S'))
-                    except:
-                        pass
+                is_existing = order_no in existing_orders_map
+                if is_existing:
+                    order = existing_orders_map[order_no]
+                    # 更新部分字段
+                    order.customer_name_snapshot = order_data.get('raw_customer_name', '')
+                    order.area = area_full_map.get(order_data.get('area_name'))
+                    order.customer = customer_full_map.get(order_data.get('pure_customer_name'))
+                    order.order_number_snapshot = order_data.get('order_number_snapshot', '')
+                    order.is_verified = True          # 已存在订单 → 审核通过
+                    order.items.all().delete()        # 清除旧明细
+                else:
+                    order = Order()
+                    order.order_no = order_no
+                    order.customer_name_snapshot = order_data.get('raw_customer_name', '')
+                    order.area = area_full_map.get(order_data.get('area_name'))
+                    order.customer = customer_full_map.get(order_data.get('pure_customer_name'))
+                    order.creator = user_map.get(order_data.get('creator_username', ''), request.user)
+                    order.status = order_data['status']
+                    order.order_number_snapshot = order_data.get('order_number_snapshot', '')
+                    order.is_settled = False
+                    order.received_amount = Decimal('0')
+                    create_time_str = order_data.get('create_time')
+                    create_time = timezone.now()
+                    if create_time_str:
+                        try:
+                            create_time = timezone.make_aware(datetime.strptime(create_time_str, '%Y-%m-%d %H:%M:%S'))
+                        except:
+                            pass
+                    order.create_time = create_time
+                    order.is_verified = False         # 新订单 → 不审核
 
-                order = Order(
-                    order_no=order_no if order_no else '',
-                    customer_name_snapshot=order_data.get('raw_customer_name', ''),
-                    area=area,
-                    customer=customer,
-                    creator=creator,
-                    total_amount=0,
-                    status=status,
-                    order_number_snapshot=order_data.get('order_number_snapshot', ''),
-                    is_settled=False,
-                    received_amount=Decimal('0'),
-                    create_time=create_time,
-                    is_verified=True,   # 导入即审核
-                )
                 order.save()
 
-                # 处理结清状态（仅针对非作废订单）
-                if status != 'cancelled':
+                # 仅对新订单处理结清状态
+                if not is_existing and order.status != 'cancelled':
                     is_settled = order_data.get('is_settled', False)
                     received = Decimal(order_data.get('received_amount', '0'))
                     if is_settled or received > 0:
@@ -2710,6 +2698,7 @@ def import_orders_confirm(request):
                                 pass
                         order.save(update_fields=['is_settled', 'received_amount', 'settled_by', 'settled_time'])
 
+                # 创建明细
                 total = Decimal('0')
                 items_to_create = []
                 for item in order_data['items']:
@@ -2742,7 +2731,7 @@ def import_orders_confirm(request):
                 success += 1
 
             except Exception as e:
-                errors.append(f'订单 {order_data.get("order_no", "未知")} 导入失败: {str(e)}')
+                errors.append(f'订单 {order_no} 导入失败: {str(e)}')
 
     clear_order_cache()
     return JsonResponse({
