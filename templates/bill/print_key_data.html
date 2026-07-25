@@ -135,8 +135,8 @@
 </head>
 <body>
     <div class="no-print" style="text-align: center; margin: 20px;">
-        <button onclick="window.print()">打印关键数据</button>
-        <button onclick="window.close()">关闭</button>
+        <button onclick="autoPrintAndMark()">打印关键数据</button>
+<a href="/bill/"><button>返回开单页</button></a>
     </div>
 
     <div class="bill-print">
@@ -234,16 +234,20 @@
     {{ order_number_display }}
 </span>
                 </div>
-                <!-- 如有退货提示，也可按需保留，这里先隐藏 -->
-                <div class="field-group hide-row">
-                    <strong>客服留言：</strong>
-                    <span style="font-size: 22px; font-weight: bold;">带回退货</span>
-                </div>
+               
             </div>
         </div>
     </div>
 
     <script>
+    // 回车键返回开单页
+    document.addEventListener('keydown', function(e) {
+        if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && e.key === 'Enter') {
+            e.preventDefault();
+            window.location.href = '/bill/';
+        }
+    });
+
     function getCookie(name) {
         let cookieValue = null;
         if (document.cookie && document.cookie !== '') {
@@ -282,8 +286,6 @@
         };
         window.print();
     }
-
-    window.onload = autoPrintAndMark;
 </script>
 </body>
 </html>

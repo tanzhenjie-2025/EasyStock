@@ -404,9 +404,7 @@
                 .then(r => r.json())
                 .then(data => {
                     console.log(data.msg);
-                    if (data.code === 1) {
-                        alert("所有订单已标记为已打印");
-                    }
+                    
                 });
                 window.onafterprint = null;
             };
