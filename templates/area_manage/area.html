@@ -201,6 +201,147 @@
         let currentPage = 1; 
         let currentStatus = 'all';
         let customFieldCount = 0;
+        
+        // ========== 导入弹窗 ==========
+function showImportModal() {
+    // 如果用户无权限，阻止操作（can_add 已在模板中判断，此处可二次确认）
+    if (!PERM.can_add) {
+        showToast('您没有导入权限', 'error');
+        return;
+    }
+
+    // 移除可能已存在的导入模态框（防止重复）
+    document.querySelectorAll('.import-modal-overlay').forEach(el => el.remove());
+
+    // 创建模态框 HTML（使用纯 JS，不依赖 Bootstrap）
+    const modalHtml = `
+        <div class="import-modal-overlay form-modal-overlay" style="display:flex; align-items:center; justify-content:center;">
+            <div class="form-modal-box" style="width:400px;">
+                <div class="modal-header">
+                    <h3 class="modal-title">📤 导入区域数据</h3>
+                    <button class="modal-close" id="importModalClose">×</button>
+                </div>
+                <div class="modal-body">
+                    <p style="margin-bottom:15px; color:#666;">请选择 Excel 文件（.xlsx / .xls），表头需包含 <strong>“区域名”</strong> 列。</p>
+                    <div class="form-group">
+                        <label class="form-label">选择文件</label>
+                        <input type="file" class="form-input" id="importFileInput" accept=".xlsx,.xls">
+                    </div>
+                    <div id="importProgress" style="display:none; margin-top:10px;">
+                        <span>上传中...</span>
+                        <div style="width:100%; height:4px; background:#eee; border-radius:2px; margin-top:5px;">
+                            <div id="importProgressBar" style="width:0%; height:100%; background:#007bff; border-radius:2px; transition:width 0.3s;"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="modal-btn modal-btn-cancel" id="importModalCancel">取消</button>
+                    <button class="modal-btn modal-btn-confirm" id="importModalConfirm">确认导入</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    const overlay = document.querySelector('.import-modal-overlay');
+    const closeBtn = document.querySelector('#importModalClose');
+    const cancelBtn = document.querySelector('#importModalCancel');
+    const confirmBtn = document.querySelector('#importModalConfirm');
+    const fileInput = document.querySelector('#importFileInput');
+    const progressDiv = document.querySelector('#importProgress');
+    const progressBar = document.querySelector('#importProgressBar');
+
+    // 显示模态框
+    setTimeout(() => overlay.classList.add('active'), 10);
+
+    const closeModal = () => {
+        overlay.classList.remove('active');
+        setTimeout(() => overlay.remove(), 300);
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+    cancelBtn.addEventListener('click', closeModal);
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) closeModal();
+    });
+
+    // 确认导入
+    confirmBtn.addEventListener('click', function() {
+        const file = fileInput.files[0];
+        if (!file) {
+            showToast('请选择文件', 'warning');
+            fileInput.focus();
+            return;
+        }
+        // 检查文件扩展名
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (!['xlsx', 'xls'].includes(ext)) {
+            showToast('仅支持 .xlsx 或 .xls 格式', 'warning');
+            fileInput.value = '';
+            return;
+        }
+
+        // 禁用按钮，显示进度
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = '上传中...';
+        progressDiv.style.display = 'block';
+        progressBar.style.width = '0%';
+
+        const formData = new FormData();
+        formData.append('file', file);
+
+        $.ajax({
+            url: '/area-manage/api/area/import/',
+            type: 'POST',
+            data: formData,
+            headers: { 'X-CSRFToken': getCsrfToken() },
+            processData: false,
+            contentType: false,
+            xhr: function() {
+                const xhr = new window.XMLHttpRequest();
+                xhr.upload.addEventListener('progress', function(evt) {
+                    if (evt.lengthComputable) {
+                        const percent = (evt.loaded / evt.total) * 100;
+                        progressBar.style.width = percent + '%';
+                    }
+                }, false);
+                return xhr;
+            },
+            success: function(res) {
+                showToast(res.msg, res.code === 1 ? 'success' : 'error');
+                if (res.code === 1) {
+                    load();  // 刷新列表
+                    closeModal();
+                } else {
+                    // 失败时不关闭，用户可以重试
+                    confirmBtn.disabled = false;
+                    confirmBtn.textContent = '确认导入';
+                    progressDiv.style.display = 'none';
+                    progressBar.style.width = '0%';
+                }
+            },
+            error: function(xhr) {
+                let msg = '导入失败，请重试';
+                if (xhr.responseJSON && xhr.responseJSON.msg) {
+                    msg = xhr.responseJSON.msg;
+                }
+                showToast(msg, 'error');
+                confirmBtn.disabled = false;
+                confirmBtn.textContent = '确认导入';
+                progressDiv.style.display = 'none';
+                progressBar.style.width = '0%';
+            }
+        });
+    });
+
+    // ESC 键关闭
+    document.addEventListener('keydown', function escHandler(e) {
+        if (e.key === 'Escape') {
+            closeModal();
+            document.removeEventListener('keydown', escHandler);
+        }
+    });
+}
 
         // 吐司提示
         function showToast(message, type = 'info', duration = 3000) {
@@ -302,10 +443,7 @@
             });
         }
 
-        // 导入弹窗（仅 can_add 可见，函数保留但前端按钮已隐藏）
-        function showImportModal() {
-            // 同原代码...
-        }
+      
         
         function refreshCache() {
     var $btn = $('#btn-refresh-cache');
