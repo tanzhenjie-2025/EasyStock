@@ -59,4 +59,10 @@ path('print-empty-template/', views.print_empty_template, name='print_empty_temp
 path('print-key-data/<str:order_no>/', views.print_key_data, name='print_key_data'),
 path('batch-print-key-data/', views.batch_print_key_data, name='batch_print_key_data'),
 
+# 审核
+
+    path('audit/preview/', views.audit_orders_preview, name='audit_orders_preview'),
+    path('audit/confirm/', views.audit_orders_confirm, name='audit_orders_confirm'),
+    path('audit/', views.audit_order_page, name='audit_order_page'),
+
 ]

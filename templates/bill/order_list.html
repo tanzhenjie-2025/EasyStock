@@ -295,6 +295,9 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
     </span>
     <span>
         {% if request.user.role and request.user.role.code != 'operator' %}
+            <a href="{% url 'bill:audit_order_page' %}" class="btn btn-sm btn-outline-warning ms-2">
+    <i class="bi bi-check2-circle"></i> 订单审核
+</a>
             <a href="{% url 'bill:price_check' %}" class="btn btn-sm btn-outline-danger ms-2">
                 <i class="bi bi-calculator"></i> 价格核算
             </a>
@@ -309,7 +312,7 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
             </a>
             <input type="file" id="importOrderFile" accept=".xlsx" style="display: none;" />
         {% endif %}
-    
+
     <!-- 位置：订单列表模板，<h3> 内部右侧按钮组，在清理缓存按钮之前 -->
 <span class="ms-3">
     <input type="number" id="emptyTemplateCount" class="form-control form-control-sm d-inline-block"
@@ -473,23 +476,23 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
 <div class="mb-4">
     <div class="d-flex align-items-center flex-wrap">
         <span class="me-3 text-muted">订单状态：</span>
-        <a href="?{% if request.GET.urlencode %}{{ request.GET.urlencode|cut:'&status='|cut:'status=all'|cut:'status=normal'|cut:'status=cancelled'|cut:'status=settled'|cut:'status=unsettled' }}{% endif %}&status=all" 
+        <a href="?{% if request.GET.urlencode %}{{ request.GET.urlencode|cut:'&status='|cut:'status=all'|cut:'status=normal'|cut:'status=cancelled'|cut:'status=settled'|cut:'status=unsettled' }}{% endif %}&status=all"
            class="status-tab {% if status == 'all' %}active{% endif %}">
             全部 ({{ count_all }})
         </a>
-        <a href="?{% if request.GET.urlencode %}{{ request.GET.urlencode|cut:'&status='|cut:'status=all'|cut:'status=normal'|cut:'status=cancelled'|cut:'status=settled'|cut:'status=unsettled' }}{% endif %}&status=normal" 
+        <a href="?{% if request.GET.urlencode %}{{ request.GET.urlencode|cut:'&status='|cut:'status=all'|cut:'status=normal'|cut:'status=cancelled'|cut:'status=settled'|cut:'status=unsettled' }}{% endif %}&status=normal"
            class="status-tab {% if status == 'normal' %}active{% endif %}">
             正常 ({{ count_normal }})
         </a>
-        <a href="?{% if request.GET.urlencode %}{{ request.GET.urlencode|cut:'&status='|cut:'status=all'|cut:'status=normal'|cut:'status=cancelled'|cut:'status=settled'|cut:'status=unsettled' }}{% endif %}&status=settled" 
+        <a href="?{% if request.GET.urlencode %}{{ request.GET.urlencode|cut:'&status='|cut:'status=all'|cut:'status=normal'|cut:'status=cancelled'|cut:'status=settled'|cut:'status=unsettled' }}{% endif %}&status=settled"
            class="status-tab settled-tab {% if status == 'settled' %}active{% endif %}">
             已结清 ({{ count_settled }})
         </a>
-        <a href="?{% if request.GET.urlencode %}{{ request.GET.urlencode|cut:'&status='|cut:'status=all'|cut:'status=normal'|cut:'status=cancelled'|cut:'status=settled'|cut:'status=unsettled' }}{% endif %}&status=unsettled" 
+        <a href="?{% if request.GET.urlencode %}{{ request.GET.urlencode|cut:'&status='|cut:'status=all'|cut:'status=normal'|cut:'status=cancelled'|cut:'status=settled'|cut:'status=unsettled' }}{% endif %}&status=unsettled"
            class="status-tab unsettled-tab {% if status == 'unsettled' %}active{% endif %}">
             未结清 ({{ count_unsettled }})
         </a>
-        <a href="?{% if request.GET.urlencode %}{{ request.GET.urlencode|cut:'&status='|cut:'status=all'|cut:'status=normal'|cut:'status=cancelled'|cut:'status=settled'|cut:'status=unsettled' }}{% endif %}&status=cancelled" 
+        <a href="?{% if request.GET.urlencode %}{{ request.GET.urlencode|cut:'&status='|cut:'status=all'|cut:'status=normal'|cut:'status=cancelled'|cut:'status=settled'|cut:'status=unsettled' }}{% endif %}&status=cancelled"
            class="status-tab cancelled-tab {% if status == 'cancelled' %}active{% endif %}">
             已作废 ({{ count_cancelled }})
         </a>
@@ -514,7 +517,7 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
     </thead>
     <tbody>
         {% for order in orders %}
-        <tr 
+        <tr
             id="order-row-{{ order.order_no }}"
             class="order-row {% if not order.is_settled and order.status != 'cancelled' %}unsettled{% endif %} {% if order.status == 'cancelled' %}cancelled{% endif %} {% if order.status == 'reopened' %}table-warning{% endif %}"
             data-order-no="{{ order.order_no }}"
@@ -538,7 +541,7 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
                             无
                         {% endif %}</td>
             <td class="col-area">{{ order.area.name|default:"无" }}</td>
-            
+
             <!-- 🔥 核心修改：财务进度列 -->
             <td class="col-amount finance-cell">
                 {% if order.is_settled %}
@@ -675,8 +678,8 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
 
     {# 页码跳转输入框 #}
     <form class="d-flex align-items-center ms-2" onsubmit="return jumpToPage(event)">
-      <input type="number" class="form-control form-control-sm" id="jumpPageInput" 
-             placeholder="页码" min="1" max="{{ paginator.num_pages }}" 
+      <input type="number" class="form-control form-control-sm" id="jumpPageInput"
+             placeholder="页码" min="1" max="{{ paginator.num_pages }}"
              style="width: 80px;">
       <button type="submit" class="btn btn-sm btn-outline-secondary ms-1">跳转</button>
     </form>
@@ -870,8 +873,8 @@ $(document).ready(function() {
         updateSelectAllState();
         updateBatchBtnStatus();
     }
-    
-    
+
+
 
     function restoreSelection() {
         var stored = localStorage.getItem('selectedOrders');
@@ -1076,7 +1079,7 @@ $(document).ready(function() {
         var url = '{% url "bill:batch_print_orders" %}' + '?order_nos=' + selected.join(',');
         window.open(url, '_blank');
     });
-    
+
     $('#batchPrintDataBtn').click(function() {
     var stored = localStorage.getItem('selectedOrders');
     var selected = stored ? JSON.parse(stored) : [];
@@ -1213,8 +1216,8 @@ $(document).ready(function() {
         })
         .catch(function(err) { alert('作废失败：' + err.message); });
     };
-    
-    
+
+
 
     window.submitBatchSettle = function() {
         var orderList = [];

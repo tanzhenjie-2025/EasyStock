@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+
+{% block title %}订单审核 - EasyStock{% endblock %}
+
+{% block extra_css %}
+<style>
+    .summary-card {
+        border-left: 4px solid;
+    }
+    .summary-card.new { border-left-color: #0d6efd; }
+    .summary-card.conflict { border-left-color: #dc3545; }
+    .table td { vertical-align: middle; }
+    .order-list { max-height: 500px; overflow-y: auto; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h3 class="mb-4">
+    <i class="bi bi-check2-circle"></i> 订单审核
+    <small class="text-muted fs-6 ms-2">自动检测未审核订单并批量审核</small>
+</h3>
+
+<div id="loadingArea" class="text-center py-5">
+    <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">加载中...</span>
+    </div>
+    <p class="mt-2">正在扫描未审核订单...</p>
+</div>
+
+<div id="mainContent" style="display:none;">
+    <!-- 检测结果摘要 -->
+    <div class="row mb-4" id="summaryCards"></div>
+
+    <!-- 未审核订单列表 -->
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-list-ul"></i> 未审核订单列表</span>
+            <div>
+                <button class="btn btn-sm btn-outline-primary me-2" id="selectAllBtn">全选</button>
+                <button class="btn btn-sm btn-outline-secondary" id="deselectAllBtn">取消全选</button>
+            </div>
+        </div>
+        <div class="card-body order-list p-0">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th style="width:40px"><input type="checkbox" id="masterCheckbox"></th>
+                        <th>订单编号</th>
+                        <th>客户</th>
+                        <th>区域</th>
+                        <th>金额</th>
+                        <th>开单时间</th>
+                    </tr>
+                </thead>
+                <tbody id="orderTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- 操作按钮 -->
+    <div class="d-flex justify-content-between">
+        <button class="btn btn-success btn-lg" id="confirmAuditBtn" disabled>
+            <i class="bi bi-check-lg"></i> 审核选中订单
+        </button>
+        <button class="btn btn-outline-warning" id="auditAllBtn">
+            <i class="bi bi-check-all"></i> 一键审核全部未审核订单
+        </button>
+    </div>
+
+    <div id="messageArea" class="mt-3"></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+$(document).ready(function() {
+    // 加载审核预览数据
+    loadPreview();
+
+    function loadPreview() {
+        $.ajax({
+            url: '{% url "bill:audit_orders_preview" %}',
+            type: 'GET',
+            beforeSend: function(xhr) {
+                xhr.setRequestHeader('X-CSRFToken', getCsrfToken());
+            },
+            success: function(res) {
+                if (res.code === 1) {
+                    renderPage(res.data);
+                } else {
+                    $('#loadingArea').html(`<div class="alert alert-info">${res.msg}</div>`);
+                }
+            },
+            error: function() {
+                $('#loadingArea').html('<div class="alert alert-danger">加载失败，请重试</div>');
+            }
+        });
+    }
+
+    function renderPage(data) {
+        $('#loadingArea').hide();
+        $('#mainContent').show();
+
+        // 摘要卡片
+        let cardsHtml = '';
+        if (data.new_areas.length) {
+            cardsHtml += `<div class="col-md-3 mb-3"><div class="card summary-card new h-100"><div class="card-body"><h6>新区域</h6><p class="fs-4">${data.new_areas.length} 个</p><small>${data.new_areas.join('、')}</small></div></div></div>`;
+        }
+        if (data.new_customers.length) {
+            cardsHtml += `<div class="col-md-3 mb-3"><div class="card summary-card new h-100"><div class="card-body"><h6>新客户</h6><p class="fs-4">${data.new_customers.length} 个</p><small>${data.new_customers.map(c=>c.name).join('、')}</small></div></div></div>`;
+        }
+        if (data.new_products.length) {
+            cardsHtml += `<div class="col-md-3 mb-3"><div class="card summary-card new h-100"><div class="card-body"><h6>新商品</h6><p class="fs-4">${data.new_products.length} 个</p><small>${data.new_products.map(p=>p.name+'('+p.unit+')').join('、')}</small></div></div></div>`;
+        }
+        if (data.conflict_products.length) {
+            cardsHtml += `<div class="col-md-3 mb-3"><div class="card summary-card conflict h-100"><div class="card-body"><h6>价格冲突</h6><p class="fs-4">${data.conflict_products.length} 个</p><small>${data.conflict_products.map(p=>p.name+' 系统:'+p.db_price+'→订单:'+p.order_price).join('<br>')}</small></div></div></div>`;
+        }
+        $('#summaryCards').html(cardsHtml);
+
+        // 订单列表
+        let rows = '';
+        data.orders.forEach(function(order) {
+            rows += `<tr>
+                <td><input type="checkbox" class="order-check" data-order-no="${order.order_no}"></td>
+                <td>${order.order_no}</td>
+                <td>${order.pure_customer || order.customer_snapshot}</td>
+                <td>${order.area_name}</td>
+                <td>¥${order.total_amount.toFixed(2)}</td>
+                <td>${order.create_time}</td>
+            </tr>`;
+        });
+        $('#orderTableBody').html(rows);
+
+        // 更新按钮状态
+        updateBtnState();
+    }
+
+    // 复选框控制
+    $(document).on('change', '#masterCheckbox', function() {
+        $('.order-check').prop('checked', this.checked);
+        updateBtnState();
+    });
+
+    $(document).on('change', '.order-check', function() {
+        updateBtnState();
+        $('#masterCheckbox').prop('checked', $('.order-check:checked').length === $('.order-check').length);
+    });
+
+    $('#selectAllBtn').click(function() {
+        $('.order-check').prop('checked', true);
+        $('#masterCheckbox').prop('checked', true);
+        updateBtnState();
+    });
+
+    $('#deselectAllBtn').click(function() {
+        $('.order-check').prop('checked', false);
+        $('#masterCheckbox').prop('checked', false);
+        updateBtnState();
+    });
+
+    function getSelectedOrders() {
+        return $('.order-check:checked').map(function() {
+            return $(this).data('order-no');
+        }).get();
+    }
+
+    function updateBtnState() {
+        $('#confirmAuditBtn').prop('disabled', getSelectedOrders().length === 0);
+    }
+
+    // 审核选中订单
+    $('#confirmAuditBtn').click(function() {
+        const selected = getSelectedOrders();
+        if (!selected.length) return;
+        if (!confirm(`确定审核选中的 ${selected.length} 个订单吗？审核后将创建缺失的区域/客户/商品，并覆盖价格冲突。`)) return;
+        executeAudit({ order_nos: selected });
+    });
+
+    // 一键审核全部
+    $('#auditAllBtn').click(function() {
+        if (!confirm('确定审核全部未审核订单吗？此操作将创建所有缺失的基础数据并标记订单为已审核。')) return;
+        executeAudit({});  // 不传 order_nos 表示全部
+    });
+
+    function executeAudit(payload) {
+        $('#confirmAuditBtn, #auditAllBtn').prop('disabled', true);
+        $('#messageArea').html('<div class="alert alert-info">正在处理...</div>');
+
+        $.ajax({
+            url: '{% url "bill:audit_orders_confirm" %}',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(payload),
+            beforeSend: function(xhr) {
+                xhr.setRequestHeader('X-CSRFToken', getCsrfToken());
+            },
+            success: function(res) {
+                if (res.code === 1) {
+                    $('#messageArea').html(`<div class="alert alert-success">${res.msg}</div>`);
+                    // 重新加载数据
+                    setTimeout(function() { location.reload(); }, 1500);
+                } else {
+                    $('#messageArea').html(`<div class="alert alert-danger">${res.msg}</div>`);
+                    $('#confirmAuditBtn, #auditAllBtn').prop('disabled', false);
+                }
+            },
+            error: function() {
+                $('#messageArea').html('<div class="alert alert-danger">请求失败</div>');
+                $('#confirmAuditBtn, #auditAllBtn').prop('disabled', false);
+            }
+        });
+    }
+
+    // CSRF Token 获取
+    function getCsrfToken() {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, 10) === 'csrftoken=') {
+                    cookieValue = decodeURIComponent(cookie.substring(10));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+});
+</script>
+{% endblock %}
