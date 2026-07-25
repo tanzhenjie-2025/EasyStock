@@ -67,10 +67,35 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+import json
 
+import io
+from openpyxl import Workbook, load_workbook
+from django.http import HttpResponse, JsonResponse
+from django.contrib.auth.decorators import login_required, permission_required
+from django.db import transaction
+from urllib.parse import quote
+from .models import SortRule, ProductTag
+from django.contrib.auth.decorators import login_required, permission_required
+from django.utils import timezone
+
+from django.db.models import Q
+from pypinyin import lazy_pinyin
+from accounts.models import User
+
+from area_manage.models import Area
+from customer_manage.models import Customer
+from product.models import Product
 from functools import wraps
 from django.core.exceptions import PermissionDenied
+from openpyxl.styles import Font, Alignment
 
+from django.db.models import Prefetch
+
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from openpyxl.utils.datetime import from_excel
+from datetime import datetime, date
 def accounts_permission_required(perm_code):
     """自定义权限装饰器，使用项目的 has_permission 检查"""
     def decorator(view_func):
@@ -83,7 +108,6 @@ def accounts_permission_required(perm_code):
         return _wrapped_view
     return decorator
 
-# ========== 新增：统一缓存清理函数 ==========
 def clear_order_cache(order_no: str = None):
     """
     清理订单相关缓存（含列表、详情、打印页）
@@ -132,7 +156,7 @@ def clear_sort_cache():
     cache.delete('product_tags_map_json')
     logger.info("已清理排序规则相关缓存")
 
-# ========== 重构：自定义AJAX装饰器（适配RBAC） ==========
+
 def ajax_login_required(view_func):
     """AJAX登录验证装饰器：未登录返回JSON，而非重定向HTML"""
 
@@ -616,7 +640,7 @@ def batch_print_orders(request):
     }
     return render(request, 'bill/batch_print.html', context)
 
-# 位置：bill/views.py - 在文件末尾添加
+
 
 @login_required
 def print_empty_template(request):
@@ -632,7 +656,6 @@ def print_empty_template(request):
     return render(request, 'bill/empty_template_print.html', context)
 
 
-# 位置：bill/views.py → print_key_data 函数
 def print_key_data(request, order_no):
     order = get_object_or_404(
         Order.objects.select_related('customer', 'area', 'creator'),
@@ -1115,7 +1138,6 @@ def order_detail(request, order_no):
 
     return response
 
-
 @login_required
 def search_customer(request):
     """客户搜索（支持拼音，返回制单号）"""
@@ -1306,8 +1328,6 @@ def reopen_order_edit(request, order_no):
 
     return render(request, 'bill/index.html', context)
 
-
-# ========== 重构：结清相关视图（适配RBAC + 缓存清理） ==========
 @ajax_login_required
 @ajax_permission_required(PERM_ORDER_SETTLE)
 def settle_order(request, order_no):
@@ -1859,15 +1879,6 @@ def calculate_order_stats(request):
         logger.error(f"订单统计计算失败：{str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'统计失败：{str(e)}'})
 
-
-
-from openpyxl.styles import Font, Alignment
-
-from django.db.models import Prefetch
-
-from openpyxl.utils.datetime import from_excel   # 将 Excel 序列号转为 datetime
-from datetime import datetime, date              # 明确导入类，方便类型检查
-
 def parse_datetime_cell(value):
     """解析日期单元格，支持字符串、datetime对象和Excel序列号"""
     if value is None:
@@ -2029,67 +2040,6 @@ def export_orders(request):
     response['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(filename)}"
     wb.save(response)
     return response
-
-
-
-
-@login_required
-@permission_required(PERM_ORDER_PRINT)
-def mark_order_printed(request, order_no):
-    """标记订单为已打印（仅在窗口打印后由前端调用）"""
-    if request.method != 'POST':
-        return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, status=405)
-
-    order = get_object_or_404(Order, order_no=order_no)
-
-    # 允许 pending 和 reopened 状态标记为已打印
-    if order.status in ('pending', 'reopened'):
-        order.status = 'printed'
-        order.save(update_fields=['status'])
-
-        # 清理相关缓存
-        clear_order_cache(order_no)
-
-        # 记录操作日志
-        create_operation_log(
-            request,
-            'mark_printed', 'order', str(order.id),
-            f"订单-{order_no}", "打印后标记为已打印"
-        )
-        return JsonResponse({'code': 1, 'msg': '订单已标记为已打印'})
-
-    elif order.status == 'printed':
-        return JsonResponse({'code': 1, 'msg': '订单已是已打印状态'})
-
-    else:
-        # 作废等状态不允许标记
-        return JsonResponse({'code': 0, 'msg': f'订单状态为{order.status}，无法标记已打印'})
-
-
-@login_required
-@permission_required(PERM_ORDER_PRINT)
-@require_POST
-def batch_mark_printed(request):
-    """批量标记订单为已打印（将 pending 或 reopened 状态改为 printed）"""
-    data = json.loads(request.body)
-    order_nos = data.get('order_nos', [])
-    if not order_nos:
-        return JsonResponse({'code': 0, 'msg': '参数错误'})
-
-    # 定义可打印状态（根据实际模型调整）
-    PRINTABLE_STATUSES = ['pending', 'reopened']  # 若重开状态为其他值，请替换
-    updated = Order.objects.filter(
-        order_no__in=order_nos,
-        status__in=PRINTABLE_STATUSES
-    ).update(status='printed')
-
-    return JsonResponse({'code': 1, 'msg': f'成功标记 {updated} 个订单为已打印'})
-
-
-# 提取解析 Excel 到结构化数据的公共函数
-from datetime import datetime
-from decimal import Decimal, InvalidOperation
-
 
 def parse_excel_to_structure(workbook):
     """
@@ -2291,25 +2241,6 @@ def parse_excel_to_structure(workbook):
         'product_create_info': product_create_info,
         'row_errors': row_errors,
     }
-
-
-# views.py 顶部导入保持不变
-import json
-
-
-from decimal import Decimal
-
-from django.contrib.auth.decorators import login_required, permission_required
-from django.utils import timezone
-
-from django.db.models import Q
-from pypinyin import lazy_pinyin
-from accounts.models import User
-
-from area_manage.models import Area
-from customer_manage.models import Customer
-from product.models import Product
-# 确保有 clear_order_cache 函数（若存在）
 
 @login_required
 @permission_required(PERM_ORDER_CREATE)
@@ -2755,18 +2686,61 @@ def import_orders_confirm(request):
         'errors': errors,
     })
 
-# views.py 新增简单页面视图
+
 def import_order_page(request):
     return render(request, 'bill/import_order.html')
 
+@login_required
+@permission_required(PERM_ORDER_PRINT)
+def mark_order_printed(request, order_no):
+    """标记订单为已打印（仅在窗口打印后由前端调用）"""
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, status=405)
 
-import io
-from openpyxl import Workbook, load_workbook
-from django.http import HttpResponse, JsonResponse
-from django.contrib.auth.decorators import login_required, permission_required
-from django.db import transaction
-from urllib.parse import quote
-from .models import SortRule, ProductTag
+    order = get_object_or_404(Order, order_no=order_no)
+
+    # 允许 pending 和 reopened 状态标记为已打印
+    if order.status in ('pending', 'reopened'):
+        order.status = 'printed'
+        order.save(update_fields=['status'])
+
+        # 清理相关缓存
+        clear_order_cache(order_no)
+
+        # 记录操作日志
+        create_operation_log(
+            request,
+            'mark_printed', 'order', str(order.id),
+            f"订单-{order_no}", "打印后标记为已打印"
+        )
+        return JsonResponse({'code': 1, 'msg': '订单已标记为已打印'})
+
+    elif order.status == 'printed':
+        return JsonResponse({'code': 1, 'msg': '订单已是已打印状态'})
+
+    else:
+        # 作废等状态不允许标记
+        return JsonResponse({'code': 0, 'msg': f'订单状态为{order.status}，无法标记已打印'})
+
+
+@login_required
+@permission_required(PERM_ORDER_PRINT)
+@require_POST
+def batch_mark_printed(request):
+    """批量标记订单为已打印（将 pending 或 reopened 状态改为 printed）"""
+    data = json.loads(request.body)
+    order_nos = data.get('order_nos', [])
+    if not order_nos:
+        return JsonResponse({'code': 0, 'msg': '参数错误'})
+
+    # 定义可打印状态（根据实际模型调整）
+    PRINTABLE_STATUSES = ['pending', 'reopened']  # 若重开状态为其他值，请替换
+    updated = Order.objects.filter(
+        order_no__in=order_nos,
+        status__in=PRINTABLE_STATUSES
+    ).update(status='printed')
+
+    return JsonResponse({'code': 1, 'msg': f'成功标记 {updated} 个订单为已打印'})
 
 
 @login_required
