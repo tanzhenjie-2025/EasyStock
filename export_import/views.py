@@ -71,7 +71,13 @@ def full_export(request):
     return response
 
 
-@staff_member_required
+
+import traceback
+from django.core.exceptions import ImproperlyConfigured
+from django.db import transaction
+import logging
+logger = logging.getLogger(__name__)
+
 def full_import(request):
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持 POST 请求'})
@@ -81,25 +87,17 @@ def full_import(request):
         return JsonResponse({'code': 0, 'msg': '请上传 ZIP 备份文件'})
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        # 解压
         with zipfile.ZipFile(zip_file, 'r') as zf:
             zf.extractall(tmpdir)
 
-        # 读取 manifest
         manifest_path = os.path.join(tmpdir, 'manifest.json')
         if not os.path.exists(manifest_path):
             return JsonResponse({'code': 0, 'msg': '无效的备份包，缺少 manifest.json'})
         with open(manifest_path, 'r', encoding='utf-8') as f:
             manifest = json.load(f)
 
-        # 按依赖顺序（硬编码或拓扑排序）
-        # 简单起见，使用注册表的顺序（已按依赖排序）
         ordered_keys = list(MODULE_HANDLERS.keys())
-
         results = {}
-        errors_occurred = False
-        # 使用事务（目前仅对支持事务的数据库有效）
-        from django.db import transaction
         try:
             with transaction.atomic():
                 for module_key in ordered_keys:
@@ -108,22 +106,29 @@ def full_import(request):
                     handler = MODULE_HANDLERS[module_key]
                     file_path = os.path.join(tmpdir, f'{module_key}.xlsx')
                     if not os.path.exists(file_path):
-                        continue  # 允许缺失
+                        continue
                     import_func = import_string(handler['import'])
                     with open(file_path, 'rb') as f:
                         file_obj = io.BytesIO(f.read())
-                        result = import_func(file_obj, strategy='append')
+                        try:
+                            result = import_func(file_obj, strategy='append')
+                        except Exception as inner_e:
+                            # 捕获导入函数内部抛出的异常，并记录堆栈
+                            tb_str = traceback.format_exc()
+                            logger.error(f"模块 {module_key} 导入函数内部异常:\n{tb_str}")
+                            raise Exception(f"模块 {module_key} 导入内部错误: {str(inner_e)}")
                     results[module_key] = result
                     if result.get('errors'):
-                        # 有错误则抛出异常回滚
                         raise Exception(f"模块 {module_key} 导入错误: {result['errors']}")
-                # 所有模块成功
                 return JsonResponse({
                     'code': 1,
                     'msg': '全部导入成功',
                     'details': results
                 })
         except Exception as e:
+            # 捕获所有异常，记录堆栈
+            tb_str = traceback.format_exc()
+            logger.error(f"导入过程异常:\n{tb_str}")
             return JsonResponse({
                 'code': 0,
                 'msg': f'导入失败，已回滚: {str(e)}',

@@ -758,8 +758,8 @@ def area_import(request):
             # 定义字段映射：显示名称 -> 模型字段名
             expected_map = {'区域名': 'name', '备注': 'remark'}
             col_mapping = get_column_mapping(headers, expected_map)
-            if col_mapping is None:
-                return JsonResponse({'code': 0, 'msg': 'Excel表头缺少“区域名”列，请检查格式'})
+            if 'name' not in col_mapping:  # 检查“区域名”列
+                return {'success': 0, 'skipped': 0, 'errors': ['缺少“区域组名”列']}
 
             imported_count = 0
             skipped_count = 0
@@ -1616,7 +1616,7 @@ def import_areas_from_io(file_obj, strategy='append'):
     headers = [cell.value for cell in ws[1]]
     expected_map = {'区域名': 'name', '备注': 'remark'}
     col_mapping = get_column_mapping(headers, expected_map)
-    if col_mapping is None:
+    if 'name' not in col_mapping:  # 检查“区域名”列
         return {'success': 0, 'skipped': 0, 'errors': ['缺少“区域名”列']}
 
     imported_count = 0
@@ -1705,8 +1705,8 @@ def import_groups_from_io(file_obj, strategy='append'):
     headers = [cell.value for cell in ws[1]]
     expected_map = {'组名': 'name', '包含区域': 'areas', '备注': 'remark'}
     col_mapping = get_column_mapping(headers, expected_map)
-    if col_mapping is None:
-        return {'success': 0, 'skipped': 0, 'errors': ['缺少“组名”列']}
+    if 'name' not in col_mapping:  # 检查“区域名”列
+        return {'success': 0, 'skipped': 0, 'errors': ['缺少“区域名”列']}
 
     # 预加载所有区域（包括软删除的，以便复用）
     area_map = {a.name: a for a in Area.objects.only('id', 'name')}

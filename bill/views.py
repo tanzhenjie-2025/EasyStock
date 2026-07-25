@@ -3206,8 +3206,7 @@ def get_default_creator():
 def import_orders_from_io(file_obj, strategy='append'):
     """
     从 BytesIO 导入订单（直接执行导入，跳过预览）
-    依赖区域、客户、商品已存在，否则报错
-    返回 {'success': int, 'skipped': int, 'errors': list}
+    自动创建不存在的区域和客户（区域为空时允许为 None，客户名为空则跳过订单）
     """
     try:
         wb = load_workbook(file_obj, read_only=True)
@@ -3236,14 +3235,21 @@ def import_orders_from_io(file_obj, strategy='append'):
             continue
         if order_no in existing_set:
             skipped += 1
-            continue  # 跳过已存在
+            continue
 
         items = g['items']
+        pure_customer = items[0]['pure_customer_name']
+        # 如果客户名称为空，跳过该订单
+        if not pure_customer:
+            skipped += 1
+            errors.append(f'订单 {order_no} 客户名称为空，跳过')
+            continue
+
         order_data = {
             'order_no': order_no,
             'raw_customer_name': g['raw_customer_name'],
-            'area_name': g['area_name'],
-            'pure_customer_name': items[0]['pure_customer_name'],
+            'area_name': g['area_name'] or '',   # 确保为空字符串
+            'pure_customer_name': pure_customer,
             'status': items[0]['status'],
             'create_time': g['create_time'],
             'creator_username': g['creator_username'],
@@ -3266,21 +3272,60 @@ def import_orders_from_io(file_obj, strategy='append'):
         valid_orders.append(order_data)
 
     if not valid_orders:
-        return {'success': 0, 'skipped': skipped, 'errors': errors or ['没有可导入的订单']}
+        # 如果没有有效订单，返回结果（可能全部是跳过）
+        return {'success': 0, 'skipped': skipped, 'errors': errors}
 
-    # 预加载依赖数据
-    all_area_names = {o['area_name'] for o in valid_orders if o.get('area_name')}
-    all_customer_names = {o['pure_customer_name'] for o in valid_orders if o.get('pure_customer_name')}
+    # ---------- 自动创建缺失的区域和客户 ----------
+    all_area_names = set()
+    all_customer_names = set()
+    area_for_customer = {}
+
+    for order_data in valid_orders:
+        area_name = order_data.get('area_name')
+        if area_name:
+            all_area_names.add(area_name)
+        cust_name = order_data.get('pure_customer_name')
+        if cust_name:
+            all_customer_names.add(cust_name)
+            if area_name and cust_name not in area_for_customer:
+                area_for_customer[cust_name] = area_name
+
+    # 创建区域（仅非空名称）
+    area_map = {}
+    for area_name in all_area_names:
+        if area_name:
+            area_obj, created = Area.objects.get_or_create(
+                name=area_name,
+                defaults={'remark': '订单导入自动创建', 'is_active': True}
+            )
+            area_map[area_name] = area_obj
+
+    # 创建客户（允许区域为 None）
+    customer_map = {}
+    for cust_name in all_customer_names:
+        if not cust_name:
+            continue
+        area_name_for_cust = area_for_customer.get(cust_name)
+        area_obj = area_map.get(area_name_for_cust) if area_name_for_cust else None
+        try:
+            customer_obj = Customer.objects.get(name=cust_name, area=area_obj)
+        except Customer.DoesNotExist:
+            customer_obj = Customer.objects.create(
+                name=cust_name,
+                area=area_obj,
+                remark='订单导入自动创建',
+                is_active=True
+            )
+        customer_map[cust_name] = customer_obj
+
+    # 用户映射
     all_creator_usernames = {o['creator_username'] for o in valid_orders if o.get('creator_username')}
-
-    area_map = {a.name: a for a in Area.objects.filter(name__in=all_area_names, is_active=True)}
-    customer_map = {c.name: c for c in Customer.objects.filter(name__in=all_customer_names, is_active=True)}
     user_map = {u.username: u for u in User.objects.filter(username__in=all_creator_usernames)}
     default_creator = get_default_creator()
 
+    # ---------- 导入订单 ----------
     success = 0
     import_errors = []
-    # 使用事务，保证全部或全部不成功
     with transaction.atomic():
         for order_data in valid_orders:
             order_no = order_data['order_no']
@@ -3290,17 +3335,19 @@ def import_orders_from_io(file_obj, strategy='append'):
                     import_errors.append(f'订单 {order_no} 无明细')
                     continue
 
-                area = area_map.get(order_data.get('area_name'))
-                if not area:
-                    import_errors.append(f'订单 {order_no} 区域不存在')
-                    continue
+                # 获取区域（若区域名为空则置为 None）
+                area_name = order_data.get('area_name')
+                area = area_map.get(area_name) if area_name else None
+
                 customer = customer_map.get(order_data.get('pure_customer_name'))
                 if not customer:
+                    # 理论上不会发生，因为已过滤且自动创建，但保留防护
                     import_errors.append(f'订单 {order_no} 客户不存在')
                     continue
+
                 creator = user_map.get(order_data.get('creator_username', ''))
                 if not creator:
-                    creator = default_creator  # 使用系统管理员
+                    creator = default_creator
 
                 create_time = order_data.get('create_time') or timezone.now()
                 is_verified = order_data.get('is_verified', False)
@@ -3359,8 +3406,88 @@ def import_orders_from_io(file_obj, strategy='append'):
 
             except Exception as e:
                 import_errors.append(f'订单 {order_no} 导入失败: {str(e)}')
-                # 抛出异常以触发外层事务回滚
                 raise Exception(f'订单 {order_no} 导入失败: {str(e)}')
 
-    # 若全部成功，返回结果
     return {'success': success, 'skipped': skipped, 'errors': import_errors}
+
+def import_sort_rules_from_io(file_obj, strategy='append'):
+    """
+    从 BytesIO 导入排序规则（覆盖现有规则）
+    返回 {'success': int, 'skipped': int, 'errors': list}
+    """
+    try:
+        wb = load_workbook(file_obj, read_only=True)
+        ws = wb.active
+    except Exception as e:
+        return {'success': 0, 'skipped': 0, 'errors': [f'文件解析失败: {str(e)}']}
+
+    rows = list(ws.iter_rows(min_row=2, values_only=True))
+    if not rows:
+        # 无数据时视为成功（跳过）
+        return {'success': 0, 'skipped': 0, 'errors': []}
+
+    tag_names = set()
+    new_rules = []
+    errors = []
+    for row_idx, row in enumerate(rows, start=2):
+        if len(row) < 7:
+            errors.append(f'第{row_idx}行：列数不足')
+            continue
+        stage_val, rule_type, tag_name, spec_cond, priority_val, active_str = row[1:7]
+        try:
+            stage = int(stage_val) if stage_val is not None else 0
+            priority = int(priority_val) if priority_val is not None else 0
+        except (ValueError, TypeError):
+            errors.append(f'第{row_idx}行：阶段或优先级必须为数字')
+            continue
+        if rule_type not in ['tag', 'spec']:
+            errors.append(f'第{row_idx}行：规则类型必须为 "tag" 或 "spec"')
+            continue
+        if rule_type == 'tag' and tag_name:
+            tag_names.add(tag_name)
+        if rule_type == 'spec' and spec_cond not in ['has_spec', 'no_spec']:
+            errors.append(f'第{row_idx}行：规格条件必须为 "has_spec" 或 "no_spec"')
+            continue
+        is_active = active_str in ['是', '1', 'true', 'True']
+        new_rules.append({
+            'stage': stage,
+            'rule_type': rule_type,
+            'tag_name': tag_name,
+            'spec_condition': spec_cond,
+            'priority': priority,
+            'is_active': is_active,
+        })
+
+    if errors:
+        return {'success': 0, 'skipped': 0, 'errors': errors}
+
+    # 检查标签是否存在
+    tag_map = {}
+    if tag_names:
+        tags = ProductTag.objects.filter(name__in=tag_names)
+        tag_map = {tag.name: tag for tag in tags}
+        missing = tag_names - set(tag_map.keys())
+        if missing:
+            return {'success': 0, 'skipped': 0, 'errors': [f'以下标签不存在: {", ".join(missing)}']}
+
+    # 覆盖导入（删除旧规则）
+    with transaction.atomic():
+        SortRule.objects.all().delete()
+        rules_to_create = []
+        for item in new_rules:
+            rule = SortRule(
+                stage=item['stage'],
+                rule_type=item['rule_type'],
+                priority=item['priority'],
+                is_active=item['is_active'],
+            )
+            if item['rule_type'] == 'tag':
+                rule.tag = tag_map.get(item['tag_name'])
+                rule.spec_condition = None
+            else:
+                rule.tag = None
+                rule.spec_condition = item['spec_condition']
+            rules_to_create.append(rule)
+        SortRule.objects.bulk_create(rules_to_create)
+
+    return {'success': len(rules_to_create), 'skipped': 0, 'errors': []}

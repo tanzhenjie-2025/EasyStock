@@ -1803,7 +1803,7 @@ import logging
 import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment
-
+from utils.excel_utils import get_column_mapping
 def export_to_excel_buffer(data, title, headers, selected_fields, custom_fields=None, file_name='导出', total_row=None):
     """
     返回 BytesIO 对象的 Excel 文件
@@ -1843,11 +1843,20 @@ def export_to_excel_buffer(data, title, headers, selected_fields, custom_fields=
     buffer.seek(0)
     return buffer
 
+# customer_manage/views.py 文件末尾添加
+
+import io
+import openpyxl
+from django.db import transaction
+from area_manage.models import Area
+from .models import Customer, CustomerPhone
+# 假设 get_column_mapping 已移到 utils/excel_utils.py
+
+import logging
+
+
 def export_customers_to_io(customers=None):
-    """
-    导出客户数据为 BytesIO 对象（全量字段，用于一键备份）
-    返回 Excel 的 BytesIO
-    """
+    """导出客户数据为 BytesIO（全量字段）"""
     if customers is None:
         customers = Customer.objects.select_related('area').prefetch_related('phones').order_by('-create_time')
 
@@ -1865,7 +1874,6 @@ def export_customers_to_io(customers=None):
         })
         seq += 1
 
-    # 定义表头映射（全量字段）
     headers = {
         'serial': '序号',
         'id': 'ID',
@@ -1875,11 +1883,8 @@ def export_customers_to_io(customers=None):
         'remark': '备注',
         'order_number': '制单号'
     }
-
-    # 全部导出，selected_fields 使用所有字段
     selected_fields = ['serial', 'id', 'name', 'area_name', 'phone', 'remark', 'order_number']
 
-    # 调用通用工具返回 BytesIO
     buffer = export_to_excel_buffer(
         data=data,
         title='客户列表',
@@ -1891,19 +1896,13 @@ def export_customers_to_io(customers=None):
 
 
 def import_customers_from_io(file_obj, strategy='append'):
-    """
-    从 BytesIO 对象导入客户数据
-    支持自动创建区域（如果不存在）
-    策略：'append' 跳过重复，'overwrite' 暂不支持（可扩展）
-    返回：{'success': int, 'skipped': int, 'errors': list}
-    """
+    """从 BytesIO 导入客户数据（自动创建区域）"""
     try:
         wb = openpyxl.load_workbook(file_obj)
         ws = wb.active
     except Exception as e:
         return {'success': 0, 'skipped': 0, 'errors': [f'文件解析失败: {str(e)}']}
 
-    # 读取表头并映射
     headers = [cell.value for cell in ws[1]]
     expected_map = {
         '客户名称': 'name',
@@ -1913,7 +1912,7 @@ def import_customers_from_io(file_obj, strategy='append'):
         '制单号': 'order_number'
     }
     col_mapping = get_column_mapping(headers, expected_map)
-    if col_mapping is None or 'name' not in col_mapping:
+    if 'name' not in col_mapping:  # 检查关键字段
         return {'success': 0, 'skipped': 0, 'errors': ['缺少“客户名称”列，请使用正确的模板']}
 
     new_count = 0
@@ -1921,19 +1920,12 @@ def import_customers_from_io(file_obj, strategy='append'):
     new_area_count = 0
     errors = []
 
-    # 如果策略是覆盖（可选），先清空客户表（需注意外键级联，谨慎）
-    if strategy == 'overwrite':
-        # 建议不使用覆盖，因为涉及外键，此处仅作占位
-        pass
-
-    # 预加载现有区域缓存，提高性能
     area_map = {area.name: area for area in Area.objects.all()}
 
     for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
         if not any(row):
             continue
 
-        # 按索引提取值
         def get_val(field):
             idx = col_mapping.get(field)
             if idx is not None and idx < len(row):
@@ -1951,7 +1943,6 @@ def import_customers_from_io(file_obj, strategy='append'):
             errors.append(f'第{row_idx}行：客户名称为空，跳过')
             continue
 
-        # 处理区域
         area_obj = None
         if area_name and area_name != '无':
             area_obj = area_map.get(area_name)
@@ -1968,7 +1959,6 @@ def import_customers_from_io(file_obj, strategy='append'):
                     errors.append(f'第{row_idx}行：自动创建区域“{area_name}”失败（{str(e)}）')
                     continue
 
-        # 检查重复（同一区域下客户名称唯一）
         if Customer.objects.filter(name=name, area=area_obj).exists():
             skip_count += 1
             continue
@@ -2002,7 +1992,7 @@ def import_customers_from_io(file_obj, strategy='append'):
         'success': new_count,
         'skipped': skip_count,
         'errors': errors,
-        'new_areas': new_area_count  # 可选项
+        'new_areas': new_area_count
     }
 
 # customer_manage/views.py (在文件末尾添加)
@@ -2051,18 +2041,19 @@ def export_customer_prices_to_io(prices=None):
     return buffer
 
 def import_customer_prices_from_io(file_obj, strategy='append'):
-    """
-    从 BytesIO 导入客户专属价（跳过重复）
-    依赖客户和商品必须存在
-    返回 {'success': int, 'skipped': int, 'errors': list}
-    """
     try:
         wb = load_workbook(file_obj, data_only=True)
         ws = wb.active
     except Exception as e:
         return {'success': 0, 'skipped': 0, 'errors': [f'文件解析失败: {str(e)}']}
 
-    headers = [cell.value for cell in ws[1]]
+    # 读取所有行，检查是否有数据
+    all_rows = list(ws.iter_rows(values_only=True))
+    if len(all_rows) < 2:
+        # 只有表头或空文件，视为成功（无数据需导入）
+        return {'success': 0, 'skipped': 0, 'errors': []}
+
+    headers = all_rows[0]
     expected_map = {
         '客户名称': 'customer_name',
         '商品名称': 'product_name',
@@ -2070,7 +2061,7 @@ def import_customer_prices_from_io(file_obj, strategy='append'):
         '备注': 'remark'
     }
     col_mapping = get_column_mapping(headers, expected_map)
-    if col_mapping is None:
+    if 'customer_name' not in col_mapping or 'product_name' not in col_mapping:
         return {'success': 0, 'skipped': 0, 'errors': ['缺少“客户名称”或“商品名称”列']}
 
     # 预加载客户和商品
@@ -2084,12 +2075,11 @@ def import_customer_prices_from_io(file_obj, strategy='append'):
     skip_count = 0
     errors = []
 
-    # 如果策略是 overwrite，清空所有价格（可选）
     if strategy == 'overwrite':
         CustomerPrice.objects.all().delete()
         existing_price_keys = set()
 
-    for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+    for row_idx, row in enumerate(all_rows[1:], start=2):
         if not any(row):
             continue
 
@@ -2147,7 +2137,6 @@ def import_customer_prices_from_io(file_obj, strategy='append'):
             errors.append(f'第{row_idx}行：保存失败 - {str(e)}')
             skip_count += 1
 
-    # 清理缓存
     try:
         from .cache import clear_customer_price_cache
         clear_customer_price_cache()
