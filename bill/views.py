@@ -2822,8 +2822,26 @@ def audit_orders_preview(request):
 @permission_required(PERM_ORDER_CREATE)
 def audit_orders_confirm(request):
     """
-    执行审核：创建缺失的区域/客户/商品，更新价格冲突，标记订单为已审核。
-    可传入 order_nos 数组指定审核部分订单，若不传则审核全部未审核订单。
+    执行审核：根据用户勾选创建/覆盖区域、商品、客户，标记订单为已审核。
+    请求体：
+    {
+        "order_nos": ["order1", ...],         # 要审核的订单号列表，必填
+        "new_areas": ["北区", ...],           # 勾选的区域名
+        "new_products": [                     # 勾选的商品处理列表
+            {
+                "name": "商品A",
+                "unit": "个",
+                "spec": "规格",
+                "price": "10.00",
+                "action": "create"           # create 或 overwrite
+            },
+            ...
+        ],
+        "new_customers": [                    # 勾选的客户
+            {"name": "客户1", "area": "北区"},
+            ...
+        ]
+    }
     """
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST'})
@@ -2833,94 +2851,79 @@ def audit_orders_confirm(request):
     except:
         return JsonResponse({'code': 0, 'msg': 'JSON 格式错误'})
 
-    selected_order_nos = payload.get('order_nos', [])
+    order_nos = payload.get('order_nos', [])
+    new_areas = payload.get('new_areas', [])
+    new_products = payload.get('new_products', [])
+    new_customers = payload.get('new_customers', [])
 
-    # 筛选待审核订单
-    if selected_order_nos:
-        orders_qs = Order.objects.filter(
-            order_no__in=selected_order_nos,
-            is_verified=False
-        )
-    else:
-        orders_qs = Order.objects.filter(is_verified=False)
+    if not order_nos:
+        return JsonResponse({'code': 0, 'msg': '请选择要审核的订单'})
 
-    if not orders_qs.exists():
-        return JsonResponse({'code': 0, 'msg': '没有可审核的订单'})
+    # 验证订单存在且未审核
+    orders = list(
+        Order.objects.filter(order_no__in=order_nos, is_verified=False)
+        .select_related('area')
+        .prefetch_related('items')
+    )
+    if not orders:
+        return JsonResponse({'code': 0, 'msg': '所选订单均不存在或已审核'})
 
-    # 预加载订单及其明细
-    orders = list(orders_qs.select_related('area').prefetch_related('items'))
-
-    # 收集数据
-    area_names = set()
-    product_map = {}        # key -> {price, spec}
-    customer_names = set()
-    customer_area = {}
-
-    for order in orders:
-        area_name = order.area.name if order.area else ''
-        _, pure_name = parse_customer_name(order.customer_name_snapshot, area_name)
-
-        if area_name:
-            area_names.add(area_name)
-        if pure_name:
-            customer_names.add(pure_name)
-            if pure_name not in customer_area:
-                customer_area[pure_name] = area_name
-
-        for item in order.items.all():
-            if item.is_makeup_item:
-                continue
-            key = (item.product_name, item.unit)
-            if key not in product_map:
-                product_map[key] = {
-                    'price': item.actual_unit_price or Decimal('0'),
-                    'spec': item.specification or '',
-                }
-
-    # 1. 创建新区域
-    if area_names:
+    # 1. 创建区域
+    if new_areas:
         existing_areas = set(
-            Area.objects.filter(name__in=area_names)
+            Area.objects.filter(name__in=new_areas, is_active=True)
             .values_list('name', flat=True)
         )
-        new = area_names - existing_areas
-        if new:
-            Area.objects.bulk_create([Area(name=n) for n in new])
+        missing = [a for a in new_areas if a not in existing_areas]
+        if missing:
+            Area.objects.bulk_create([Area(name=n) for n in missing])
 
-    # 2. 创建新客户（关联区域）
-    if customer_names:
+    # 2. 创建客户
+    if new_customers:
         existing_cust = set(
-            Customer.objects.filter(name__in=customer_names)
-            .values_list('name', flat=True)
+            Customer.objects.filter(
+                name__in=[c['name'] for c in new_customers],
+                is_active=True
+            ).values_list('name', flat=True)
         )
-        for name in customer_names - existing_cust:
-            area_obj = Area.objects.filter(name=customer_area.get(name, '')).first()
-            Customer.objects.create(name=name, area=area_obj)
+        for c in new_customers:
+            if c['name'] not in existing_cust:
+                area_obj = Area.objects.filter(name=c.get('area', '')).first()
+                Customer.objects.create(name=c['name'], area=area_obj)
 
-    # 3. 处理商品：新建缺失商品，覆盖价格冲突
+    # 3. 处理商品（新建或覆盖价格）
     existing_prods = Product.objects.filter(is_active=True)
     existing_prod_map = {}
     for p in existing_prods:
         existing_prod_map[(p.name, p.unit)] = p
 
-    for (name, unit), info in product_map.items():
-        if (name, unit) not in existing_prod_map:
-            Product.objects.create(
-                name=name,
-                unit=unit,
-                specification=info['spec'],
-                price=info['price'],
-                stock_system=0,
-                stock_actual=0,
-            )
-        else:
-            prod = existing_prod_map[(name, unit)]
-            if prod.price != info['price']:
-                prod.price = info['price']
-                prod.save(update_fields=['price'])
+    for p in new_products:
+        name = p['name'].strip()
+        unit = p['unit'].strip()
+        spec = p.get('spec', '')
+        price = Decimal(p['price'])
+        action = p.get('action', 'create')
 
-    # 4. 标记订单为已审核，同时更新明细的快照价格
-    # 重新获取商品最新价格
+        key = (name, unit)
+        if action == 'overwrite':
+            if key in existing_prod_map:
+                prod = existing_prod_map[key]
+                if prod.price != price:
+                    prod.price = price
+                    prod.save(update_fields=['price'])
+        elif action == 'create':
+            if key not in existing_prod_map:
+                Product.objects.create(
+                    name=name,
+                    unit=unit,
+                    specification=spec,
+                    price=price,
+                    stock_system=0,
+                    stock_actual=0
+                )
+
+    # 4. 标记订单为已审核，并更新明细的价格快照
+    # 重新获取最新商品价格
     updated_products = Product.objects.filter(is_active=True)
     price_dict = {}
     for p in updated_products:
@@ -2935,7 +2938,6 @@ def audit_orders_confirm(request):
                     key = (item.product_name, item.unit)
                     if key in price_dict:
                         item.snapshot_standard_price = price_dict[key]
-                        # 客户专属价可根据业务需求设置，这里清空
                         item.snapshot_customer_price = None
                         item.save(update_fields=['snapshot_standard_price', 'snapshot_customer_price'])
             order.save(update_fields=['is_verified'])

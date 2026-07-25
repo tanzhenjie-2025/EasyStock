@@ -1,231 +1,350 @@
 {% extends "base.html" %}
-
 {% block title %}订单审核 - EasyStock{% endblock %}
 
 {% block extra_css %}
 <style>
-    .summary-card {
-        border-left: 4px solid;
-    }
+    .summary-card { border-left: 4px solid; }
     .summary-card.new { border-left-color: #0d6efd; }
     .summary-card.conflict { border-left-color: #dc3545; }
-    .table td { vertical-align: middle; }
     .order-list { max-height: 500px; overflow-y: auto; }
+    .nav-tabs .nav-link { font-size: 0.9rem; }
+    .table td { vertical-align: middle; }
 </style>
 {% endblock %}
 
 {% block content %}
 <h3 class="mb-4">
     <i class="bi bi-check2-circle"></i> 订单审核
-    <small class="text-muted fs-6 ms-2">自动检测未审核订单并批量审核</small>
+    <small class="text-muted fs-6 ms-2">审核未审核订单，创建缺失基础数据，确认价格</small>
 </h3>
 
+<!-- 加载状态 -->
 <div id="loadingArea" class="text-center py-5">
-    <div class="spinner-border text-primary" role="status">
-        <span class="visually-hidden">加载中...</span>
-    </div>
+    <div class="spinner-border text-primary" role="status"></div>
     <p class="mt-2">正在扫描未审核订单...</p>
 </div>
 
+<!-- 主内容区（初始隐藏） -->
 <div id="mainContent" style="display:none;">
-    <!-- 检测结果摘要 -->
+    <!-- 摘要卡片 -->
     <div class="row mb-4" id="summaryCards"></div>
 
-    <!-- 未审核订单列表 -->
-    <div class="card mb-4">
-        <div class="card-header d-flex justify-content-between align-items-center">
-            <span><i class="bi bi-list-ul"></i> 未审核订单列表</span>
-            <div>
-                <button class="btn btn-sm btn-outline-primary me-2" id="selectAllBtn">全选</button>
-                <button class="btn btn-sm btn-outline-secondary" id="deselectAllBtn">取消全选</button>
+    <!-- 标签页 -->
+    <ul class="nav nav-tabs" id="auditTabs">
+        <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-orders">待审核订单</a></li>
+        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-areas">新建区域</a></li>
+        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-products">商品处理</a></li>
+        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-customers">新建客户</a></li>
+    </ul>
+
+    <div class="tab-content mt-3">
+        <!-- 订单列表 -->
+        <div class="tab-pane fade show active" id="tab-orders">
+            <div class="d-flex justify-content-between mb-2">
+                <button class="btn btn-sm btn-outline-primary" id="selectAllOrders">全选</button>
+                <button class="btn btn-sm btn-outline-secondary" id="deselectAllOrders">取消全选</button>
+            </div>
+            <div class="order-list">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th style="width:40px"><input type="checkbox" id="masterOrderCheck"></th>
+                            <th>订单编号</th>
+                            <th>客户</th>
+                            <th>区域</th>
+                            <th>金额</th>
+                            <th>开单时间</th>
+                        </tr>
+                    </thead>
+                    <tbody id="orderTableBody"></tbody>
+                </table>
             </div>
         </div>
-        <div class="card-body order-list p-0">
-            <table class="table table-hover mb-0">
+
+        <!-- 新区域 -->
+        <div class="tab-pane fade" id="tab-areas">
+            <div class="d-flex justify-content-between mb-2">
+                <button class="btn btn-sm btn-outline-primary" id="selectAllAreas">全选</button>
+                <button class="btn btn-sm btn-outline-secondary" id="deselectAllAreas">取消全选</button>
+            </div>
+            <table class="table">
+                <thead><tr><th style="width:40px"><input type="checkbox" id="masterAreaCheck"></th><th>区域名称</th></tr></thead>
+                <tbody id="areaTableBody"></tbody>
+            </table>
+        </div>
+
+        <!-- 商品处理（新建 + 冲突） -->
+        <div class="tab-pane fade" id="tab-products">
+            <div class="d-flex justify-content-between mb-2">
+                <button class="btn btn-sm btn-outline-primary" id="selectAllProducts">全选</button>
+                <button class="btn btn-sm btn-outline-secondary" id="deselectAllProducts">取消全选</button>
+            </div>
+            <table class="table table-bordered">
                 <thead>
                     <tr>
-                        <th style="width:40px"><input type="checkbox" id="masterCheckbox"></th>
-                        <th>订单编号</th>
-                        <th>客户</th>
-                        <th>区域</th>
-                        <th>金额</th>
-                        <th>开单时间</th>
+                        <th style="width:40px"><input type="checkbox" id="masterProductCheck"></th>
+                        <th>商品名</th>
+                        <th>单位</th>
+                        <th>规格</th>
+                        <th>订单单价</th>
+                        <th>系统价</th>
+                        <th>处理方式</th>
+                        <th>操作</th>
                     </tr>
                 </thead>
-                <tbody id="orderTableBody"></tbody>
+                <tbody id="productTableBody"></tbody>
+            </table>
+        </div>
+
+        <!-- 新客户 -->
+        <div class="tab-pane fade" id="tab-customers">
+            <div class="d-flex justify-content-between mb-2">
+                <button class="btn btn-sm btn-outline-primary" id="selectAllCustomers">全选</button>
+                <button class="btn btn-sm btn-outline-secondary" id="deselectAllCustomers">取消全选</button>
+            </div>
+            <table class="table">
+                <thead><tr><th style="width:40px"><input type="checkbox" id="masterCustomerCheck"></th><th>客户名称</th><th>所属区域</th></tr></thead>
+                <tbody id="customerTableBody"></tbody>
             </table>
         </div>
     </div>
 
-    <!-- 操作按钮 -->
-    <div class="d-flex justify-content-between">
-        <button class="btn btn-success btn-lg" id="confirmAuditBtn" disabled>
-            <i class="bi bi-check-lg"></i> 审核选中订单
-        </button>
-        <button class="btn btn-outline-warning" id="auditAllBtn">
-            <i class="bi bi-check-all"></i> 一键审核全部未审核订单
-        </button>
+    <div class="mt-4 d-flex justify-content-between">
+        <button class="btn btn-secondary" onclick="location.reload()">刷新</button>
+        <button class="btn btn-success btn-lg" id="confirmAuditBtn">确认审核</button>
     </div>
-
     <div id="messageArea" class="mt-3"></div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
+let auditData = null;
+
+// 页面加载后自动获取预览数据
 $(document).ready(function() {
-    // 加载审核预览数据
-    loadPreview();
-
-    function loadPreview() {
-        $.ajax({
-            url: '{% url "bill:audit_orders_preview" %}',
-            type: 'GET',
-            beforeSend: function(xhr) {
-                xhr.setRequestHeader('X-CSRFToken', getCsrfToken());
-            },
-            success: function(res) {
-                if (res.code === 1) {
-                    renderPage(res.data);
-                } else {
-                    $('#loadingArea').html(`<div class="alert alert-info">${res.msg}</div>`);
-                }
-            },
-            error: function() {
-                $('#loadingArea').html('<div class="alert alert-danger">加载失败，请重试</div>');
-            }
-        });
-    }
-
-    function renderPage(data) {
-        $('#loadingArea').hide();
-        $('#mainContent').show();
-
-        // 摘要卡片
-        let cardsHtml = '';
-        if (data.new_areas.length) {
-            cardsHtml += `<div class="col-md-3 mb-3"><div class="card summary-card new h-100"><div class="card-body"><h6>新区域</h6><p class="fs-4">${data.new_areas.length} 个</p><small>${data.new_areas.join('、')}</small></div></div></div>`;
-        }
-        if (data.new_customers.length) {
-            cardsHtml += `<div class="col-md-3 mb-3"><div class="card summary-card new h-100"><div class="card-body"><h6>新客户</h6><p class="fs-4">${data.new_customers.length} 个</p><small>${data.new_customers.map(c=>c.name).join('、')}</small></div></div></div>`;
-        }
-        if (data.new_products.length) {
-            cardsHtml += `<div class="col-md-3 mb-3"><div class="card summary-card new h-100"><div class="card-body"><h6>新商品</h6><p class="fs-4">${data.new_products.length} 个</p><small>${data.new_products.map(p=>p.name+'('+p.unit+')').join('、')}</small></div></div></div>`;
-        }
-        if (data.conflict_products.length) {
-            cardsHtml += `<div class="col-md-3 mb-3"><div class="card summary-card conflict h-100"><div class="card-body"><h6>价格冲突</h6><p class="fs-4">${data.conflict_products.length} 个</p><small>${data.conflict_products.map(p=>p.name+' 系统:'+p.db_price+'→订单:'+p.order_price).join('<br>')}</small></div></div></div>`;
-        }
-        $('#summaryCards').html(cardsHtml);
-
-        // 订单列表
-        let rows = '';
-        data.orders.forEach(function(order) {
-            rows += `<tr>
-                <td><input type="checkbox" class="order-check" data-order-no="${order.order_no}"></td>
-                <td>${order.order_no}</td>
-                <td>${order.pure_customer || order.customer_snapshot}</td>
-                <td>${order.area_name}</td>
-                <td>¥${order.total_amount.toFixed(2)}</td>
-                <td>${order.create_time}</td>
-            </tr>`;
-        });
-        $('#orderTableBody').html(rows);
-
-        // 更新按钮状态
-        updateBtnState();
-    }
-
-    // 复选框控制
-    $(document).on('change', '#masterCheckbox', function() {
-        $('.order-check').prop('checked', this.checked);
-        updateBtnState();
-    });
-
-    $(document).on('change', '.order-check', function() {
-        updateBtnState();
-        $('#masterCheckbox').prop('checked', $('.order-check:checked').length === $('.order-check').length);
-    });
-
-    $('#selectAllBtn').click(function() {
-        $('.order-check').prop('checked', true);
-        $('#masterCheckbox').prop('checked', true);
-        updateBtnState();
-    });
-
-    $('#deselectAllBtn').click(function() {
-        $('.order-check').prop('checked', false);
-        $('#masterCheckbox').prop('checked', false);
-        updateBtnState();
-    });
-
-    function getSelectedOrders() {
-        return $('.order-check:checked').map(function() {
-            return $(this).data('order-no');
-        }).get();
-    }
-
-    function updateBtnState() {
-        $('#confirmAuditBtn').prop('disabled', getSelectedOrders().length === 0);
-    }
-
-    // 审核选中订单
-    $('#confirmAuditBtn').click(function() {
-        const selected = getSelectedOrders();
-        if (!selected.length) return;
-        if (!confirm(`确定审核选中的 ${selected.length} 个订单吗？审核后将创建缺失的区域/客户/商品，并覆盖价格冲突。`)) return;
-        executeAudit({ order_nos: selected });
-    });
-
-    // 一键审核全部
-    $('#auditAllBtn').click(function() {
-        if (!confirm('确定审核全部未审核订单吗？此操作将创建所有缺失的基础数据并标记订单为已审核。')) return;
-        executeAudit({});  // 不传 order_nos 表示全部
-    });
-
-    function executeAudit(payload) {
-        $('#confirmAuditBtn, #auditAllBtn').prop('disabled', true);
-        $('#messageArea').html('<div class="alert alert-info">正在处理...</div>');
-
-        $.ajax({
-            url: '{% url "bill:audit_orders_confirm" %}',
-            type: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify(payload),
-            beforeSend: function(xhr) {
-                xhr.setRequestHeader('X-CSRFToken', getCsrfToken());
-            },
-            success: function(res) {
-                if (res.code === 1) {
-                    $('#messageArea').html(`<div class="alert alert-success">${res.msg}</div>`);
-                    // 重新加载数据
-                    setTimeout(function() { location.reload(); }, 1500);
-                } else {
-                    $('#messageArea').html(`<div class="alert alert-danger">${res.msg}</div>`);
-                    $('#confirmAuditBtn, #auditAllBtn').prop('disabled', false);
-                }
-            },
-            error: function() {
-                $('#messageArea').html('<div class="alert alert-danger">请求失败</div>');
-                $('#confirmAuditBtn, #auditAllBtn').prop('disabled', false);
-            }
-        });
-    }
-
-    // CSRF Token 获取
-    function getCsrfToken() {
-        let cookieValue = null;
-        if (document.cookie && document.cookie !== '') {
-            const cookies = document.cookie.split(';');
-            for (let i = 0; i < cookies.length; i++) {
-                const cookie = cookies[i].trim();
-                if (cookie.substring(0, 10) === 'csrftoken=') {
-                    cookieValue = decodeURIComponent(cookie.substring(10));
-                    break;
-                }
-            }
-        }
-        return cookieValue;
-    }
+    loadAuditPreview();
 });
+
+function loadAuditPreview() {
+    $.ajax({
+        url: '{% url "bill:audit_orders_preview" %}',
+        type: 'GET',
+        beforeSend: function(xhr) {
+            xhr.setRequestHeader('X-CSRFToken', getCsrfToken());
+        },
+        success: function(res) {
+            if (res.code === 1) {
+                auditData = res.data;
+                renderPage(auditData);
+            } else {
+                $('#loadingArea').html(`<div class="alert alert-info">${res.msg}</div>`);
+            }
+        },
+        error: function() {
+            $('#loadingArea').html('<div class="alert alert-danger">加载失败，请刷新重试</div>');
+        }
+    });
+}
+
+function renderPage(data) {
+    $('#loadingArea').hide();
+    $('#mainContent').show();
+
+    // 摘要卡片
+    let cards = '';
+    if (data.new_areas.length) cards += `<div class="col-md-3"><div class="card summary-card new p-2"><strong>新区域</strong><br>${data.new_areas.length} 个</div></div>`;
+    if (data.new_customers.length) cards += `<div class="col-md-3"><div class="card summary-card new p-2"><strong>新客户</strong><br>${data.new_customers.length} 个</div></div>`;
+    if (data.new_products.length) cards += `<div class="col-md-3"><div class="card summary-card new p-2"><strong>新商品</strong><br>${data.new_products.length} 个</div></div>`;
+    if (data.conflict_products.length) cards += `<div class="col-md-3"><div class="card summary-card conflict p-2"><strong>价格冲突</strong><br>${data.conflict_products.length} 个</div></div>`;
+    $('#summaryCards').html(cards);
+
+    // 订单表格
+    let orderHtml = '';
+    data.orders.forEach(function(o) {
+        orderHtml += `<tr>
+            <td><input type="checkbox" class="order-check" value="${o.order_no}" checked></td>
+            <td>${o.order_no}</td>
+            <td>${o.pure_customer || o.customer_snapshot}</td>
+            <td>${o.area_name}</td>
+            <td>¥${o.total_amount.toFixed(2)}</td>
+            <td>${o.create_time}</td>
+        </tr>`;
+    });
+    $('#orderTableBody').html(orderHtml);
+
+    // 新区域表格
+    let areaHtml = '';
+    data.new_areas.forEach(function(a) {
+        areaHtml += `<tr>
+            <td><input type="checkbox" class="area-check" value="${a}" checked></td>
+            <td>${a}</td>
+        </tr>`;
+    });
+    $('#areaTableBody').html(areaHtml);
+
+    // 商品表格：新建 + 冲突
+    let productHtml = '';
+    // 新建商品
+    data.new_products.forEach(function(p) {
+        productHtml += `<tr class="product-row" data-type="new">
+            <td><input type="checkbox" class="product-check" checked></td>
+            <td contenteditable="true" class="edit-name">${p.name}</td>
+            <td contenteditable="true" class="edit-unit">${p.unit}</td>
+            <td contenteditable="true" class="edit-spec">${p.spec}</td>
+            <td contenteditable="true" class="edit-price">${p.price}</td>
+            <td>—</td>
+            <td><span class="badge bg-primary">新建</span><input type="hidden" class="prod-action" value="create"></td>
+            <td><button class="btn btn-sm btn-warning remove-row">移除</button></td>
+        </tr>`;
+    });
+    // 冲突商品
+    data.conflict_products.forEach(function(p) {
+        productHtml += `<tr class="product-row" data-type="conflict">
+            <td><input type="checkbox" class="product-check" checked></td>
+            <td contenteditable="true" class="edit-name">${p.name}</td>
+            <td contenteditable="true" class="edit-unit">${p.unit}</td>
+            <td contenteditable="true" class="edit-spec"></td>
+            <td contenteditable="true" class="edit-price">${p.order_price}</td>
+            <td>${p.db_price}</td>
+            <td>
+                <select class="prod-action">
+                    <option value="overwrite" selected>覆盖价格</option>
+                    <option value="create">新建商品</option>
+                </select>
+            </td>
+            <td><button class="btn btn-sm btn-warning remove-row">移除</button></td>
+        </tr>`;
+    });
+    $('#productTableBody').html(productHtml);
+
+    // 新客户表格
+    let custHtml = '';
+    data.new_customers.forEach(function(c) {
+        custHtml += `<tr>
+            <td><input type="checkbox" class="customer-check" checked></td>
+            <td contenteditable="true" class="edit-cust-name">${c.name}</td>
+            <td contenteditable="true" class="edit-cust-area">${c.area}</td>
+        </tr>`;
+    });
+    $('#customerTableBody').html(custHtml);
+
+    // 全选/取消事件
+    bindCheckboxEvents();
+}
+
+function bindCheckboxEvents() {
+    // 主复选框联动
+    $('#masterOrderCheck').on('change', function() {
+        $('.order-check').prop('checked', this.checked);
+    });
+    $('#masterAreaCheck').on('change', function() {
+        $('.area-check').prop('checked', this.checked);
+    });
+    $('#masterProductCheck').on('change', function() {
+        $('.product-check').prop('checked', this.checked);
+    });
+    $('#masterCustomerCheck').on('change', function() {
+        $('.customer-check').prop('checked', this.checked);
+    });
+
+    $('#selectAllOrders').click(function() { $('.order-check').prop('checked', true); });
+    $('#deselectAllOrders').click(function() { $('.order-check').prop('checked', false); });
+    $('#selectAllAreas').click(function() { $('.area-check').prop('checked', true); });
+    $('#deselectAllAreas').click(function() { $('.area-check').prop('checked', false); });
+    $('#selectAllProducts').click(function() { $('.product-check').prop('checked', true); });
+    $('#deselectAllProducts').click(function() { $('.product-check').prop('checked', false); });
+    $('#selectAllCustomers').click(function() { $('.customer-check').prop('checked', true); });
+    $('#deselectAllCustomers').click(function() { $('.customer-check').prop('checked', false); });
+
+    // 移除按钮
+    $(document).on('click', '.remove-row', function() {
+        $(this).closest('tr').remove();
+    });
+}
+
+// 确认审核
+$('#confirmAuditBtn').click(function() {
+    const $btn = $(this);
+    $btn.prop('disabled', true).text('处理中...');
+    $('#messageArea').html('');
+
+    // 收集选中的订单号
+    const orderNos = $('.order-check:checked').map(function() { return this.value; }).get();
+    // 收集选中的区域
+    const areas = $('.area-check:checked').map(function() { return this.value; }).get();
+    // 收集选中的商品
+    const products = [];
+    $('#productTableBody tr').each(function() {
+        const $row = $(this);
+        const checked = $row.find('.product-check').is(':checked');
+        if (!checked) return;
+        const name = $row.find('.edit-name').text().trim();
+        const unit = $row.find('.edit-unit').text().trim();
+        const spec = $row.find('.edit-spec').text().trim();
+        const price = $row.find('.edit-price').text().trim();
+        const action = $row.find('.prod-action').val();
+        if (name) {
+            products.push({ name, unit, spec, price, action: action || 'create' });
+        }
+    });
+    // 收集选中的客户
+    const customers = [];
+    $('#customerTableBody tr').each(function() {
+        const $row = $(this);
+        const checked = $row.find('.customer-check').is(':checked');
+        if (!checked) return;
+        const name = $row.find('.edit-cust-name').text().trim();
+        const area = $row.find('.edit-cust-area').text().trim();
+        if (name) customers.push({ name, area });
+    });
+
+    const payload = {
+        order_nos: orderNos,
+        new_areas: areas,
+        new_products: products,
+        new_customers: customers
+    };
+
+    $.ajax({
+        url: '{% url "bill:audit_orders_confirm" %}',
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify(payload),
+        beforeSend: function(xhr) {
+            xhr.setRequestHeader('X-CSRFToken', getCsrfToken());
+        },
+        success: function(res) {
+            if (res.code === 1) {
+                $('#messageArea').html(`<div class="alert alert-success">${res.msg}</div>`);
+                // 重新加载数据（延迟一下）
+                setTimeout(function() { location.reload(); }, 1500);
+            } else {
+                $('#messageArea').html(`<div class="alert alert-danger">${res.msg}</div>`);
+                $btn.prop('disabled', false).text('确认审核');
+            }
+        },
+        error: function() {
+            $('#messageArea').html('<div class="alert alert-danger">请求失败，请稍后重试</div>');
+            $btn.prop('disabled', false).text('确认审核');
+        }
+    });
+});
+
+// CSRF Token 获取
+function getCsrfToken() {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, 10) === 'csrftoken=') {
+                cookieValue = decodeURIComponent(cookie.substring(10));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
 </script>
 {% endblock %}
