@@ -1648,3 +1648,150 @@ def import_areas_from_io(file_obj, strategy='append'):
     clear_area_cache()
     return {'success': imported_count, 'skipped': skipped_count, 'errors': errors}
 
+# area_manage/views.py (在文件末尾添加)
+
+def export_groups_to_io(groups=None):
+    """
+    导出区域组数据为 BytesIO（全量字段）
+    """
+    if groups is None:
+        groups = AreaGroup.objects.only('id', 'name', 'remark')\
+            .prefetch_related(Prefetch('areas', queryset=Area.objects.only('name')))\
+            .order_by('id')
+
+    data = []
+    seq = 1
+    for g in groups:
+        area_names = ', '.join([a.name for a in g.areas.all()])
+        data.append({
+            'serial': seq,
+            'id': g.id,
+            'name': g.name,
+            'areas': area_names,
+            'remark': g.remark or '',
+            # 客户数作为参考，但不参与导入
+        })
+        seq += 1
+
+    headers = {
+        'serial': '序号',
+        'id': 'ID',
+        'name': '组名',
+        'areas': '包含区域',
+        'remark': '备注'
+    }
+    selected_fields = ['serial', 'id', 'name', 'areas', 'remark']
+
+    buffer = export_to_excel_buffer(
+        data=data,
+        title='区域组列表',
+        headers=headers,
+        selected_fields=selected_fields,
+        file_name='区域组导出'
+    )
+    return buffer
+
+def import_groups_from_io(file_obj, strategy='append'):
+    """
+    从 BytesIO 导入区域组（覆盖更新，区域自动创建）
+    返回 {'success': int, 'skipped': int, 'errors': list}
+    """
+    try:
+        wb = openpyxl.load_workbook(file_obj)
+        ws = wb.active
+    except Exception as e:
+        return {'success': 0, 'skipped': 0, 'errors': [f'文件解析失败: {str(e)}']}
+
+    headers = [cell.value for cell in ws[1]]
+    expected_map = {'组名': 'name', '包含区域': 'areas', '备注': 'remark'}
+    col_mapping = get_column_mapping(headers, expected_map)
+    if col_mapping is None:
+        return {'success': 0, 'skipped': 0, 'errors': ['缺少“组名”列']}
+
+    # 预加载所有区域（包括软删除的，以便复用）
+    area_map = {a.name: a for a in Area.objects.only('id', 'name')}
+
+    created_count = 0
+    updated_count = 0
+    skipped_count = 0
+    errors = []
+    created_area_count = 0
+
+    # 如果策略是 overwrite，清空所有区域组（谨慎，可选用）
+    if strategy == 'overwrite':
+        AreaGroup.objects.all().delete()
+
+    for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+        name_idx = col_mapping.get('name')
+        areas_idx = col_mapping.get('areas')
+        remark_idx = col_mapping.get('remark')
+
+        if name_idx is None or len(row) <= name_idx:
+            continue
+
+        group_name = str(row[name_idx]).strip() if row[name_idx] else ''
+        remark = str(row[remark_idx]).strip() if remark_idx is not None and len(row) > remark_idx and row[remark_idx] else ''
+
+        if not group_name:
+            skipped_count += 1
+            continue
+
+        # 解析区域名称列表
+        area_names_str = ''
+        if areas_idx is not None and len(row) > areas_idx and row[areas_idx]:
+            area_names_str = str(row[areas_idx]).strip()
+
+        area_names = []
+        if area_names_str:
+            area_names_str = area_names_str.replace('，', ',').replace('、', ',')
+            for part in area_names_str.split(','):
+                for sub in part.split():
+                    if sub.strip():
+                        area_names.append(sub.strip())
+
+        # 获取或创建区域对象
+        valid_areas = []
+        for name in area_names:
+            if name in area_map:
+                valid_areas.append(area_map[name])
+            else:
+                try:
+                    new_area = Area.objects.create(name=name, remark='导入自动创建')
+                    area_map[name] = new_area
+                    valid_areas.append(new_area)
+                    created_area_count += 1
+                except Exception as e:
+                    errors.append(f'第{row_idx}行创建区域"{name}"失败: {str(e)}')
+
+        if not valid_areas:
+            skipped_count += 1
+            continue
+
+        # 查找或创建区域组
+        try:
+            group, created = AreaGroup.objects.get_or_create(
+                name=group_name,
+                defaults={'remark': remark}
+            )
+            if created:
+                created_count += 1
+            else:
+                if remark:
+                    group.remark = remark
+                    group.save()
+                updated_count += 1
+            group.areas.set(valid_areas)
+        except Exception as e:
+            errors.append(f'第{row_idx}行处理区域组"{group_name}"失败: {str(e)}')
+            skipped_count += 1
+
+    clear_group_cache()
+    return {
+        'success': created_count + updated_count,
+        'skipped': skipped_count,
+        'errors': errors,
+        'new_areas': created_area_count,
+        'new_groups': created_count,
+        'updated_groups': updated_count
+    }
+

@@ -2004,3 +2004,158 @@ def import_customers_from_io(file_obj, strategy='append'):
         'errors': errors,
         'new_areas': new_area_count  # 可选项
     }
+
+# customer_manage/views.py (在文件末尾添加)
+
+def export_customer_prices_to_io(prices=None):
+    """
+    导出客户专属价为 BytesIO（全量字段）
+    """
+    if prices is None:
+        prices = CustomerPrice.objects.select_related(
+            'customer', 'customer__area', 'product'
+        ).order_by('-create_time')
+
+    data = []
+    seq = 1
+    for cp in prices:
+        data.append({
+            'serial': seq,
+            'id': cp.id,
+            'customer_name': cp.customer.name if cp.customer else '未知',
+            'customer_area': cp.customer.area.name if (cp.customer and cp.customer.area) else '无',
+            'product_name': cp.product.name if cp.product else '未知',
+            'custom_price': float(cp.custom_price),
+            'remark': cp.remark or ''
+        })
+        seq += 1
+
+    headers = {
+        'serial': '序号',
+        'id': 'ID',
+        'customer_name': '客户名称',
+        'customer_area': '所属区域',   # 仅作参考
+        'product_name': '商品名称',
+        'custom_price': '客户专属价',
+        'remark': '备注'
+    }
+    selected_fields = ['serial', 'id', 'customer_name', 'product_name', 'custom_price', 'remark']
+
+    buffer = export_to_excel_buffer(
+        data=data,
+        title='客户专属价格',
+        headers=headers,
+        selected_fields=selected_fields,
+        file_name='客户专属价格导出'
+    )
+    return buffer
+
+def import_customer_prices_from_io(file_obj, strategy='append'):
+    """
+    从 BytesIO 导入客户专属价（跳过重复）
+    依赖客户和商品必须存在
+    返回 {'success': int, 'skipped': int, 'errors': list}
+    """
+    try:
+        wb = load_workbook(file_obj, data_only=True)
+        ws = wb.active
+    except Exception as e:
+        return {'success': 0, 'skipped': 0, 'errors': [f'文件解析失败: {str(e)}']}
+
+    headers = [cell.value for cell in ws[1]]
+    expected_map = {
+        '客户名称': 'customer_name',
+        '商品名称': 'product_name',
+        '客户专属价': 'custom_price',
+        '备注': 'remark'
+    }
+    col_mapping = get_column_mapping(headers, expected_map)
+    if col_mapping is None:
+        return {'success': 0, 'skipped': 0, 'errors': ['缺少“客户名称”或“商品名称”列']}
+
+    # 预加载客户和商品
+    customer_map = {c.name: c for c in Customer.objects.only('id', 'name')}
+    product_map = {p.name: p for p in Product.objects.only('id', 'name')}
+    existing_price_keys = set(
+        CustomerPrice.objects.values_list('customer_id', 'product_id')
+    )
+
+    new_count = 0
+    skip_count = 0
+    errors = []
+
+    # 如果策略是 overwrite，清空所有价格（可选）
+    if strategy == 'overwrite':
+        CustomerPrice.objects.all().delete()
+        existing_price_keys = set()
+
+    for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+        if not any(row):
+            continue
+
+        cells = [str(cell).strip() if cell is not None else '' for cell in row]
+        customer_name = cells[col_mapping['customer_name']] if col_mapping.get('customer_name') is not None and len(cells) > col_mapping['customer_name'] else ''
+        product_name = cells[col_mapping['product_name']] if col_mapping.get('product_name') is not None and len(cells) > col_mapping['product_name'] else ''
+        price_str = cells[col_mapping['custom_price']] if col_mapping.get('custom_price') is not None and len(cells) > col_mapping['custom_price'] else ''
+        remark = cells[col_mapping['remark']] if col_mapping.get('remark') is not None and len(cells) > col_mapping['remark'] else ''
+
+        if not customer_name:
+            errors.append(f'第{row_idx}行：客户名称为空')
+            skip_count += 1
+            continue
+        if not product_name:
+            errors.append(f'第{row_idx}行：商品名称为空')
+            skip_count += 1
+            continue
+        if not price_str:
+            errors.append(f'第{row_idx}行：专属价格为空')
+            skip_count += 1
+            continue
+
+        try:
+            price = float(price_str.replace('¥', '').replace(',', '').strip())
+        except:
+            errors.append(f'第{row_idx}行：价格格式错误')
+            skip_count += 1
+            continue
+
+        customer = customer_map.get(customer_name)
+        if not customer:
+            errors.append(f'第{row_idx}行：客户"{customer_name}"不存在')
+            skip_count += 1
+            continue
+        product = product_map.get(product_name)
+        if not product:
+            errors.append(f'第{row_idx}行：商品"{product_name}"不存在')
+            skip_count += 1
+            continue
+
+        if (customer.id, product.id) in existing_price_keys:
+            skip_count += 1
+            continue
+
+        try:
+            CustomerPrice.objects.create(
+                customer=customer,
+                product=product,
+                custom_price=price,
+                remark=remark
+            )
+            new_count += 1
+            existing_price_keys.add((customer.id, product.id))
+        except Exception as e:
+            errors.append(f'第{row_idx}行：保存失败 - {str(e)}')
+            skip_count += 1
+
+    # 清理缓存
+    try:
+        from .cache import clear_customer_price_cache
+        clear_customer_price_cache()
+    except ImportError:
+        pass
+
+    return {
+        'success': new_count,
+        'skipped': skip_count,
+        'errors': errors
+    }
