@@ -782,13 +782,37 @@ def no_permission(request):
     return render(request, 'accounts/no_permission.html')
 
 # ===================== 用户管理：导入导出新增代码 =====================
+
+def get_column_mapping(headers, expected_map):
+    """
+    根据表头列表和预期字段映射，返回 {字段名: 列索引} 的字典。
+    :param headers: list of str，第一行的表头内容
+    :param expected_map: dict，例如 {'用户编号': 'user_code', '用户名': 'username'}
+    :return: dict，若必须字段缺失则返回 None
+    """
+    mapping = {}
+    for col_idx, header in enumerate(headers):
+        if header is None:
+            continue
+        header_str = str(header).strip()
+        for display_name, field_name in expected_map.items():
+            if header_str == display_name:
+                mapping[field_name] = col_idx
+                break
+
+    # 检查必须字段（用户编号为必须，用户名可自动生成，所以不是必须）
+    required_fields = ['user_code']
+    for req in required_fields:
+        if req not in mapping:
+            return None
+    return mapping
 @login_required
 @permission_required('user_import')
 def user_import(request):
     """
-    用户批量导入：
-    读取Excel，格式：[序号, 用户编号, 用户名, 姓名(忽略), 联系电话, 邮箱, 所属角色, 状态]
-    用户名缺失时自动使用 用户编号 作为用户名
+    用户批量导入（基于表头映射）：
+    读取Excel，根据表头自动匹配列，用户名缺失时自动使用用户编号。
+    支持字段：用户编号（必填）、用户名（可选）、联系电话、邮箱、所属角色、状态
     """
     if request.method == 'POST':
         try:
@@ -799,38 +823,67 @@ def user_import(request):
             wb = openpyxl.load_workbook(file)
             ws = wb.active
 
+            # 读取表头（第一行）
+            headers = [cell.value for cell in ws[1]]
+            # 定义字段映射：显示名称 -> 模型字段名（或内部标识）
+            expected_map = {
+                '用户编号': 'user_code',
+                '用户名': 'username',
+                '联系电话': 'phone',
+                '邮箱': 'email',
+                '所属角色': 'role',
+                '状态': 'status'
+            }
+            col_mapping = get_column_mapping(headers, expected_map)
+            if col_mapping is None:
+                return JsonResponse({'code': 0, 'msg': 'Excel表头缺少“用户编号”列，请检查格式'})
+
             imported_count = 0
             skipped_count = 0
 
+            # 预加载角色映射
             role_map = {r.name: r for r in Role.objects.only('id', 'name')}
 
+            # 从第2行开始遍历
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-                if len(row) < 3:
+                # 根据映射提取数据
+                user_code_idx = col_mapping.get('user_code')
+                username_idx = col_mapping.get('username')
+                phone_idx = col_mapping.get('phone')
+                email_idx = col_mapping.get('email')
+                role_idx = col_mapping.get('role')
+                status_idx = col_mapping.get('status')
+
+                # 检查是否可获取用户编号
+                if user_code_idx is None or len(row) <= user_code_idx:
                     continue
-
-                user_code = str(row[1]).strip() if row[1] else ''
-                username = str(row[2]).strip() if row[2] else ''
-                # 第3列是“姓名”，我们忽略它，不再读取
-                phone = str(row[4]).strip() if len(row) > 4 and row[4] else ''
-                email = str(row[5]).strip() if len(row) > 5 and row[5] else ''
-                role_name = str(row[6]).strip() if len(row) > 6 and row[6] else ''
-                status_str = str(row[7]).strip() if len(row) > 7 and row[7] else '正常'
-
+                user_code = str(row[user_code_idx]).strip() if row[user_code_idx] else ''
                 if not user_code:
                     skipped_count += 1
                     continue
 
-                if User.objects.filter(user_code=user_code).exists():
-                    skipped_count += 1
-                    continue
-
+                # 用户名（若缺失则用用户编号）
+                username = ''
+                if username_idx is not None and len(row) > username_idx and row[username_idx]:
+                    username = str(row[username_idx]).strip()
                 if not username:
                     username = user_code
 
+                # 其他字段
+                phone = str(row[phone_idx]).strip() if phone_idx is not None and len(row) > phone_idx and row[phone_idx] else ''
+                email = str(row[email_idx]).strip() if email_idx is not None and len(row) > email_idx and row[email_idx] else ''
+                role_name = str(row[role_idx]).strip() if role_idx is not None and len(row) > role_idx and row[role_idx] else ''
+                status_str = str(row[status_idx]).strip() if status_idx is not None and len(row) > status_idx and row[status_idx] else '正常'
+
+                # 检查唯一性
+                if User.objects.filter(user_code=user_code).exists():
+                    skipped_count += 1
+                    continue
                 if User.objects.filter(username=username).exists():
                     skipped_count += 1
                     continue
 
+                # 获取角色
                 role = role_map.get(role_name) if role_name else None
                 is_active = status_str != '禁用'
 
@@ -838,7 +891,6 @@ def user_import(request):
                     user = User.objects.create(
                         user_code=user_code,
                         username=username,
-                        # first_name 和 last_name 不再赋值，保留默认空
                         phone=phone,
                         email=email,
                         role=role,
@@ -852,12 +904,21 @@ def user_import(request):
                     skipped_count += 1
                     continue
 
-            create_operation_log(...)
-            return JsonResponse(...)
+            # 记录日志（保留原有日志函数）
+            create_operation_log(
+                request=request, op_type='import', obj_type='user',
+                obj_id=0, obj_name='批量导入',
+                detail=f"导入完成：新增 {imported_count} 条，跳过 {skipped_count} 条（重复或无效）"
+            )
+
+            return JsonResponse({
+                'code': 1,
+                'msg': f'导入完成！新增 {imported_count} 条，跳过 {skipped_count} 条数据'
+            })
 
         except Exception as e:
-            logger.error(...)
-            return JsonResponse(...)
+            logger.error(f"导入用户失败：{str(e)}", exc_info=True)
+            return JsonResponse({'code': 0, 'msg': f'导入失败：{e}'})
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
 
