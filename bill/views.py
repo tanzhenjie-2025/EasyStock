@@ -2660,6 +2660,13 @@ def import_orders_confirm(request):
         for idx, order_data in enumerate(valid_orders):
             try:
                 order_no = order_data['order_no']
+
+                # ---------- 新增检查 ----------
+                items = order_data.get('items', [])
+                if not items:
+                    errors.append(f'订单 {order_no} 缺少明细行，跳过')
+                    continue
+                # -----------------------------
                 if Order.objects.filter(order_no=order_no).exists():
                     errors.append(f'订单 {order_no} 已存在，跳过')
                     continue
