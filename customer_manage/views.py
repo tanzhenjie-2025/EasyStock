@@ -1284,6 +1284,29 @@ def export_to_excel(data, title, headers, selected_fields, custom_fields, file_n
     response['Content-Disposition'] = f'attachment; filename="{file_name}.xlsx"'
     return response
 
+def get_column_mapping(headers, expected_map):
+    """
+    根据表头列表和预期字段映射，返回 {字段名: 列索引} 的字典。
+    :param headers: list of str，第一行的表头内容
+    :param expected_map: dict，例如 {'客户名称': 'name', '所属区域': 'area'}
+    :return: dict，若必须字段缺失则返回 None
+    """
+    mapping = {}
+    for col_idx, header in enumerate(headers):
+        if header is None:
+            continue
+        header_str = str(header).strip()
+        for display_name, field_name in expected_map.items():
+            if header_str == display_name:
+                mapping[field_name] = col_idx
+                break
+
+    # 检查必须字段（客户名称为必须）
+    required_fields = ['customer_name']
+    for req in required_fields:
+        if req not in mapping:
+            return None
+    return mapping
 # ========== 客户导出 ==========
 @login_required
 @permission_required('customer_export')
@@ -1353,47 +1376,51 @@ def customer_import(request):
             wb = load_workbook(file_obj)
             ws = wb.active
 
-            # ---------- 1. 读取表头，建立列名 → 索引映射 ----------
-            header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
-            col_map = {
-                str(cell).strip(): idx
-                for idx, cell in enumerate(header_row)
-                if cell
+            # ---------- 1. 读取表头，建立映射 ----------
+            headers = [cell.value for cell in ws[1]]
+            expected_map = {
+                '客户名称': 'name',
+                '所属区域': 'area',
+                '联系电话': 'phone',
+                '备注': 'remark',
+                '制单号': 'order_number'
             }
-
-            if '客户名称' not in col_map:
-                return JsonResponse({'code': 0, 'msg': 'Excel 表头缺少“客户名称”列，请使用正确的导出模板'})
-
-            name_idx = col_map['客户名称']
-            area_idx = col_map.get('所属区域')
-            phone_idx = col_map.get('联系电话')
-            remark_idx = col_map.get('备注')
-            # ✅ 新增：读取“制单号”列（兼容旧模板：不存在时不影响导入）
-            order_number_idx = col_map.get('制单号')
+            col_mapping = get_column_mapping(headers, expected_map)
+            if col_mapping is None:
+                return JsonResponse({'code': 0, 'msg': 'Excel表头缺少“客户名称”列，请使用正确的导出模板'})
 
             new_count = 0
             skip_count = 0
-            new_area_count = 0  # ✅ 记录新增区域数
+            new_area_count = 0
             error_list = []
             area_map = {area.name: area for area in Area.objects.all()}
 
+            # 从第2行开始遍历
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), 2):
                 if not any(row):
                     continue
 
+                # 根据映射提取数据
+                name_idx = col_mapping.get('name')
+                area_idx = col_mapping.get('area')
+                phone_idx = col_mapping.get('phone')
+                remark_idx = col_mapping.get('remark')
+                order_number_idx = col_mapping.get('order_number')
+
+                # 转为列表方便按索引取
                 cells = [str(cell).strip() if cell else '' for cell in row]
-                name = cells[name_idx] if name_idx < len(cells) else ''
+
+                name = cells[name_idx] if name_idx is not None and name_idx < len(cells) else ''
                 area_name = cells[area_idx] if area_idx is not None and area_idx < len(cells) else ''
                 phone = cells[phone_idx] if phone_idx is not None and phone_idx < len(cells) else ''
                 remark = cells[remark_idx] if remark_idx is not None and remark_idx < len(cells) else ''
-                order_number = cells[order_number_idx] if order_number_idx is not None and order_number_idx < len(
-                    cells) else ''
+                order_number = cells[order_number_idx] if order_number_idx is not None and order_number_idx < len(cells) else ''
 
                 if not name:
                     error_list.append(f"第{row_idx}行：客户名称为空，跳过")
                     continue
 
-                # ✅ 处理区域：不存在则自动创建（排除特殊值“无”）
+                # 处理区域：不存在则自动创建（排除特殊值“无”）
                 area_obj = None
                 if area_name and area_name != '无':
                     area_obj = area_map.get(area_name)
@@ -1408,8 +1435,9 @@ def customer_import(request):
                             new_area_count += 1
                         except Exception as e:
                             error_list.append(f"第{row_idx}行：自动创建区域“{area_name}”失败（{str(e)}）")
-                            continue  # 区域创建失败则跳过该行
+                            continue
 
+                # 检查重复（同一区域下客户名称唯一）
                 if Customer.objects.filter(name=name, area=area_obj).exists():
                     skip_count += 1
                     continue
@@ -1514,6 +1542,20 @@ def customer_price_import(request):
 
             wb = load_workbook(file_obj, data_only=True)
             ws = wb.active
+
+            # ---------- 读取表头，建立映射 ----------
+            headers = [cell.value for cell in ws[1]]
+            expected_map = {
+                '客户名称': 'customer_name',
+                '商品名称': 'product_name',
+                '客户专属价': 'custom_price',   # 或 '专属价格'
+                '备注': 'remark'
+            }
+            col_mapping = get_column_mapping(headers, expected_map)
+            if col_mapping is None:
+                return JsonResponse({'code': 0, 'msg': 'Excel表头缺少“客户名称”列，请使用正确的模板'})
+
+            # 可选字段（序号、标准价等不必要）
             new_count = 0
             skip_count = 0
             error_list = []
@@ -1531,13 +1573,17 @@ def customer_price_import(request):
                     continue
 
                 cells = [str(cell).strip() if cell is not None else '' for cell in row]
-                while len(cells) < 7:
-                    cells.append('')
 
-                customer_name = cells[1]
-                product_name = cells[3]
-                custom_price_str = cells[5]
-                remark = cells[6]
+                # 根据映射取数据
+                customer_idx = col_mapping.get('customer_name')
+                product_idx = col_mapping.get('product_name')
+                price_idx = col_mapping.get('custom_price')
+                remark_idx = col_mapping.get('remark')
+
+                customer_name = cells[customer_idx] if customer_idx is not None and customer_idx < len(cells) else ''
+                product_name = cells[product_idx] if product_idx is not None and product_idx < len(cells) else ''
+                custom_price_str = cells[price_idx] if price_idx is not None and price_idx < len(cells) else ''
+                remark = cells[remark_idx] if remark_idx is not None and remark_idx < len(cells) else ''
 
                 if not customer_name:
                     error_list.append(f"第{row_idx}行：客户名称为空，跳过")
@@ -1549,6 +1595,7 @@ def customer_price_import(request):
                     error_list.append(f"第{row_idx}行：专属价格为空，跳过")
                     continue
 
+                # 解析价格（去除¥、逗号等）
                 try:
                     price_clean = custom_price_str.replace('¥', '').replace(',', '').strip()
                     custom_price = float(price_clean)
