@@ -3018,4 +3018,349 @@ def add_order_from_existing(request, order_no):
 
     return render(request, 'bill/index.html', context)
 
+# bill/views.py 末尾添加
 
+import io
+from openpyxl import load_workbook, Workbook
+from django.db import transaction
+from django.utils import timezone
+from .models import SortRule, ProductTag
+
+def export_to_excel_buffer(data, title, headers, selected_fields, custom_fields=None, file_name='导出', total_row=None):
+    """
+    返回 BytesIO 对象的 Excel 文件
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = title
+
+    # 确定最终字段列表（简化，不处理自定义字段位置）
+    field_order = selected_fields
+    # 若存在自定义字段，简单追加（可根据需求扩展）
+    if custom_fields:
+        for cf in custom_fields:
+            if cf.get('name') not in field_order:
+                field_order.append('custom_' + cf['name'])
+
+    # 写入表头
+    header_font = Font(bold=True)
+    for col_num, field in enumerate(field_order, 1):
+        header_text = headers.get(field, field)
+        cell = ws.cell(row=1, column=col_num, value=header_text)
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal='center')
+
+    # 写入数据
+    for row_num, record in enumerate(data, 2):
+        for col_num, field in enumerate(field_order, 1):
+            value = record.get(field, '')
+            ws.cell(row=row_num, column=col_num, value=value)
+
+    # 若有合计行（略）
+    if total_row:
+        pass
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+def export_sort_rules_to_io(rules=None):
+    """
+    导出排序规则为 BytesIO（用于一键备份）
+    """
+    if rules is None:
+        rules = SortRule.objects.select_related('tag').order_by('stage', 'priority', 'id')
+    data = []
+    seq = 1
+    for rule in rules:
+        data.append({
+            'serial': seq,
+            'stage': rule.stage,
+            'rule_type': rule.rule_type,
+            'tag_name': rule.tag.name if rule.tag else '',
+            'spec_condition': rule.spec_condition or '',
+            'priority': rule.priority,
+            'is_active': '是' if rule.is_active else '否'
+        })
+        seq += 1
+
+    headers = {
+        'serial': '序号',
+        'stage': '阶段',
+        'rule_type': '规则类型',
+        'tag_name': '标签名称',
+        'spec_condition': '规格条件',
+        'priority': '优先级',
+        'is_active': '启用'
+    }
+    selected_fields = ['serial', 'stage', 'rule_type', 'tag_name', 'spec_condition', 'priority', 'is_active']
+
+    buffer = export_to_excel_buffer(
+        data=data,
+        title='排序规则',
+        headers=headers,
+        selected_fields=selected_fields,
+        file_name='排序规则导出'
+    )
+    return buffer
+
+from django.db.models import Prefetch
+from decimal import Decimal
+
+def export_orders_to_io(orders=None):
+    """
+    导出订单数据为 BytesIO（每个订单明细占一行，全量）
+    """
+    if orders is None:
+        orders = Order.objects.select_related('area', 'creator', 'settled_by')\
+            .prefetch_related(
+                Prefetch('items', queryset=OrderItem.objects.select_related('product'))
+            ).order_by('-create_time')
+
+    data = []
+    for order in orders:
+        area_name = order.area.name if order.area else ''
+        customer_name_snap = order.customer_name_snapshot or ''
+        order_no_text = order.order_no
+        create_time_val = timezone.localtime(order.create_time).replace(tzinfo=None) if order.create_time else ''
+        creator_name = order.creator.username if order.creator else ''
+        total_amount = float(order.total_amount) if order.total_amount else 0.0
+        is_settled_text = '是' if order.is_settled else '否'
+        received_amount = float(order.received_amount) if order.received_amount else 0.0
+        settled_by_name = order.settled_by.username if order.settled_by else ''
+        settled_time_val = timezone.localtime(order.settled_time).replace(tzinfo=None) if order.settled_time else ''
+        order_number_snap = order.order_number_snapshot or ''
+        delivery_method = order.delivery_method or ''
+        is_verified_text = '是' if order.is_verified else '否'
+
+        for item in order.items.all():
+            data.append({
+                'order_no': order_no_text,
+                'customer_name': customer_name_snap,
+                'area': area_name,
+                'product_name': item.product_name,
+                'specification': item.specification or '',
+                'unit': item.unit or '',
+                'quantity': item.quantity,
+                'price': float(item.actual_unit_price) if item.actual_unit_price else 0.0,
+                'amount': float(item.amount) if item.amount else 0.0,
+                'status': order.status,
+                'delivery_method': delivery_method,
+                'create_time': create_time_val,
+                'creator': creator_name,
+                'total_amount': total_amount,
+                'is_settled': is_settled_text,
+                'received_amount': received_amount,
+                'settled_by': settled_by_name,
+                'settled_time': settled_time_val,
+                'order_number_snapshot': order_number_snap,
+                'is_makeup': '是' if item.is_makeup_item else '',
+                'is_verified': is_verified_text,
+            })
+
+    headers = {
+        'order_no': '订单编号',
+        'customer_name': '客户名称',
+        'area': '区域',
+        'product_name': '商品名称',
+        'specification': '规格',
+        'unit': '单位',
+        'quantity': '数量',
+        'price': '单价',
+        'amount': '小计金额',
+        'status': '订单状态',
+        'delivery_method': '交付方式',
+        'create_time': '创建时间',
+        'creator': '开单人',
+        'total_amount': '订单总金额',
+        'is_settled': '是否结清',
+        'received_amount': '已收金额',
+        'settled_by': '结清人',
+        'settled_time': '结清时间',
+        'order_number_snapshot': '制单号快照',
+        'is_makeup': '是否补货',
+        'is_verified': '审核状态'
+    }
+    selected_fields = [
+        'order_no', 'customer_name', 'area', 'product_name', 'specification', 'unit',
+        'quantity', 'price', 'amount', 'status', 'delivery_method', 'create_time',
+        'creator', 'total_amount', 'is_settled', 'received_amount', 'settled_by',
+        'settled_time', 'order_number_snapshot', 'is_makeup', 'is_verified'
+    ]
+
+    buffer = export_to_excel_buffer(
+        data=data,
+        title='订单数据',
+        headers=headers,
+        selected_fields=selected_fields,
+        file_name='订单导出'
+    )
+    return buffer
+
+def get_default_creator():
+    """获取默认创建者（第一个超级管理员），如果不存在则返回 None"""
+    return User.objects.filter(is_superuser=True).first()
+
+def import_orders_from_io(file_obj, strategy='append'):
+    """
+    从 BytesIO 导入订单（直接执行导入，跳过预览）
+    依赖区域、客户、商品已存在，否则报错
+    返回 {'success': int, 'skipped': int, 'errors': list}
+    """
+    try:
+        wb = load_workbook(file_obj, read_only=True)
+        parsed = parse_excel_to_structure(wb)
+    except Exception as e:
+        return {'success': 0, 'skipped': 0, 'errors': [f'解析失败: {str(e)}']}
+
+    order_groups = parsed['order_groups']
+
+    # 预检查已存在订单
+    all_order_nos = [g['order_no'] for g in order_groups.values() if g['order_no']]
+    existing_set = set()
+    if all_order_nos:
+        existing_set = set(Order.objects.filter(order_no__in=all_order_nos).values_list('order_no', flat=True))
+
+    # 构建有效订单列表
+    valid_orders = []
+    skipped = 0
+    errors = []
+
+    for key, g in order_groups.items():
+        order_no = g['order_no']
+        if not order_no:
+            skipped += 1
+            errors.append(f'订单组缺少编号: {key}')
+            continue
+        if order_no in existing_set:
+            skipped += 1
+            continue  # 跳过已存在
+
+        items = g['items']
+        order_data = {
+            'order_no': order_no,
+            'raw_customer_name': g['raw_customer_name'],
+            'area_name': g['area_name'],
+            'pure_customer_name': items[0]['pure_customer_name'],
+            'status': items[0]['status'],
+            'create_time': g['create_time'],
+            'creator_username': g['creator_username'],
+            'is_settled': g['is_settled'],
+            'received_amount': str(g['received_amount']),
+            'settled_by_username': g['settled_by_username'],
+            'settled_time': g['settled_time'],
+            'order_number_snapshot': g.get('order_number_snapshot', ''),
+            'items': [{
+                'product_name': item['product_name'],
+                'spec': item['spec'],
+                'unit': item['unit'],
+                'qty': item['qty'],
+                'price': str(item['price']),
+                'status': item['status'],
+                'is_makeup': item.get('is_makeup_item', False),
+            } for item in items],
+            'is_verified': g.get('is_verified', False),
+        }
+        valid_orders.append(order_data)
+
+    if not valid_orders:
+        return {'success': 0, 'skipped': skipped, 'errors': errors or ['没有可导入的订单']}
+
+    # 预加载依赖数据
+    all_area_names = {o['area_name'] for o in valid_orders if o.get('area_name')}
+    all_customer_names = {o['pure_customer_name'] for o in valid_orders if o.get('pure_customer_name')}
+    all_creator_usernames = {o['creator_username'] for o in valid_orders if o.get('creator_username')}
+
+    area_map = {a.name: a for a in Area.objects.filter(name__in=all_area_names, is_active=True)}
+    customer_map = {c.name: c for c in Customer.objects.filter(name__in=all_customer_names, is_active=True)}
+    user_map = {u.username: u for u in User.objects.filter(username__in=all_creator_usernames)}
+    default_creator = get_default_creator()
+
+    success = 0
+    import_errors = []
+    # 使用事务，保证全部或全部不成功
+    with transaction.atomic():
+        for order_data in valid_orders:
+            order_no = order_data['order_no']
+            try:
+                items = order_data['items']
+                if not items:
+                    import_errors.append(f'订单 {order_no} 无明细')
+                    continue
+
+                area = area_map.get(order_data.get('area_name'))
+                if not area:
+                    import_errors.append(f'订单 {order_no} 区域不存在')
+                    continue
+                customer = customer_map.get(order_data.get('pure_customer_name'))
+                if not customer:
+                    import_errors.append(f'订单 {order_no} 客户不存在')
+                    continue
+                creator = user_map.get(order_data.get('creator_username', ''))
+                if not creator:
+                    creator = default_creator  # 使用系统管理员
+
+                create_time = order_data.get('create_time') or timezone.now()
+                is_verified = order_data.get('is_verified', False)
+
+                order = Order(
+                    order_no=order_no,
+                    customer_name_snapshot=order_data.get('raw_customer_name', ''),
+                    area=area,
+                    customer=customer,
+                    creator=creator,
+                    total_amount=0,
+                    status=order_data['status'],
+                    order_number_snapshot=order_data.get('order_number_snapshot', ''),
+                    is_settled=False,
+                    received_amount=Decimal('0'),
+                    create_time=create_time,
+                    is_verified=is_verified,
+                )
+                order.save()
+
+                if order_data['status'] != 'cancelled':
+                    is_settled = order_data.get('is_settled', False)
+                    received = Decimal(order_data.get('received_amount', '0'))
+                    if is_settled or received > 0:
+                        order.is_settled = is_settled
+                        order.received_amount = received
+                        order.save(update_fields=['is_settled', 'received_amount'])
+
+                total = Decimal('0')
+                items_to_create = []
+                for item in items:
+                    prod_name = item['product_name']
+                    unit = item.get('unit', '')
+                    price = Decimal(item['price'])
+                    qty = int(item['qty'])
+                    amount = price * qty
+                    total += amount
+                    is_makeup = item.get('is_makeup', False)
+                    items_to_create.append(OrderItem(
+                        order=order,
+                        product=None,
+                        product_name=prod_name,
+                        specification=item.get('spec', ''),
+                        unit=unit,
+                        quantity=qty,
+                        amount=amount,
+                        actual_unit_price=price,
+                        snapshot_standard_price=price,
+                        snapshot_customer_price=None,
+                        is_makeup_item=is_makeup,
+                    ))
+                OrderItem.objects.bulk_create(items_to_create)
+                order.total_amount = total
+                order.save(update_fields=['total_amount'])
+                success += 1
+
+            except Exception as e:
+                import_errors.append(f'订单 {order_no} 导入失败: {str(e)}')
+                # 抛出异常以触发外层事务回滚
+                raise Exception(f'订单 {order_no} 导入失败: {str(e)}')
+
+    # 若全部成功，返回结果
+    return {'success': success, 'skipped': skipped, 'errors': import_errors}
