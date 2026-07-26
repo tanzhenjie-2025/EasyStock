@@ -770,15 +770,21 @@ def print_empty_template(request):
     return render(request, 'bill/empty_template_print.html', context)
 
 
-def print_key_data(request, order_no):
-    order = get_object_or_404(
-        Order.objects.select_related('customer', 'area', 'creator'),
-        order_no=order_no
-    )
+from django.shortcuts import render, get_object_or_404
+from django.http import HttpResponseBadRequest, JsonResponse
+from django.contrib.auth.decorators import login_required, permission_required
+from django.conf import settings
+import json
+
+# 假设权限常量已定义
+PERM_ORDER_PRINT = 'order.can_print'
+
+def prepare_key_data(order):
+    """准备单个订单的套打数据"""
     items = order.items.select_related('product')
     items_display = list(items[:15]) + [None] * (15 - min(len(items), 15))
 
-    # 安全处理客户名称
+    # 客户名称
     if order.customer_name_snapshot:
         customer_name_display = order.customer_name_snapshot
     elif order.customer:
@@ -786,7 +792,7 @@ def print_key_data(request, order_no):
     else:
         customer_name_display = '无'
 
-    # 安全处理制单工号
+    # 制单工号
     if order.order_number_snapshot:
         order_number_display = order.order_number_snapshot
     elif order.customer and order.customer.order_number:
@@ -794,20 +800,96 @@ def print_key_data(request, order_no):
     else:
         order_number_display = ''
 
-    # 开单人员（creator 通常存在，但仍做防御）
     creator_name = order.creator.name if order.creator else '未知'
 
-    context = {
+    return {
         'order': order,
         'items_display': items_display,
         'customer_name_display': customer_name_display,
         'order_number_display': order_number_display,
         'creator_name': creator_name,
+    }
+
+
+@login_required
+@permission_required(PERM_ORDER_PRINT, raise_exception=True)
+def print_key_data(request):
+    """
+    统一套打视图：支持单个或多个订单
+    参数：
+        order_no   - 单个订单号（可选）
+        order_nos  - 逗号分隔的多个订单号（可选）
+    """
+    order_no = request.GET.get('order_no')
+    order_nos_param = request.GET.get('order_nos', '')
+    order_nos = [no.strip() for no in order_nos_param.split(',') if no.strip()]
+
+    if order_no and order_no not in order_nos:
+        order_nos.insert(0, order_no)
+
+    if not order_nos:
+        return HttpResponseBadRequest("请提供至少一个订单编号")
+
+    orders = Order.objects.filter(
+        order_no__in=order_nos
+    ).exclude(status='cancelled').select_related('customer', 'area', 'creator')
+
+    orders_data = []
+    for order in orders:
+        orders_data.append(prepare_key_data(order))
+
+    if not orders_data:
+        return HttpResponseBadRequest("没有有效订单（可能已取消）")
+
+    is_batch = len(orders_data) > 1
+
+    context = {
+        'orders_data': orders_data,
+        'is_batch': is_batch,
         'phone_numbers': settings.PHONE_NUMBERS,
         'complaint_phone': settings.COMPLAINT_PHONE,
         'bill_title': settings.BILL_TITLE,
     }
     return render(request, 'bill/print_key_data.html', context)
+
+# def print_key_data(request, order_no):
+#     order = get_object_or_404(
+#         Order.objects.select_related('customer', 'area', 'creator'),
+#         order_no=order_no
+#     )
+#     items = order.items.select_related('product')
+#     items_display = list(items[:15]) + [None] * (15 - min(len(items), 15))
+#
+#     # 安全处理客户名称
+#     if order.customer_name_snapshot:
+#         customer_name_display = order.customer_name_snapshot
+#     elif order.customer:
+#         customer_name_display = order.customer.name
+#     else:
+#         customer_name_display = '无'
+#
+#     # 安全处理制单工号
+#     if order.order_number_snapshot:
+#         order_number_display = order.order_number_snapshot
+#     elif order.customer and order.customer.order_number:
+#         order_number_display = order.customer.order_number
+#     else:
+#         order_number_display = ''
+#
+#     # 开单人员（creator 通常存在，但仍做防御）
+#     creator_name = order.creator.name if order.creator else '未知'
+#
+#     context = {
+#         'order': order,
+#         'items_display': items_display,
+#         'customer_name_display': customer_name_display,
+#         'order_number_display': order_number_display,
+#         'creator_name': creator_name,
+#         'phone_numbers': settings.PHONE_NUMBERS,
+#         'complaint_phone': settings.COMPLAINT_PHONE,
+#         'bill_title': settings.BILL_TITLE,
+#     }
+#     return render(request, 'bill/print_key_data.html', context)
 
 
 @login_required

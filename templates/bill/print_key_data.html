@@ -2,8 +2,9 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>打印关键数据 - {{ order.order_no }}</title>
+    <title>{% if is_batch %}批量打印关键数据{% else %}打印关键数据 - {{ orders_data.0.order.order_no }}{% endif %}</title>
     <style>
+        /* ===== 打印样式 ===== */
         @media print {
             @page {
                 size: 140mm 210mm;
@@ -19,40 +20,47 @@
                 padding: 7mm 5mm 5mm 5mm;
                 box-sizing: border-box;
                 border: none;
-                margin: 0;                     /* 去除屏幕外边距 */
+                margin: 0;
             }
-            .no-print { display: none; }
+            /* 批量时每张之间分页 */
+            {% if is_batch %}
+            .bill-print + .bill-print {
+                page-break-before: always;
+            }
+            {% endif %}
+            .no-print {
+                display: none !important;
+            }
 
-            /* 关键：静态标签透明，保留占位；动态数据正常显示 */
+            /* 套打：静态标签透明，动态数据可见 */
             .label-text {
                 color: transparent !important;
             }
             .data-value {
                 color: #000 !important;
             }
-            /* 隐藏不需要的行，但用 visibility 保持高度 */
             .hide-row {
                 visibility: hidden;
             }
             .watermark-delivery, .watermark-return, .watermark-general {
                 display: none !important;
             }
- .bill-table, .bill-table th, .bill-table td {
-    border: none !important;
-}
-.bill-table th, .bill-table td {
-    height: 30px;
-    font-size: 14px;
-    padding: 4px 0;
-    white-space: nowrap;
-    overflow: hidden;
-}
-.underline, .underline-sm {
-    border: none !important;
-}
+            .bill-table, .bill-table th, .bill-table td {
+                border: none !important;
+            }
+            .bill-table th, .bill-table td {
+                height: 30px;
+                font-size: 14px;
+                padding: 4px 0;
+                white-space: nowrap;
+                overflow: hidden;
+            }
+            .underline, .underline-sm {
+                border: none !important;
+            }
         }
 
-        /* ===== 屏幕显示样式（与空白模板一致） ===== */
+        /* ===== 屏幕样式 ===== */
         .bill-print {
             width: 140mm;
             border: none;
@@ -76,7 +84,9 @@
             width: 90%;
             flex-wrap: wrap;
         }
-        .bill-info-row span { white-space: nowrap; }
+        .bill-info-row span {
+            white-space: nowrap;
+        }
         .table-wrapper {
             position: relative;
             width: 90%;
@@ -104,17 +114,22 @@
         .bill-table .col-total { width: 15%; }
         .bill-footer {
             margin-top: 8px;
-            margin-left: auto; margin-right: auto;
+            margin-left: auto;
+            margin-right: auto;
             width: 90%;
             display: flex;
             justify-content: space-between;
             font-size: 14px;
         }
-        .bill-footer .total-amount { font-size: 22px; font-weight: bold; }
+        .bill-footer .total-amount {
+            font-size: 22px;
+            font-weight: bold;
+        }
         .bill-bottom {
             margin-top: 16px;
             width: 90%;
-            margin-left: auto; margin-right: auto;
+            margin-left: auto;
+            margin-right: auto;
             font-size: 13px;
         }
         .bill-bottom .bottom-row {
@@ -123,39 +138,70 @@
             align-items: center;
             margin-top: 12px;
         }
-        .bill-bottom .bottom-row .field-group { display: flex; align-items: center; }
+        .bill-bottom .bottom-row:first-child {
+            margin-top: 0;
+        }
+        .bill-bottom .bottom-row .field-group {
+            display: flex;
+            align-items: center;
+        }
         .bill-bottom .bottom-row .field-group .underline {
             display: inline-block;
             width: 120px;
             border-bottom: 1px solid #000;
             margin-left: 4px;
         }
-        .bill-bottom .bottom-row .field-group .underline-sm { width: 100px; }
+        .bill-bottom .bottom-row .field-group .underline-sm {
+            width: 100px;
+        }
+
+        /* 按钮样式 */
+        .no-print {
+            text-align: center;
+            margin: 20px;
+        }
+        .no-print button {
+            padding: 8px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .no-print a {
+            margin-left: 15px;
+        }
     </style>
 </head>
 <body>
-    <div class="no-print" style="text-align: center; margin: 20px;">
-        <button onclick="autoPrintAndMark()">打印关键数据</button>
-<a href="/bill/"><button>返回开单页</button></a>
+
+    <!-- ===== 操作按钮（不打印） ===== -->
+    <div class="no-print">
+        <button onclick="printAndMark()">
+            {% if is_batch %}一键打印所有关键数据{% else %}打印关键数据{% endif %}
+        </button>
+        {% if is_batch %}
+            <a href="javascript:window.close()"><button>关闭窗口</button></a>
+        {% else %}
+            <a href="/bill/"><button>返回开单页</button></a>
+        {% endif %}
     </div>
 
+    <!-- ===== 遍历打印数据 ===== -->
+    {% for data in orders_data %}
     <div class="bill-print">
-        <!-- 标题区域：静态文字透明 -->
+        <!-- 标题 -->
         <div class="bill-header">
             <h2><span class="label-text">{{ bill_title }}</span></h2>
             <div class="bill-info-row">
                 <div class="info-group">
-                    <!-- “客户名称：”透明，后面直接跟数据值 -->
-                    <span class="label-text">客户名称：</span><span class="data-value">{{ customer_name_display }}</span>
+                    <span class="label-text">客户名称：</span><span class="data-value">{{ data.customer_name_display }}</span>
                 </div>
                 <div class="info-group">
-                    <span class="label-text">订单编号：</span><span class="data-value">{{ order.order_no }}</span>
-                    <span class="label-text">开单时间：</span><span class="data-value">{{ order.create_time|date:"Y-m-d H:i:s" }}</span>
+                    <span class="label-text">订单编号：</span><span class="data-value">{{ data.order.order_no }}</span>
+                    <span class="label-text">开单时间：</span><span class="data-value">{{ data.order.create_time|date:"Y-m-d H:i:s" }}</span>
                 </div>
             </div>
         </div>
 
-        <!-- 表格区域 -->
+        <!-- 表格 -->
         <div class="table-wrapper">
             <table class="bill-table">
                 <thead>
@@ -170,35 +216,34 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for item in items_display %}
+                    {% for item in data.items_display %}
                     <tr>
                         <td></td>
                         {% if item %}
-                        <td class="data-value">{{ item.specification|default:"-" }}</td>
-                        <td class="data-value">{{ item.product_name }}</td>
-                        <td class="data-value">{{ item.quantity }}</td>
-                        <td class="data-value">{{ item.unit }}</td>
-                        <td class="data-value">¥{{ item.actual_unit_price }}</td>
-                        <td class="data-value">¥{{ item.amount }}</td>
+                            <td class="data-value">{{ item.specification|default:"-" }}</td>
+                            <td class="data-value">{{ item.product_name }}</td>
+                            <td class="data-value">{{ item.quantity }}</td>
+                            <td class="data-value">{{ item.unit }}</td>
+                            <td class="data-value">¥{{ item.actual_unit_price }}</td>
+                            <td class="data-value">¥{{ item.amount }}</td>
                         {% else %}
-                        <td></td><td></td><td></td><td></td><td></td><td></td>
+                            <td></td><td></td><td></td><td></td><td></td><td></td>
                         {% endif %}
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
-            <!-- 水印全部隐藏（已在打印样式中处理） -->
         </div>
 
-        <!-- 底部信息 -->
+        <!-- 底部 -->
         <div class="bill-footer">
-            <span class="label-text">开单人员：</span><span class="data-value">{{ creator_name }}</span>
+            <span class="label-text">开单人员：</span><span class="data-value">{{ data.creator_name }}</span>
             <span></span>
-            <span class="label-text">总金额：</span><span class="data-value" style="margin-right: 5mm;">¥{{ order.total_amount }}</span>
+            <span class="label-text">总金额：</span><span class="data-value" style="margin-right: 5mm;">¥{{ data.order.total_amount }}</span>
         </div>
 
         <div class="bill-bottom">
-            <!-- 以下整行保持占位，但内容透明，以确保制单工号位置不变 -->
+            <!-- 这些行完全隐藏（占位用） -->
             <div class="bottom-row hide-row">
                 <span><strong>联系电话：</strong>{{ phone_numbers }}</span>
             </div>
@@ -226,68 +271,80 @@
                 </div>
             </div>
 
-            <!-- 制单工号：静态标签透明，数据正常显示 -->
+            <!-- 制单工号：标签透明，数据可见 -->
             <div class="bottom-row" style="justify-content: space-between;">
-               <div class="field-group">
-    <strong class="label-text">制单工号：</strong>
-    <span class="underline underline-sm" style="text-align: center;">
-        <span class="data-value" style="font-size: 22px; font-weight: bold; display: block; width: 100%;">
-            {{ order_number_display }}
-        </span>
-    </span>
-</div>
-               
+                <div class="field-group">
+                    <strong class="label-text">制单工号：</strong>
+                    <span class="underline underline-sm" style="text-align: center;">
+                        <span class="data-value" style="font-size: 22px; font-weight: bold; display: block; width: 100%;">
+                            {{ data.order_number_display }}
+                        </span>
+                    </span>
+                </div>
             </div>
         </div>
     </div>
+    {% endfor %}
 
+    <!-- ===== JavaScript ===== -->
     <script>
-    // 回车键返回开单页
-    document.addEventListener('keydown', function(e) {
-        if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && e.key === 'Enter') {
-            e.preventDefault();
-            window.location.href = '/bill/';
-        }
-    });
+        // 收集所有订单号（用于统一标记）
+        var orderNos = [
+            {% for data in orders_data %}
+                "{{ data.order.order_no }}"{% if not forloop.last %},{% endif %}
+            {% endfor %}
+        ];
 
-    function getCookie(name) {
-        let cookieValue = null;
-        if (document.cookie && document.cookie !== '') {
-            const cookies = document.cookie.split(';');
-            for (let i = 0; i < cookies.length; i++) {
-                const cookie = cookies[i].trim();
-                if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                    break;
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
                 }
             }
+            return cookieValue;
         }
-        return cookieValue;
-    }
 
-    var printMarked = false;
-
-    function autoPrintAndMark() {
-        window.onafterprint = function() {
-            if (!printMarked) {
-                printMarked = true;
-                fetch('{% url "bill:mark_order_printed" order.order_no %}', {
+        function printAndMark() {
+            window.onafterprint = function() {
+                fetch('{% url "bill:mark_printed" %}', {
                     method: 'POST',
                     headers: {
                         'X-CSRFToken': getCookie('csrftoken'),
                         'Content-Type': 'application/json',
                     },
+                    body: JSON.stringify({ order_nos: orderNos }),
                 })
-                .then(response => response.json())
+                .then(r => r.json())
                 .then(data => {
-                    console.log(data.msg);
+                    if (data.code === 1) {
+                        console.log('标记成功：', data.msg);
+                    } else {
+                        console.error('标记失败：', data.msg);
+                    }
                 })
-                .catch(error => console.error('标记失败:', error));
+                .catch(e => console.error('请求错误：', e));
+                window.onafterprint = null;
+            };
+            window.print();
+        }
+
+        // 键盘快捷键：回车跳转（仅单订单时）
+        document.addEventListener('keydown', function(e) {
+            if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && e.key === 'Enter') {
+                e.preventDefault();
+                {% if not is_batch %}
+                    window.location.href = '/bill/';
+                {% else %}
+                    // 批量模式下回车不做特殊处理
+                {% endif %}
             }
-            window.onafterprint = null;
-        };
-        window.print();
-    }
-</script>
+        });
+    </script>
 </body>
 </html>

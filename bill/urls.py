@@ -56,8 +56,8 @@ path('sort-rules/import/', views.import_sort_rules, name='import_sort_rules'),
 path('add-order-from/<str:order_no>/', views.add_order_from_existing, name='add_order_from_existing'),
 # 位置：bill/urls.py - urlpatterns 内
 path('print-empty-template/', views.print_empty_template, name='print_empty_template'),
-path('print-key-data/<str:order_no>/', views.print_key_data, name='print_key_data'),
-path('batch-print-key-data/', views.batch_print_key_data, name='batch_print_key_data'),
+# path('print-key-data/<str:order_no>/', views.print_key_data, name='print_key_data'),
+# path('batch-print-key-data/', views.batch_print_key_data, name='batch_print_key_data'),
 
 # 审核
 
@@ -67,5 +67,9 @@ path('batch-print-key-data/', views.batch_print_key_data, name='batch_print_key_
 
 path('print/', views.print_orders, name='print_orders'),
 path('mark-printed/', views.mark_printed, name='mark_printed'),
+
+    # 套打视图（统一）
+    path('print-key-data/', views.print_key_data, name='print_key_data'),
+    # 统一标记接口
 
 ]
