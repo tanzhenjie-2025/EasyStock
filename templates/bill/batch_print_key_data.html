@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>批量打印关键数据</title>
+    <title>{% if is_batch %}批量打印关键数据{% else %}打印关键数据 - {{ orders_data.0.order.order_no }}{% endif %}</title>
     <style>
         @media print {
             @page {
@@ -20,14 +20,16 @@
                 box-sizing: border-box;
                 border: none;
                 margin: 0;
+                overflow: visible !important;
             }
-            /* 前一个模板之后分页，最后一张后不分页 */
+            {% if is_batch %}
             .bill-print + .bill-print {
                 page-break-before: always;
             }
+            {% endif %}
             .no-print { display: none; }
 
-            /* 套打规则：静态文字透明，动态数据正常 */
+            /* 套打规则：静态标签透明，动态数据正常 */
             .label-text {
                 color: transparent !important;
             }
@@ -37,28 +39,20 @@
             .hide-row {
                 visibility: hidden;
             }
-            .watermark-delivery, .watermark-return, .watermark-general {
-                display: none !important;
-            }
+            /* 表格边框去掉，只显示数据 */
             .bill-table, .bill-table th, .bill-table td {
-    border: none !important;
-}
-.bill-table th, .bill-table td {
-    height: 30px;
-    font-size: 14px;
-    padding: 4px 0;
-    white-space: nowrap;
-    overflow: hidden;
-}
-/* 底部下划线也隐藏（若存在可见的） */
-.underline, .underline-sm {
-    border: none !important;
-}
-            /* 保持原有表格尺寸 */
+                border: none !important;
+                background: transparent !important;
+            }
             .bill-table th, .bill-table td {
                 height: 30px;
                 font-size: 14px;
                 padding: 4px 0;
+                white-space: nowrap;
+                overflow: hidden;
+            }
+            .underline, .underline-sm {
+                border: none !important;
             }
             .bill-header h2 { font-size: 26px; margin: 0 0 4px 0; }
             .bill-info-row { width: 90%; }
@@ -73,9 +67,45 @@
             .bill-bottom .bottom-row .field-group .underline-sm {
                 width: 100px;
             }
+
+            /* ===== 水印容器修复 ===== */
+            .table-wrapper {
+                position: relative;
+                min-height: 100mm;
+                overflow: visible !important;
+                z-index: 0;
+            }
+
+            /* ===== 水印样式强制覆盖（关键补上定位属性） ===== */
+            .watermark-delivery,
+            .watermark-return,
+            .watermark-general {
+                position: absolute !important;   /* 必须保留 */
+                left: 0 !important;
+                top: 0 !important;
+                right: 0 !important;
+                bottom: 0 !important;
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                font-size: 40px !important;
+                font-weight: bold !important;
+                color: #000 !important;
+                transform: rotate(-15deg) !important;
+                pointer-events: none !important;
+                z-index: 999 !important;
+                opacity: 1 !important;
+                visibility: visible !important;
+            }
+            .watermark-return {
+                z-index: 1000 !important;   /* 稍微不同以区分 */
+            }
+            .watermark-general {
+                z-index: 1001 !important;
+            }
         }
 
-        /* 屏幕预览样式（与单批次模板完全一致） */
+        /* 屏幕预览样式（与之前一致） */
         .bill-print {
             width: 140mm;
             border: none;
@@ -94,7 +124,11 @@
             flex-wrap: wrap;
         }
         .bill-info-row span { white-space: nowrap; }
-        .table-wrapper { position: relative; width: 90%; margin: 0 auto; }
+        .table-wrapper {
+            position: relative;
+            width: 90%;
+            margin: 0 auto;
+        }
         .bill-table {
             width: 100%;
             border-collapse: collapse;
@@ -144,12 +178,54 @@
             margin-left: 4px;
         }
         .bill-bottom .bottom-row .field-group .underline-sm { width: 100px; }
+
+        /* ===== 水印通用样式（屏幕预览及打印备用） ===== */
+        .watermark-delivery,
+        .watermark-return,
+        .watermark-general {
+            position: absolute;
+            left: 0;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 40px;
+            font-weight: bold;
+            color: #000;
+            transform: rotate(-15deg);
+            pointer-events: none;
+            z-index: 20;
+        }
+        .watermark-return { z-index: 25; }
+        .watermark-general { z-index: 30; }
+
+        /* 按钮样式 */
+        .no-print {
+            text-align: center;
+            margin: 20px;
+        }
+        .no-print button {
+            padding: 8px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .no-print a {
+            margin-left: 15px;
+        }
     </style>
 </head>
 <body>
     <div class="no-print" style="text-align: center; margin: 20px;">
-        <button onclick="window.print()">一键打印所有关键数据</button>
-        <a href="javascript:window.close()"><button>关闭窗口</button></a>
+        <button onclick="printAndMark()">
+            {% if is_batch %}一键打印所有关键数据{% else %}打印关键数据{% endif %}
+        </button>
+        {% if is_batch %}
+            <a href="javascript:window.close()"><button>关闭窗口</button></a>
+        {% else %}
+            <a href="/bill/"><button>返回开单页</button></a>
+        {% endif %}
     </div>
 
     {% for item in orders_data %}
@@ -158,7 +234,8 @@
             <h2><span class="label-text">{{ bill_title }}</span></h2>
             <div class="bill-info-row">
                 <div class="info-group">
-                    <span class="label-text">客户名称：</span><span class="data-value">{{ item.customer_name_display }}</span></div>
+                    <span class="label-text">客户名称：</span><span class="data-value">{{ item.customer_name_display }}</span>
+                </div>
                 <div class="info-group">
                     <span class="label-text">订单编号：</span><span class="data-value">{{ item.order.order_no }}</span>
                     <span class="label-text">开单时间：</span><span class="data-value">{{ item.order.create_time|date:"Y-m-d H:i:s" }}</span>
@@ -197,10 +274,22 @@
                     {% endfor %}
                 </tbody>
             </table>
+
+            <!-- ===== 水印（优先级：备注 > 退货标记 > 交付方式） ===== -->
+            {% if item.general_remark %}
+                <div class="watermark-general">{{ item.general_remark }}</div>
+            {% else %}
+                {% if item.has_return %}
+                    <div class="watermark-return">带回退货</div>
+                {% endif %}
+                {% if item.watermark_text %}
+                    <div class="watermark-delivery">{{ item.watermark_text }}</div>
+                {% endif %}
+            {% endif %}
         </div>
 
         <div class="bill-footer">
-           <span class="label-text">开单人员：</span><span class="data-value">{{ item.creator_name }}</span>
+            <span class="label-text">开单人员：</span><span class="data-value">{{ item.creator_name }}</span>
             <span></span>
             <span class="label-text">总金额：</span><span class="data-value" style="margin-right: 5mm;">¥{{ item.order.total_amount }}</span>
         </div>
@@ -231,67 +320,75 @@
                     <strong>收货签署：</strong>
                     <span class="underline underline-sm">&nbsp;</span>
                 </div>
-                
             </div>
             <div class="bottom-row" style="justify-content: space-between;">
-        <div class="field-group">
-            <strong class="label-text">制单工号：</strong>
-            <span class="underline underline-sm" style="text-align: center;">
-                <span class="data-value" style="font-size: 22px; font-weight: bold; display: block; width: 100%;">
-                    {{ item.order_number_display }}
-                </span>
-            </span>
-        </div>
-    </div>
+                <div class="field-group">
+                    <strong class="label-text">制单工号：</strong>
+                    <span class="underline underline-sm" style="text-align: center;">
+                        <span class="data-value" style="font-size: 22px; font-weight: bold; display: block; width: 100%;">
+                            {{ item.order_number_display }}
+                        </span>
+                    </span>
+                </div>
+            </div>
         </div>
     </div>
     {% endfor %}
 
     <script>
-        
-        document.addEventListener('keydown', function(e) {
-    if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && e.key === 'Enter') {
-        e.preventDefault();
-        window.location.href = '/bill/';
-    }
-});
-    function getCookie(name) {
-        let cookieValue = null;
-        if (document.cookie && document.cookie !== '') {
-            const cookies = document.cookie.split(';');
-            for (let i = 0; i < cookies.length; i++) {
-                const cookie = cookies[i].trim();
-                if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                    break;
+        var orderNos = [
+            {% for item in orders_data %}
+                "{{ item.order.order_no }}"{% if not forloop.last %},{% endif %}
+            {% endfor %}
+        ];
+
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
                 }
             }
+            return cookieValue;
         }
-        return cookieValue;
-    }
 
-    var orderNos = [{% for item in orders_data %}"{{ item.order.order_no }}"{% if not forloop.last %},{% endif %}{% endfor %}];
+        function printAndMark() {
+            window.onafterprint = function() {
+                fetch('{% url "bill:mark_printed" %}', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken'),
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ order_nos: orderNos }),
+                })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.code === 1) {
+                        console.log('标记成功：', data.msg);
+                    } else {
+                        console.error('标记失败：', data.msg);
+                    }
+                })
+                .catch(e => console.error('请求错误：', e));
+                window.onafterprint = null;
+            };
+            window.print();
+        }
 
-    function batchPrintAndMark() {
-        window.onafterprint = function() {
-            fetch('{% url "bill:batch_mark_printed" %}', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': getCookie('csrftoken'),
-                },
-                body: JSON.stringify({order_nos: orderNos}),
-            })
-            .then(r => r.json())
-            .then(data => {
-                console.log(data.msg);
-            });
-            window.onafterprint = null;
-        };
-        window.print();
-    }
-
-    
-</script>
+        document.addEventListener('keydown', function(e) {
+            if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && e.key === 'Enter') {
+                e.preventDefault();
+                {% if not is_batch %}
+                    window.location.href = '/bill/';
+                {% endif %}
+            }
+        });
+    </script>
 </body>
 </html>
