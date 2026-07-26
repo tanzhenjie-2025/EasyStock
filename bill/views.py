@@ -653,12 +653,28 @@ def prepare_order_data(order):
 @permission_required(PERM_ORDER_PRINT, raise_exception=True)
 def print_orders(request, mode='normal'):
     """
-    统一打印视图，支持正常打印(mode=normal)与套打(mode=key)
-    参数：
-        order_no   - 单个订单号
-        order_nos  - 逗号分隔的多个订单号
-        mode       - 打印模式，'normal' 或 'key'
+    统一打印视图，支持三种模式：
+      - mode='normal'  ：正常打印（三联单）
+      - mode='key'     ：套打（关键数据）
+      - mode='empty'   ：打印空白模板（可指定张数）
     """
+    # ========== 空模板模式 ==========
+    if mode == 'empty':
+        count_str = request.GET.get('count', '1')
+        try:
+            count = int(count_str)
+        except ValueError:
+            count = 1
+        count = max(1, min(count, 100))  # 限制 1~100 张
+        context = {
+            'count': range(count),
+            'phone_numbers': settings.PHONE_NUMBERS,
+            'complaint_phone': settings.COMPLAINT_PHONE,
+            'bill_title': settings.BILL_TITLE,
+        }
+        return render(request, 'bill/empty_template_print.html', context)
+
+    # ========== 正常打印 / 套打 ==========
     order_no = request.GET.get('order_no')
     order_nos_param = request.GET.get('order_nos', '')
     order_nos = [no.strip() for no in order_nos_param.split(',') if no.strip()]
@@ -672,7 +688,7 @@ def print_orders(request, mode='normal'):
     is_batch = len(order_nos) > 1
     is_key_print = (mode == 'key')
 
-    # 单订单读缓存（仅正常打印模式缓存）
+    # 单订单正常打印读缓存
     if not is_batch and not is_key_print:
         cache_key = f"{CACHE_PREFIX_PRINT_ORDER}{order_nos[0]}"
         cached_data = cache.get(cache_key)
@@ -699,7 +715,7 @@ def print_orders(request, mode='normal'):
         'complaint_phone': settings.COMPLAINT_PHONE,
         'bill_title': settings.BILL_TITLE,
         'is_batch': is_batch,
-        'is_key_print': is_key_print,          # 用于模板控制样式
+        'is_key_print': is_key_print,
     }
 
     response = render(request, 'bill/print_orders.html', context)

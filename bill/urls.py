@@ -47,7 +47,6 @@ path('sort-rules/import/', views.import_sort_rules, name='import_sort_rules'),
 
 path('add-order-from/<str:order_no>/', views.add_order_from_existing, name='add_order_from_existing'),
 
-path('print-empty-template/', views.print_empty_template, name='print_empty_template'),
 # 审核
     path('audit/preview/', views.audit_orders_preview, name='audit_orders_preview'),
     path('audit/confirm/', views.audit_orders_confirm, name='audit_orders_confirm'),
@@ -55,6 +54,7 @@ path('print-empty-template/', views.print_empty_template, name='print_empty_temp
 
 path('print/', views.print_orders, name='print_orders'),
 path('mark-printed/', views.mark_printed, name='mark_printed'),
+path('print-empty-template/', views.print_orders, {'mode': 'empty'}, name='print_empty_template'),
 
     # 套打视图（统一）
     path('print-key-data/', views.print_orders, {'mode': 'key'}, name='print_key_data'),
