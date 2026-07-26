@@ -647,8 +647,17 @@ def print_order(request, order_no):
 
 
 
+from django.http import HttpResponseBadRequest, JsonResponse
+from django.shortcuts import render
+from django.contrib.auth.decorators import login_required, permission_required
+from django.core.cache import cache
+from django.conf import settings
+import json
+
+# 原有导入保持不变...
+
 def prepare_order_data(order):
-    """准备单个订单的打印数据（供视图和缓存使用）"""
+    """准备订单数据，包含正常打印与套打所需全部字段"""
     items = order.items.select_related('product')
     items_display = list(items[:15])
     items_display.extend([None] * (15 - len(items_display)))
@@ -666,6 +675,23 @@ def prepare_order_data(order):
 
     general_remark = order.remark.strip() if order.remark else None
 
+    # 套打额外字段
+    if order.customer_name_snapshot:
+        customer_name_display = order.customer_name_snapshot
+    elif order.customer:
+        customer_name_display = order.customer.name
+    else:
+        customer_name_display = '无'
+
+    if order.order_number_snapshot:
+        order_number_display = order.order_number_snapshot
+    elif order.customer and order.customer.order_number:
+        order_number_display = order.customer.order_number
+    else:
+        order_number_display = ''
+
+    creator_name = order.creator.name if order.creator else '未知'
+
     return {
         'order': order,
         'items_display': items_display,
@@ -674,18 +700,22 @@ def prepare_order_data(order):
         'watermark_text': watermark_text,
         'has_return': order.has_return,
         'general_remark': general_remark,
+        # 套打字段
+        'customer_name_display': customer_name_display,
+        'order_number_display': order_number_display,
+        'creator_name': creator_name,
     }
 
 
 @login_required
 @permission_required(PERM_ORDER_PRINT, raise_exception=True)
-def print_orders(request):
+def print_orders(request, mode='normal'):
     """
-    统一打印视图：支持单个或多个订单
+    统一打印视图，支持正常打印(mode=normal)与套打(mode=key)
     参数：
-        order_no   - 单个订单号（可选）
-        order_nos  - 逗号分隔的多个订单号（可选）
-    若同时提供，会合并去重。
+        order_no   - 单个订单号
+        order_nos  - 逗号分隔的多个订单号
+        mode       - 打印模式，'normal' 或 'key'
     """
     order_no = request.GET.get('order_no')
     order_nos_param = request.GET.get('order_nos', '')
@@ -698,15 +728,15 @@ def print_orders(request):
         return HttpResponseBadRequest("请提供至少一个订单编号")
 
     is_batch = len(order_nos) > 1
+    is_key_print = (mode == 'key')
 
-    # 单订单尝试读缓存
-    if not is_batch:
+    # 单订单读缓存（仅正常打印模式缓存）
+    if not is_batch and not is_key_print:
         cache_key = f"{CACHE_PREFIX_PRINT_ORDER}{order_nos[0]}"
         cached_data = cache.get(cache_key)
         if cached_data:
             return HttpResponse(cached_data)
 
-    # 查询订单（排除已取消）
     orders_qs = Order.objects.filter(
         order_no__in=order_nos
     ).exclude(status='cancelled').select_related('customer', 'area', 'creator')
@@ -727,14 +757,20 @@ def print_orders(request):
         'complaint_phone': settings.COMPLAINT_PHONE,
         'bill_title': settings.BILL_TITLE,
         'is_batch': is_batch,
+        'is_key_print': is_key_print,          # 用于模板控制样式
     }
+
     response = render(request, 'bill/print_orders.html', context)
 
-    # 单订单写入缓存
-    if not is_batch:
+    # 单订单正常打印写入缓存
+    if not is_batch and not is_key_print:
         cache.set(cache_key, response.content, CACHE_PRINT_ORDER)
 
     return response
+
+
+# 原 print_key_data 视图可以删除，或保留但重定向，此处不再列出
+# 原 mark_printed 视图保持不变（略）
 
 
 @login_required

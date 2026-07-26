@@ -69,7 +69,7 @@ path('print/', views.print_orders, name='print_orders'),
 path('mark-printed/', views.mark_printed, name='mark_printed'),
 
     # 套打视图（统一）
-    path('print-key-data/', views.print_key_data, name='print_key_data'),
+    path('print-key-data/', views.print_orders, {'mode': 'key'}, name='print_key_data'),
     # 统一标记接口
 
 ]
