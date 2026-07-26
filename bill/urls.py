@@ -13,7 +13,7 @@ urlpatterns = [
     path('get-sort-rules/', views.get_sort_rules, name='get_sort_rules'),
     path('get-all-product-tags/', views.get_all_product_tags, name='get_all_product_tags'),
     path('save-order/', views.save_order, name='save_order'),  # 保存订单
-    path('print/<str:order_no>/', views.print_order, name='print_order'),  # 打印页面
+    # path('print/<str:order_no>/', views.print_order, name='print_order'),  # 打印页面
 
     path('orders/', views.order_list, name='order_list'),  # 订单列表（查单）
 
@@ -40,11 +40,11 @@ urlpatterns = [
 path('orders/export/', views.export_orders, name='export_orders'),
 
 
-path('order/<str:order_no>/mark-printed/', views.mark_order_printed, name='mark_order_printed'),
-
-
-path('batch-print/', views.batch_print_orders, name='batch_print_orders'),
-path('orders/batch-mark-printed/', views.batch_mark_printed, name='batch_mark_printed'),
+# path('order/<str:order_no>/mark-printed/', views.mark_order_printed, name='mark_order_printed'),
+#
+#
+# # path('batch-print/', views.batch_print_orders, name='batch_print_orders'),
+# path('orders/batch-mark-printed/', views.batch_mark_printed, name='batch_mark_printed'),
 
     path('orders/import/', views.import_order_page, name='import_order_page'),  # GET → 页面
     path('orders/import/preview/', views.import_orders_preview, name='import_orders_preview'),  # POST → 预览
@@ -64,5 +64,8 @@ path('batch-print-key-data/', views.batch_print_key_data, name='batch_print_key_
     path('audit/preview/', views.audit_orders_preview, name='audit_orders_preview'),
     path('audit/confirm/', views.audit_orders_confirm, name='audit_orders_confirm'),
     path('audit/', views.audit_order_page, name='audit_order_page'),
+
+path('print/', views.print_orders, name='print_orders'),
+path('mark-printed/', views.mark_printed, name='mark_printed'),
 
 ]

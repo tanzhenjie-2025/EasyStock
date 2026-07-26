@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>{% if is_batch %}批量打印订单{% else %}打印订单 - {{ orders_data.0.order.order_no }}{% endif %}</title>
+    <style>
+        /* ========== 打印样式 ========== */
+        @media print {
+            @page {
+                size: 140mm 210mm;
+                margin: 0;
+            }
+            html, body {
+                margin: 0;
+                padding: 0;
+                font-family: "SimSun", serif;
+                height: auto;
+            }
+            .bill-print {
+                width: 140mm;
+                height: auto;
+                padding: 7mm 5mm 5mm 5mm;
+                box-sizing: border-box;
+                page-break-inside: avoid;
+                border: none;
+            }
+            .page-break {
+                page-break-after: always;
+            }
+            .no-print {
+                display: none !important;
+            }
+        }
+
+        /* ========== 屏幕样式 ========== */
+        .bill-print {
+            width: 140mm;
+            height: auto;
+            border: none;
+            margin: 20px auto;
+            padding: 7mm 5mm 5mm 5mm;
+            box-sizing: border-box;
+            box-shadow: 0 0 4px rgba(0,0,0,0.1);
+        }
+        .bill-header {
+            text-align: center;
+            margin-bottom: 8px;
+        }
+        .bill-header h2 {
+            margin: 0 0 4px 0;
+            font-size: 26px;
+        }
+        .bill-info-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 2px auto;
+            width: 90%;
+            flex-wrap: wrap;
+        }
+        .bill-info-row span {
+            white-space: nowrap;
+        }
+        .bill-info-row .info-group span+span {
+            margin-left: 20px;
+        }
+        .bill-info-row .info-group:first-child {
+            font-size: 18px;
+        }
+        .bill-info-row .info-group:last-child {
+            font-size: 13px;
+        }
+
+        .table-wrapper {
+            position: relative;
+            width: 90%;
+            margin: 0 auto;
+        }
+        .bill-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+        .bill-table th,
+        .bill-table td {
+            border: 1px solid #000;
+            padding: 4px 0;
+            text-align: center;
+            font-size: 14px;
+            word-break: break-all;
+            height: 30px;
+            box-sizing: border-box;
+        }
+        .bill-table thead th {
+            height: 30px;
+        }
+        .bill-table tbody td {
+            height: 30px;
+        }
+        .bill-table .col-index { width: 5%; }
+        .bill-table .col-spec  { width: 18%; }
+        .bill-table .col-name  { width: 33%; }
+        .bill-table .col-qty   { width: 8%; }
+        .bill-table .col-unit  { width: 6%; }
+        .bill-table .col-price { width: 15%; }
+        .bill-table .col-total { width: 15%; }
+
+        .bill-footer {
+            margin-top: 8px;
+            margin-left: auto;
+            margin-right: auto;
+            width: 90%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 14px;
+        }
+        .bill-footer span {
+            white-space: nowrap;
+        }
+        .bill-footer .total-amount {
+            font-size: 22px;
+            font-weight: bold;
+        }
+
+        .bill-bottom {
+            margin-top: 16px;
+            width: 90%;
+            margin-left: auto;
+            margin-right: auto;
+            font-size: 13px;
+        }
+        .bill-bottom .bottom-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 12px;
+        }
+        .bill-bottom .bottom-row:first-child {
+            margin-top: 0;
+        }
+        .bill-bottom .bottom-row .field-group {
+            display: flex;
+            align-items: center;
+        }
+        .bill-bottom .bottom-row .field-group .underline {
+            display: inline-block;
+            width: 120px;
+            border-bottom: 1px solid #000;
+            margin-left: 4px;
+        }
+        .bill-bottom .bottom-row .field-group .underline-sm {
+            width: 100px;
+        }
+        .bill-bottom .bottom-row .field-group-right {
+            display: flex;
+            align-items: center;
+            margin-left: auto;
+        }
+
+        /* ===== 水印通用 ===== */
+        .watermark-delivery,
+        .watermark-return,
+        .watermark-general {
+            position: absolute;
+            left: 0;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 40px;
+            font-weight: bold;
+            color: #000;
+            transform: rotate(-15deg);
+            pointer-events: none;
+            z-index: 20;
+        }
+        /* 为了区分，可用不同 z-index，但不会同时出现 */
+        .watermark-return {
+            z-index: 25;
+        }
+        .watermark-general {
+            z-index: 30;
+        }
+
+        /* ===== 打印按钮 ===== */
+        .no-print {
+            text-align: center;
+            margin: 20px;
+        }
+        .no-print button {
+            padding: 8px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .no-print a {
+            margin-left: 15px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ===== 操作按钮（不打印） ===== -->
+    <div class="no-print">
+        <button onclick="printAndMark()">
+            {% if is_batch %}一键打印所有订单{% else %}打印三联单{% endif %}
+        </button>
+        {% if is_batch %}
+            <a href="javascript:window.close()"><button>关闭窗口</button></a>
+        {% else %}
+            <a href="/bill/"><button>返回开单页</button></a>
+        {% endif %}
+    </div>
+
+    <!-- ===== 遍历打印订单 ===== -->
+    {% for data in orders_data %}
+        <div class="bill-print">
+            <!-- 头部 -->
+            <div class="bill-header">
+                <h2>{{ bill_title }}</h2>
+                <div class="bill-info-row">
+                    <div class="info-group">
+                        <span>
+                            客户名称：
+                            {% if data.order.customer_name_snapshot %}
+                                {{ data.order.customer_name_snapshot }}
+                            {% elif data.order.customer %}
+                                {{ data.order.customer.name }}
+                            {% else %}
+                                无
+                            {% endif %}
+                        </span>
+                    </div>
+                    <div class="info-group">
+                        <span>订单编号：{{ data.order.order_no }}</span>
+                        <span>开单时间：{{ data.order.create_time|date:"Y-m-d H:i:s" }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 表格 + 水印 -->
+            <div class="table-wrapper">
+                <table class="bill-table">
+                    <thead>
+                        <tr>
+                            <th class="col-index">序号</th>
+                            <th class="col-spec">规格</th>
+                            <th class="col-name">商品名称</th>
+                            <th class="col-qty">数量</th>
+                            <th class="col-unit">单位</th>
+                            <th class="col-price">单价</th>
+                            <th class="col-total">小计</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in data.items_display %}
+                        <tr>
+                            <td>{{ forloop.counter }}</td>
+                            {% if item %}
+                                <td>{{ item.specification|default:"-" }}</td>
+                                <td>{{ item.product_name }}</td>
+                                <td>{{ item.quantity }}</td>
+                                <td>{{ item.unit }}</td>
+                                <td>¥{{ item.actual_unit_price }}</td>
+                                <td>¥{{ item.amount }}</td>
+                            {% else %}
+                                <td></td><td></td><td></td><td></td><td></td><td></td>
+                            {% endif %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+
+                <!-- 水印（优先级：备注 > 退货标记 > 交付方式） -->
+                {% if data.general_remark %}
+                    <div class="watermark-general">{{ data.general_remark }}</div>
+                {% else %}
+                    {% if data.has_return %}
+                        <div class="watermark-return">带回退货</div>
+                    {% endif %}
+                    {% if data.watermark_text %}
+                        <div class="watermark-delivery">{{ data.watermark_text }}</div>
+                    {% endif %}
+                {% endif %}
+            </div>
+
+            <!-- 底部 -->
+            <div class="bill-footer">
+                <span>开单人员：{{ data.order.creator.name|default:"未知" }}</span>
+                <span></span>
+                <span class="total-amount">总金额：¥{{ data.order.total_amount }}</span>
+            </div>
+
+            <div class="bill-bottom">
+                <div class="bottom-row">
+                    <span><strong>联系电话：</strong>{{ phone_numbers }}</span>
+                </div>
+                <div class="bottom-row">
+                    <span><strong>投诉电话/微信号：</strong>{{ complaint_phone }}</span>
+                </div>
+                <div class="bottom-row">
+                    <div class="field-group">
+                        <strong>拣货人员：</strong>
+                        <span class="underline">&nbsp;</span>
+                    </div>
+                    <div class="field-group">
+                        <strong>收款备注：</strong>
+                        <span class="underline underline-sm">&nbsp;</span>
+                    </div>
+                </div>
+                <div class="bottom-row">
+                    <div class="field-group">
+                        <strong>件数备注：</strong>
+                        <span class="underline">&nbsp;</span>
+                    </div>
+                    <div class="field-group">
+                        <strong>收货签署：</strong>
+                        <span class="underline underline-sm">&nbsp;</span>
+                    </div>
+                </div>
+
+                <div class="bottom-row" style="justify-content: space-between;">
+                    <div class="field-group">
+                        <strong style="font-size: 18px;">制单工号：</strong>
+                        <span class="underline underline-sm" style="text-align: center;">
+                            <span style="font-size: 22px; font-weight: bold; display: block; width: 100%;">
+                                {% if data.order.order_number_snapshot %}
+                                    {{ data.order.order_number_snapshot }}
+                                {% elif data.order.customer and data.order.customer.order_number %}
+                                    {{ data.order.customer.order_number }}
+                                {% else %}
+                                    &nbsp;
+                                {% endif %}
+                            </span>
+                        </span>
+                    </div>
+                    {% if data.has_return_or_exchange and data.float_start is None %}
+                    <div class="field-group">
+                        <strong style="font-size: 18px;">客服留言：</strong>
+                        <span style="font-size: 22px; font-weight: bold;">带回退货</span>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        {% if is_batch and not forloop.last %}
+            <div class="page-break"></div>
+        {% endif %}
+    {% endfor %}
+
+    <!-- ===== JavaScript ===== -->
+    <script>
+        // 收集所有订单号（用于统一标记）
+        var orderNos = [
+            {% for data in orders_data %}
+                "{{ data.order.order_no }}"{% if not forloop.last %},{% endif %}
+            {% endfor %}
+        ];
+
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+        function printAndMark() {
+            window.onafterprint = function() {
+                fetch('{% url "bill:mark_printed" %}', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken'),
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ order_nos: orderNos }),
+                })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.code === 1) {
+                        console.log('标记成功：', data.msg);
+                    } else {
+                        console.error('标记失败：', data.msg);
+                    }
+                })
+                .catch(e => console.error('请求错误：', e));
+                window.onafterprint = null;
+            };
+            window.print();
+        }
+
+        // 键盘快捷键：回车跳转（仅单订单时跳转回首页）
+        document.addEventListener('keydown', function(e) {
+            if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && e.key === 'Enter') {
+                e.preventDefault();
+                {% if not is_batch %}
+                    window.location.href = '/bill/';
+                {% else %}
+                    // 批量打印时回车不做特殊跳转
+                {% endif %}
+            }
+        });
+    </script>
+</body>
+</html>

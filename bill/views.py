@@ -598,54 +598,163 @@ def print_order(request, order_no):
 
     return response
 
+# @login_required
+# @permission_required(PERM_ORDER_PRINT)
+# def batch_print_orders(request):
+#     """批量打印订单页面"""
+#     order_nos_param = request.GET.get('order_nos', '')
+#     order_nos = [no.strip() for no in order_nos_param.split(',') if no.strip()]
+#     if not order_nos:
+#         return HttpResponseBadRequest("请选择至少一个订单")
+#
+#     orders = Order.objects.filter(
+#         order_no__in=order_nos
+#     ).exclude(status='cancelled').select_related('customer', 'area', 'creator')
+#
+#     orders_data = []
+#     for order in orders:
+#         items = order.items.select_related('product')
+#         items_display = list(items[:15]) + [None] * (15 - min(len(items), 15))
+#         has_return_or_exchange = has_return_or_exchange_items(order)
+#         float_start = find_float_start(items_display)
+#
+#         # 交付方式水印
+#         watermark_text = None
+#         if order.delivery_method == 'pickup':
+#             watermark_text = '客户自提'
+#         elif order.delivery_method == 'express':
+#             watermark_text = '快递寄件'
+#
+#         general_remark = order.remark.strip() if order.remark else None
+#
+#         orders_data.append({
+#             'order': order,
+#             'items_display': items_display,
+#             'has_return_or_exchange': has_return_or_exchange,
+#             'float_start': float_start,
+#             'watermark_text': watermark_text,
+#             'has_return': order.has_return,   # 新增
+#             'general_remark': general_remark,  # 新增
+#         })
+#
+#     context = {
+#         'orders_data': orders_data,
+#         'phone_numbers': settings.PHONE_NUMBERS,
+#         'complaint_phone': settings.COMPLAINT_PHONE,
+#         'bill_title': settings.BILL_TITLE,
+#     }
+#     return render(request, 'bill/batch_print.html', context)
+
+
+
+def prepare_order_data(order):
+    """准备单个订单的打印数据（供视图和缓存使用）"""
+    items = order.items.select_related('product')
+    items_display = list(items[:15])
+    items_display.extend([None] * (15 - len(items_display)))
+    has_return_or_exchange = order.items.filter(
+        is_makeup_item=True,
+        operation_type__in=['return', 'exchange']
+    ).exists()
+    float_start = find_float_start(items_display)
+
+    watermark_text = None
+    if order.delivery_method == 'pickup':
+        watermark_text = '客户自提'
+    elif order.delivery_method == 'express':
+        watermark_text = '快递寄件'
+
+    general_remark = order.remark.strip() if order.remark else None
+
+    return {
+        'order': order,
+        'items_display': items_display,
+        'has_return_or_exchange': has_return_or_exchange,
+        'float_start': float_start,
+        'watermark_text': watermark_text,
+        'has_return': order.has_return,
+        'general_remark': general_remark,
+    }
+
+
 @login_required
-@permission_required(PERM_ORDER_PRINT)
-def batch_print_orders(request):
-    """批量打印订单页面"""
+@permission_required(PERM_ORDER_PRINT, raise_exception=True)
+def print_orders(request):
+    """
+    统一打印视图：支持单个或多个订单
+    参数：
+        order_no   - 单个订单号（可选）
+        order_nos  - 逗号分隔的多个订单号（可选）
+    若同时提供，会合并去重。
+    """
+    order_no = request.GET.get('order_no')
     order_nos_param = request.GET.get('order_nos', '')
     order_nos = [no.strip() for no in order_nos_param.split(',') if no.strip()]
-    if not order_nos:
-        return HttpResponseBadRequest("请选择至少一个订单")
 
-    orders = Order.objects.filter(
+    if order_no and order_no not in order_nos:
+        order_nos.insert(0, order_no)
+
+    if not order_nos:
+        return HttpResponseBadRequest("请提供至少一个订单编号")
+
+    is_batch = len(order_nos) > 1
+
+    # 单订单尝试读缓存
+    if not is_batch:
+        cache_key = f"{CACHE_PREFIX_PRINT_ORDER}{order_nos[0]}"
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return HttpResponse(cached_data)
+
+    # 查询订单（排除已取消）
+    orders_qs = Order.objects.filter(
         order_no__in=order_nos
     ).exclude(status='cancelled').select_related('customer', 'area', 'creator')
 
+    order_dict = {o.order_no: o for o in orders_qs}
     orders_data = []
-    for order in orders:
-        items = order.items.select_related('product')
-        items_display = list(items[:15]) + [None] * (15 - min(len(items), 15))
-        has_return_or_exchange = has_return_or_exchange_items(order)
-        float_start = find_float_start(items_display)
+    for no in order_nos:
+        order = order_dict.get(no)
+        if order:
+            orders_data.append(prepare_order_data(order))
 
-        # 交付方式水印
-        watermark_text = None
-        if order.delivery_method == 'pickup':
-            watermark_text = '客户自提'
-        elif order.delivery_method == 'express':
-            watermark_text = '快递寄件'
-
-        general_remark = order.remark.strip() if order.remark else None
-
-        orders_data.append({
-            'order': order,
-            'items_display': items_display,
-            'has_return_or_exchange': has_return_or_exchange,
-            'float_start': float_start,
-            'watermark_text': watermark_text,
-            'has_return': order.has_return,   # 新增
-            'general_remark': general_remark,  # 新增
-        })
+    if not orders_data:
+        return HttpResponseBadRequest("没有有效订单（可能已取消）")
 
     context = {
         'orders_data': orders_data,
         'phone_numbers': settings.PHONE_NUMBERS,
         'complaint_phone': settings.COMPLAINT_PHONE,
         'bill_title': settings.BILL_TITLE,
+        'is_batch': is_batch,
     }
-    return render(request, 'bill/batch_print.html', context)
+    response = render(request, 'bill/print_orders.html', context)
+
+    # 单订单写入缓存
+    if not is_batch:
+        cache.set(cache_key, response.content, CACHE_PRINT_ORDER)
+
+    return response
 
 
+@login_required
+@permission_required(PERM_ORDER_PRINT, raise_exception=True)
+def mark_printed(request):
+    """
+    统一标记打印接口：接收订单号列表，更新状态为“已打印”
+    """
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST'})
+    try:
+        data = json.loads(request.body)
+        order_nos = data.get('order_nos', [])
+        if not order_nos:
+            return JsonResponse({'code': 0, 'msg': '未提供订单号'})
+        # 批量更新状态（请根据实际字段名调整）
+        updated = Order.objects.filter(order_no__in=order_nos).update(status='printed')
+        return JsonResponse({'code': 1, 'msg': f'已更新 {updated} 个订单为已打印'})
+    except Exception as e:
+        return JsonResponse({'code': 0, 'msg': str(e)})
 
 @login_required
 def print_empty_template(request):
@@ -2784,57 +2893,57 @@ def audit_order_page(request):
     """渲染订单审核页面（全新独立页面）"""
     return render(request, 'bill/audit_order.html')
 
-@login_required
-@permission_required(PERM_ORDER_PRINT)
-def mark_order_printed(request, order_no):
-    """标记订单为已打印（仅在窗口打印后由前端调用）"""
-    if request.method != 'POST':
-        return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, status=405)
-
-    order = get_object_or_404(Order, order_no=order_no)
-
-    # 允许 pending 和 reopened 状态标记为已打印
-    if order.status in ('pending', 'reopened'):
-        order.status = 'printed'
-        order.save(update_fields=['status'])
-
-        # 清理相关缓存
-        clear_order_cache(order_no)
-
-        # 记录操作日志
-        create_operation_log(
-            request,
-            'mark_printed', 'order', str(order.id),
-            f"订单-{order_no}", "打印后标记为已打印"
-        )
-        return JsonResponse({'code': 1, 'msg': '订单已标记为已打印'})
-
-    elif order.status == 'printed':
-        return JsonResponse({'code': 1, 'msg': '订单已是已打印状态'})
-
-    else:
-        # 作废等状态不允许标记
-        return JsonResponse({'code': 0, 'msg': f'订单状态为{order.status}，无法标记已打印'})
-
-
-@login_required
-@permission_required(PERM_ORDER_PRINT)
-@require_POST
-def batch_mark_printed(request):
-    """批量标记订单为已打印（将 pending 或 reopened 状态改为 printed）"""
-    data = json.loads(request.body)
-    order_nos = data.get('order_nos', [])
-    if not order_nos:
-        return JsonResponse({'code': 0, 'msg': '参数错误'})
-
-    # 定义可打印状态（根据实际模型调整）
-    PRINTABLE_STATUSES = ['pending', 'reopened']  # 若重开状态为其他值，请替换
-    updated = Order.objects.filter(
-        order_no__in=order_nos,
-        status__in=PRINTABLE_STATUSES
-    ).update(status='printed')
-
-    return JsonResponse({'code': 1, 'msg': f'成功标记 {updated} 个订单为已打印'})
+# @login_required
+# @permission_required(PERM_ORDER_PRINT)
+# def mark_order_printed(request, order_no):
+#     """标记订单为已打印（仅在窗口打印后由前端调用）"""
+#     if request.method != 'POST':
+#         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, status=405)
+#
+#     order = get_object_or_404(Order, order_no=order_no)
+#
+#     # 允许 pending 和 reopened 状态标记为已打印
+#     if order.status in ('pending', 'reopened'):
+#         order.status = 'printed'
+#         order.save(update_fields=['status'])
+#
+#         # 清理相关缓存
+#         clear_order_cache(order_no)
+#
+#         # 记录操作日志
+#         create_operation_log(
+#             request,
+#             'mark_printed', 'order', str(order.id),
+#             f"订单-{order_no}", "打印后标记为已打印"
+#         )
+#         return JsonResponse({'code': 1, 'msg': '订单已标记为已打印'})
+#
+#     elif order.status == 'printed':
+#         return JsonResponse({'code': 1, 'msg': '订单已是已打印状态'})
+#
+#     else:
+#         # 作废等状态不允许标记
+#         return JsonResponse({'code': 0, 'msg': f'订单状态为{order.status}，无法标记已打印'})
+#
+#
+# @login_required
+# @permission_required(PERM_ORDER_PRINT)
+# @require_POST
+# def batch_mark_printed(request):
+#     """批量标记订单为已打印（将 pending 或 reopened 状态改为 printed）"""
+#     data = json.loads(request.body)
+#     order_nos = data.get('order_nos', [])
+#     if not order_nos:
+#         return JsonResponse({'code': 0, 'msg': '参数错误'})
+#
+#     # 定义可打印状态（根据实际模型调整）
+#     PRINTABLE_STATUSES = ['pending', 'reopened']  # 若重开状态为其他值，请替换
+#     updated = Order.objects.filter(
+#         order_no__in=order_nos,
+#         status__in=PRINTABLE_STATUSES
+#     ).update(status='printed')
+#
+#     return JsonResponse({'code': 1, 'msg': f'成功标记 {updated} 个订单为已打印'})
 
 
 @login_required
