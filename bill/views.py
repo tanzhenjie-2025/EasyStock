@@ -770,21 +770,12 @@ def print_empty_template(request):
     return render(request, 'bill/empty_template_print.html', context)
 
 
-from django.shortcuts import render, get_object_or_404
-from django.http import HttpResponseBadRequest, JsonResponse
-from django.contrib.auth.decorators import login_required, permission_required
-from django.conf import settings
-import json
-
-# 假设权限常量已定义
-PERM_ORDER_PRINT = 'order.can_print'
-
 def prepare_key_data(order):
-    """准备单个订单的套打数据"""
+    """准备单个订单的套打数据（含备注水印）"""
     items = order.items.select_related('product')
     items_display = list(items[:15]) + [None] * (15 - min(len(items), 15))
 
-    # 客户名称
+    # 原有套打字段
     if order.customer_name_snapshot:
         customer_name_display = order.customer_name_snapshot
     elif order.customer:
@@ -792,7 +783,6 @@ def prepare_key_data(order):
     else:
         customer_name_display = '无'
 
-    # 制单工号
     if order.order_number_snapshot:
         order_number_display = order.order_number_snapshot
     elif order.customer and order.customer.order_number:
@@ -802,24 +792,40 @@ def prepare_key_data(order):
 
     creator_name = order.creator.name if order.creator else '未知'
 
+    # ========== 新增：水印相关（与正常打印完全一致） ==========
+    has_return_or_exchange = order.items.filter(
+        is_makeup_item=True,
+        operation_type__in=['return', 'exchange']
+    ).exists()
+    float_start = find_float_start(items_display)  # 确保已导入 find_float_start
+
+    watermark_text = None
+    if order.delivery_method == 'pickup':
+        watermark_text = '客户自提'
+    elif order.delivery_method == 'express':
+        watermark_text = '快递寄件'
+
+    general_remark = order.remark.strip() if order.remark else None
+
     return {
         'order': order,
         'items_display': items_display,
         'customer_name_display': customer_name_display,
         'order_number_display': order_number_display,
         'creator_name': creator_name,
+        # 水印字段（新增）
+        'has_return_or_exchange': has_return_or_exchange,
+        'float_start': float_start,
+        'watermark_text': watermark_text,
+        'has_return': order.has_return,
+        'general_remark': general_remark,
     }
 
 
 @login_required
 @permission_required(PERM_ORDER_PRINT, raise_exception=True)
 def print_key_data(request):
-    """
-    统一套打视图：支持单个或多个订单
-    参数：
-        order_no   - 单个订单号（可选）
-        order_nos  - 逗号分隔的多个订单号（可选）
-    """
+    """统一套打视图：支持单个或多个订单"""
     order_no = request.GET.get('order_no')
     order_nos_param = request.GET.get('order_nos', '')
     order_nos = [no.strip() for no in order_nos_param.split(',') if no.strip()]

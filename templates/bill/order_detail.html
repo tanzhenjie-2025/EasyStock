@@ -209,7 +209,7 @@
 
     <!-- 🔥 新增：打印按钮 -->
     {% if order.status != 'cancelled' %}
-    <a href="{% url 'bill:print_order' order.order_no %}" class="btn btn-primary ms-2">打印</a>
+    <a href="{% url 'bill:print_orders' %}?order_no={{ order.order_no }}" class="btn btn-primary ms-2">打印</a>
     {% endif %}
     
     {% if not order.is_settled and order.status != 'cancelled' %}
@@ -220,7 +220,8 @@
 
 
     {% if is_super_admin and order.is_settled %}
-    <button class="btn btn-warning ms-2" data-bs-toggle="modal" data-bs-target="#unsettleModal">
+    <button +
+            class="btn btn-warning ms-2" data-bs-toggle="modal" data-bs-target="#unsettleModal">
         撤销结清
     </button>
     {% endif %}

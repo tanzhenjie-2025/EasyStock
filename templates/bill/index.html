@@ -1941,11 +1941,11 @@ async function saveOrder() {
             clearFormState(); // 保存成功后清除缓存
             // ========== 修改点：根据“只打印数据”复选框选择跳转地址 ==========
             const onlyPrintDataCheckbox = document.getElementById('onlyPrintDataCheckbox');
-            const onlyPrintData = onlyPrintDataCheckbox ? onlyPrintDataCheckbox.checked : false;
-            const printUrl = onlyPrintData
-                ? `/bill/print-key-data/${d.order_no}/`   // 只打印数据接口
-                : `/bill/print/${d.order_no}/`;           // 完整打印接口
-            window.location.href = printUrl;
+const onlyPrintData = onlyPrintDataCheckbox ? onlyPrintDataCheckbox.checked : false;
+const printUrl = onlyPrintData
+    ? `/bill/print-key-data/?order_no=${d.order_no}`   // 使用查询参数
+    : `/bill/print/?order_no=${d.order_no}`;           // 使用查询参数
+window.location.href = printUrl;
             // ============================================================
         } else {
             alert(d.msg);
