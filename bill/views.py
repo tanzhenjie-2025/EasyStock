@@ -2837,58 +2837,6 @@ def audit_order_page(request):
     """渲染订单审核页面（全新独立页面）"""
     return render(request, 'bill/audit_order.html')
 
-# @login_required
-# @permission_required(PERM_ORDER_PRINT)
-# def mark_order_printed(request, order_no):
-#     """标记订单为已打印（仅在窗口打印后由前端调用）"""
-#     if request.method != 'POST':
-#         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'}, status=405)
-#
-#     order = get_object_or_404(Order, order_no=order_no)
-#
-#     # 允许 pending 和 reopened 状态标记为已打印
-#     if order.status in ('pending', 'reopened'):
-#         order.status = 'printed'
-#         order.save(update_fields=['status'])
-#
-#         # 清理相关缓存
-#         clear_order_cache(order_no)
-#
-#         # 记录操作日志
-#         create_operation_log(
-#             request,
-#             'mark_printed', 'order', str(order.id),
-#             f"订单-{order_no}", "打印后标记为已打印"
-#         )
-#         return JsonResponse({'code': 1, 'msg': '订单已标记为已打印'})
-#
-#     elif order.status == 'printed':
-#         return JsonResponse({'code': 1, 'msg': '订单已是已打印状态'})
-#
-#     else:
-#         # 作废等状态不允许标记
-#         return JsonResponse({'code': 0, 'msg': f'订单状态为{order.status}，无法标记已打印'})
-#
-#
-# @login_required
-# @permission_required(PERM_ORDER_PRINT)
-# @require_POST
-# def batch_mark_printed(request):
-#     """批量标记订单为已打印（将 pending 或 reopened 状态改为 printed）"""
-#     data = json.loads(request.body)
-#     order_nos = data.get('order_nos', [])
-#     if not order_nos:
-#         return JsonResponse({'code': 0, 'msg': '参数错误'})
-#
-#     # 定义可打印状态（根据实际模型调整）
-#     PRINTABLE_STATUSES = ['pending', 'reopened']  # 若重开状态为其他值，请替换
-#     updated = Order.objects.filter(
-#         order_no__in=order_nos,
-#         status__in=PRINTABLE_STATUSES
-#     ).update(status='printed')
-#
-#     return JsonResponse({'code': 1, 'msg': f'成功标记 {updated} 个订单为已打印'})
-
 
 @login_required
 @permission_required('bill.export_sortrule')  # 按需修改权限
