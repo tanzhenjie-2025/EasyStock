@@ -140,11 +140,16 @@
         .key-print .hide-row {
             visibility: hidden;
         }
-        /* 套打时水印强制显示（已通过模板条件显示，此处备用） */
+        /* 套打时水印强制显示 */
         .key-print .watermark-delivery,
         .key-print .watermark-return,
         .key-print .watermark-general {
             display: flex !important;
+        }
+        /* 套打时去除制单工号下方的横线 */
+        .key-print .underline-sm,
+        .key-print .underline {
+            border-bottom: none !important;
         }
 
         /* ========== 打印样式 ========== */
@@ -167,12 +172,14 @@
             {% endif %}
             .no-print { display: none !important; }
 
-            /* 套打样式在打印时同样生效（由 .key-print 控制） */
+            /* 套打样式在打印时同样生效 */
             .key-print .label-text { color: transparent !important; }
             .key-print .bill-table,
             .key-print .bill-table th,
             .key-print .bill-table td { border: none !important; }
             .key-print .hide-row { visibility: hidden; }
+            .key-print .underline-sm,
+            .key-print .underline { border-bottom: none !important; }
         }
 
         /* ========== 屏幕按钮样式 ========== */
@@ -243,7 +250,13 @@
                 <tbody>
                     {% for line in data.items_display %}
                     <tr>
-                        <td><span class="data-value">{{ forloop.counter }}</span></td>
+                        <!-- 序号列：套打时只留空单元格，不输出数字 -->
+                        {% if is_key_print %}
+                            <td></td>
+                        {% else %}
+                            <td><span class="data-value">{{ forloop.counter }}</span></td>
+                        {% endif %}
+                        <!-- 其他列 -->
                         {% if line %}
                             <td class="data-value">{{ line.specification|default:"-" }}</td>
                             <td class="data-value">{{ line.product_name }}</td>
@@ -259,17 +272,17 @@
                 </tbody>
             </table>
 
-            <!-- ===== 水印（始终显示，不受打印模式限制） ===== -->
-{% if data.general_remark %}
-    <div class="watermark-general">{{ data.general_remark }}</div>
-{% else %}
-    {% if data.has_return %}
-        <div class="watermark-return">带回退货</div>
-    {% endif %}
-    {% if data.watermark_text %}
-        <div class="watermark-delivery">{{ data.watermark_text }}</div>
-    {% endif %}
-{% endif %}
+            <!-- ===== 水印（始终显示） ===== -->
+            {% if data.general_remark %}
+                <div class="watermark-general">{{ data.general_remark }}</div>
+            {% else %}
+                {% if data.has_return %}
+                    <div class="watermark-return">带回退货</div>
+                {% endif %}
+                {% if data.watermark_text %}
+                    <div class="watermark-delivery">{{ data.watermark_text }}</div>
+                {% endif %}
+            {% endif %}
         </div>
 
         <!-- 底部信息 -->
@@ -314,7 +327,7 @@
                 </div>
             </div>
 
-            <!-- 制单工号（套打时放大显示） -->
+            <!-- 制单工号（套打时放大显示，且无下划线） -->
             <div class="bottom-row" style="justify-content: space-between;">
                 <div class="field-group">
                     <strong class="label-text" style="font-size: 18px;">制单工号：</strong>
