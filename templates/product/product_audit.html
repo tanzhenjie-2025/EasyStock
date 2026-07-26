@@ -1,0 +1,286 @@
+{% extends "base.html" %}
+{% block title %}商品审核 - EasyStock{% endblock %}
+
+{% block extra_css %}
+<style>
+    .summary-card { border-left: 4px solid; }
+    .summary-card.warning { border-left-color: #ffc107; }
+    .product-list { max-height: 500px; overflow-y: auto; }
+    .nav-tabs .nav-link { font-size: 0.9rem; }
+    .table td { vertical-align: middle; }
+    .editable-tag input { width: 100%; min-width: 120px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h3 class="mb-4">
+    <i class="bi bi-tags"></i> 商品审核
+    <small class="text-muted fs-6 ms-2">检测无标签商品，添加标签或作废</small>
+</h3>
+
+<div id="loadingArea" class="text-center py-5">
+    <div class="spinner-border text-primary" role="status"></div>
+    <p class="mt-2">正在扫描无标签商品...</p>
+</div>
+
+<div id="mainContent" style="display:none;">
+    <!-- 摘要卡片 -->
+    <div class="row mb-4" id="summaryCards"></div>
+
+    <!-- 标签页 -->
+    <ul class="nav nav-tabs" id="auditTabs">
+        <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-tag">🏷️ 标签检测</a></li>
+        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-cancel">🗑️ 作废商品栏</a></li>
+    </ul>
+
+    <div class="tab-content mt-3">
+        <!-- 标签检测 -->
+        <div class="tab-pane fade show active" id="tab-tag">
+            <div class="alert alert-info">以下商品缺少标签，请填写标签名称（多个标签用逗号分隔），确认后将为勾选商品添加标签。</div>
+            <div class="d-flex justify-content-between mb-2">
+                <button class="btn btn-sm btn-outline-primary" id="selectAllTag">全选</button>
+                <button class="btn btn-sm btn-outline-secondary" id="deselectAllTag">取消全选</button>
+            </div>
+            <div class="product-list">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th style="width:40px"><input type="checkbox" id="masterTagCheck"></th>
+                            <th>ID</th>
+                            <th>商品名称</th>
+                            <th>单位</th>
+                            <th>单价</th>
+                            <th>标签（逗号分隔）</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tagTableBody"></tbody>
+                </table>
+            </div>
+            <div class="mt-3">
+                <button class="btn btn-success btn-lg" id="confirmAddTagBtn">确认审核（添加标签）</button>
+            </div>
+        </div>
+
+        <!-- 作废商品栏 -->
+        <div class="tab-pane fade" id="tab-cancel">
+            <div class="alert alert-warning">以下商品缺少标签，勾选后点击确认作废（默认全不选）。</div>
+            <div class="d-flex justify-content-between mb-2">
+                <button class="btn btn-sm btn-outline-primary" id="selectAllCancel">全选</button>
+                <button class="btn btn-sm btn-outline-secondary" id="deselectAllCancel">取消全选</button>
+                <span class="text-muted">（默认全不选）</span>
+            </div>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th style="width:40px"><input type="checkbox" id="masterCancelCheck"></th>
+                        <th>ID</th>
+                        <th>商品名称</th>
+                        <th>单位</th>
+                        <th>单价</th>
+                    </tr>
+                </thead>
+                <tbody id="cancelTableBody"></tbody>
+            </table>
+            <div class="mt-3">
+                <button class="btn btn-danger btn-lg" id="confirmCancelBtn">确认作废</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="messageArea" class="mt-3"></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let auditData = null;
+
+$(document).ready(function() {
+    loadAuditPreview();
+});
+
+function loadAuditPreview() {
+    $.ajax({
+        url: '{% url "product:product_audit_preview" %}',
+        type: 'GET',
+        beforeSend: function(xhr) {
+            xhr.setRequestHeader('X-CSRFToken', getCsrfToken());
+        },
+        success: function(res) {
+            if (res.code === 1) {
+                auditData = res.data;
+                renderPage(auditData);
+            } else {
+                $('#loadingArea').html(`<div class="alert alert-info">${res.msg}</div>`);
+            }
+        },
+        error: function() {
+            $('#loadingArea').html('<div class="alert alert-danger">加载失败，请刷新重试</div>');
+        }
+    });
+}
+
+function renderPage(data) {
+    $('#loadingArea').hide();
+    $('#mainContent').show();
+
+    // 摘要卡片
+    let cards = '';
+    if (data.products.length) {
+        cards += `<div class="col-md-3"><div class="card summary-card warning p-2"><strong>无标签商品</strong><br>${data.products.length} 个</div></div>`;
+    } else {
+        cards += `<div class="col-md-3"><div class="card summary-card p-2"><strong>无标签商品</strong><br>0 个（全部已打标）</div></div>`;
+    }
+    $('#summaryCards').html(cards);
+
+    // 标签检测表格
+    let tagHtml = '';
+    data.products.forEach(function(p) {
+        tagHtml += `<tr>
+            <td><input type="checkbox" class="tag-check" value="${p.id}"></td>
+            <td>${p.id}</td>
+            <td>${p.name}</td>
+            <td>${p.unit}</td>
+            <td>${p.price}</td>
+            <td><input type="text" class="form-control form-control-sm tag-input" data-id="${p.id}" placeholder="标签名称（逗号分隔）"></td>
+        </tr>`;
+    });
+    $('#tagTableBody').html(tagHtml);
+
+    // 作废栏表格
+    let cancelHtml = '';
+    data.products.forEach(function(p) {
+        cancelHtml += `<tr>
+            <td><input type="checkbox" class="cancel-check" value="${p.id}"></td>
+            <td>${p.id}</td>
+            <td>${p.name}</td>
+            <td>${p.unit}</td>
+            <td>${p.price}</td>
+        </tr>`;
+    });
+    $('#cancelTableBody').html(cancelHtml);
+
+    // 绑定全选/取消
+    bindEvents();
+}
+
+function bindEvents() {
+    // 标签检测
+    $('#masterTagCheck').on('change', function() { $('.tag-check').prop('checked', this.checked); });
+    $('#selectAllTag').click(function() { $('.tag-check').prop('checked', true); });
+    $('#deselectAllTag').click(function() { $('.tag-check').prop('checked', false); });
+
+    // 作废栏
+    $('#masterCancelCheck').on('change', function() { $('.cancel-check').prop('checked', this.checked); });
+    $('#selectAllCancel').click(function() { $('.cancel-check').prop('checked', true); });
+    $('#deselectAllCancel').click(function() { $('.cancel-check').prop('checked', false); });
+}
+
+// ===================== 确认添加标签 =====================
+$('#confirmAddTagBtn').click(function() {
+    const $btn = $(this);
+    $btn.prop('disabled', true).text('处理中...');
+    $('#messageArea').html('');
+
+    const items = [];
+    $('.tag-check:checked').each(function() {
+        const productId = this.value;
+        const $row = $(this).closest('tr');
+        const tagInput = $row.find('.tag-input').val().trim();
+        if (tagInput) {
+            items.push({ product_id: productId, tag_names: tagInput });
+        }
+    });
+
+    if (items.length === 0) {
+        $('#messageArea').html('<div class="alert alert-warning">请至少勾选一个商品并填写标签名称</div>');
+        $btn.prop('disabled', false).text('确认审核（添加标签）');
+        return;
+    }
+
+    $.ajax({
+        url: '{% url "product:product_audit_add_tag" %}',
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ items: items }),
+        beforeSend: function(xhr) {
+            xhr.setRequestHeader('X-CSRFToken', getCsrfToken());
+        },
+        success: function(res) {
+            if (res.code === 1) {
+                $('#messageArea').html(`<div class="alert alert-success">${res.msg}</div>`);
+                setTimeout(function() { location.reload(); }, 1500);
+            } else {
+                $('#messageArea').html(`<div class="alert alert-danger">${res.msg}</div>`);
+                $btn.prop('disabled', false).text('确认审核（添加标签）');
+            }
+        },
+        error: function() {
+            $('#messageArea').html('<div class="alert alert-danger">请求失败，请稍后重试</div>');
+            $btn.prop('disabled', false).text('确认审核（添加标签）');
+        }
+    });
+});
+
+// ===================== 确认作废 =====================
+$('#confirmCancelBtn').click(function() {
+    const $btn = $(this);
+    $btn.prop('disabled', true).text('处理中...');
+    $('#messageArea').html('');
+
+    const productIds = [];
+    $('.cancel-check:checked').each(function() {
+        productIds.push(this.value);
+    });
+
+    if (productIds.length === 0) {
+        $('#messageArea').html('<div class="alert alert-warning">请至少勾选一个商品进行作废</div>');
+        $btn.prop('disabled', false).text('确认作废');
+        return;
+    }
+
+    if (!confirm(`确定要将选中的 ${productIds.length} 个商品作废吗？`)) {
+        $btn.prop('disabled', false).text('确认作废');
+        return;
+    }
+
+    $.ajax({
+        url: '{% url "product:product_audit_cancel" %}',
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ product_ids: productIds }),
+        beforeSend: function(xhr) {
+            xhr.setRequestHeader('X-CSRFToken', getCsrfToken());
+        },
+        success: function(res) {
+            if (res.code === 1) {
+                $('#messageArea').html(`<div class="alert alert-success">${res.msg}</div>`);
+                setTimeout(function() { location.reload(); }, 1500);
+            } else {
+                $('#messageArea').html(`<div class="alert alert-danger">${res.msg}</div>`);
+                $btn.prop('disabled', false).text('确认作废');
+            }
+        },
+        error: function() {
+            $('#messageArea').html('<div class="alert alert-danger">请求失败，请稍后重试</div>');
+            $btn.prop('disabled', false).text('确认作废');
+        }
+    });
+});
+
+function getCsrfToken() {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, 10) === 'csrftoken=') {
+                cookieValue = decodeURIComponent(cookie.substring(10));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+</script>
+{% endblock %}

@@ -62,4 +62,9 @@ urlpatterns = [
     path('unit/add/', views.unit_add, name='unit_add'),
     path('unit/edit/', views.unit_edit, name='unit_edit'),
     path('unit/toggle-status/', views.unit_toggle_status, name='unit_toggle_status'),
+
+path('audit/', views.product_audit_page, name='product_audit'),
+    path('audit/preview/', views.product_audit_preview, name='product_audit_preview'),
+    path('audit/add-tag/', views.product_audit_add_tag, name='product_audit_add_tag'),
+    path('audit/cancel/', views.product_audit_cancel, name='product_audit_cancel'),
 ]

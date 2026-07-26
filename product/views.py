@@ -1833,3 +1833,120 @@ def import_products_from_io(file_obj, strategy='append'):
         'skipped': fail_count,  # 注意：这里 fail_count 实际上是被跳过的行数，我们将其作为 skipped
         'errors': errors,
     }
+
+from django.shortcuts import render
+from django.http import JsonResponse
+from django.contrib.auth.decorators import login_required, permission_required
+from django.db import transaction
+from django.utils import timezone
+from .models import Product, ProductTag
+import json
+import logging
+
+logger = logging.getLogger(__name__)
+
+# ---------- 商品审核页面 ----------
+@login_required
+@permission_required('product.change_product', raise_exception=True)
+def product_audit_page(request):
+    """渲染商品审核页面"""
+    return render(request, 'product/product_audit.html')
+
+# ---------- 审核预览 ----------
+@login_required
+@permission_required('product.change_product', raise_exception=True)
+def product_audit_preview(request):
+    """返回所有无标签的有效商品（is_active=True 且无标签）"""
+    products = Product.objects.filter(is_active=True, tags__isnull=True).only(
+        'id', 'name', 'unit', 'price', 'specification'
+    )
+    data = []
+    for p in products:
+        data.append({
+            'id': p.id,
+            'name': p.name,
+            'unit': p.unit,
+            'price': float(p.price),
+            'specification': p.specification or '',
+        })
+    return JsonResponse({'code': 1, 'data': {'products': data}})
+
+# ---------- 添加标签 ----------
+@login_required
+@permission_required('product.change_product', raise_exception=True)
+def product_audit_add_tag(request):
+    """批量添加标签，每个商品可指定多个标签（逗号分隔）"""
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST'})
+
+    try:
+        payload = json.loads(request.body)
+    except:
+        return JsonResponse({'code': 0, 'msg': 'JSON格式错误'})
+
+    items = payload.get('items', [])  # [{"product_id":1, "tag_names":"标签A,标签B"}]
+    if not items:
+        return JsonResponse({'code': 0, 'msg': '未提供有效数据'})
+
+    success_count = 0
+    error_msgs = []
+    with transaction.atomic():
+        for item in items:
+            product_id = item.get('product_id')
+            tag_names_str = item.get('tag_names', '').strip()
+            if not product_id or not tag_names_str:
+                continue
+            try:
+                product = Product.objects.get(id=product_id, is_active=True)
+            except Product.DoesNotExist:
+                error_msgs.append(f'商品ID {product_id} 不存在或已作废')
+                continue
+
+            # 按逗号分割，去除空格
+            tag_names = [name.strip() for name in tag_names_str.split(',') if name.strip()]
+            if not tag_names:
+                continue
+
+            # 获取或创建标签
+            tag_objs = []
+            for tname in tag_names:
+                tag_obj, created = ProductTag.objects.get_or_create(
+                    name=tname,
+                    defaults={'color': '#3498db', 'is_active': True}
+                )
+                tag_objs.append(tag_obj)
+
+            # 添加标签（去重）
+            product.tags.add(*tag_objs)
+            success_count += 1
+
+    msg = f'成功为 {success_count} 个商品添加标签。'
+    if error_msgs:
+        msg += ' 错误：' + '；'.join(error_msgs)
+    return JsonResponse({'code': 1, 'msg': msg})
+
+# ---------- 作废商品 ----------
+@login_required
+@permission_required('product.change_product', raise_exception=True)
+def product_audit_cancel(request):
+    """批量作废商品（设置 is_active=False）"""
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST'})
+
+    try:
+        payload = json.loads(request.body)
+    except:
+        return JsonResponse({'code': 0, 'msg': 'JSON格式错误'})
+
+    product_ids = payload.get('product_ids', [])
+    if not product_ids:
+        return JsonResponse({'code': 0, 'msg': '未选择商品'})
+
+    # 只作废有效且无标签的商品（防止误操作）
+    products = Product.objects.filter(id__in=product_ids, is_active=True, tags__isnull=True)
+    if not products.exists():
+        return JsonResponse({'code': 0, 'msg': '未找到可作废的商品'})
+
+    with transaction.atomic():
+        count = products.update(is_active=False)
+    return JsonResponse({'code': 1, 'msg': f'成功作废 {count} 个商品'})

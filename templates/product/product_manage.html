@@ -446,10 +446,17 @@ input:checked + .slider:before{transform:translateX(26px);}
                 🛠️ 数据工具
             </button>
         </li>
+        <li class="nav-item ms-auto">
+            <a href="{% url 'product:product_audit' %}" class="btn btn-info">
+        🔍 商品审核
+    </a>
+        </li>
         <!-- 统计按钮 (放在Tab右侧) -->
         <li class="nav-item ms-auto">
             <a href="{% url 'product:product_statistics_detail' %}" class="btn btn-info">📊 数据统计</a>
         </li>
+        
+        
         {% endif %}
     </ul>
 
