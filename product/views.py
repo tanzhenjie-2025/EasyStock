@@ -590,232 +590,74 @@ def product_edit_data(request, pk):
 
 
 # ====================== 导入/导出/快速出入库（仅修改系统库存） ======================
+# product/views.py
+
 @login_required
 @require_POST
 @permission_required(PERM_PRODUCT_IMPORT)
 def product_import(request):
+    """
+    商品导入（单批次）- 复用数据迁移的导入逻辑
+    """
     try:
         if 'file' not in request.FILES:
             return JsonResponse({'code': 0, 'msg': '请选择Excel文件'})
-
-        file = request.FILES['file']
-        # 标题 -> 内部字段名
-        header_to_field = {
-            '序号': 'serial',
-            'ID': 'id',
-            '商品名称': 'name',
-            '单价（元）': 'price',
-            '单位': 'unit',
-            '商品规格': 'specification',
-            '系统库存': 'stock_system',
-            '实际库存': 'stock_actual',
-            '别名': 'aliases',
-            '状态': 'status',
-            '商品标签': 'tags',
-        }
-
-        # 读取文件（兼容 xlsx / xls）
-        if file.name.endswith('.xlsx'):
-            wb = openpyxl.load_workbook(io.BytesIO(file.read()))
-            rows = list(wb.active.iter_rows(values_only=True))
-        elif file.name.endswith('.xls'):
-            wb = xlrd.open_workbook(file_contents=file.read())
-            sheet = wb.sheet_by_index(0)
-            rows = [sheet.row_values(i) for i in range(sheet.nrows)]
+        file_obj = request.FILES['file']
+        # 调用数据迁移导入函数
+        result = import_products_from_io(file_obj, strategy='append')
+        # 根据结果构建响应
+        if result.get('errors'):
+            msg = f"成功 {result['success']} 条，跳过 {result['skipped']} 条"
+            # 只展示前5条错误
+            if result['errors']:
+                error_preview = result['errors'][:5]
+                msg += f"；错误：{'；'.join(error_preview)}"
+            return JsonResponse({'code': 0, 'msg': msg})
         else:
-            return JsonResponse({'code': 0, 'msg': '仅支持 .xls 或 .xlsx 文件'})
-
-        if not rows:
-            return JsonResponse({'code': 0, 'msg': '文件为空'})
-
-        headers = rows[0]
-        col_map = {}
-        for idx, h in enumerate(headers):
-            h = str(h).strip()
-            field = header_to_field.get(h)
-            if field:
-                col_map[field] = idx
-
-        if 'name' not in col_map:
-            return JsonResponse({'code': 0, 'msg': '缺少“商品名称”列，请使用正确的模板'})
-
-        success_count = 0
-        fail_count = 0
-        fail_reasons = []
-        new_products = []
-        updated_products_set = set()
-        tag_cache = {}
-        processed_key_map = {}
-
-        for row_idx, row in enumerate(rows[1:], 2):
-            try:
-                # ---------- 提取各字段 ----------
-                name = str(row[col_map['name']]).strip() if len(row) > col_map['name'] and row[col_map['name']] else ''
-                if not name:
-                    fail_count += 1
-                    fail_reasons.append(f'第{row_idx}行：商品名称不能为空')
-                    continue
-
-                unit = '件'
-                if 'unit' in col_map:
-                    u_val = row[col_map['unit']]
-                    if u_val is not None and str(u_val).strip():
-                        unit = str(u_val).strip()
-
-                price = 0.0
-                if 'price' in col_map:
-                    p_val = row[col_map['price']]
-                    if p_val is not None and str(p_val).strip():
-                        try:
-                            price = float(str(p_val).strip())
-                        except ValueError:
-                            pass
-
-                specification = ''
-                if 'specification' in col_map:
-                    s_val = row[col_map['specification']]
-                    if s_val is not None:
-                        specification = str(s_val).strip()
-
-                stock_system = 0
-                if 'stock_system' in col_map:
-                    ss_val = row[col_map['stock_system']]
-                    if ss_val is not None and str(ss_val).strip():
-                        try:
-                            stock_system = int(float(str(ss_val).strip()))
-                        except ValueError:
-                            pass
-
-                stock_actual = 0
-                if 'stock_actual' in col_map:
-                    sa_val = row[col_map['stock_actual']]
-                    if sa_val is not None and str(sa_val).strip():
-                        try:
-                            stock_actual = int(float(str(sa_val).strip()))
-                        except ValueError:
-                            pass
-
-                is_active = True
-                if 'status' in col_map:
-                    st_val = str(row[col_map['status']]).strip() if len(row) > col_map['status'] else ''
-                    if st_val == '停用':
-                        is_active = False
-
-                # ---------- 确定商品实例 ----------
-                key = (name, unit)
-                product = None
-
-                if 'id' in col_map:
-                    id_val = row[col_map['id']]
-                    if id_val is not None and str(id_val).strip():
-                        try:
-                            pid = int(float(str(id_val).strip()))
-                            product = Product.all_objects.filter(id=pid).first()
-                        except (ValueError, TypeError):
-                            pass
-
-                if not product and key in processed_key_map:
-                    product = processed_key_map[key]
-
-                if not product:
-                    product = Product.objects.filter(name=name, unit=unit).first()
-                    if product:
-                        processed_key_map[key] = product
-                    else:
-                        product = Product.all_objects.filter(
-                            name=name, unit=unit, is_active=False
-                        ).first()
-                        if product:
-                            processed_key_map[key] = product
-
-                if not product:
-                    product = Product(
-                        name=name,
-                        unit=unit,
-                        price=price,
-                        specification=specification,
-                        stock_system=stock_system,
-                        stock_actual=stock_actual,
-                        is_active=is_active
-                    )
-                    new_products.append(product)
-                    processed_key_map[key] = product
-                else:
-                    updated_products_set.add(product)
-
-                product.name = name
-                product.unit = unit
-                product.price = price
-                product.specification = specification
-                product.stock_system = stock_system
-                product.stock_actual = stock_actual
-                product.is_active = is_active
-
-                # ---------- 处理标签 ----------
-                if 'tags' in col_map:
-                    tags_str = ''
-                    if len(row) > col_map['tags'] and row[col_map['tags']]:
-                        tags_str = str(row[col_map['tags']]).strip()
-                    tag_names = [t.strip() for t in tags_str.split(',') if t.strip()]
-                    tag_objs = []
-                    for tname in tag_names:
-                        if tname not in tag_cache:
-                            tag_obj, created = ProductTag.objects.get_or_create(
-                                name=tname,
-                                defaults={'color': '#3498db', 'is_active': True}
-                            )
-                            if not created and not tag_obj.is_active:
-                                tag_obj.is_active = True
-                                tag_obj.save()
-                            tag_cache[tname] = tag_obj
-                        else:
-                            tag_obj = tag_cache[tname]
-                        tag_objs.append(tag_obj)
-                    product._import_tags = tag_objs
-                else:
-                    if not product.pk:
-                        product._import_tags = []
-
-                success_count += 1
-
-            except Exception as e:
-                fail_count += 1
-                fail_reasons.append(f'第{row_idx}行：处理错误 - {str(e)}')
-
-        # ---------- 持久化 ----------
-        try:
-            # 为新商品手动生成拼音字段（解决 bulk_create 不触发 save 的问题）
-            for prod in new_products:
-                prod.pinyin_full = ''.join(lazy_pinyin(prod.name, style=0))
-                prod.pinyin_abbr = ''.join([p[0] for p in lazy_pinyin(prod.name, style=0)])
-
-            if new_products:
-                Product.objects.bulk_create(new_products)
-            for prod in updated_products_set:
-                prod.save()   # 更新时会自动调用 save 生成拼音
-
-            # 设置标签
-            all_products = new_products + list(updated_products_set)
-            for prod in all_products:
-                if hasattr(prod, '_import_tags'):
-                    prod.tags.set(prod._import_tags)
-
-        except IntegrityError as e:
-            logger.error(f"导入保存冲突: {str(e)}")
-            return JsonResponse({'code': 0, 'msg': f'导入失败，数据冲突：{str(e)}'})
-        except Exception as e:
-            logger.error(f"持久化异常: {str(e)}")
-            return JsonResponse({'code': 0, 'msg': f'保存失败：{str(e)}'})
-
-        clear_product_all_cache()
-        msg = f'成功 {success_count} 条，失败 {fail_count} 条'
-        if fail_reasons:
-            msg += '；' + '；'.join(fail_reasons[:5])
-        return JsonResponse({'code': 1, 'msg': msg})
-
+            return JsonResponse({'code': 1, 'msg': f"成功导入 {result['success']} 条商品"})
     except Exception as e:
-        logger.error(f"导入失败: {str(e)}")
+        logger.error(f"商品导入失败: {str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'导入失败：{str(e)}'})
+
+
+@login_required
+@permission_required('product_export')  # 确保权限定义正确
+def product_export(request):
+    """
+    商品导出（单批次）- 全字段，支持按关键字和状态筛选，包含禁用商品
+    """
+    try:
+        keyword = request.GET.get('keyword', '').strip()
+        status = request.GET.get('status', 'all')
+        # 使用 all_objects 包含所有商品
+        products_query = Product.all_objects.all()
+        if status == 'active':
+            products_query = products_query.filter(is_active=True)
+        elif status == 'inactive':
+            products_query = products_query.filter(is_active=False)
+        # 关键字过滤（包括别名）
+        if keyword:
+            from django.db.models import Q
+            alias_product_ids = ProductAlias.objects.filter(
+                Q(alias_name__icontains=keyword)
+            ).values_list('product_id', flat=True)
+            products_query = products_query.filter(
+                Q(name__icontains=keyword) | Q(id__in=alias_product_ids)
+            )
+        products = products_query.prefetch_related('aliases', 'tags').order_by('name')
+        # 调用导出函数
+        buffer = export_products_to_io(products)
+        # 构造响应
+        response = HttpResponse(
+            buffer.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        filename = f'商品列表_{timezone.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+    except Exception as e:
+        logger.error(f"导出商品失败: {str(e)}", exc_info=True)
+        return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'})
 
 @login_required
 @require_POST
@@ -864,131 +706,6 @@ def export_to_excel(data, title, headers, selected_fields, custom_fields, file_n
     buffer = BytesIO()
     wb.save(buffer)
     return HttpResponse(buffer.getvalue(), content_type='application/vnd.ms-excel')
-
-
-@login_required
-@permission_required("customer_price_export")
-def product_export(request):
-    try:
-        keyword = request.POST.get('keyword', request.GET.get('keyword', '')).strip()
-        status = request.POST.get('status', request.GET.get('status', 'all'))
-        selected_fields = request.POST.getlist('fields[]')
-        custom_fields_json = request.POST.get('custom_fields', '[]')
-
-        if not selected_fields:
-            selected_fields = ['serial', 'id', 'name', 'price', 'unit', 'specification', 'stock_system', 'stock_actual',
-                               'aliases', 'status']
-
-        try:
-            custom_fields = json.loads(custom_fields_json)
-        except Exception:
-            custom_fields = []
-
-        products_query = Product.objects.all()
-        if status == 'active':
-            products_query = products_query.filter(is_active=True)
-        elif status == 'inactive':
-            products_query = products_query.filter(is_active=False)
-
-        if keyword:
-            alias_product_ids = ProductAlias.objects.filter(
-                Q(alias_name__icontains=keyword)
-            ).values_list('product_id', flat=True)
-            products_query = products_query.filter(
-                Q(name__icontains=keyword) | Q(id__in=alias_product_ids)
-            )
-
-        products = products_query.prefetch_related('aliases', 'tags').order_by('name')  # 预加载标签
-        field_config = {
-            'serial': {'header': '序号', 'width': 8},
-            'id': {'header': 'ID', 'width': 8},
-            'name': {'header': '商品名称', 'width': 20},
-            'price': {'header': '单价（元）', 'width': 12},
-            'unit': {'header': '单位', 'width': 8},
-            'specification': {'header': '商品规格', 'width': 25},  # 新增
-            'stock_system': {'header': '系统库存', 'width': 10},
-            'stock_actual': {'header': '实际库存', 'width': 10},
-            'aliases': {'header': '别名', 'width': 20},
-            'status': {'header': '状态', 'width': 8},
-            # 👇 新增标签字段
-            'tags': {'header': '商品标签', 'width': 20},
-        }
-
-        final_fields = selected_fields.copy()
-        offset_map = {}
-        for cf in custom_fields:
-            target = cf['target']
-            if target in final_fields:
-                base_idx = final_fields.index(target)
-                actual_idx = base_idx + offset_map.get(target, 0)
-                custom_key = f'custom_{cf["name"]}'
-                if cf['position'] == 'after':
-                    final_fields.insert(actual_idx + 1, custom_key)
-                else:
-                    final_fields.insert(actual_idx, custom_key)
-                offset_map[target] = offset_map.get(target, 0) + 1
-                field_config[custom_key] = {'header': cf['name'], 'width': 15}
-
-        wb = Workbook()
-        ws = wb.active
-        ws.title = "商品列表"
-
-        for col_num, field in enumerate(final_fields, 1):
-            cfg = field_config.get(field, {'header': field})
-            cell = ws.cell(row=1, column=col_num, value=cfg['header'])
-            cell.font = Font(bold=True)
-            cell.fill = PatternFill(start_color="DDDDDD", end_color="DDDDDD", fill_type="solid")
-            ws.column_dimensions[cell.column_letter].width = cfg.get('width', 12)
-
-        for row_num, product in enumerate(products, 2):
-            col_num = 1
-            for field in final_fields:
-                value = ''
-                if field == 'serial':
-                    value = row_num - 1
-                elif field == 'id':
-                    value = product.id
-                elif field == 'name':
-                    value = product.name
-                elif field == 'price':
-                    value = float(product.price)
-                    ws.cell(row=row_num, column=col_num).number_format = '0.00'
-                elif field == 'unit':
-                    value = product.unit
-                elif field == 'specification':  # 新增
-                    value = product.specification
-                elif field == 'stock_system':
-                    value = product.stock_system
-                elif field == 'stock_actual':
-                    value = product.stock_actual
-                elif field == 'aliases':
-                    value = ','.join([a.alias_name for a in product.aliases.all()])
-                elif field == 'status':
-                    value = '启用' if product.is_active else '停用'
-                elif field == 'tags':
-                    # 👇 导出所有启用标签的名称
-                    value = ','.join([tag.name for tag in product.tags.all()])
-                elif field.startswith('custom_'):
-                    value = ''
-                ws.cell(row=row_num, column=col_num, value=value)
-                col_num += 1
-
-        buffer = BytesIO()
-        wb.save(buffer)
-        buffer.seek(0)
-
-        response = HttpResponse(
-            buffer.getvalue(),
-            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
-        response[
-            'Content-Disposition'] = f'attachment; filename=商品列表_{timezone.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
-        return response
-
-    except Exception as e:
-        logger.error(f"导出失败: {str(e)}")
-        return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'})
-
 
 # ===================== 修改：商品详情主视图 =====================
 @login_required
@@ -1575,19 +1292,20 @@ def export_to_excel_buffer(data, title, headers, selected_fields, custom_fields=
 
 def export_products_to_io(products=None):
     """
-    导出商品数据为 BytesIO 对象（全量字段）
+    导出商品数据为 BytesIO 对象（全量字段，包括禁用商品）
     用于一键备份
     """
     if products is None:
-        products = Product.objects.prefetch_related('aliases', 'tags').order_by('name')
+        # 使用 all_objects 获取所有商品（包括禁用的）
+        products = Product.all_objects.prefetch_related('aliases', 'tags').order_by('name')
 
     data = []
     seq = 1
     for product in products:
-        # 获取别名列表
-        aliases = ','.join([a.alias_name for a in product.aliases.all()])
-        # 获取标签列表
-        tags = ','.join([tag.name for tag in product.tags.all()])
+        # 获取别名列表（仅启用别名，若需要禁用的可调整）
+        aliases = ','.join([a.alias_name for a in product.aliases.filter(is_active=True)])
+        # 获取标签列表（仅启用标签）
+        tags = ','.join([tag.name for tag in product.tags.filter(is_active=True)])
         data.append({
             'serial': seq,
             'id': product.id,
@@ -1603,6 +1321,7 @@ def export_products_to_io(products=None):
         })
         seq += 1
 
+    # 表头映射不变
     headers = {
         'serial': '序号',
         'id': 'ID',
