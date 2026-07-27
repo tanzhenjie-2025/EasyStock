@@ -1687,6 +1687,10 @@ def import_products_from_io(file_obj, strategy='append'):
     processed_key_map = {}
 
     for row_idx, row in enumerate(rows[1:], start=2):
+        # ---- 新增：跳过完全空行 ----
+        if all(cell is None or str(cell).strip() == '' for cell in row):
+            continue
+
         try:
             def get_val(field):
                 idx = col_map.get(field)
@@ -1802,7 +1806,6 @@ def import_products_from_io(file_obj, strategy='append'):
         with transaction.atomic():
             # 先保存新商品（bulk_create 不触发 save，需单独处理拼音）
             for prod in new_products:
-
                 prod.pinyin_full = ''.join(lazy_pinyin(prod.name, style=0))
                 prod.pinyin_abbr = ''.join([p[0] for p in lazy_pinyin(prod.name, style=0)])
             Product.objects.bulk_create(new_products)
@@ -1830,7 +1833,7 @@ def import_products_from_io(file_obj, strategy='append'):
 
     return {
         'success': success_count,
-        'skipped': fail_count,  # 注意：这里 fail_count 实际上是被跳过的行数，我们将其作为 skipped
+        'skipped': fail_count,
         'errors': errors,
     }
 
@@ -1843,7 +1846,6 @@ from .models import Product, ProductTag
 import json
 import logging
 
-logger = logging.getLogger(__name__)
 
 # ---------- 商品审核页面 ----------
 @login_required
@@ -1852,18 +1854,6 @@ def product_audit_page(request):
     """渲染商品审核页面"""
     return render(request, 'product/product_audit.html')
 
-
-from django.db.models import Count, Q
-
-import logging
-from django.db.models import Count, Q
-
-logger = logging.getLogger(__name__)
-
-from django.db.models import Count, Q
-import logging
-
-logger = logging.getLogger(__name__)
 
 @login_required
 @permission_required('product.change_product', raise_exception=True)
