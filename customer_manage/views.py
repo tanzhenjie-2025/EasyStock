@@ -6,6 +6,7 @@ from django.views.decorators.http import require_POST
 
 from accounts.models import ROLE_SUPER_ADMIN, PERM_LOG_VIEW_ALL
 from bill.models import OrderItem, Order
+from bill.views import parse_customer_name
 from product.models import Product, ProductAlias
 from customer_manage.models import Customer, CustomerPrice, RepaymentRecord, CustomerPhone
 from area_manage.models import Area
@@ -2157,43 +2158,72 @@ def customer_audit_page(request):
 
 
 # ---------- 审核预览 ----------
+
 @login_required
 def customer_audit_preview(request):
-    """返回所有未分配区域的有效客户列表"""
+    """返回所有未分配区域的有效客户列表，并尝试从订单中提取推荐区域"""
     customers = Customer.objects.filter(
         is_active=True, area__isnull=True
     ).select_related('area').only(
         'id', 'name', 'remark', 'area'
     )
 
+    # 获取所有启用区域并转为字典列表
+    area_qs = Area.active_objects.all().only('id', 'name')
+    area_list = [{'id': a.id, 'name': a.name} for a in area_qs]
+
     customer_list = []
     for c in customers:
+        # 查找该客户的已审核订单（按创建时间倒序，取最新10个）
+        orders = Order.objects.filter(
+            customer=c,
+            is_verified=True
+        ).select_related('area').order_by('-create_time')[:10]
+
+        recommended_area_id = None
+        recommended_area_name = ''
+
+        for order in orders:
+            # 优先使用订单自身的区域
+            if order.area:
+                recommended_area_id = order.area.id
+                recommended_area_name = order.area.name
+                break
+            # 否则尝试从客户名快照解析
+            if order.customer_name_snapshot:
+                parsed_area, _ = parse_customer_name(order.customer_name_snapshot)
+                if parsed_area:
+                    area_obj = Area.active_objects.filter(name=parsed_area).first()
+                    if area_obj:
+                        recommended_area_id = area_obj.id
+                        recommended_area_name = area_obj.name
+                        break
+
         customer_list.append({
             'id': c.id,
             'name': c.name,
             'phone': c.primary_phone or '',
             'remark': c.remark or '',
+            'recommended_area_id': recommended_area_id,
+            'recommended_area_name': recommended_area_name,
         })
-
-    # 区域列表（仍需要单独查询，因为区域和客户不直接关联，这里独立返回）
-    areas = Area.active_objects.all().only('id', 'name')
-    area_list = [{'id': a.id, 'name': a.name} for a in areas]
 
     return JsonResponse({
         'code': 1,
         'data': {
             'customers': customer_list,
-            'areas': area_list,
+            'areas': area_list,   # 现在是可序列化的列表
         }
     })
 
 
 # ---------- 审核确认 ----------
+from django.utils import timezone
+
 @login_required
 def customer_audit_confirm(request):
     """
-    批量更新客户所属区域
-    请求体: {"items": [{"customer_id": 1, "area_id": 2}, ...]}
+    批量更新客户所属区域，若目标区域下已存在同名客户，则禁用当前客户。
     """
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST'})
@@ -2208,13 +2238,15 @@ def customer_audit_confirm(request):
         return JsonResponse({'code': 0, 'msg': '未提供有效数据'})
 
     success_count = 0
+    disabled_count = 0
     error_msgs = []
+
     with transaction.atomic():
         for item in items:
             customer_id = item.get('customer_id')
             area_id = item.get('area_id')
             if not customer_id or not area_id:
-                error_msgs.append(f'客户ID或区域ID无效')
+                error_msgs.append('客户ID或区域ID无效')
                 continue
 
             try:
@@ -2229,16 +2261,36 @@ def customer_audit_confirm(request):
                 error_msgs.append(f'区域ID {area_id} 不存在或已停用')
                 continue
 
-            # 如果客户已有区域，跳过（理论上预览已过滤，但防并发）
+            # 如果客户已有区域（理论上预览已过滤，但以防并发）
             if customer.area:
                 error_msgs.append(f'客户“{customer.name}”已有区域，跳过')
                 continue
 
+            # 检查是否已存在相同 (area, name) 的客户（包括已停用的）
+            existing_customer = Customer.all_objects.filter(
+                area=area,
+                name=customer.name
+            ).exclude(id=customer_id).first()
+
+            if existing_customer:
+                # 冲突：禁用当前客户（重复记录）
+                customer.is_active = False
+                customer.disabled_time = timezone.now()
+                customer.save(update_fields=['is_active', 'disabled_time'])
+                disabled_count += 1
+                error_msgs.append(
+                    f'客户“{customer.name}”在区域“{area.name}”下已存在'
+                    f'（ID: {existing_customer.id}），已禁用当前重复客户'
+                )
+                continue
+
+            # 无冲突，正常分配区域
             customer.area = area
             customer.save(update_fields=['area'])
             success_count += 1
 
-    msg = f'成功为 {success_count} 个客户分配区域。'
+    msg = f'成功为 {success_count} 个客户分配区域，因重复禁用 {disabled_count} 个客户。'
     if error_msgs:
-        msg += ' 警告：' + '；'.join(error_msgs[:3])
+        # 只显示前5条详情，避免消息过长
+        msg += ' 详情：' + '；'.join(error_msgs[:5])
     return JsonResponse({'code': 1, 'msg': msg})

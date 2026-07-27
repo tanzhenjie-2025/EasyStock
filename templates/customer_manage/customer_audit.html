@@ -41,6 +41,7 @@
                     <th>客户名称</th>
                     <th>联系电话</th>
                     <th>备注</th>
+                    <th>推荐区域</th>   <!-- 新增 -->
                     <th>所属区域</th>
                 </tr>
             </thead>
@@ -107,36 +108,40 @@ function renderPage(data) {
     $('#loadingArea').hide();
     $('#mainContent').show();
 
-    // 摘要卡片
     let cards = '';
     const count = data.customers ? data.customers.length : 0;
     cards += `<div class="col-md-3"><div class="card summary-card warning p-2"><strong>未分配区域客户</strong><br>${count} 个</div></div>`;
     $('#summaryCards').html(cards);
 
-    // 表格
     let html = '';
     if (data.customers && data.customers.length > 0) {
         data.customers.forEach(function(c) {
+            // 构建下拉选项，推荐区域自动选中
+            let optionsHtml = '<option value="">-- 请选择区域 --</option>';
+            areaList.forEach(function(a) {
+                const selected = (a.id === c.recommended_area_id) ? ' selected' : '';
+                optionsHtml += `<option value="${a.id}"${selected}>${a.name}</option>`;
+            });
             html += `<tr>
                 <td><input type="checkbox" class="customer-check" value="${c.id}"></td>
                 <td>${c.id}</td>
                 <td>${c.name}</td>
                 <td>${c.phone || '无'}</td>
                 <td>${c.remark || '无'}</td>
+                <td>${c.recommended_area_name || '无'}</td>
                 <td>
                     <select class="form-select form-select-sm area-select" data-id="${c.id}">
-                        <option value="">-- 请选择区域 --</option>
-                        ${areaList.map(a => `<option value="${a.id}">${a.name}</option>`).join('')}
+                        ${optionsHtml}
                     </select>
                 </td>
             </tr>`;
         });
     } else {
-        html = `<tr><td colspan="6" class="no-data">所有客户均已分配区域，无需审核</td></tr>`;
+        html = `<tr><td colspan="7" class="no-data">所有客户均已分配区域，无需审核</td></tr>`;
     }
     $('#customerTableBody').html(html);
 
-    // 绑定全选事件
+    // 绑定全选事件（保持不变）
     $('#masterCheck').on('change', function() {
         $('.customer-check').prop('checked', this.checked);
     });
