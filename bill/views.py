@@ -3333,8 +3333,10 @@ def get_default_creator():
 
 def import_orders_from_io(file_obj, strategy='append'):
     """
-    从 BytesIO 导入订单（直接执行导入，跳过预览）
-    自动创建不存在的区域和客户（区域为空时允许为 None，客户名为空则跳过订单）
+    从 BytesIO 导入订单（宽松模式）
+    - 区域和客户如果不存在，则外键置为 None，但不影响导入。
+    - 客户名称为空的订单会被跳过。
+    - 订单号重复的跳过。
     """
     try:
         wb = load_workbook(file_obj, read_only=True)
@@ -3350,7 +3352,6 @@ def import_orders_from_io(file_obj, strategy='append'):
     if all_order_nos:
         existing_set = set(Order.objects.filter(order_no__in=all_order_nos).values_list('order_no', flat=True))
 
-    # 构建有效订单列表
     valid_orders = []
     skipped = 0
     errors = []
@@ -3367,7 +3368,6 @@ def import_orders_from_io(file_obj, strategy='append'):
 
         items = g['items']
         pure_customer = items[0]['pure_customer_name']
-        # 如果客户名称为空，跳过该订单
         if not pure_customer:
             skipped += 1
             errors.append(f'订单 {order_no} 客户名称为空，跳过')
@@ -3376,7 +3376,7 @@ def import_orders_from_io(file_obj, strategy='append'):
         order_data = {
             'order_no': order_no,
             'raw_customer_name': g['raw_customer_name'],
-            'area_name': g['area_name'] or '',   # 确保为空字符串
+            'area_name': g['area_name'] or '',
             'pure_customer_name': pure_customer,
             'status': items[0]['status'],
             'create_time': g['create_time'],
@@ -3400,58 +3400,14 @@ def import_orders_from_io(file_obj, strategy='append'):
         valid_orders.append(order_data)
 
     if not valid_orders:
-        # 如果没有有效订单，返回结果（可能全部是跳过）
         return {'success': 0, 'skipped': skipped, 'errors': errors}
 
-    # ---------- 自动创建缺失的区域和客户 ----------
-    all_area_names = set()
-    all_customer_names = set()
-    area_for_customer = {}
-
-    for order_data in valid_orders:
-        area_name = order_data.get('area_name')
-        if area_name:
-            all_area_names.add(area_name)
-        cust_name = order_data.get('pure_customer_name')
-        if cust_name:
-            all_customer_names.add(cust_name)
-            if area_name and cust_name not in area_for_customer:
-                area_for_customer[cust_name] = area_name
-
-    # 创建区域（仅非空名称）
-    area_map = {}
-    for area_name in all_area_names:
-        if area_name:
-            area_obj, created = Area.objects.get_or_create(
-                name=area_name,
-                defaults={'remark': '订单导入自动创建', 'is_active': True}
-            )
-            area_map[area_name] = area_obj
-
-    # 创建客户（允许区域为 None）
-    customer_map = {}
-    for cust_name in all_customer_names:
-        if not cust_name:
-            continue
-        area_name_for_cust = area_for_customer.get(cust_name)
-        area_obj = area_map.get(area_name_for_cust) if area_name_for_cust else None
-        try:
-            customer_obj = Customer.objects.get(name=cust_name, area=area_obj)
-        except Customer.DoesNotExist:
-            customer_obj = Customer.objects.create(
-                name=cust_name,
-                area=area_obj,
-                remark='订单导入自动创建',
-                is_active=True
-            )
-        customer_map[cust_name] = customer_obj
-
-    # 用户映射
+    # ---------- 用户映射（开单人） ----------
     all_creator_usernames = {o['creator_username'] for o in valid_orders if o.get('creator_username')}
     user_map = {u.username: u for u in User.objects.filter(username__in=all_creator_usernames)}
     default_creator = get_default_creator()
 
-    # ---------- 导入订单 ----------
+    # ---------- 导入订单（宽松模式，不创建区域/客户） ----------
     success = 0
     import_errors = []
     with transaction.atomic():
@@ -3463,16 +3419,19 @@ def import_orders_from_io(file_obj, strategy='append'):
                     import_errors.append(f'订单 {order_no} 无明细')
                     continue
 
-                # 获取区域（若区域名为空则置为 None）
+                # 1. 尝试获取区域（若不存在则置 None）
                 area_name = order_data.get('area_name')
-                area = area_map.get(area_name) if area_name else None
+                area = None
+                if area_name:
+                    area = Area.objects.filter(name=area_name, is_active=True).first()
 
-                customer = customer_map.get(order_data.get('pure_customer_name'))
-                if not customer:
-                    # 理论上不会发生，因为已过滤且自动创建，但保留防护
-                    import_errors.append(f'订单 {order_no} 客户不存在')
-                    continue
+                # 2. 尝试获取客户（按名称+区域匹配，若找不到则置 None）
+                pure_customer = order_data.get('pure_customer_name')
+                customer = None
+                if pure_customer:
+                    customer = Customer.objects.filter(name=pure_customer, area=area).first()
 
+                # 3. 获取创建人
                 creator = user_map.get(order_data.get('creator_username', ''))
                 if not creator:
                     creator = default_creator
@@ -3480,6 +3439,7 @@ def import_orders_from_io(file_obj, strategy='append'):
                 create_time = order_data.get('create_time') or timezone.now()
                 is_verified = order_data.get('is_verified', False)
 
+                # 4. 创建订单（外键可为 None）
                 order = Order(
                     order_no=order_no,
                     customer_name_snapshot=order_data.get('raw_customer_name', ''),
@@ -3496,6 +3456,7 @@ def import_orders_from_io(file_obj, strategy='append'):
                 )
                 order.save()
 
+                # 5. 处理结清状态
                 if order_data['status'] != 'cancelled':
                     is_settled = order_data.get('is_settled', False)
                     received = Decimal(order_data.get('received_amount', '0'))
@@ -3504,6 +3465,7 @@ def import_orders_from_io(file_obj, strategy='append'):
                         order.received_amount = received
                         order.save(update_fields=['is_settled', 'received_amount'])
 
+                # 6. 创建订单明细
                 total = Decimal('0')
                 items_to_create = []
                 for item in items:
