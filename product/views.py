@@ -1852,25 +1852,221 @@ def product_audit_page(request):
     """渲染商品审核页面"""
     return render(request, 'product/product_audit.html')
 
-# ---------- 审核预览 ----------
+
+from django.db.models import Count, Q
+
+import logging
+from django.db.models import Count, Q
+
+logger = logging.getLogger(__name__)
+
+from django.db.models import Count, Q
+import logging
+
+logger = logging.getLogger(__name__)
+
 @login_required
 @permission_required('product.change_product', raise_exception=True)
 def product_audit_preview(request):
-    """返回所有无标签的有效商品（is_active=True 且无标签）"""
+    """
+    返回三类数据：
+    1. products: 无标签商品（原有功能）
+    2. spec_missing: 规格缺失（单位='件'且规格为空）
+    3. duplicate_groups: 同名无规格组（不限单位，每组≥2个商品）
+    """
+    # ---------- 1. 无标签商品（兼容原有前端） ----------
     products = Product.objects.filter(is_active=True, tags__isnull=True).only(
         'id', 'name', 'unit', 'price', 'specification'
     )
-    data = []
+    product_data = []
     for p in products:
-        data.append({
+        product_data.append({
             'id': p.id,
             'name': p.name,
             'unit': p.unit,
             'price': float(p.price),
             'specification': p.specification or '',
         })
-    return JsonResponse({'code': 1, 'data': {'products': data}})
 
+    # ---------- 2. 规格缺失（单位='件'且规格为空） ----------
+    empty_spec_condition = Q(specification='') | Q(specification__isnull=True)
+    spec_missing = Product.objects.filter(
+        is_active=True,
+        unit='件'
+    ).filter(empty_spec_condition).only('id', 'name', 'unit', 'price', 'specification')
+
+    spec_missing_data = []
+    for p in spec_missing:
+        spec_missing_data.append({
+            'id': p.id,
+            'name': p.name,
+            'unit': p.unit,
+            'price': float(p.price),
+            'specification': p.specification or '',
+        })
+
+    # ---------- 3. 同名无规格组（不限单位） ----------
+    no_spec_products = Product.objects.filter(
+        is_active=True
+    ).filter(empty_spec_condition)
+
+    name_counts = no_spec_products.values('name').annotate(cnt=Count('id')).filter(cnt__gte=2)
+    duplicate_names = [item['name'] for item in name_counts]
+
+    duplicate_products = no_spec_products.filter(name__in=duplicate_names).only(
+        'id', 'name', 'unit', 'price', 'specification'
+    )
+
+    groups = {}
+    for p in duplicate_products:
+        groups.setdefault(p.name, []).append({
+            'id': p.id,
+            'name': p.name,
+            'unit': p.unit,
+            'price': float(p.price),
+            'specification': p.specification or '',
+        })
+
+    duplicate_groups = [{'name': name, 'items': items} for name, items in groups.items()]
+
+    # 调试日志（可删除）
+    logger.debug(f'无标签商品: {len(product_data)} 个')
+    logger.debug(f'规格缺失: {len(spec_missing_data)} 个')
+    logger.debug(f'同名组: {len(duplicate_groups)} 组')
+
+    return JsonResponse({
+        'code': 1,
+        'data': {
+            'products': product_data,
+            'spec_missing': spec_missing_data,
+            'duplicate_groups': duplicate_groups,
+        }
+    })
+# ---------- 规格更新 ----------
+@login_required
+@permission_required('product.change_product', raise_exception=True)
+def product_audit_update_spec(request):
+    """
+    批量更新商品规格（仅限 unit='件' 且 specification 为空的商品）
+    请求体：{"items": [{"product_id": 1, "specification": "新规格"}, ...]}
+    """
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST'})
+
+    try:
+        payload = json.loads(request.body)
+    except:
+        return JsonResponse({'code': 0, 'msg': 'JSON格式错误'})
+
+    items = payload.get('items', [])
+    if not items:
+        return JsonResponse({'code': 0, 'msg': '未提供有效数据'})
+
+    success_count = 0
+    error_msgs = []
+    with transaction.atomic():
+        for item in items:
+            product_id = item.get('product_id')
+            spec = item.get('specification', '').strip()
+            if not product_id or not spec:
+                error_msgs.append(f'商品ID或规格为空')
+                continue
+
+            try:
+                product = Product.objects.get(
+                    id=product_id,
+                    is_active=True,
+                    unit='件',
+                    specification__in=['', None]
+                )
+            except Product.DoesNotExist:
+                error_msgs.append(f'商品ID {product_id} 不存在、已停用、单位不是"件"或已有规格')
+                continue
+
+            product.specification = spec
+            product.save(update_fields=['specification'])
+            success_count += 1
+
+    msg = f'成功更新 {success_count} 个商品的规格。'
+    if error_msgs:
+        msg += ' 错误：' + '；'.join(error_msgs[:3])
+    return JsonResponse({'code': 1, 'msg': msg})
+
+# ---------- 作废同名商品 ----------
+@login_required
+@permission_required('product.change_product', raise_exception=True)
+def product_audit_cancel_duplicate(request):
+    """批量作废同名且无规格的商品（仅允许单位='件'且规格为空）"""
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST'})
+    try:
+        payload = json.loads(request.body)
+    except:
+        return JsonResponse({'code': 0, 'msg': 'JSON格式错误'})
+    product_ids = payload.get('product_ids', [])
+    if not product_ids:
+        return JsonResponse({'code': 0, 'msg': '未选择商品'})
+    # 仅允许作废符合条件的：单位='件'，规格为空，且属于同名组（即该名称下至少还有另一个符合条件的商品，否则作废后可能只剩一个或零个，但需求允许全部作废？需求说“让用户作废其中的商品”，意味着可以作废全部，但可能保留至少一个。但需求未强制保留，我们允许全部作废）
+    # 但需保证这些商品当前是有效的且确实符合条件
+    products = Product.objects.filter(
+        id__in=product_ids,
+        is_active=True,
+        unit='件',
+        specification__in=['', None]
+    )
+    if not products.exists():
+        return JsonResponse({'code': 0, 'msg': '未找到符合条件的商品'})
+    # 进一步校验：这些商品必须属于同名且无规格的组（即其名称下至少有两个符合条件的商品，但为了灵活，可放宽，只要求这些商品本身符合条件即可）
+    # 但为了安全，可检查每个商品的名称下是否存在至少两个符合条件的商品（包括自身），但作废后如果少于2个也无所谓，我们允许用户作废任意选择。
+    with transaction.atomic():
+        count = products.update(is_active=False)
+    return JsonResponse({'code': 1, 'msg': f'成功作废 {count} 个商品'})
+
+@login_required
+@permission_required('product.change_product', raise_exception=True)
+def product_audit_cancel_duplicate(request):
+    """
+    作废同名无规格组中的选中商品（仅允许作废属于重复组的商品）
+    请求体：{"product_ids": [1,2,3]}
+    """
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST'})
+
+    try:
+        payload = json.loads(request.body)
+    except:
+        return JsonResponse({'code': 0, 'msg': 'JSON格式错误'})
+
+    product_ids = payload.get('product_ids', [])
+    if not product_ids:
+        return JsonResponse({'code': 0, 'msg': '未选择商品'})
+
+    # 所有有效且无规格的商品
+    products = Product.objects.filter(id__in=product_ids, is_active=True, specification__in=['', None])
+    if not products.exists():
+        return JsonResponse({'code': 0, 'msg': '未找到可作废的商品'})
+
+    # 获取这些商品所属的名称列表
+    names = set(products.values_list('name', flat=True))
+
+    # 统计每个名称下有效且无规格的商品总数（包括未选中的）
+    name_counts = Product.objects.filter(
+        name__in=names,
+        is_active=True,
+        specification__in=['', None]
+    ).values('name').annotate(cnt=Count('id'))
+
+    valid_names = {item['name'] for item in name_counts if item['cnt'] >= 2}
+    if not valid_names:
+        return JsonResponse({'code': 0, 'msg': '所选商品不属于任何重复组，无法作废'})
+
+    # 只作废属于重复组的商品
+    to_cancel = products.filter(name__in=valid_names)
+    if not to_cancel.exists():
+        return JsonResponse({'code': 0, 'msg': '所选商品均不属于重复组，无法作废'})
+
+    count = to_cancel.update(is_active=False)
+    return JsonResponse({'code': 1, 'msg': f'成功作废 {count} 个商品'})
 # ---------- 添加标签 ----------
 @login_required
 @permission_required('product.change_product', raise_exception=True)

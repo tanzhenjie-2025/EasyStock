@@ -67,4 +67,7 @@ path('audit/', views.product_audit_page, name='product_audit'),
     path('audit/preview/', views.product_audit_preview, name='product_audit_preview'),
     path('audit/add-tag/', views.product_audit_add_tag, name='product_audit_add_tag'),
     path('audit/cancel/', views.product_audit_cancel, name='product_audit_cancel'),
+
+path('audit/update-spec/', views.product_audit_update_spec, name='product_audit_update_spec'),
+path('audit/cancel-duplicate/', views.product_audit_cancel_duplicate, name='product_audit_cancel_duplicate'),
 ]
