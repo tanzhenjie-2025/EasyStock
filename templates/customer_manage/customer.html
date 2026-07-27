@@ -474,6 +474,9 @@
 <button class="btn btn-success" onclick="openRepaymentModal()">还款登记</button>
 <button class="btn btn-info" onclick="showExportModal()">📥 导出数据</button>
 <button class="btn btn-warning" onclick="showImportModal()">📤 导入数据</button>
+<button class="btn btn-secondary" onclick="window.location.href='{% url 'customer_manage:customer_audit' %}'">
+        🔍 客户审核
+    </button>
 <button class="btn btn-outline-secondary" id="clearCacheBtn" onclick="clearCache()">
         🔄 清理缓存
     </button>

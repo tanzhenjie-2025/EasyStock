@@ -51,5 +51,8 @@ path('stats/page/', views.customer_stats_page, name='customer_stats_page'),  # ç
 
     path('customer/clear-cache/', views.clear_customer_cache_view, name='clear_customer_cache'),
 
+path('audit/customer/', views.customer_audit_page, name='customer_audit'),
+    path('api/audit/customer/preview/', views.customer_audit_preview, name='customer_audit_preview'),
+    path('api/audit/customer/confirm/', views.customer_audit_confirm, name='customer_audit_confirm'),
 ]
 

@@ -2148,3 +2148,97 @@ def import_customer_prices_from_io(file_obj, strategy='append'):
         'skipped': skip_count,
         'errors': errors
     }
+
+# ---------- 客户审核页面 ----------
+@login_required
+def customer_audit_page(request):
+    """渲染客户审核页面"""
+    return render(request, 'customer_manage/customer_audit.html')
+
+
+# ---------- 审核预览 ----------
+@login_required
+def customer_audit_preview(request):
+    """返回所有未分配区域的有效客户列表"""
+    customers = Customer.objects.filter(
+        is_active=True, area__isnull=True
+    ).select_related('area').only(
+        'id', 'name', 'remark', 'area'
+    )
+
+    customer_list = []
+    for c in customers:
+        customer_list.append({
+            'id': c.id,
+            'name': c.name,
+            'phone': c.primary_phone or '',
+            'remark': c.remark or '',
+        })
+
+    # 区域列表（仍需要单独查询，因为区域和客户不直接关联，这里独立返回）
+    areas = Area.active_objects.all().only('id', 'name')
+    area_list = [{'id': a.id, 'name': a.name} for a in areas]
+
+    return JsonResponse({
+        'code': 1,
+        'data': {
+            'customers': customer_list,
+            'areas': area_list,
+        }
+    })
+
+
+# ---------- 审核确认 ----------
+@login_required
+def customer_audit_confirm(request):
+    """
+    批量更新客户所属区域
+    请求体: {"items": [{"customer_id": 1, "area_id": 2}, ...]}
+    """
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST'})
+
+    try:
+        payload = json.loads(request.body)
+    except:
+        return JsonResponse({'code': 0, 'msg': 'JSON格式错误'})
+
+    items = payload.get('items', [])
+    if not items:
+        return JsonResponse({'code': 0, 'msg': '未提供有效数据'})
+
+    success_count = 0
+    error_msgs = []
+    with transaction.atomic():
+        for item in items:
+            customer_id = item.get('customer_id')
+            area_id = item.get('area_id')
+            if not customer_id or not area_id:
+                error_msgs.append(f'客户ID或区域ID无效')
+                continue
+
+            try:
+                customer = Customer.objects.get(id=customer_id, is_active=True)
+            except Customer.DoesNotExist:
+                error_msgs.append(f'客户ID {customer_id} 不存在或已停用')
+                continue
+
+            try:
+                area = Area.active_objects.get(id=area_id)
+            except Area.DoesNotExist:
+                error_msgs.append(f'区域ID {area_id} 不存在或已停用')
+                continue
+
+            # 如果客户已有区域，跳过（理论上预览已过滤，但防并发）
+            if customer.area:
+                error_msgs.append(f'客户“{customer.name}”已有区域，跳过')
+                continue
+
+            customer.area = area
+            customer.save(update_fields=['area'])
+            success_count += 1
+
+    msg = f'成功为 {success_count} 个客户分配区域。'
+    if error_msgs:
+        msg += ' 警告：' + '；'.join(error_msgs[:3])
+    return JsonResponse({'code': 1, 'msg': msg})
