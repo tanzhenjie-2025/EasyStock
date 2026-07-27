@@ -1294,11 +1294,27 @@
 
     // ===================== 导入导出相关JS =====================
     function showExportModal() {
-        customFieldCount = 0;
-        $('#customFieldsContainer').empty();
+    customFieldCount = 0;
+    $('#customFieldsContainer').empty();
+    // 先清空旧的字段复选框（保留自定义字段区域）
+    $('.field-checkbox').remove();
+    // 加载字段列表
+    $.get('/customer-manage/api/fields/', function(fields) {
+        let html = '';
+        fields.forEach(f => {
+            html += `<div class="field-checkbox">
+                <input type="checkbox" id="field_${f.value}" name="export_fields" value="${f.value}" checked>
+                <label for="field_${f.value}">${f.label}</label>
+            </div>`;
+        });
+        // 插入到自定义字段区域之前
+        $(html).insertBefore('.custom-fields-section');
         const modal = new bootstrap.Modal(document.getElementById('exportModal'));
         modal.show();
-    }
+    }).fail(function() {
+        alert('加载字段列表失败，请刷新重试');
+    });
+}
 
     function selectAllFields(isSelect) {
         $('input[name="export_fields"]').prop('checked', isSelect);

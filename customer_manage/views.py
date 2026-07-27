@@ -1310,64 +1310,46 @@ def get_column_mapping(headers, expected_map):
     return mapping
 # ========== 客户导出 ==========
 # customer_manage/views.py 中替换原有的 customer_export 和 customer_import
-
+@login_required
+def customer_fields_api(request):
+    """返回客户模型的所有可用字段（供前端动态生成导出字段复选框）"""
+    fields = [
+        {'value': 'serial', 'label': '序号'},
+        {'value': 'id', 'label': 'ID'},
+        {'value': 'name', 'label': '客户名称'},
+        {'value': 'area_name', 'label': '所属区域'},
+        {'value': 'phone', 'label': '联系电话'},
+        {'value': 'remark', 'label': '备注'},
+        {'value': 'order_number', 'label': '制单号'},
+        {'value': 'is_active', 'label': '状态'},
+        {'value': 'create_time', 'label': '创建时间'},
+        {'value': 'disabled_time', 'label': '禁用时间'},
+    ]
+    return JsonResponse(fields, safe=False)
 @login_required
 @permission_required('customer_export')
 def customer_export(request):
     if request.method == 'POST':
         try:
-            data = request.POST
-            selected_fields = data.getlist('fields[]')
-            custom_fields = json.loads(data.get('custom_fields', '[]'))
-
+            selected_fields = request.POST.getlist('fields[]')
+            custom_fields = json.loads(request.POST.get('custom_fields', '[]'))
+            # 如果未选，默认全部
             if not selected_fields:
-                return JsonResponse({'code': 0, 'msg': '请至少选择一个导出字段'})
-
-            headers = {
-                'serial': '序号',
-                'id': 'ID',
-                'name': '客户名称',
-                'area_name': '所属区域',
-                'phone': '联系电话',
-                'remark': '备注',
-                'order_number': '制单号',
-                'is_active': '状态',
-                'create_time': '创建时间',
-                'disabled_time': '禁用时间',
-            }
-
-            # 强制包含某些字段（确保导入模板完整）
-            required_fields = ['name', 'area_name']
-            for f in required_fields:
+                selected_fields = ['serial', 'id', 'name', 'area_name', 'phone', 'remark', 'order_number', 'is_active', 'create_time', 'disabled_time']
+            # 强制包含关键字段（保证导入模板完整）
+            for f in ['name']:
                 if f not in selected_fields:
                     selected_fields.append(f)
-
-            customers = Customer.objects.select_related('area').prefetch_related('phones').order_by('-create_time')
-            export_data = []
-            for idx, customer in enumerate(customers, 1):
-                export_data.append({
-                    'serial': idx,
-                    'id': customer.id,
-                    'name': customer.name,
-                    'area_name': customer.area.name if customer.area else '无',
-                    'phone': customer.primary_phone,
-                    'remark': customer.remark or '',
-                    'order_number': customer.order_number or '',
-                    'is_active': '启用' if customer.is_active else '禁用',
-                    'create_time': customer.create_time.strftime('%Y-%m-%d %H:%M:%S') if customer.create_time else '',
-                    'disabled_time': customer.disabled_time.strftime('%Y-%m-%d %H:%M:%S') if customer.disabled_time else '',
-                })
-
-            file_date_str = timezone.localdate().strftime("%Y%m%d")
-            return export_to_excel(
-                data=export_data,
-                title='客户列表',
-                headers=headers,
-                selected_fields=selected_fields,
-                custom_fields=custom_fields,
-                file_name=f'{file_date_str}客户管理导出',
-                total_row=None
+            # 使用 all_objects 包含所有客户
+            customers = Customer.all_objects.select_related('area').prefetch_related('phones').order_by('-create_time')
+            buffer = export_customers_to_io(customers, selected_fields)
+            response = HttpResponse(
+                buffer.getvalue(),
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             )
+            filename = f'客户列表_{timezone.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+            return response
         except Exception as e:
             logger.error(f"导出客户失败：{str(e)}", exc_info=True)
             return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'}, status=500)
@@ -1381,120 +1363,18 @@ def customer_import(request):
             file_obj = request.FILES.get('file')
             if not file_obj:
                 return JsonResponse({'code': 0, 'msg': '请上传文件'})
-
-            wb = load_workbook(file_obj)
-            ws = wb.active
-
-            # 读取表头，建立映射
-            header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
-            col_map = {}
-            for idx, cell in enumerate(header_row):
-                if cell:
-                    col_map[str(cell).strip()] = idx
-
-            if '客户名称' not in col_map:
-                return JsonResponse({'code': 0, 'msg': 'Excel表头缺少“客户名称”列，请使用正确的导出模板'})
-
-            name_idx = col_map.get('客户名称')
-            area_idx = col_map.get('所属区域')
-            phone_idx = col_map.get('联系电话')
-            remark_idx = col_map.get('备注')
-            order_number_idx = col_map.get('制单号')
-            status_idx = col_map.get('状态')
-            create_time_idx = col_map.get('创建时间')
-            disabled_time_idx = col_map.get('禁用时间')
-
-            new_count = 0
-            skip_count = 0
-            new_area_count = 0
-            error_list = []
-            area_map = {area.name: area for area in Area.objects.all()}
-
-            for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), 2):
-                if not any(row):
-                    continue
-
-                cells = [str(cell).strip() if cell else '' for cell in row]
-
-                name = cells[name_idx] if name_idx is not None and name_idx < len(cells) else ''
-                area_name = cells[area_idx] if area_idx is not None and area_idx < len(cells) else ''
-                phone = cells[phone_idx] if phone_idx is not None and phone_idx < len(cells) else ''
-                remark = cells[remark_idx] if remark_idx is not None and remark_idx < len(cells) else ''
-                order_number = cells[order_number_idx] if order_number_idx is not None and order_number_idx < len(cells) else ''
-                status_str = cells[status_idx] if status_idx is not None and status_idx < len(cells) else '启用'
-                create_time_str = cells[create_time_idx] if create_time_idx is not None and create_time_idx < len(cells) else ''
-                disabled_time_str = cells[disabled_time_idx] if disabled_time_idx is not None and disabled_time_idx < len(cells) else ''
-
-                if not name:
-                    error_list.append(f"第{row_idx}行：客户名称为空，跳过")
-                    continue
-
-                # 解析时间
-                create_time = None
-                if create_time_str:
-                    create_time = parse_datetime_cell(create_time_str)
-                if create_time is None:
-                    create_time = timezone.now()
-                disabled_time = None
-                if disabled_time_str:
-                    disabled_time = parse_datetime_cell(disabled_time_str)
-                is_active = status_str != '禁用'
-
-                # 处理区域
-                area_obj = None
-                if area_name and area_name != '无':
-                    area_obj = area_map.get(area_name)
-                    if not area_obj:
-                        try:
-                            area_obj = Area.objects.create(
-                                name=area_name,
-                                remark='导入自动创建',
-                                is_active=True
-                            )
-                            area_map[area_name] = area_obj
-                            new_area_count += 1
-                        except Exception as e:
-                            error_list.append(f"第{row_idx}行：自动创建区域“{area_name}”失败（{str(e)}）")
-                            continue
-
-                # 检查重复
-                if Customer.objects.filter(name=name, area=area_obj).exists():
-                    skip_count += 1
-                    continue
-
-                try:
-                    customer = Customer.objects.create(
-                        name=name,
-                        area=area_obj,
-                        remark=remark,
-                        order_number=order_number,
-                        is_active=is_active,
-                        create_time=create_time,
-                    )
-                    if phone:
-                        CustomerPhone.objects.create(
-                            customer=customer,
-                            phone=phone.strip(),
-                            is_primary=True
-                        )
-                    if disabled_time and not is_active:
-                        customer.disabled_time = disabled_time
-                        customer.save(update_fields=['disabled_time'])
-                    new_count += 1
-                except Exception as e:
-                    error_list.append(f"第{row_idx}行：保存失败（{str(e)}）")
-
-            msg = f"导入完成！新增客户：{new_count} 条，跳过重复：{skip_count} 条。"
-            if new_area_count > 0:
-                msg += f" 自动创建区域：{new_area_count} 个。"
-            if error_list:
-                msg += f" 异常：{len(error_list)} 条。"
-
-            if new_count > 0:
-                clear_customer_cache()
-
-            return JsonResponse({'code': 1, 'msg': msg})
-
+            result = import_customers_from_io(file_obj, strategy='append')
+            if result.get('errors'):
+                msg = f"成功 {result['success']} 条，跳过 {result['skipped']} 条"
+                if result['errors']:
+                    error_preview = result['errors'][:5]
+                    msg += f"；错误：{'；'.join(error_preview)}"
+                return JsonResponse({'code': 0, 'msg': msg})
+            else:
+                msg = f"成功导入 {result['success']} 条客户"
+                if result.get('new_areas'):
+                    msg += f"，自动创建区域 {result['new_areas']} 个"
+                return JsonResponse({'code': 1, 'msg': msg})
         except Exception as e:
             logger.error(f"导入客户失败：{str(e)}", exc_info=True)
             return JsonResponse({'code': 0, 'msg': f'导入失败：{str(e)}'})
@@ -1889,41 +1769,45 @@ def parse_datetime_cell(value):
                 continue
     return None
 
-def export_customers_to_io(customers=None):
-    """导出客户数据为 BytesIO（全量字段）"""
+def export_customers_to_io(customers=None, selected_fields=None):
+    """导出客户数据为 BytesIO（支持字段选择）"""
     if customers is None:
-        customers = Customer.objects.select_related('area').prefetch_related('phones').order_by('-create_time')
+        customers = Customer.all_objects.select_related('area').prefetch_related('phones').order_by('-create_time')
+
+    # 定义所有可用字段的取值函数
+    field_functions = {
+        'serial': lambda c, i: i,
+        'id': lambda c, i: c.id,
+        'name': lambda c, i: c.name,
+        'area_name': lambda c, i: c.area.name if c.area else '无',
+        'phone': lambda c, i: c.primary_phone,
+        'remark': lambda c, i: c.remark or '',
+        'order_number': lambda c, i: c.order_number or '',
+        'is_active': lambda c, i: '启用' if c.is_active else '禁用',
+        'create_time': lambda c, i: c.create_time.strftime('%Y-%m-%d %H:%M:%S') if c.create_time else '',
+        'disabled_time': lambda c, i: c.disabled_time.strftime('%Y-%m-%d %H:%M:%S') if c.disabled_time else '',
+    }
+    header_labels = {
+        'serial': '序号', 'id': 'ID', 'name': '客户名称', 'area_name': '所属区域',
+        'phone': '联系电话', 'remark': '备注', 'order_number': '制单号',
+        'is_active': '状态', 'create_time': '创建时间', 'disabled_time': '禁用时间'
+    }
+
+    # 如果未指定字段，则使用全部
+    if selected_fields is None:
+        selected_fields = list(header_labels.keys())
 
     data = []
     seq = 1
     for customer in customers:
-        data.append({
-            'serial': seq,
-            'id': customer.id,
-            'name': customer.name,
-            'area_name': customer.area.name if customer.area else '无',
-            'phone': customer.primary_phone,
-            'remark': customer.remark or '',
-            'order_number': customer.order_number or '',
-            'is_active': '启用' if customer.is_active else '禁用',
-            'create_time': customer.create_time.strftime('%Y-%m-%d %H:%M:%S') if customer.create_time else '',
-            'disabled_time': customer.disabled_time.strftime('%Y-%m-%d %H:%M:%S') if customer.disabled_time else '',
-        })
+        row = {}
+        for field in selected_fields:
+            row[field] = field_functions[field](customer, seq)
+        data.append(row)
         seq += 1
 
-    headers = {
-        'serial': '序号',
-        'id': 'ID',
-        'name': '客户名称',
-        'area_name': '所属区域',
-        'phone': '联系电话',
-        'remark': '备注',
-        'order_number': '制单号',
-        'is_active': '状态',
-        'create_time': '创建时间',
-        'disabled_time': '禁用时间',
-    }
-    selected_fields = ['serial', 'id', 'name', 'area_name', 'phone', 'remark', 'order_number', 'is_active', 'create_time', 'disabled_time']
+    # 构建表头映射
+    headers = {field: header_labels[field] for field in selected_fields}
 
     buffer = export_to_excel_buffer(
         data=data,
