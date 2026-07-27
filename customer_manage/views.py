@@ -2150,46 +2150,42 @@ def import_customer_prices_from_io(file_obj, strategy='append'):
         'errors': errors
     }
 
-# ---------- 客户审核页面 ----------
+# 辅助函数（从bill复制或公用）
+def parse_customer_name(raw_name, default_area=None):
+    if not raw_name:
+        return default_area, ''
+    if '|' in raw_name:
+        parts = raw_name.split('|')
+        if len(parts) >= 2:
+            area = parts[0].strip()
+            pure = parts[1].strip()
+            return area or default_area, pure
+    return default_area, raw_name.strip()
+
+
+# ---------- 页面 ----------
 @login_required
 def customer_audit_page(request):
-    """渲染客户审核页面"""
     return render(request, 'customer_manage/customer_audit.html')
 
 
-# ---------- 审核预览 ----------
-
+# ---------- 预览（合并三类数据） ----------
 @login_required
 def customer_audit_preview(request):
-    """返回所有未分配区域的有效客户列表，并尝试从订单中提取推荐区域"""
-    customers = Customer.objects.filter(
-        is_active=True, area__isnull=True
-    ).select_related('area').only(
-        'id', 'name', 'remark', 'area'
-    )
+    # 1. 区域检测：未分配区域的客户
+    area_customers = Customer.objects.filter(is_active=True, area__isnull=True).select_related('area')
+    area_list = [{'id': a.id, 'name': a.name} for a in Area.active_objects.all().only('id', 'name')]
 
-    # 获取所有启用区域并转为字典列表
-    area_qs = Area.active_objects.all().only('id', 'name')
-    area_list = [{'id': a.id, 'name': a.name} for a in area_qs]
-
-    customer_list = []
-    for c in customers:
-        # 查找该客户的已审核订单（按创建时间倒序，取最新10个）
-        orders = Order.objects.filter(
-            customer=c,
-            is_verified=True
-        ).select_related('area').order_by('-create_time')[:10]
-
+    area_data = []
+    for c in area_customers:
+        orders = Order.objects.filter(customer=c, is_verified=True).select_related('area').order_by('-create_time')[:10]
         recommended_area_id = None
         recommended_area_name = ''
-
         for order in orders:
-            # 优先使用订单自身的区域
             if order.area:
                 recommended_area_id = order.area.id
                 recommended_area_name = order.area.name
                 break
-            # 否则尝试从客户名快照解析
             if order.customer_name_snapshot:
                 parsed_area, _ = parse_customer_name(order.customer_name_snapshot)
                 if parsed_area:
@@ -2198,8 +2194,7 @@ def customer_audit_preview(request):
                         recommended_area_id = area_obj.id
                         recommended_area_name = area_obj.name
                         break
-
-        customer_list.append({
+        area_data.append({
             'id': c.id,
             'name': c.name,
             'phone': c.primary_phone or '',
@@ -2208,35 +2203,59 @@ def customer_audit_preview(request):
             'recommended_area_name': recommended_area_name,
         })
 
+    # 2. 制单号检测：无制单号的客户
+    order_number_customers = Customer.objects.filter(is_active=True, order_number='')
+    order_number_data = []
+    for c in order_number_customers:
+        orders = Order.objects.filter(customer=c, is_verified=True).order_by('-create_time')[:10]
+        recommended_order_number = ''
+        for order in orders:
+            if order.order_number_snapshot:
+                recommended_order_number = order.order_number_snapshot
+                break
+        order_number_data.append({
+            'id': c.id,
+            'name': c.name,
+            'phone': c.primary_phone or '',
+            'remark': c.remark or '',
+            'recommended_order_number': recommended_order_number,
+        })
+
+    # 3. 联系电话检测：无联系电话的客户（无主号且无任何电话）
+    phone_customers = Customer.objects.filter(is_active=True).exclude(
+        id__in=CustomerPhone.objects.filter(is_active=True).values_list('customer_id', flat=True)
+    )
+    phone_data = []
+    for c in phone_customers:
+        phone_data.append({
+            'id': c.id,
+            'name': c.name,
+            'remark': c.remark or '',
+            # 不预填电话
+        })
+
     return JsonResponse({
         'code': 1,
         'data': {
-            'customers': customer_list,
-            'areas': area_list,   # 现在是可序列化的列表
+            'areas': area_list,
+            'area_customers': area_data,
+            'order_number_customers': order_number_data,
+            'phone_customers': phone_data,
         }
     })
 
 
-# ---------- 审核确认 ----------
-from django.utils import timezone
-
+# ---------- 确认：区域更新 ----------
 @login_required
-def customer_audit_confirm(request):
-    """
-    批量更新客户所属区域，若目标区域下已存在同名客户，则禁用当前客户。
-    """
+def customer_audit_confirm_area(request):
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST'})
-
     try:
         payload = json.loads(request.body)
     except:
         return JsonResponse({'code': 0, 'msg': 'JSON格式错误'})
 
-    items = payload.get('items', [])
-    if not items:
-        return JsonResponse({'code': 0, 'msg': '未提供有效数据'})
-
+    items = payload.get('items', [])  # [{"customer_id":1, "area_id":2}]
     success_count = 0
     disabled_count = 0
     error_msgs = []
@@ -2248,49 +2267,103 @@ def customer_audit_confirm(request):
             if not customer_id or not area_id:
                 error_msgs.append('客户ID或区域ID无效')
                 continue
-
             try:
                 customer = Customer.objects.get(id=customer_id, is_active=True)
             except Customer.DoesNotExist:
                 error_msgs.append(f'客户ID {customer_id} 不存在或已停用')
                 continue
-
             try:
                 area = Area.active_objects.get(id=area_id)
             except Area.DoesNotExist:
                 error_msgs.append(f'区域ID {area_id} 不存在或已停用')
                 continue
-
-            # 如果客户已有区域（理论上预览已过滤，但以防并发）
             if customer.area:
                 error_msgs.append(f'客户“{customer.name}”已有区域，跳过')
                 continue
-
-            # 检查是否已存在相同 (area, name) 的客户（包括已停用的）
-            existing_customer = Customer.all_objects.filter(
-                area=area,
-                name=customer.name
-            ).exclude(id=customer_id).first()
-
-            if existing_customer:
-                # 冲突：禁用当前客户（重复记录）
+            existing = Customer.all_objects.filter(area=area, name=customer.name).exclude(id=customer_id).first()
+            if existing:
                 customer.is_active = False
                 customer.disabled_time = timezone.now()
                 customer.save(update_fields=['is_active', 'disabled_time'])
                 disabled_count += 1
-                error_msgs.append(
-                    f'客户“{customer.name}”在区域“{area.name}”下已存在'
-                    f'（ID: {existing_customer.id}），已禁用当前重复客户'
-                )
+                error_msgs.append(f'客户“{customer.name}”在区域“{area.name}”下已存在(ID:{existing.id})，已禁用当前重复客户')
                 continue
-
-            # 无冲突，正常分配区域
             customer.area = area
             customer.save(update_fields=['area'])
             success_count += 1
 
-    msg = f'成功为 {success_count} 个客户分配区域，因重复禁用 {disabled_count} 个客户。'
+    msg = f'成功分配区域 {success_count} 个客户，因重复禁用 {disabled_count} 个。'
     if error_msgs:
-        # 只显示前5条详情，避免消息过长
         msg += ' 详情：' + '；'.join(error_msgs[:5])
+    return JsonResponse({'code': 1, 'msg': msg})
+
+
+# ---------- 确认：制单号更新 ----------
+@login_required
+def customer_audit_confirm_order_number(request):
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST'})
+    try:
+        payload = json.loads(request.body)
+    except:
+        return JsonResponse({'code': 0, 'msg': 'JSON格式错误'})
+    items = payload.get('items', [])  # [{"customer_id":1, "order_number":"ABC123"}]
+    success_count = 0
+    error_msgs = []
+    with transaction.atomic():
+        for item in items:
+            customer_id = item.get('customer_id')
+            order_number = item.get('order_number', '').strip()
+            if not customer_id or not order_number:
+                error_msgs.append('客户ID或制单号为空')
+                continue
+            try:
+                customer = Customer.objects.get(id=customer_id, is_active=True)
+            except Customer.DoesNotExist:
+                error_msgs.append(f'客户ID {customer_id} 不存在或已停用')
+                continue
+            customer.order_number = order_number
+            customer.save(update_fields=['order_number'])
+            success_count += 1
+    msg = f'成功更新 {success_count} 个客户的制单号。'
+    if error_msgs:
+        msg += ' 错误：' + '；'.join(error_msgs[:3])
+    return JsonResponse({'code': 1, 'msg': msg})
+
+
+# ---------- 确认：联系电话更新 ----------
+@login_required
+def customer_audit_confirm_phone(request):
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST'})
+    try:
+        payload = json.loads(request.body)
+    except:
+        return JsonResponse({'code': 0, 'msg': 'JSON格式错误'})
+    items = payload.get('items', [])  # [{"customer_id":1, "phone":"13800138000"}]
+    success_count = 0
+    error_msgs = []
+    with transaction.atomic():
+        for item in items:
+            customer_id = item.get('customer_id')
+            phone = item.get('phone', '').strip()
+            if not customer_id or not phone:
+                error_msgs.append('客户ID或电话为空')
+                continue
+            try:
+                customer = Customer.objects.get(id=customer_id, is_active=True)
+            except Customer.DoesNotExist:
+                error_msgs.append(f'客户ID {customer_id} 不存在或已停用')
+                continue
+            # 检查是否已存在该电话（理论上此客户无电话，但防重复）
+            existing = CustomerPhone.objects.filter(customer=customer, phone=phone, is_active=True).first()
+            if existing:
+                error_msgs.append(f'客户“{customer.name}”已有该电话，跳过')
+                continue
+            # 创建电话记录，设为主号
+            CustomerPhone.objects.create(customer=customer, phone=phone, is_primary=True)
+            success_count += 1
+    msg = f'成功为 {success_count} 个客户添加联系电话。'
+    if error_msgs:
+        msg += ' 错误：' + '；'.join(error_msgs[:3])
     return JsonResponse({'code': 1, 'msg': msg})
