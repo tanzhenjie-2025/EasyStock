@@ -748,6 +748,7 @@ input:checked + .slider:before{transform:translateX(26px);}
                     <th>实际库存</th>
                     <th>商品标签</th>
                     <th>商品别名</th>
+                    <th>拼音缩写</th>
                     <th>状态</th>
                     <th>操作</th>
                 </tr>
@@ -783,6 +784,8 @@ input:checked + .slider:before{transform:translateX(26px);}
                             {% endfor %}
                         </div>
                     </td>
+                    
+                    <td>{{ p.pinyin_abbr }}</td>
                     <td>
     {% if can_edit_product %}
     <label class="switch">

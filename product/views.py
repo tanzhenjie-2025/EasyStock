@@ -169,7 +169,8 @@ def product_manage(request):
     else:
         # 基础查询集（优化预加载）
         products_query = Product.all_objects.order_by('name').only(
-            'id', 'name', 'price', 'unit', 'stock_system', 'stock_actual', 'is_active'
+            'id', 'name', 'price', 'unit', 'specification',
+            'stock_system', 'stock_actual', 'is_active', 'pinyin_abbr'
         ).prefetch_related(
             Prefetch('tags', queryset=ProductTag.objects.only('id', 'name', 'color')),
             Prefetch('aliases', queryset=ProductAlias.all_objects.only('id', 'alias_name', 'product_id'))
@@ -235,9 +236,10 @@ def product_manage(request):
                 'specification': product.specification,
                 'stock_system': product.stock_system,
                 'stock_actual': product.stock_actual,
-                'aliases': [{'id': a.id, 'alias_name': a.alias_name} for a in product.aliases.all()],
-                'tags': [{'id': t.id, 'name': t.name, 'color': t.color} for t in product.tags.all()],
-                'status': 1 if product.is_active else 0
+                'aliases': [...],
+                'tags': [...],
+                'status': 1 if product.is_active else 0,
+                'pinyin_abbr': product.pinyin_abbr,  # 新增
             })
 
         # 序列化分页器数据

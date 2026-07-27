@@ -1962,7 +1962,7 @@ window.location.href = printUrl;
         function resetBill(){
             document.getElementById('bill-tbody').innerHTML='';
             rowIdCounter=0;
-            for (let i = 0; i < 3; i++) {
+            for (let i = 0; i < 5; i++) {
                 addBlankRow();
             }
             const customerInput = document.getElementById('customerInput');
@@ -2335,8 +2335,8 @@ window.location.href = printUrl;
         });
         // 若超过16行截断
         const actualCount = getActualRowCount();
-        if (actualCount > 16) {
-            alert('该订单包含超过16行商品，仅保留前16行。');
+        if (actualCount > 15) {
+            alert('该订单包含超过15行商品，仅保留前15行。');
             const rows = document.querySelectorAll('#bill-tbody tr');
             let count = 0;
             rows.forEach(tr => {
@@ -2357,7 +2357,7 @@ window.location.href = printUrl;
         // 正常加载：尝试恢复缓存，若失败则初始化3行空行
         const restored = restoreFormState();
         if (!restored) {
-            for (let i = 0; i < 3; i++) {
+            for (let i = 0; i < 5; i++) {
                 addBlankRow();
             }
             const customerInput = document.getElementById('customerInput');
