@@ -2629,13 +2629,13 @@ def audit_orders_preview(request):
         return JsonResponse({'code': 0, 'msg': '仅支持GET/POST'})
 
     # ---------- 1. 未审核订单 ----------
-    unverified_orders = Order.objects.filter(is_verified=False) \
+    unverified_orders = Order.objects.filter(is_verified=False).exclude(status='cancelled') \
         .select_related('area') \
         .prefetch_related('items') \
         .order_by('-create_time')
 
     # ---------- 2. 已审核但无区域的订单（重新审核候选） ----------
-    reaudit_orders_qs = Order.objects.filter(is_verified=True, area__isnull=True) \
+    reaudit_orders_qs = Order.objects.filter(is_verified=True, area__isnull=True).exclude(status='cancelled') \
         .select_related('area') \
         .prefetch_related('items') \
         .order_by('-create_time')
@@ -2807,22 +2807,6 @@ def audit_orders_preview(request):
 @login_required
 @permission_required(PERM_ORDER_CREATE)
 def audit_orders_confirm(request):
-    """
-    执行审核：支持作废、修改客户名、指定区域，然后审核正常订单。
-    请求体：
-    {
-        "order_nos": ["order1", ...],          # 正常审核的订单号
-        "cancel_order_nos": ["order3", ...],   # 作废的订单号
-        "updated_customer_names": {            # 修改后的客户名快照
-            "order1": "北区 | 张三",
-            ...
-        },
-        "area_updates": {                      # 手动指定的区域名称
-            "order2": "南区",
-            ...
-        }
-    }
-    """
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST'})
 
@@ -2835,6 +2819,16 @@ def audit_orders_confirm(request):
     cancel_order_nos = payload.get('cancel_order_nos', [])
     updated_customer_names = payload.get('updated_customer_names', {})
     area_updates = payload.get('area_updates', {})
+    reaudit_order_nos = payload.get('reaudit_order_nos', [])
+
+    reaudit_count = 0
+
+    # ---------- 0. 重新审核 ----------
+    if reaudit_order_nos:
+        reaudit_orders = Order.objects.filter(order_no__in=reaudit_order_nos, is_verified=True)
+        with transaction.atomic():
+            reaudit_count = reaudit_orders.update(is_verified=False)
+        clear_order_cache()
 
     # ---------- 1. 作废订单 ----------
     if cancel_order_nos:
@@ -2846,22 +2840,22 @@ def audit_orders_confirm(request):
                 order.cancelled_by = request.user
                 order.cancelled_time = timezone.now()
                 order.cancelled_reason = '批量作废'
-                order.save(update_fields=['status', 'is_verified', 'cancelled_by', 'cancelled_time', 'cancelled_reason'])
-        # 清缓存
+                order.save(
+                    update_fields=['status', 'is_verified', 'cancelled_by', 'cancelled_time', 'cancelled_reason'])
         clear_order_cache()
 
     # ---------- 2. 正常审核订单 ----------
     if not order_nos:
-        return JsonResponse({'code': 1, 'msg': f'已作废 {len(cancel_order_nos)} 个订单'})
+        return JsonResponse(
+            {'code': 1, 'msg': f'已作废 {len(cancel_order_nos)} 个订单，重新审核 {reaudit_count} 个订单'})
 
-    # 获取待审核订单
     orders = list(Order.objects.filter(order_no__in=order_nos, is_verified=False)
                   .select_related('area')
                   .prefetch_related('items'))
     if not orders:
         return JsonResponse({'code': 0, 'msg': '所选订单均不存在或已审核'})
 
-    # 先应用更新：客户名和区域
+    # 应用客户名和区域更新
     for order in orders:
         if order.order_no in updated_customer_names:
             order.customer_name_snapshot = updated_customer_names[order.order_no]
@@ -2869,24 +2863,21 @@ def audit_orders_confirm(request):
             area_name = area_updates[order.order_no]
             area_obj, _ = Area.objects.get_or_create(name=area_name, defaults={'is_active': True})
             order.area = area_obj
-        # 如果订单area仍为空，尝试从客户名解析（但正常订单应已有区域，兜底）
         if not order.area and order.customer_name_snapshot:
             extracted_area, _ = parse_customer_name(order.customer_name_snapshot)
             if extracted_area:
                 area_obj, _ = Area.objects.get_or_create(name=extracted_area, defaults={'is_active': True})
                 order.area = area_obj
 
-    # 重新收集需要创建的基础数据（仅针对这些订单）
+    # 收集基础数据（区域、客户、商品）
     area_names = set()
     customer_names = set()
     customer_area = {}
     product_map = {}
 
     for order in orders:
-        # 收集区域（优先使用订单已有区域）
         if order.area:
             area_names.add(order.area.name)
-        # 解析客户名
         raw_customer = order.customer_name_snapshot or ''
         if raw_customer:
             final_area, pure_name = parse_customer_name(raw_customer, order.area.name if order.area else '')
@@ -2894,7 +2885,6 @@ def audit_orders_confirm(request):
                 customer_names.add(pure_name)
                 if pure_name not in customer_area:
                     customer_area[pure_name] = final_area or order.area.name if order.area else ''
-        # 收集商品
         for item in order.items.all():
             if item.is_makeup_item:
                 continue
@@ -2919,7 +2909,7 @@ def audit_orders_confirm(request):
             area_obj = Area.objects.filter(name=area_name).first()
             Customer.objects.create(name=name, area=area_obj)
 
-    # 处理商品（新建或覆盖价格）
+    # 处理商品
     existing_prods = Product.objects.filter(is_active=True)
     existing_prod_map = {}
     for p in existing_prods:
@@ -2951,7 +2941,6 @@ def audit_orders_confirm(request):
     count = 0
     with transaction.atomic():
         for order in orders:
-            # 更新价格快照（保持不变）
             for item in order.items.all():
                 if not item.is_makeup_item:
                     key = (item.product_name, item.unit)
@@ -2959,12 +2948,17 @@ def audit_orders_confirm(request):
                         item.snapshot_standard_price = price_dict[key]
                         item.snapshot_customer_price = None
                         item.save(update_fields=['snapshot_standard_price', 'snapshot_customer_price'])
-            # 保存订单：同时保存审核状态、区域、客户名快照
+
+            # 🔥 关键修复：将订单标记为已审核
+            order.is_verified = True
             order.save(update_fields=['is_verified', 'area', 'customer_name_snapshot'])
             count += 1
 
     clear_order_cache()
-    return JsonResponse({'code': 1, 'msg': f'成功审核 {count} 个订单，作废 {len(cancel_order_nos)} 个订单'})
+    return JsonResponse({
+        'code': 1,
+        'msg': f'成功审核 {count} 个订单，作废 {len(cancel_order_nos)} 个订单，重新审核 {reaudit_count} 个订单'
+    })
 
 def audit_order_page(request):
     """渲染订单审核页面（全新独立页面）"""
