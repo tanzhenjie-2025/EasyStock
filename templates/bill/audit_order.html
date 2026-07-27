@@ -125,9 +125,9 @@
                 <button class="btn btn-sm btn-outline-secondary" id="deselectAllCustomers">取消全选</button>
             </div>
             <table class="table">
-                <thead><tr><th style="width:40px"><input type="checkbox" id="masterCustomerCheck" checked></th><th>客户名称</th><th>所属区域</th></tr></thead>
-                <tbody id="customerTableBody"></tbody>
-            </table>
+    <thead><tr><th style="width:40px"><input type="checkbox" id="masterCustomerCheck" checked></th><th>客户名称</th><th>所属区域</th><th>制单号</th></tr></thead>
+    <tbody id="customerTableBody"></tbody>
+</table>
         </div>
     </div>
 
@@ -146,6 +146,8 @@ let auditData = null;
 $(document).ready(function() {
     loadAuditPreview();
 });
+
+
 
 function loadAuditPreview() {
     $.ajax({
@@ -292,16 +294,17 @@ $('#deselectAllFormat').click(function() { $('.format-check').prop('checked', fa
     });
     $('#areaListTableBody').html(areaListHtml);
 
-    // 7. 新建客户
-    let custHtml = '';
-    data.new_customers.forEach(function(c) {
-        custHtml += `<tr>
-            <td><input type="checkbox" class="customer-check" value="${c.name}" checked></td>
-            <td>${c.name}</td>
-            <td>${c.area}</td>
-        </tr>`;
-    });
-    $('#customerTableBody').html(custHtml);
+   // 7. 新建客户
+let custHtml = '';
+data.new_customers.forEach(function(c) {
+    custHtml += `<tr>
+        <td><input type="checkbox" class="customer-check" value="${c.name}" checked></td>
+        <td>${c.name}</td>
+        <td>${c.area}</td>
+        <td>${c.order_numbers || ''}</td>
+    </tr>`;
+});
+$('#customerTableBody').html(custHtml);
 
     // 绑定全选/取消
     bindCheckboxEvents();
