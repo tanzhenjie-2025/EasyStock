@@ -540,63 +540,7 @@ def save_order(request):
         logger.error(f"开单失败：{str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'开单失败：{str(e)}'})
 
-@login_required
-def print_order(request, order_no):
-    """订单打印页面（手动缓存版）"""
-    cache_key = f"{CACHE_PREFIX_PRINT_ORDER}{order_no}"
-    cached_data = cache.get(cache_key)
 
-    if cached_data:
-        return HttpResponse(cached_data)
-
-    order = get_object_or_404(
-        Order.objects.select_related('customer', 'area', 'creator'),
-        order_no=order_no
-    )
-    items = order.items.select_related('product')
-
-    # 原有补货/换货检测（用于浮动提示“带回退货”）
-    has_return_or_exchange = order.items.filter(
-        is_makeup_item=True,
-        operation_type__in=['return', 'exchange']
-    ).exists()
-
-    items_display = list(items[:15])
-    items_display.extend([None] * (15 - len(items_display)))
-    float_start = find_float_start(items_display)
-
-    # ========== 交付方式水印 ==========
-    watermark_text = None
-    if order.delivery_method == 'pickup':
-        watermark_text = '客户自提'
-    elif order.delivery_method == 'express':
-        watermark_text = '快递寄件'
-
-    general_remark = order.remark.strip() if order.remark else None
-
-    # ========== 退货标记水印（新增） ==========
-    has_return = order.has_return  # 订单级的退货标记
-
-    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
-
-    context = {
-        'order': order,
-        'items_display': items_display,
-        'is_super_admin': is_super_admin,
-        'has_return_or_exchange': has_return_or_exchange,
-        'float_start': float_start,
-        'phone_numbers': settings.PHONE_NUMBERS,
-        'complaint_phone': settings.COMPLAINT_PHONE,
-        'bill_title': settings.BILL_TITLE,
-        'watermark_text': watermark_text,
-        'has_return': has_return,   # 新增
-        'general_remark': general_remark,  # 新增
-    }
-
-    response = render(request, 'bill/print.html', context)
-    cache.set(cache_key, response.content, CACHE_PRINT_ORDER)
-
-    return response
 
 def prepare_order_data(order):
     """准备订单数据，包含正常打印与套打所需全部字段"""

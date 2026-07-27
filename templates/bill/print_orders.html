@@ -102,16 +102,16 @@
         .bill-bottom .bottom-row .field-group .underline-sm { width: 100px; }
         .bill-bottom .bottom-row .field-group-right { margin-left: auto; }
 
-        /* ===== 水印通用 ===== */
+        /* ===== 水印：屏幕默认隐藏 ===== */
         .watermark-delivery,
         .watermark-return,
         .watermark-general {
+            display: none;
             position: absolute;
             left: 0;
             top: 0;
             right: 0;
             bottom: 0;
-            display: flex;
             align-items: center;
             justify-content: center;
             font-size: 40px;
@@ -124,33 +124,17 @@
         .watermark-return { z-index: 25; }
         .watermark-general { z-index: 30; }
 
-        /* ===== 套打专用样式（仅当 body 有 key-print 类时生效） ===== */
-        .key-print .label-text {
-            color: transparent !important;
+        /* ========== 屏幕按钮样式 ========== */
+        .no-print {
+            text-align: center;
+            margin: 20px;
         }
-        .key-print .data-value {
-            color: #000 !important;
+        .no-print button {
+            padding: 8px 20px;
+            font-size: 16px;
+            cursor: pointer;
         }
-        .key-print .bill-table,
-        .key-print .bill-table th,
-        .key-print .bill-table td {
-            border: none !important;
-            background: transparent !important;
-        }
-        .key-print .hide-row {
-            visibility: hidden;
-        }
-        /* 套打时水印强制显示 */
-        .key-print .watermark-delivery,
-        .key-print .watermark-return,
-        .key-print .watermark-general {
-            display: flex !important;
-        }
-        /* 套打时去除制单工号下方的横线 */
-        .key-print .underline-sm,
-        .key-print .underline {
-            border-bottom: none !important;
-        }
+        .no-print a { margin-left: 15px; }
 
         /* ========== 打印样式 ========== */
         @media print {
@@ -172,27 +156,35 @@
             {% endif %}
             .no-print { display: none !important; }
 
-            /* 套打样式在打印时同样生效 */
-            .key-print .label-text { color: transparent !important; }
-            .key-print .bill-table,
-            .key-print .bill-table th,
-            .key-print .bill-table td { border: none !important; }
-            .key-print .hide-row { visibility: hidden; }
-            .key-print .underline-sm,
-            .key-print .underline { border-bottom: none !important; }
+            /* ===== 套打专属样式（仅当 body 有 key-print 类，打印时生效） ===== */
+            body.key-print .label-text {
+                color: transparent !important;
+            }
+            body.key-print .data-value {
+                color: #000 !important;
+            }
+            body.key-print .bill-table,
+            body.key-print .bill-table th,
+            body.key-print .bill-table td {
+                border: none !important;
+                background: transparent !important;
+            }
+            /* 隐藏底部指定行 */
+            body.key-print .hide-row {
+                visibility: hidden !important;
+            }
+            /* 显示水印 */
+            body.key-print .watermark-delivery,
+            body.key-print .watermark-return,
+            body.key-print .watermark-general {
+                display: flex !important;
+            }
+            /* 去除制单工号横线 */
+            body.key-print .underline-sm,
+            body.key-print .underline {
+                border-bottom: none !important;
+            }
         }
-
-        /* ========== 屏幕按钮样式 ========== */
-        .no-print {
-            text-align: center;
-            margin: 20px;
-        }
-        .no-print button {
-            padding: 8px 20px;
-            font-size: 16px;
-            cursor: pointer;
-        }
-        .no-print a { margin-left: 15px; }
     </style>
 </head>
 <body class="{% if is_key_print %}key-print{% endif %}">
@@ -238,7 +230,8 @@
             <table class="bill-table">
                 <thead>
                     <tr>
-                        <th class="col-index"><span class="label-text">序号</span></th>
+                        <!-- 序号表头：套打时内容为空，保留列宽 -->
+                        <th class="col-index">{% if not is_key_print %}<span class="label-text">序号</span>{% endif %}</th>
                         <th class="col-spec"><span class="label-text">规格</span></th>
                         <th class="col-name"><span class="label-text">商品名称</span></th>
                         <th class="col-qty"><span class="label-text">数量</span></th>
@@ -250,12 +243,8 @@
                 <tbody>
                     {% for line in data.items_display %}
                     <tr>
-                        <!-- 序号列：套打时只留空单元格，不输出数字 -->
-                        {% if is_key_print %}
-                            <td></td>
-                        {% else %}
-                            <td><span class="data-value">{{ forloop.counter }}</span></td>
-                        {% endif %}
+                        <!-- 序号单元格：套打时为空，保留占位 -->
+                        <td>{% if not is_key_print %}<span class="data-value">{{ forloop.counter }}</span>{% endif %}</td>
                         <!-- 其他列 -->
                         {% if line %}
                             <td class="data-value">{{ line.specification|default:"-" }}</td>
@@ -272,7 +261,7 @@
                 </tbody>
             </table>
 
-            <!-- ===== 水印（始终显示） ===== -->
+            <!-- ===== 水印（屏幕隐藏，打印时套打模式显示） ===== -->
             {% if data.general_remark %}
                 <div class="watermark-general">{{ data.general_remark }}</div>
             {% else %}
@@ -298,7 +287,7 @@
             </span>
         </div>
 
-        <!-- 底部详细信息（套打时部分行隐藏） -->
+        <!-- 底部详细信息（套打时隐藏指定行） -->
         <div class="bill-bottom">
             <div class="bottom-row hide-row">
                 <span><strong>联系电话：</strong>{{ phone_numbers }}</span>
