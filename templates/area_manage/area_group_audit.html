@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}区域组审核 - EasyStock{% endblock %}
+
+{% block extra_css %}
+<style>
+    .summary-card { border-left: 4px solid; }
+    .summary-card.warning { border-left-color: #ffc107; }
+    .area-list { max-height: 500px; overflow-y: auto; }
+    .table td { vertical-align: middle; }
+    .editable-group input { width: 100%; min-width: 180px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<h3 class="mb-4">
+    <i class="bi bi-diagram-3"></i> 区域组审核
+    <small class="text-muted fs-6 ms-2">为未归属区域指定区域组</small>
+</h3>
+
+<div id="loadingArea" class="text-center py-5">
+    <div class="spinner-border text-primary" role="status"></div>
+    <p class="mt-2">正在扫描未归属区域...</p>
+</div>
+
+<div id="mainContent" style="display:none;">
+    <!-- 摘要卡片 -->
+    <div class="row mb-4" id="summaryCards"></div>
+
+    <!-- 审核表格 -->
+    <div class="alert alert-info">以下区域未归属任何区域组，请填写归属区域组名称（若组不存在将自动创建）。</div>
+    <div class="d-flex justify-content-between mb-2">
+        <button class="btn btn-sm btn-outline-primary" id="selectAll">全选</button>
+        <button class="btn btn-sm btn-outline-secondary" id="deselectAll">取消全选</button>
+    </div>
+    <div class="area-list">
+        <table class="table table-hover table-bordered">
+            <thead>
+                <tr>
+                    <th style="width:40px"><input type="checkbox" id="masterCheck"></th>
+                    <th>ID</th>
+                    <th>区域名称</th>
+                    <th>备注</th>
+                    <th>归属区域组</th>
+                </tr>
+            </thead>
+            <tbody id="areaTableBody"></tbody>
+        </table>
+    </div>
+    <div class="mt-3">
+        <button class="btn btn-success btn-lg" id="confirmAuditBtn">确认审核（创建归属）</button>
+    </div>
+
+    <div id="messageArea" class="mt-3"></div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let auditData = null;
+
+$(document).ready(function() {
+    loadAuditPreview();
+});
+
+function loadAuditPreview() {
+    $.ajax({
+        url: '{% url "area_manage:area_group_audit_preview" %}',
+        type: 'GET',
+        beforeSend: function(xhr) {
+            xhr.setRequestHeader('X-CSRFToken', getCsrfToken());
+        },
+        success: function(res) {
+            if (res.code === 1) {
+                auditData = res.data;
+                renderPage(auditData);
+            } else {
+                $('#loadingArea').html(`<div class="alert alert-info">${res.msg}</div>`);
+            }
+        },
+        error: function() {
+            $('#loadingArea').html('<div class="alert alert-danger">加载失败，请刷新重试</div>');
+        }
+    });
+}
+
+function renderPage(data) {
+    $('#loadingArea').hide();
+    $('#mainContent').show();
+
+    // 摘要卡片
+    let cards = '';
+    const count = data.areas ? data.areas.length : 0;
+    cards += `<div class="col-md-3"><div class="card summary-card warning p-2"><strong>未归属区域</strong><br>${count} 个</div></div>`;
+    $('#summaryCards').html(cards);
+
+    // 表格
+    let html = '';
+    if (data.areas && data.areas.length > 0) {
+        data.areas.forEach(function(area) {
+            html += `<tr>
+                <td><input type="checkbox" class="area-check" value="${area.id}"></td>
+                <td>${area.id}</td>
+                <td>${area.name}</td>
+                <td>${area.remark || '无'}</td>
+                <td><input type="text" class="form-control form-control-sm group-input" data-id="${area.id}" placeholder="输入区域组名称"></td>
+            </tr>`;
+        });
+    } else {
+        html = `<tr><td colspan="5" class="text-center text-muted">所有区域均已归属区域组</td></tr>`;
+    }
+    $('#areaTableBody').html(html);
+
+    // 绑定全选事件
+    $('#masterCheck').on('change', function() {
+        $('.area-check').prop('checked', this.checked);
+    });
+    $('#selectAll').click(function() {
+        $('.area-check').prop('checked', true);
+    });
+    $('#deselectAll').click(function() {
+        $('.area-check').prop('checked', false);
+    });
+}
+
+// ===================== 确认审核 =====================
+$('#confirmAuditBtn').click(function() {
+    const $btn = $(this);
+    $btn.prop('disabled', true).text('处理中...');
+    $('#messageArea').html('');
+
+    const items = [];
+    $('.area-check:checked').each(function() {
+        const areaId = this.value;
+        const $row = $(this).closest('tr');
+        const groupName = $row.find('.group-input').val().trim();
+        if (groupName) {
+            items.push({ area_id: areaId, group_name: groupName });
+        }
+    });
+
+    if (items.length === 0) {
+        $('#messageArea').html('<div class="alert alert-warning">请至少勾选一个区域并填写区域组名称</div>');
+        $btn.prop('disabled', false).text('确认审核（创建归属）');
+        return;
+    }
+
+    $.ajax({
+        url: '{% url "area_manage:area_group_audit_confirm" %}',
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ items: items }),
+        beforeSend: function(xhr) {
+            xhr.setRequestHeader('X-CSRFToken', getCsrfToken());
+        },
+        success: function(res) {
+            if (res.code === 1) {
+                $('#messageArea').html(`<div class="alert alert-success">${res.msg}</div>`);
+                setTimeout(function() { location.reload(); }, 1500);
+            } else {
+                $('#messageArea').html(`<div class="alert alert-danger">${res.msg}</div>`);
+                $btn.prop('disabled', false).text('确认审核（创建归属）');
+            }
+        },
+        error: function() {
+            $('#messageArea').html('<div class="alert alert-danger">请求失败，请稍后重试</div>');
+            $btn.prop('disabled', false).text('确认审核（创建归属）');
+        }
+    });
+});
+
+function getCsrfToken() {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, 10) === 'csrftoken=') {
+                cookieValue = decodeURIComponent(cookie.substring(10));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+</script>
+{% endblock %}

@@ -100,6 +100,9 @@
         <button class="btn btn-sm btn-success" onclick="exportData()">📥 导出数据</button>
        
             <button class="btn btn-sm btn-warning" onclick="showImportModal()">📤 导入数据</button>
+                <button class="btn btn-sm btn-secondary" onclick="window.location.href='{% url 'area_manage:area_group_audit' %}'">
+        🔍 区域组审核
+    </button>
             
             <!-- 清理缓存并刷新按钮 -->
 <button class="btn btn-sm btn-secondary" id="btn-refresh-cache" onclick="refreshCache()">

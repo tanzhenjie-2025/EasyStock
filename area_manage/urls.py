@@ -46,4 +46,8 @@ path('api/group/stats/<int:pk>/', views.group_statistics_api, name='group_stats_
     # 🔥 新增：区域组统计数据 API
     path('api/group/stats/calculate/', views.calculate_group_stats, name='calculate_group_stats'),
 path('api/group/clear-cache/', views.clear_cache_api, name='clear_cache_api'),
+
+path('audit/group/', views.area_group_audit_page, name='area_group_audit'),
+    path('api/audit/group/preview/', views.area_group_audit_preview, name='area_group_audit_preview'),
+    path('api/audit/group/confirm/', views.area_group_audit_confirm, name='area_group_audit_confirm'),
 ]

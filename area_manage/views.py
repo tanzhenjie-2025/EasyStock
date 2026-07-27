@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from django.utils import timezone
@@ -1795,3 +1796,80 @@ def import_groups_from_io(file_obj, strategy='append'):
         'updated_groups': updated_count
     }
 
+# ---------- 区域组审核页面 ----------
+@login_required
+@permission_required('area_manage.change_area', raise_exception=True)
+def area_group_audit_page(request):
+    """渲染区域组审核页面"""
+    return render(request, 'area_manage/area_group_audit.html')
+
+# ---------- 预览接口 ----------
+@login_required
+@permission_required('area_manage.change_area', raise_exception=True)
+def area_group_audit_preview(request):
+    """返回所有未归属任何区域组的有效区域"""
+    # 查询所有 is_active=True 且没有关联任何 AreaGroup 的区域
+    areas = Area.active_objects.filter(areagroup__isnull=True).only('id', 'name', 'remark')
+    data = []
+    for a in areas:
+        data.append({
+            'id': a.id,
+            'name': a.name,
+            'remark': a.remark or '',
+        })
+    return JsonResponse({'code': 1, 'data': {'areas': data}})
+
+# ---------- 审核确认接口 ----------
+@login_required
+@permission_required('area_manage.change_area', raise_exception=True)
+def area_group_audit_confirm(request):
+    """
+    批量创建区域组归属
+    请求体: {"items": [{"area_id": 1, "group_name": "华东组"}, ...]}
+    """
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST'})
+
+    try:
+        payload = json.loads(request.body)
+    except:
+        return JsonResponse({'code': 0, 'msg': 'JSON格式错误'})
+
+    items = payload.get('items', [])
+    if not items:
+        return JsonResponse({'code': 0, 'msg': '未提供有效数据'})
+
+    success_count = 0
+    error_msgs = []
+    with transaction.atomic():
+        for item in items:
+            area_id = item.get('area_id')
+            group_name = item.get('group_name', '').strip()
+            if not area_id or not group_name:
+                error_msgs.append(f'区域ID或组名为空')
+                continue
+
+            try:
+                area = Area.active_objects.get(id=area_id)
+            except Area.DoesNotExist:
+                error_msgs.append(f'区域ID {area_id} 不存在或已停用')
+                continue
+
+            # 检查该区域是否已经归属于某个组（防止并发问题）
+            if AreaGroup.objects.filter(areas=area, is_active=True).exists():
+                error_msgs.append(f'区域“{area.name}”已有归属，跳过')
+                continue
+
+            # 获取或创建区域组（自动激活）
+            group, created = AreaGroup.objects.get_or_create(
+                name=group_name,
+                defaults={'is_active': True}
+            )
+            # 将区域加入该组
+            group.areas.add(area)
+            success_count += 1
+
+    msg = f'成功为 {success_count} 个区域建立归属。'
+    if error_msgs:
+        msg += ' 警告：' + '；'.join(error_msgs[:3])  # 最多显示3条
+    return JsonResponse({'code': 1, 'msg': msg})
