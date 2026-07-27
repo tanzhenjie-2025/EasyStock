@@ -40,6 +40,7 @@
         <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-products">商品处理</a></li>
         <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-areas">新建区域</a></li>
         <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-customers">新建客户</a></li>
+        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-reaudit">重新审核</a></li>
     </ul>
 
     <div class="tab-content mt-3">
@@ -129,6 +130,27 @@
     <tbody id="customerTableBody"></tbody>
 </table>
         </div>
+        
+        <!-- 重新审核 -->
+<div class="tab-pane fade" id="tab-reaudit">
+    <div class="alert alert-warning">以下订单已审核但无区域，勾选后点击确认将重新开启审核流程（标记为未审核）。</div>
+    <div class="d-flex justify-content-between mb-2">
+        <button class="btn btn-sm btn-outline-primary" id="selectAllReaudit">全选</button>
+        <button class="btn btn-sm btn-outline-secondary" id="deselectAllReaudit">取消全选</button>
+    </div>
+    <table class="table">
+        <thead>
+            <tr>
+                <th style="width:40px"><input type="checkbox" id="masterReauditCheck" checked></th>
+                <th>订单编号</th>
+                <th>客户快照</th>
+                <th>金额</th>
+                <th>开单时间</th>
+            </tr>
+        </thead>
+        <tbody id="reauditTableBody"></tbody>
+    </table>
+</div>
     </div>
 
     <div class="mt-4 d-flex justify-content-between">
@@ -306,6 +328,23 @@ data.new_customers.forEach(function(c) {
 });
 $('#customerTableBody').html(custHtml);
 
+// 8. 重新审核（已审核无区域）
+let reauditHtml = '';
+if (data.reaudit_orders && data.reaudit_orders.length) {
+    data.reaudit_orders.forEach(function(o) {
+        reauditHtml += `<tr>
+            <td><input type="checkbox" class="reaudit-check" value="${o.order_no}" checked></td>
+            <td>${o.order_no}</td>
+            <td>${o.customer_snapshot || '<span class="text-muted">无客户</span>'}</td>
+            <td>¥${o.total_amount.toFixed(2)}</td>
+            <td>${o.create_time}</td>
+        </tr>`;
+    });
+} else {
+    reauditHtml = `<tr><td colspan="5" class="text-center text-muted">暂无已审核无区域的订单</td></tr>`;
+}
+$('#reauditTableBody').html(reauditHtml);
+
     // 绑定全选/取消
     bindCheckboxEvents();
 }
@@ -333,6 +372,11 @@ function bindCheckboxEvents() {
     $('#masterCustomerCheck').on('change', function() { $('.customer-check').prop('checked', this.checked); });
     $('#selectAllCustomers').click(function() { $('.customer-check').prop('checked', true); });
     $('#deselectAllCustomers').click(function() { $('.customer-check').prop('checked', false); });
+    
+    // 重新审核
+$('#masterReauditCheck').on('change', function() { $('.reaudit-check').prop('checked', this.checked); });
+$('#selectAllReaudit').click(function() { $('.reaudit-check').prop('checked', true); });
+$('#deselectAllReaudit').click(function() { $('.reaudit-check').prop('checked', false); });
 }
 
 // 确认审核
@@ -358,6 +402,9 @@ $('#confirmAuditBtn').click(function() {
     $('.area-check:checked').each(function() {
         orderNosSet.add(this.value);
     });
+    
+    const reauditNos = $('.reaudit-check:checked').map(function() { return this.value; }).get();
+
 
     // 将Set转为数组
     const orderNos = Array.from(orderNosSet);
@@ -432,14 +479,15 @@ $('#confirmAuditBtn').click(function() {
     });
 
     const payload = {
-        order_nos: orderNos,
-        cancel_order_nos: cancelNos,
-        updated_customer_names: updatedNames,
-        area_updates: areaUpdates,
-        new_areas: areas,
-        new_products: products,
-        new_customers: customers.map(n => ({ name: n }))
-    };
+    order_nos: orderNos,
+    cancel_order_nos: cancelNos,
+    updated_customer_names: updatedNames,
+    area_updates: areaUpdates,
+    new_areas: areas,
+    new_products: products,
+    new_customers: customers.map(n => ({ name: n })),
+    reaudit_order_nos: reauditNos   // 新增
+};
 
     $.ajax({
         url: '{% url "bill:audit_orders_confirm" %}',

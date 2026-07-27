@@ -2623,17 +2623,22 @@ def is_customer_name_format_valid(raw_name):
 def audit_orders_preview(request):
     """
     审核预览：将未审核订单分为四类，并检测新区域/客户/商品/价格冲突。
+    增加：已审核但无区域的订单（用于重新审核）
     """
     if request.method not in ('GET', 'POST'):
         return JsonResponse({'code': 0, 'msg': '仅支持GET/POST'})
 
-    orders = Order.objects.filter(is_verified=False) \
+    # ---------- 1. 未审核订单 ----------
+    unverified_orders = Order.objects.filter(is_verified=False) \
         .select_related('area') \
         .prefetch_related('items') \
         .order_by('-create_time')
 
-    if not orders.exists():
-        return JsonResponse({'code': 0, 'msg': '没有未审核的订单'})
+    # ---------- 2. 已审核但无区域的订单（重新审核候选） ----------
+    reaudit_orders_qs = Order.objects.filter(is_verified=True, area__isnull=True) \
+        .select_related('area') \
+        .prefetch_related('items') \
+        .order_by('-create_time')
 
     # 分类容器
     normal_orders = []
@@ -2641,12 +2646,13 @@ def audit_orders_preview(request):
     format_invalid = []
     area_empty = []
 
-    # ---------- 全局数据收集 ----------
+    # 全局数据收集（以 (纯客户名, 区域) 为键）
+    customer_map = {}   # key: (pure_name, area_name), value: {'order_numbers': []}
     area_names = set()
     product_map = {}
-    customer_data = {}  # key: 纯客户名, value: {'area': 区域, 'order_numbers': []}
 
-    for order in orders:
+    # 处理未审核订单
+    for order in unverified_orders:
         raw_customer = order.customer_name_snapshot or ''
         area_name = order.area.name if order.area else ''
         has_items = order.items.exists()
@@ -2654,20 +2660,14 @@ def audit_orders_preview(request):
 
         # 解析客户名
         parsed_area, pure_name = parse_customer_name(raw_customer, area_name)
+        final_area = area_name if area_name else parsed_area
+
         if pure_name:
-            # 如果订单没有区域，则使用解析出的区域（可能为空）
-            final_area = area_name if area_name else parsed_area
-            if pure_name not in customer_data:
-                customer_data[pure_name] = {
-                    'area': final_area,
-                    'order_numbers': []
-                }
-            # 如果已有记录但area为空，用新的区域覆盖（优先非空）
-            elif not customer_data[pure_name]['area'] and final_area:
-                customer_data[pure_name]['area'] = final_area
-            # 追加制单号
+            key = (pure_name, final_area)
+            if key not in customer_map:
+                customer_map[key] = {'order_numbers': []}
             if order.order_number_snapshot:
-                customer_data[pure_name]['order_numbers'].append(order.order_number_snapshot)
+                customer_map[key]['order_numbers'].append(order.order_number_snapshot)
 
         # 分类逻辑（原有）
         if not has_customer or not has_items:
@@ -2718,9 +2718,10 @@ def audit_orders_preview(request):
             'create_time': order.create_time.strftime('%Y-%m-%d %H:%M'),
         })
 
-        # 收集区域（用于新建区域检测）
+        # 收集区域
         if area_name:
             area_names.add(area_name)
+
         # 收集商品
         for item in order.items.all():
             if item.is_makeup_item:
@@ -2732,11 +2733,11 @@ def audit_orders_preview(request):
                     'spec': item.specification or '',
                 }
 
-    # 检测新区域
+    # ---------- 检测新区域 ----------
     existing_areas = set(Area.objects.filter(name__in=area_names, is_active=True).values_list('name', flat=True))
     new_areas = sorted(area_names - existing_areas)
 
-    # 检测商品
+    # ---------- 检测商品 ----------
     existing_products = Product.objects.filter(is_active=True)
     existing_prod_dict = {}
     for p in existing_products:
@@ -2763,16 +2764,28 @@ def audit_orders_preview(request):
                     'order_price': str(order_price),
                 })
 
-    # 检测新客户（从 customer_data 中筛选）
-    existing_customers = set(Customer.objects.filter(name__in=customer_data.keys(), is_active=True).values_list('name', flat=True))
+    # ---------- 检测新客户（按名称+区域联合判断） ----------
     new_customers = []
-    for name, info in customer_data.items():
-        if name not in existing_customers:
+    for (pure_name, area_name), info in customer_map.items():
+        # 检查是否存在该名称+该区域的客户
+        area_obj = Area.objects.filter(name=area_name, is_active=True).first() if area_name else None
+        exists = Customer.objects.filter(name=pure_name, area=area_obj, is_active=True).exists()
+        if not exists:
             new_customers.append({
-                'name': name,
-                'area': info['area'] or '',
+                'name': pure_name,
+                'area': area_name or '',
                 'order_numbers': ', '.join(set(info['order_numbers'])) if info['order_numbers'] else ''
             })
+
+    # ---------- 已审核无区域订单（重新审核候选） ----------
+    reaudit_orders = []
+    for order in reaudit_orders_qs:
+        reaudit_orders.append({
+            'order_no': order.order_no,
+            'customer_snapshot': order.customer_name_snapshot or '',
+            'total_amount': float(order.total_amount),
+            'create_time': order.create_time.strftime('%Y-%m-%d %H:%M'),
+        })
 
     return JsonResponse({
         'code': 1,
@@ -2785,7 +2798,8 @@ def audit_orders_preview(request):
             'new_products': new_products,
             'conflict_products': conflict_products,
             'new_customers': new_customers,
-            'total_unverified': orders.count(),
+            'reaudit_orders': reaudit_orders,    # 新增
+            'total_unverified': unverified_orders.count(),
         }
     })
 
