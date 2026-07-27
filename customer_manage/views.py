@@ -1309,6 +1309,8 @@ def get_column_mapping(headers, expected_map):
             return None
     return mapping
 # ========== 客户导出 ==========
+# customer_manage/views.py 中替换原有的 customer_export 和 customer_import
+
 @login_required
 @permission_required('customer_export')
 def customer_export(request):
@@ -1328,13 +1330,17 @@ def customer_export(request):
                 'area_name': '所属区域',
                 'phone': '联系电话',
                 'remark': '备注',
-                # ✅ 新增：制单号
-                'order_number': '制单号'
+                'order_number': '制单号',
+                'is_active': '状态',
+                'create_time': '创建时间',
+                'disabled_time': '禁用时间',
             }
 
-            # ✅ 强制包含制单号字段（确保导出模板可用于导入）
-            if 'order_number' not in selected_fields:
-                selected_fields.append('order_number')
+            # 强制包含某些字段（确保导入模板完整）
+            required_fields = ['name', 'area_name']
+            for f in required_fields:
+                if f not in selected_fields:
+                    selected_fields.append(f)
 
             customers = Customer.objects.select_related('area').prefetch_related('phones').order_by('-create_time')
             export_data = []
@@ -1346,8 +1352,10 @@ def customer_export(request):
                     'area_name': customer.area.name if customer.area else '无',
                     'phone': customer.primary_phone,
                     'remark': customer.remark or '',
-                    # ✅ 新增：导出制单号
-                    'order_number': customer.order_number or ''
+                    'order_number': customer.order_number or '',
+                    'is_active': '启用' if customer.is_active else '禁用',
+                    'create_time': customer.create_time.strftime('%Y-%m-%d %H:%M:%S') if customer.create_time else '',
+                    'disabled_time': customer.disabled_time.strftime('%Y-%m-%d %H:%M:%S') if customer.disabled_time else '',
                 })
 
             file_date_str = timezone.localdate().strftime("%Y%m%d")
@@ -1377,23 +1385,24 @@ def customer_import(request):
             wb = load_workbook(file_obj)
             ws = wb.active
 
-            # ---------- 1. 读取表头，建立 显示名→列索引 映射 ----------
+            # 读取表头，建立映射
             header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
             col_map = {}
             for idx, cell in enumerate(header_row):
                 if cell:
                     col_map[str(cell).strip()] = idx
 
-            # 必须检查“客户名称”列是否存在
             if '客户名称' not in col_map:
                 return JsonResponse({'code': 0, 'msg': 'Excel表头缺少“客户名称”列，请使用正确的导出模板'})
 
-            # 获取各列索引（允许缺失）
             name_idx = col_map.get('客户名称')
             area_idx = col_map.get('所属区域')
             phone_idx = col_map.get('联系电话')
             remark_idx = col_map.get('备注')
             order_number_idx = col_map.get('制单号')
+            status_idx = col_map.get('状态')
+            create_time_idx = col_map.get('创建时间')
+            disabled_time_idx = col_map.get('禁用时间')
 
             new_count = 0
             skip_count = 0
@@ -1401,26 +1410,37 @@ def customer_import(request):
             error_list = []
             area_map = {area.name: area for area in Area.objects.all()}
 
-            # 从第2行开始遍历
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), 2):
                 if not any(row):
                     continue
 
-                # 转为列表方便按索引取
                 cells = [str(cell).strip() if cell else '' for cell in row]
 
-                # 按索引取值（若索引超出范围则取空字符串）
                 name = cells[name_idx] if name_idx is not None and name_idx < len(cells) else ''
                 area_name = cells[area_idx] if area_idx is not None and area_idx < len(cells) else ''
                 phone = cells[phone_idx] if phone_idx is not None and phone_idx < len(cells) else ''
                 remark = cells[remark_idx] if remark_idx is not None and remark_idx < len(cells) else ''
                 order_number = cells[order_number_idx] if order_number_idx is not None and order_number_idx < len(cells) else ''
+                status_str = cells[status_idx] if status_idx is not None and status_idx < len(cells) else '启用'
+                create_time_str = cells[create_time_idx] if create_time_idx is not None and create_time_idx < len(cells) else ''
+                disabled_time_str = cells[disabled_time_idx] if disabled_time_idx is not None and disabled_time_idx < len(cells) else ''
 
                 if not name:
                     error_list.append(f"第{row_idx}行：客户名称为空，跳过")
                     continue
 
-                # 处理区域：不存在则自动创建（排除特殊值“无”）
+                # 解析时间
+                create_time = None
+                if create_time_str:
+                    create_time = parse_datetime_cell(create_time_str)
+                if create_time is None:
+                    create_time = timezone.now()
+                disabled_time = None
+                if disabled_time_str:
+                    disabled_time = parse_datetime_cell(disabled_time_str)
+                is_active = status_str != '禁用'
+
+                # 处理区域
                 area_obj = None
                 if area_name and area_name != '无':
                     area_obj = area_map.get(area_name)
@@ -1437,7 +1457,7 @@ def customer_import(request):
                             error_list.append(f"第{row_idx}行：自动创建区域“{area_name}”失败（{str(e)}）")
                             continue
 
-                # 检查重复（同一区域下客户名称唯一）
+                # 检查重复
                 if Customer.objects.filter(name=name, area=area_obj).exists():
                     skip_count += 1
                     continue
@@ -1447,7 +1467,9 @@ def customer_import(request):
                         name=name,
                         area=area_obj,
                         remark=remark,
-                        order_number=order_number
+                        order_number=order_number,
+                        is_active=is_active,
+                        create_time=create_time,
                     )
                     if phone:
                         CustomerPhone.objects.create(
@@ -1455,6 +1477,9 @@ def customer_import(request):
                             phone=phone.strip(),
                             is_primary=True
                         )
+                    if disabled_time and not is_active:
+                        customer.disabled_time = disabled_time
+                        customer.save(update_fields=['disabled_time'])
                     new_count += 1
                 except Exception as e:
                     error_list.append(f"第{row_idx}行：保存失败（{str(e)}）")
@@ -1793,18 +1818,10 @@ def calculate_customer_stats(request):
         logger.error(f"客户统计失败：{str(e)}", exc_info=True)
         return JsonResponse({'code': 0, 'msg': f'统计失败：{str(e)}'})
 
-# customer_manage/views.py
-import io
-import openpyxl
-from django.db import transaction
 
-from .models import Customer, CustomerPhone, Area
-import logging
-# utils/excel_utils.py
-import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment
-from utils.excel_utils import get_column_mapping
+
 def export_to_excel_buffer(data, title, headers, selected_fields, custom_fields=None, file_name='导出', total_row=None):
     """
     返回 BytesIO 对象的 Excel 文件
@@ -1844,17 +1861,33 @@ def export_to_excel_buffer(data, title, headers, selected_fields, custom_fields=
     buffer.seek(0)
     return buffer
 
-# customer_manage/views.py 文件末尾添加
+# customer_manage/views.py 中替换/添加
 
 import io
 import openpyxl
 from django.db import transaction
 from area_manage.models import Area
 from .models import Customer, CustomerPhone
-# 假设 get_column_mapping 已移到 utils/excel_utils.py
-
+from utils.excel_utils import get_column_mapping, export_to_excel_buffer
 import logging
+from datetime import datetime
+from django.utils import timezone
 
+
+
+def parse_datetime_cell(value):
+    """解析日期单元格，支持字符串、datetime对象"""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
+            try:
+                return datetime.strptime(value.strip(), fmt)
+            except ValueError:
+                continue
+    return None
 
 def export_customers_to_io(customers=None):
     """导出客户数据为 BytesIO（全量字段）"""
@@ -1871,7 +1904,10 @@ def export_customers_to_io(customers=None):
             'area_name': customer.area.name if customer.area else '无',
             'phone': customer.primary_phone,
             'remark': customer.remark or '',
-            'order_number': customer.order_number or ''
+            'order_number': customer.order_number or '',
+            'is_active': '启用' if customer.is_active else '禁用',
+            'create_time': customer.create_time.strftime('%Y-%m-%d %H:%M:%S') if customer.create_time else '',
+            'disabled_time': customer.disabled_time.strftime('%Y-%m-%d %H:%M:%S') if customer.disabled_time else '',
         })
         seq += 1
 
@@ -1882,9 +1918,12 @@ def export_customers_to_io(customers=None):
         'area_name': '所属区域',
         'phone': '联系电话',
         'remark': '备注',
-        'order_number': '制单号'
+        'order_number': '制单号',
+        'is_active': '状态',
+        'create_time': '创建时间',
+        'disabled_time': '禁用时间',
     }
-    selected_fields = ['serial', 'id', 'name', 'area_name', 'phone', 'remark', 'order_number']
+    selected_fields = ['serial', 'id', 'name', 'area_name', 'phone', 'remark', 'order_number', 'is_active', 'create_time', 'disabled_time']
 
     buffer = export_to_excel_buffer(
         data=data,
@@ -1895,9 +1934,8 @@ def export_customers_to_io(customers=None):
     )
     return buffer
 
-
 def import_customers_from_io(file_obj, strategy='append'):
-    """从 BytesIO 导入客户数据（自动创建区域）"""
+    """从 BytesIO 导入客户数据（自动创建区域，支持全量字段）"""
     try:
         wb = openpyxl.load_workbook(file_obj)
         ws = wb.active
@@ -1910,10 +1948,13 @@ def import_customers_from_io(file_obj, strategy='append'):
         '所属区域': 'area',
         '联系电话': 'phone',
         '备注': 'remark',
-        '制单号': 'order_number'
+        '制单号': 'order_number',
+        '状态': 'is_active',
+        '创建时间': 'create_time',
+        '禁用时间': 'disabled_time',
     }
     col_mapping = get_column_mapping(headers, expected_map)
-    if 'name' not in col_mapping:  # 检查关键字段
+    if 'name' not in col_mapping:
         return {'success': 0, 'skipped': 0, 'errors': ['缺少“客户名称”列，请使用正确的模板']}
 
     new_count = 0
@@ -1939,11 +1980,28 @@ def import_customers_from_io(file_obj, strategy='append'):
         phone = get_val('phone')
         remark = get_val('remark')
         order_number = get_val('order_number')
+        status_str = get_val('is_active') or '启用'
+        create_time_str = get_val('create_time')
+        disabled_time_str = get_val('disabled_time')
 
         if not name:
             errors.append(f'第{row_idx}行：客户名称为空，跳过')
             continue
 
+        # 解析状态
+        is_active = status_str != '禁用'
+        # 解析创建时间
+        create_time = None
+        if create_time_str:
+            create_time = parse_datetime_cell(create_time_str)
+        if create_time is None:
+            create_time = timezone.now()
+        # 解析禁用时间（可选）
+        disabled_time = None
+        if disabled_time_str:
+            disabled_time = parse_datetime_cell(disabled_time_str)
+
+        # 处理区域
         area_obj = None
         if area_name and area_name != '无':
             area_obj = area_map.get(area_name)
@@ -1960,7 +2018,9 @@ def import_customers_from_io(file_obj, strategy='append'):
                     errors.append(f'第{row_idx}行：自动创建区域“{area_name}”失败（{str(e)}）')
                     continue
 
-        if Customer.objects.filter(name=name, area=area_obj).exists():
+        # 检查重复（同一区域下客户名称唯一）
+        existing = Customer.objects.filter(name=name, area=area_obj).first()
+        if existing:
             skip_count += 1
             continue
 
@@ -1970,7 +2030,9 @@ def import_customers_from_io(file_obj, strategy='append'):
                     name=name,
                     area=area_obj,
                     remark=remark,
-                    order_number=order_number
+                    order_number=order_number,
+                    is_active=is_active,
+                    create_time=create_time,
                 )
                 if phone:
                     CustomerPhone.objects.create(
@@ -1978,11 +2040,15 @@ def import_customers_from_io(file_obj, strategy='append'):
                         phone=phone.strip(),
                         is_primary=True
                     )
+                # 如果提供了禁用时间且状态为禁用，可以设置（但 create 时已设 is_active）
+                if disabled_time and not is_active:
+                    customer.disabled_time = disabled_time
+                    customer.save(update_fields=['disabled_time'])
                 new_count += 1
         except Exception as e:
             errors.append(f'第{row_idx}行：保存失败（{str(e)}）')
 
-    # 清除缓存（若有）
+    # 清除缓存
     try:
         from .cache import clear_customer_cache
         clear_customer_cache()
