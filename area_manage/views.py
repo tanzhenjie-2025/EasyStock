@@ -1,6 +1,6 @@
 from django.db import transaction
 from django.shortcuts import render, get_object_or_404
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.utils import timezone
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
@@ -742,138 +742,49 @@ def group_detail_page(request, pk):
 @permission_required('area_import')
 def area_import(request):
     """
-    区域批量导入（基于表头映射）：
-    读取Excel，根据表头自动匹配列，区域名重复则跳过。
+    区域批量导入（使用数据迁移版本，全字段，支持覆盖更新）
     """
     if request.method == 'POST':
         try:
-            file = request.FILES.get('file')
-            if not file:
+            file_obj = request.FILES.get('file')
+            if not file_obj:
                 return JsonResponse({'code': 0, 'msg': '请选择文件'})
 
-            wb = openpyxl.load_workbook(file)
-            ws = wb.active
-
-            # 读取表头（第一行）
-            headers = [cell.value for cell in ws[1]]
-            # 定义字段映射：显示名称 -> 模型字段名
-            expected_map = {'区域名': 'name', '备注': 'remark'}
-            col_mapping = get_column_mapping(headers, expected_map)
-            if 'name' not in col_mapping:  # 检查“区域名”列
-                return {'success': 0, 'skipped': 0, 'errors': ['缺少“区域组名”列']}
-
-            imported_count = 0
-            skipped_count = 0
-            errors = []
-
-            # 从第2行开始遍历
-            for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-                # 根据映射提取数据
-                name_idx = col_mapping.get('name')
-                remark_idx = col_mapping.get('remark')
-
-                if name_idx is None or len(row) <= name_idx:
-                    continue
-
-                area_name = str(row[name_idx]).strip() if row[name_idx] else ''
-                remark = str(row[remark_idx]).strip() if remark_idx is not None and len(row) > remark_idx and row[remark_idx] else ''
-
-                if not area_name:
-                    continue
-
-                # 检查是否已存在（包括软删除的，用默认管理器）
-                if Area.objects.filter(name=area_name).exists():
-                    skipped_count += 1
-                    continue
-
-                # 创建新区域
-                Area.objects.create(name=area_name, remark=remark)
-                imported_count += 1
-
-            # 清理缓存
-            clear_area_cache()
-
-            # 记录日志
-            create_operation_log(
-                request=request, op_type='import', obj_type='area',
-                obj_id=0, obj_name='批量导入',
-                detail=f"导入成功：新增{imported_count}条，跳过{skipped_count}条重复"
-            )
-
-            return JsonResponse({
-                'code': 1,
-                'msg': f'导入完成！新增 {imported_count} 条，跳过 {skipped_count} 条重复数据'
-            })
-
+            # 使用数据迁移导入函数（默认 append 策略，可根据需求允许覆盖）
+            result = import_areas_from_io(file_obj, strategy='append')
+            if result.get('errors'):
+                error_preview = result['errors'][:5]
+                msg = f"成功 {result['success']} 条，跳过 {result['skipped']} 条"
+                if error_preview:
+                    msg += f"；错误：{'；'.join(error_preview)}"
+                return JsonResponse({'code': 0, 'msg': msg})
+            else:
+                return JsonResponse({'code': 1, 'msg': f"导入成功：新增 {result['success']} 条，跳过 {result['skipped']} 条"})
         except Exception as e:
-            logger.error(f"导入区域失败：{str(e)}", exc_info=True)
-            return JsonResponse({'code': 0, 'msg': f'导入失败：文件格式错误或数据异常'})
+            logger.error(f"区域导入失败: {str(e)}", exc_info=True)
+            return JsonResponse({'code': 0, 'msg': f'导入失败：{str(e)}'})
     return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
-
-# ========== 区域导出新逻辑（支持字段选择） ==========
 @login_required
 @permission_required('area_export')
 def area_export(request):
     """
-    区域批量导出（支持字段选择和自定义字段）
+    区域批量导出（全字段，包含启用/禁用状态）
     """
     try:
-        if request.method == 'POST':
-            # 1. 获取选中的字段
-            selected_fields = request.POST.getlist('fields[]')
-            if not selected_fields:
-                return JsonResponse({'code': 0, 'msg': '请至少选择一个导出字段'})
-
-            # 2. 获取自定义字段
-            custom_fields_json = request.POST.get('custom_fields', '[]')
-            try:
-                custom_fields = json.loads(custom_fields_json)
-            except json.JSONDecodeError:
-                custom_fields = []
-
-            # 3. 定义表头映射
-            headers = {
-                'serial': '序号',
-                'id': 'ID',
-                'name': '区域名',
-                'remark': '备注'
-            }
-
-            # 4. 查询并格式化数据
-            areas = Area.objects.only('id', 'name', 'remark').order_by('id')
-            data = []
-            seq = 1
-            for area in areas:
-                data.append({
-                    'serial': seq,
-                    'id': area.id,
-                    'name': area.name,
-                    'remark': area.remark or ''
-                })
-                seq += 1
-
-            # 5. 生成文件名 - 修复：使用本地日期
-            date_str = timezone.localdate().strftime('%Y年%m月%d日')
-            file_name = f'{date_str}区域管理导出'
-
-            # 6. 调用通用导出函数（不传 total_row 即无合计）
-            response = export_to_excel(
-                data=data,
-                title='区域列表',
-                headers=headers,
-                selected_fields=selected_fields,
-                custom_fields=custom_fields,
-                file_name=file_name,
-                total_row=None
-            )
-
-            return response
-        else:
-            return JsonResponse({'code': 0, 'msg': '请求方式错误'})
+        # 调用数据迁移导出函数（全量）
+        buffer = export_areas_to_io()
+        response = HttpResponse(
+            buffer.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        date_str = timezone.localdate().strftime('%Y%m%d')
+        filename = f'{date_str}区域管理导出.xlsx'
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
     except Exception as e:
-        logger.error(f"导出区域失败：{str(e)}", exc_info=True)
-        return JsonResponse({'code': 0, 'msg': '导出失败'})
+        logger.error(f"导出区域失败: {str(e)}", exc_info=True)
+        return JsonResponse({'code': 0, 'msg': f'导出失败：{str(e)}'})
 
 @login_required
 @permission_required('group_import')
@@ -1564,13 +1475,20 @@ def export_to_excel_buffer(data, title, headers, selected_fields, custom_fields=
     buffer.seek(0)
     return buffer
 
+# area_manage/views.py (或 utils/excel_utils.py) 中添加/替换
+
+import io
+from openpyxl import load_workbook
+from area_manage.models import Area
+from utils.excel_utils import get_column_mapping, export_to_excel_buffer
+
 def export_areas_to_io(areas=None):
     """
-    导出区域数据为 Excel 的 BytesIO 对象
-    用于全量备份，不依赖 request
+    导出区域数据为 Excel 的 BytesIO 对象（全字段，包含启用状态）
+    用于全量备份
     """
     if areas is None:
-        areas = Area.objects.only('id', 'name', 'remark').order_by('id')
+        areas = Area.objects.only('id', 'name', 'remark', 'is_active').order_by('id')
 
     data = []
     seq = 1
@@ -1579,77 +1497,106 @@ def export_areas_to_io(areas=None):
             'serial': seq,
             'id': area.id,
             'name': area.name,
-            'remark': area.remark or ''
+            'remark': area.remark or '',
+            'status': '启用' if area.is_active else '禁用'
         })
         seq += 1
 
-    # 定义表头映射
     headers = {
         'serial': '序号',
         'id': 'ID',
         'name': '区域名',
-        'remark': '备注'
+        'remark': '备注',
+        'status': '状态'
     }
-    # 使用通用导出函数（返回 BytesIO）
+    selected_fields = ['serial', 'id', 'name', 'remark', 'status']
+
     buffer = export_to_excel_buffer(
         data=data,
         title='区域列表',
         headers=headers,
-        selected_fields=['serial', 'id', 'name', 'remark'],  # 全部导出
+        selected_fields=selected_fields,
         file_name='区域导出'
     )
     return buffer
 
-# area_manage/views.py
 
 def import_areas_from_io(file_obj, strategy='append'):
     """
-    从 BytesIO 对象导入区域数据
-    strategy: 'append' 或 'overwrite'，目前先实现 append
+    从 BytesIO 对象导入区域数据（全字段，包含状态）
+    strategy: 'append' 跳过重复，'overwrite' 覆盖更新（根据名称更新）
     返回: {'success': int, 'skipped': int, 'errors': list}
     """
     try:
-        wb = openpyxl.load_workbook(file_obj)
+        wb = load_workbook(file_obj)
         ws = wb.active
     except Exception as e:
         return {'success': 0, 'skipped': 0, 'errors': [f'文件解析失败: {str(e)}']}
 
     headers = [cell.value for cell in ws[1]]
-    expected_map = {'区域名': 'name', '备注': 'remark'}
+    expected_map = {
+        '区域名': 'name',
+        '备注': 'remark',
+        '状态': 'status'
+    }
     col_mapping = get_column_mapping(headers, expected_map)
-    if 'name' not in col_mapping:  # 检查“区域名”列
+    if 'name' not in col_mapping:
         return {'success': 0, 'skipped': 0, 'errors': ['缺少“区域名”列']}
 
     imported_count = 0
     skipped_count = 0
     errors = []
+    area_objects = []  # 用于批量更新（如果 overwrite）
 
-    # 如果策略是 overwrite，则先清空（谨慎使用）
-    if strategy == 'overwrite':
-        Area.objects.all().delete()
+    # 预加载所有区域名称映射（用于快速查找）
+    existing_area_map = {a.name: a for a in Area.objects.only('id', 'name', 'is_active')}
 
     for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
-        name_idx = col_mapping.get('name')
-        remark_idx = col_mapping.get('remark')
-        if name_idx is None or len(row) <= name_idx:
+        if all(cell is None or str(cell).strip() == '' for cell in row):
+            continue  # 跳过空行
+
+        def get_val(field):
+            idx = col_mapping.get(field)
+            if idx is not None and idx < len(row):
+                val = row[idx]
+                return str(val).strip() if val is not None else ''
+            return ''
+
+        name = get_val('name')
+        if not name:
+            errors.append(f'第{row_idx}行：区域名为空，跳过')
             continue
-        area_name = str(row[name_idx]).strip() if row[name_idx] else ''
-        remark = str(row[remark_idx]).strip() if remark_idx is not None and len(row) > remark_idx and row[remark_idx] else ''
-        if not area_name:
+        remark = get_val('remark')
+        status_str = get_val('status') or '启用'
+        is_active = status_str != '禁用'
+
+        # 检查是否已存在
+        if name in existing_area_map:
+            if strategy == 'overwrite':
+                area = existing_area_map[name]
+                area.remark = remark
+                area.is_active = is_active
+                area_objects.append(area)  # 批量更新
+                imported_count += 1
+            else:
+                skipped_count += 1
             continue
-        if Area.objects.filter(name=area_name).exists():
-            skipped_count += 1
-            continue
-        try:
-            Area.objects.create(name=area_name, remark=remark)
-            imported_count += 1
-        except Exception as e:
-            errors.append(f'第{row_idx}行导入失败: {str(e)}')
+        else:
+            # 新建
+            try:
+                area = Area(name=name, remark=remark, is_active=is_active)
+                area.save()
+                existing_area_map[name] = area
+                imported_count += 1
+            except Exception as e:
+                errors.append(f'第{row_idx}行创建失败: {str(e)}')
+
+    # 批量更新
+    if strategy == 'overwrite' and area_objects:
+        Area.objects.bulk_update(area_objects, ['remark', 'is_active'])
 
     clear_area_cache()
     return {'success': imported_count, 'skipped': skipped_count, 'errors': errors}
-
-# area_manage/views.py (在文件末尾添加)
 
 def export_groups_to_io(groups=None):
     """
