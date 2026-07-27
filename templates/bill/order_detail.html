@@ -88,6 +88,8 @@
                     <p><strong>订单编号：</strong> {{ order.order_no }}</p>
                     <p><strong>开单时间：</strong> {{ order.create_time|date:"Y-m-d H:i:s" }}</p>
                     <p><strong>开单人：</strong> {{ order.creator.name|default:"未知" }}</p>
+                <p><strong>开单人：</strong> {{ order.order_number_snapshot|default:"-" }}</p>
+            
                     <p>
                         <strong>结清状态：</strong> 
                         {% if order.is_settled %}
@@ -210,6 +212,7 @@
     <!-- 🔥 新增：打印按钮 -->
     {% if order.status != 'cancelled' %}
     <a href="{% url 'bill:print_orders' %}?order_no={{ order.order_no }}" class="btn btn-primary ms-2">打印</a>
+        <a href="{% url 'bill:print_key_data' %}?order_no={{ order.order_no }}" class="btn btn-success" target="_blank">套打</a>
     {% endif %}
     
     {% if not order.is_settled and order.status != 'cancelled' %}
