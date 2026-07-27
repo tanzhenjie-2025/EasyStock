@@ -440,6 +440,16 @@
     .area-options-list li.no-match:hover {
         background-color: transparent;
     }
+    
+    /* 仅针对操作列取消溢出隐藏和省略号 */
+.table-fixed td:last-child,
+.table-fixed th:last-child {
+    white-space: nowrap;
+    overflow: visible;
+    text-overflow: clip;
+    /* 若按钮超出可能影响布局，可配合 position:relative 让内容浮出 */
+    position: relative;
+}
 </style>
 {% endblock %}
 
