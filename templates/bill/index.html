@@ -997,7 +997,8 @@ function setMakeupFlag(input, isMakeup) {
             } catch (e) { hideSuggest(); }
         }
 
-        function showSuggest(input, list) {
+        // ========== 商品搜索建议（带视口自适应） ==========
+function showSuggest(input, list) {
     const rect = input.getBoundingClientRect();
     suggestBox.innerHTML = '';
 
@@ -1048,23 +1049,20 @@ function setMakeupFlag(input, isMakeup) {
         suggestBox.appendChild(navDiv);
     }
 
-    // 先隐藏并获取高度
+    // 先隐藏显示并计算高度
     suggestBox.style.visibility = 'hidden';
     suggestBox.style.display = 'block';
     const dropdownHeight = suggestBox.offsetHeight;
 
-    // 始终放在输入框下方
-    suggestBox.style.left = rect.left + 'px';
+    // 视口自适应：如果下方空间不足且上方空间足够，则显示在输入框上方
     let top = rect.bottom + window.scrollY;
+    if (rect.bottom + dropdownHeight > window.innerHeight && rect.top - dropdownHeight > 0) {
+        top = rect.top + window.scrollY - dropdownHeight;
+    }
+
+    suggestBox.style.left = rect.left + 'px';
     suggestBox.style.top = top + 'px';
     suggestBox.style.visibility = 'visible';
-
-    // 如果下拉框超出视口底部，则平滑向下滚动页面
-    const dropdownRect = suggestBox.getBoundingClientRect();
-    if (dropdownRect.bottom > window.innerHeight) {
-        const scrollNeeded = dropdownRect.bottom - window.innerHeight + 10; // 加10px边距
-        window.scrollBy({ top: scrollNeeded, behavior: 'smooth' });
-    }
 }
 
         function selectItem(index) {
@@ -1236,18 +1234,14 @@ function showUnitSuggest(input, list) {
     suggestBox.style.display = 'block';
     const dropdownHeight = suggestBox.offsetHeight;
 
-    // 始终放在输入框下方
-    suggestBox.style.left = rect.left + 'px';
     let top = rect.bottom + window.scrollY;
+    if (rect.bottom + dropdownHeight > window.innerHeight && rect.top - dropdownHeight > 0) {
+        top = rect.top + window.scrollY - dropdownHeight;
+    }
+
+    suggestBox.style.left = rect.left + 'px';
     suggestBox.style.top = top + 'px';
     suggestBox.style.visibility = 'visible';
-
-    // 超出视口则向下滚动
-    const dropdownRect = suggestBox.getBoundingClientRect();
-    if (dropdownRect.bottom > window.innerHeight) {
-        const scrollNeeded = dropdownRect.bottom - window.innerHeight + 10;
-        window.scrollBy({ top: scrollNeeded, behavior: 'smooth' });
-    }
 }
 
 function selectUnitItem(index) {
@@ -1267,9 +1261,10 @@ function handleUnitInputKey(e) {
     if (e.key === 'Escape') hideSuggest();
 }
 
-        // ========== 客户搜索建议（带视口自适应） ==========
-function showCustomerSuggest(input, list) {
+        function showCustomerSuggest(input, list) {
     const rect = input.getBoundingClientRect();
+    suggestBox.style.left = rect.left + 'px';
+    suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
     suggestBox.innerHTML = '';
 
     const totalPages = Math.ceil(list.length / CUSTOMER_SUGGEST_PAGE_SIZE);
@@ -1280,18 +1275,22 @@ function showCustomerSuggest(input, list) {
     const start = customerSuggestCurrentPage * CUSTOMER_SUGGEST_PAGE_SIZE;
     const end = Math.min(start + CUSTOMER_SUGGEST_PAGE_SIZE, list.length);
 
+    // 渲染当前页建议
     for (let i = start; i < end; i++) {
         const item = list[i];
         const div = document.createElement('div');
+        // 显示页内序号 1~8
         div.textContent = `${(i - start) + 1} ${item.full_name}`;
-        div.dataset.index = i;
+        div.dataset.index = i;          // 全局索引，用于选择
         div.onclick = () => selectCustomerItem(i);
         suggestBox.appendChild(div);
     }
 
+    // 翻页按钮 + 页码显示
     if (totalPages > 1) {
         const navDiv = document.createElement('div');
         navDiv.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:4px 8px; font-size:12px; color:#666; background:#f8f9fa;';
+
         const prevBtn = document.createElement('button');
         prevBtn.textContent = '◀ 上页';
         prevBtn.style.cssText = 'padding:2px 8px; font-size:12px; cursor:pointer; border:1px solid #ccc; background:#fff; border-radius:3px;';
@@ -1313,23 +1312,7 @@ function showCustomerSuggest(input, list) {
         suggestBox.appendChild(navDiv);
     }
 
-    // 预计算高度
-    suggestBox.style.visibility = 'hidden';
     suggestBox.style.display = 'block';
-    const dropdownHeight = suggestBox.offsetHeight;
-
-    // 始终放在输入框下方
-    suggestBox.style.left = rect.left + 'px';
-    let top = rect.bottom + window.scrollY;
-    suggestBox.style.top = top + 'px';
-    suggestBox.style.visibility = 'visible';
-
-    // 如果下拉框超出视口底部，则平滑向下滚动
-    const dropdownRect = suggestBox.getBoundingClientRect();
-    if (dropdownRect.bottom > window.innerHeight) {
-        const scrollNeeded = dropdownRect.bottom - window.innerHeight + 10;
-        window.scrollBy({ top: scrollNeeded, behavior: 'smooth' });
-    }
 }
 function customerGoToPage(delta) {
     if (!currentCustomerList.length || !currentCustomerInput) return;
