@@ -999,13 +999,9 @@ function setMakeupFlag(input, isMakeup) {
 
         function showSuggest(input, list) {
     const rect = input.getBoundingClientRect();
-    suggestBox.style.left = rect.left + 'px';
-    suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
     suggestBox.innerHTML = '';
 
     const totalPages = Math.ceil(list.length / SUGGEST_PAGE_SIZE);
-
-
     if (suggestCurrentPage >= totalPages) {
         suggestCurrentPage = Math.max(0, totalPages - 1);
     }
@@ -1021,18 +1017,16 @@ function setMakeupFlag(input, isMakeup) {
         if (item.standard_price !== item.price) {
             priceText = `¥${item.price}/${item.unit}（原价¥${item.standard_price}）`;
         }
-        // 修改这一行：序号改为页内序号 (1~8)
         div.textContent = `${(i - start) + 1} ${item.name}  ${priceText}`;
-        div.dataset.index = i;          // 全局索引不变，用于选择
+        div.dataset.index = i;
         div.onclick = () => selectItem(i);
         suggestBox.appendChild(div);
     }
 
-    // 翻页按钮 + 页码显示 (保持不变)
+    // 翻页按钮
     if (totalPages > 1) {
         const navDiv = document.createElement('div');
         navDiv.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:4px 8px; font-size:12px; color:#666; background:#f8f9fa;';
-
         const prevBtn = document.createElement('button');
         prevBtn.textContent = '◀ 上页';
         prevBtn.style.cssText = 'padding:2px 8px; font-size:12px; cursor:pointer; border:1px solid #ccc; background:#fff; border-radius:3px;';
@@ -1054,7 +1048,23 @@ function setMakeupFlag(input, isMakeup) {
         suggestBox.appendChild(navDiv);
     }
 
+    // 先隐藏并获取高度
+    suggestBox.style.visibility = 'hidden';
     suggestBox.style.display = 'block';
+    const dropdownHeight = suggestBox.offsetHeight;
+
+    // 始终放在输入框下方
+    suggestBox.style.left = rect.left + 'px';
+    let top = rect.bottom + window.scrollY;
+    suggestBox.style.top = top + 'px';
+    suggestBox.style.visibility = 'visible';
+
+    // 如果下拉框超出视口底部，则平滑向下滚动页面
+    const dropdownRect = suggestBox.getBoundingClientRect();
+    if (dropdownRect.bottom > window.innerHeight) {
+        const scrollNeeded = dropdownRect.bottom - window.innerHeight + 10; // 加10px边距
+        window.scrollBy({ top: scrollNeeded, behavior: 'smooth' });
+    }
 }
 
         function selectItem(index) {
@@ -1211,9 +1221,8 @@ async function loadAllUnitsWithCache(input) {
 
 function showUnitSuggest(input, list) {
     const rect = input.getBoundingClientRect();
-    suggestBox.style.left = rect.left + 'px';
-    suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
     suggestBox.innerHTML = '';
+
     list.slice(0, 8).forEach((item, idx) => {
         const div = document.createElement('div');
         div.textContent = `${idx+1} ${item.name}`;
@@ -1221,7 +1230,24 @@ function showUnitSuggest(input, list) {
         div.onclick = () => selectUnitItem(idx);
         suggestBox.appendChild(div);
     });
+
+    // 预计算高度
+    suggestBox.style.visibility = 'hidden';
     suggestBox.style.display = 'block';
+    const dropdownHeight = suggestBox.offsetHeight;
+
+    // 始终放在输入框下方
+    suggestBox.style.left = rect.left + 'px';
+    let top = rect.bottom + window.scrollY;
+    suggestBox.style.top = top + 'px';
+    suggestBox.style.visibility = 'visible';
+
+    // 超出视口则向下滚动
+    const dropdownRect = suggestBox.getBoundingClientRect();
+    if (dropdownRect.bottom > window.innerHeight) {
+        const scrollNeeded = dropdownRect.bottom - window.innerHeight + 10;
+        window.scrollBy({ top: scrollNeeded, behavior: 'smooth' });
+    }
 }
 
 function selectUnitItem(index) {
@@ -1241,10 +1267,9 @@ function handleUnitInputKey(e) {
     if (e.key === 'Escape') hideSuggest();
 }
 
-        function showCustomerSuggest(input, list) {
+        // ========== 客户搜索建议（带视口自适应） ==========
+function showCustomerSuggest(input, list) {
     const rect = input.getBoundingClientRect();
-    suggestBox.style.left = rect.left + 'px';
-    suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
     suggestBox.innerHTML = '';
 
     const totalPages = Math.ceil(list.length / CUSTOMER_SUGGEST_PAGE_SIZE);
@@ -1255,22 +1280,18 @@ function handleUnitInputKey(e) {
     const start = customerSuggestCurrentPage * CUSTOMER_SUGGEST_PAGE_SIZE;
     const end = Math.min(start + CUSTOMER_SUGGEST_PAGE_SIZE, list.length);
 
-    // 渲染当前页建议
     for (let i = start; i < end; i++) {
         const item = list[i];
         const div = document.createElement('div');
-        // 显示页内序号 1~8
         div.textContent = `${(i - start) + 1} ${item.full_name}`;
-        div.dataset.index = i;          // 全局索引，用于选择
+        div.dataset.index = i;
         div.onclick = () => selectCustomerItem(i);
         suggestBox.appendChild(div);
     }
 
-    // 翻页按钮 + 页码显示
     if (totalPages > 1) {
         const navDiv = document.createElement('div');
         navDiv.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:4px 8px; font-size:12px; color:#666; background:#f8f9fa;';
-
         const prevBtn = document.createElement('button');
         prevBtn.textContent = '◀ 上页';
         prevBtn.style.cssText = 'padding:2px 8px; font-size:12px; cursor:pointer; border:1px solid #ccc; background:#fff; border-radius:3px;';
@@ -1292,7 +1313,23 @@ function handleUnitInputKey(e) {
         suggestBox.appendChild(navDiv);
     }
 
+    // 预计算高度
+    suggestBox.style.visibility = 'hidden';
     suggestBox.style.display = 'block';
+    const dropdownHeight = suggestBox.offsetHeight;
+
+    // 始终放在输入框下方
+    suggestBox.style.left = rect.left + 'px';
+    let top = rect.bottom + window.scrollY;
+    suggestBox.style.top = top + 'px';
+    suggestBox.style.visibility = 'visible';
+
+    // 如果下拉框超出视口底部，则平滑向下滚动
+    const dropdownRect = suggestBox.getBoundingClientRect();
+    if (dropdownRect.bottom > window.innerHeight) {
+        const scrollNeeded = dropdownRect.bottom - window.innerHeight + 10;
+        window.scrollBy({ top: scrollNeeded, behavior: 'smooth' });
+    }
 }
 function customerGoToPage(delta) {
     if (!currentCustomerList.length || !currentCustomerInput) return;
@@ -1773,7 +1810,27 @@ function getActualRowCount() {
     });
     return count;
 }
+// ========== 自动滚动函数（仅桌面端） ==========
+let scrollRafId = null;
 
+function scrollInputToView(input) {
+    // 移动端不做处理（根据屏幕宽度判断，阈值 768px 与 CSS 响应式一致）
+    if (window.innerWidth <= 768) return;
+    if (!input) return;
+
+    // 取消之前未执行的滚动任务
+    if (scrollRafId) {
+        cancelAnimationFrame(scrollRafId);
+        scrollRafId = null;
+    }
+
+    // 在下一帧执行滚动，避免频繁 reflow
+    scrollRafId = requestAnimationFrame(() => {
+        // 将输入框滚动到视口底部（block: 'end' 使元素底部对齐视口底部）
+        input.scrollIntoView({ block: 'end', behavior: 'smooth' });
+        scrollRafId = null;
+    });
+}
         // ========== 计算逻辑 (保持原样) ==========
         function calcRowAmount(input) {
             const tr = input.closest('tr');
@@ -2211,6 +2268,14 @@ window.location.href = printUrl;
         }
     });
     const newRowsToAdd = uniqueNewIds.filter(id => !existingProductIds.has(id)).length;
+    
+    // 在 batchAddToBill 函数最后（清空模态框并关闭后）添加：
+// 获取最后一行商品名称输入框
+const lastRow = document.querySelector('#bill-tbody tr:last-child .name-input');
+if (lastRow) {
+    // 延迟执行，确保 DOM 已更新
+    setTimeout(() => scrollInputToView(lastRow), 100);
+}
 
     // 若添加后总行数超过16，则提示并终止
     if (currentActual + newRowsToAdd > 16) {
@@ -2279,6 +2344,14 @@ window.location.href = printUrl;
     initOrderNumberInput();
     restoreOnlyPrintDataSetting();
     focusOnFirstEmptyField();
+    
+    // 在 window.onload 中添加（或放在独立初始化函数中）
+document.getElementById('bill-tbody').addEventListener('input', function(e) {
+    const target = e.target;
+    if (target.tagName === 'INPUT') {
+        scrollInputToView(target);
+    }
+});
 
     // 事件委托：规格输入（实时 + 回车）
     document.getElementById('bill-tbody').addEventListener('input', function(e) {
