@@ -130,7 +130,7 @@
     <tbody id="customerTableBody"></tbody>
 </table>
         </div>
-        
+
         <!-- 重新审核 -->
 <div class="tab-pane fade" id="tab-reaudit">
     <div class="alert alert-warning">以下订单已审核但无区域，勾选后点击确认将重新开启审核流程（标记为未审核）。</div>
@@ -372,7 +372,7 @@ function bindCheckboxEvents() {
     $('#masterCustomerCheck').on('change', function() { $('.customer-check').prop('checked', this.checked); });
     $('#selectAllCustomers').click(function() { $('.customer-check').prop('checked', true); });
     $('#deselectAllCustomers').click(function() { $('.customer-check').prop('checked', false); });
-    
+
     // 重新审核
 $('#masterReauditCheck').on('change', function() { $('.reaudit-check').prop('checked', this.checked); });
 $('#selectAllReaudit').click(function() { $('.reaudit-check').prop('checked', true); });
@@ -385,109 +385,155 @@ $('#confirmAuditBtn').click(function() {
     $btn.prop('disabled', true).text('处理中...');
     $('#messageArea').html('');
 
-    // 收集所有需要审核的订单号（使用Set去重）
-    const orderNosSet = new Set();
+    // 获取当前激活的Tab面板ID
+    const activeTabId = $('.tab-pane.active').attr('id');
+    let action = '';
+    let payload = {};
 
-    // 1. 正常审核订单
-    $('.normal-check:checked').each(function() {
-        orderNosSet.add(this.value);
-    });
+    switch (activeTabId) {
+        case 'tab-normal':
+            action = 'normal';
+            // 收集正常审核订单号
+            const normalNos = $('.normal-check:checked').map(function() { return this.value; }).get();
+            if (normalNos.length === 0) {
+                $('#messageArea').html('<div class="alert alert-warning">请至少勾选一个订单进行正常审核</div>');
+                $btn.prop('disabled', false).text('确认审核');
+                return;
+            }
+            payload = { order_nos: normalNos };
+            break;
 
-    // 2. 客户名称审核（格式修正）中勾选的订单
-    $('.format-check:checked').each(function() {
-        orderNosSet.add(this.value);
-    });
+        case 'tab-cancel':
+            action = 'cancel';
+            const cancelNos = $('.cancel-check:checked').map(function() { return this.value; }).get();
+            if (cancelNos.length === 0) {
+                $('#messageArea').html('<div class="alert alert-warning">请至少勾选一个订单进行作废</div>');
+                $btn.prop('disabled', false).text('确认审核');
+                return;
+            }
+            payload = { cancel_order_nos: cancelNos };
+            break;
 
-    // 3. 区域检测中勾选的订单
-    $('.area-check:checked').each(function() {
-        orderNosSet.add(this.value);
-    });
-    
-    const reauditNos = $('.reaudit-check:checked').map(function() { return this.value; }).get();
+        case 'tab-format':
+            action = 'format';
+            // 收集客户名称修改
+            const updatedNames = {};
+            let formatValid = true;
+            $('.format-check:checked').each(function() {
+                const order = this.value;
+                const $row = $(this).closest('tr');
+                const newName = $row.find('.edit-customer-name').val().trim();
+                if (!newName || newName.indexOf('|') === -1) {
+                    formatValid = false;
+                    $('#messageArea').html(`<div class="alert alert-danger">订单 ${order} 的客户名称必须包含“|”且不能为空</div>`);
+                    $btn.prop('disabled', false).text('确认审核');
+                    return false;
+                }
+                updatedNames[order] = newName;
+            });
+            if (!formatValid) return;
+            if (Object.keys(updatedNames).length === 0) {
+                $('#messageArea').html('<div class="alert alert-warning">请至少勾选一个订单并修改客户名称</div>');
+                $btn.prop('disabled', false).text('确认审核');
+                return;
+            }
+            payload = { updated_customer_names: updatedNames };
+            break;
 
+        case 'tab-area':
+            action = 'area';
+            const areaUpdates = {};
+            let areaValid = true;
+            $('.area-check:checked').each(function() {
+                const order = this.value;
+                const $row = $(this).closest('tr');
+                const canExtract = $(this).data('can');
+                let areaName = '';
+                if (canExtract) {
+                    areaName = $(this).data('extract');
+                } else {
+                    areaName = $row.find('.manual-area').val().trim();
+                }
+                if (areaName) {
+                    areaUpdates[order] = areaName;
+                } else {
+                    areaValid = false;
+                    $('#messageArea').html(`<div class="alert alert-danger">订单 ${order} 区域为空且未指定区域</div>`);
+                    $btn.prop('disabled', false).text('确认审核');
+                    return false;
+                }
+            });
+            if (!areaValid) return;
+            if (Object.keys(areaUpdates).length === 0) {
+                $('#messageArea').html('<div class="alert alert-warning">请至少勾选一个订单并指定区域</div>');
+                $btn.prop('disabled', false).text('确认审核');
+                return;
+            }
+            payload = { area_updates: areaUpdates };
+            break;
 
-    // 将Set转为数组
-    const orderNos = Array.from(orderNosSet);
+        case 'tab-products':
+            action = 'products';
+            const products = [];
+            $('#productTableBody tr').each(function() {
+                const $row = $(this);
+                if (!$row.find('.product-check').is(':checked')) return;
+                const name = $row.find('td:eq(1)').text().trim();
+                const unit = $row.find('td:eq(2)').text().trim();
+                const spec = $row.find('td:eq(3)').text().trim();
+                const price = $row.find('td:eq(4)').text().trim();
+                const actionType = $row.find('.prod-action').val() || 'create';
+                if (name) products.push({ name, unit, spec, price, action: actionType });
+            });
+            if (products.length === 0) {
+                $('#messageArea').html('<div class="alert alert-warning">请至少勾选一个商品进行处理</div>');
+                $btn.prop('disabled', false).text('确认审核');
+                return;
+            }
+            payload = { new_products: products };
+            break;
 
-    // 收集作废订单号
-    const cancelNos = $('.cancel-check:checked').map(function() { return this.value; }).get();
+        case 'tab-areas':
+            action = 'areas';
+            const areas = $('.area-list-check:checked').map(function() { return this.value; }).get();
+            if (areas.length === 0) {
+                $('#messageArea').html('<div class="alert alert-warning">请至少勾选一个区域进行创建</div>');
+                $btn.prop('disabled', false).text('确认审核');
+                return;
+            }
+            payload = { new_areas: areas };
+            break;
 
-    // 收集客户名称修改（客户名称审核tab）
-    const updatedNames = {};
-    $('.format-check:checked').each(function() {
-        const order = this.value;
-        const $row = $(this).closest('tr');
-        const newName = $row.find('.edit-customer-name').val().trim();
-        if (newName) {
-            updatedNames[order] = newName;
-        }
-    });
+        case 'tab-customers':
+            action = 'customers';
+            const customers = $('.customer-check:checked').map(function() { return this.value; }).get();
+            if (customers.length === 0) {
+                $('#messageArea').html('<div class="alert alert-warning">请至少勾选一个客户进行创建</div>');
+                $btn.prop('disabled', false).text('确认审核');
+                return;
+            }
+            payload = { new_customers: customers.map(n => ({ name: n })) };
+            break;
 
-    // 校验：客户名称审核中勾选的订单必须修改了名称且符合格式
-    let formatValid = true;
-    $('.format-check:checked').each(function() {
-        const order = this.value;
-        const $row = $(this).closest('tr');
-        const newName = $row.find('.edit-customer-name').val().trim();
-        if (!newName || newName.indexOf('|') === -1) {
-            formatValid = false;
-            $('#messageArea').html(`<div class="alert alert-danger">订单 ${order} 的客户名称必须包含“|”且不能为空，请修改后重试。</div>`);
+        case 'tab-reaudit':
+            action = 'reaudit';
+            const reauditNos = $('.reaudit-check:checked').map(function() { return this.value; }).get();
+            if (reauditNos.length === 0) {
+                $('#messageArea').html('<div class="alert alert-warning">请至少勾选一个订单进行重新审核</div>');
+                $btn.prop('disabled', false).text('确认审核');
+                return;
+            }
+            payload = { reaudit_order_nos: reauditNos };
+            break;
+
+        default:
+            $('#messageArea').html('<div class="alert alert-danger">未知的审核类型</div>');
             $btn.prop('disabled', false).text('确认审核');
-            return false; // 跳出each
-        }
-    });
-    if (!formatValid) return;
+            return;
+    }
 
-    // 收集区域处理（区域检测tab）
-    const areaUpdates = {};
-    $('.area-check:checked').each(function() {
-        const order = this.value;
-        const $row = $(this).closest('tr');
-        const canExtract = $(this).data('can');
-        let areaName = '';
-        if (canExtract) {
-            areaName = $(this).data('extract');
-        } else {
-            areaName = $row.find('.manual-area').val().trim();
-        }
-        if (areaName) {
-            areaUpdates[order] = areaName;
-        } else {
-            // 如果未提取且未手动输入，则提示
-            $('#messageArea').html(`<div class="alert alert-danger">订单 ${order} 区域为空且未指定区域，请填写区域或取消勾选。</div>`);
-            $btn.prop('disabled', false).text('确认审核');
-            return false;
-        }
-    });
-
-    // 若校验不通过，终止提交
-    if ($('#messageArea .alert-danger').length > 0) return;
-
-    // 原有商品/区域/客户数据（后端会忽略，保留兼容）
-    const areas = $('.area-list-check:checked').map(function() { return this.value; }).get();
-    const customers = $('.customer-check:checked').map(function() { return this.value; }).get();
-    const products = [];
-    $('#productTableBody tr').each(function() {
-        const $row = $(this);
-        if (!$row.find('.product-check').is(':checked')) return;
-        const name = $row.find('td:eq(1)').text().trim();
-        const unit = $row.find('td:eq(2)').text().trim();
-        const spec = $row.find('td:eq(3)').text().trim();
-        const price = $row.find('td:eq(4)').text().trim();
-        const action = $row.find('.prod-action').val() || 'create';
-        if (name) products.push({ name, unit, spec, price, action });
-    });
-
-    const payload = {
-    order_nos: orderNos,
-    cancel_order_nos: cancelNos,
-    updated_customer_names: updatedNames,
-    area_updates: areaUpdates,
-    new_areas: areas,
-    new_products: products,
-    new_customers: customers.map(n => ({ name: n })),
-    reaudit_order_nos: reauditNos   // 新增
-};
+    // 发送请求（加上 action 字段）
+    payload.action = action;
 
     $.ajax({
         url: '{% url "bill:audit_orders_confirm" %}',

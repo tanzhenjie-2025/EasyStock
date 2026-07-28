@@ -2607,6 +2607,258 @@ def is_customer_name_format_valid(raw_name):
     parts = raw_name.split('|')
     return len(parts) == 2 and parts[0].strip() and parts[1].strip()
 
+from decimal import Decimal
+from django.utils import timezone
+from django.db import transaction
+from .models import Order, OrderItem, Area, Customer, Product
+
+# ---------- 辅助函数（补全） ----------
+
+def _audit_normal_orders(order_nos, user):
+    """
+    正常审核订单（完整流程）
+    """
+    if not order_nos:
+        return JsonResponse({'code': 0, 'msg': '未提供订单号'})
+
+    # 获取待审核订单
+    orders = list(Order.objects.filter(order_no__in=order_nos, is_verified=False)
+                  .select_related('area')
+                  .prefetch_related('items'))
+    if not orders:
+        return JsonResponse({'code': 0, 'msg': '所选订单均不存在或已审核'})
+
+    # 应用客户名和区域更新（若有，但此处没有传入，可忽略，若需要可从payload传入）
+    # 假设正常审核不需要额外更新，直接使用订单现有数据
+
+    # 收集基础数据（区域、客户、商品）
+    area_names = set()
+    customer_data = {}  # key: (pure_name, area_name) -> {'order_numbers': []}
+    product_map = {}
+
+    for order in orders:
+        if order.area:
+            area_names.add(order.area.name)
+        raw_customer = order.customer_name_snapshot or ''
+        if raw_customer:
+            final_area, pure_name = parse_customer_name(raw_customer, order.area.name if order.area else '')
+            if pure_name:
+                key = (pure_name, final_area)
+                if key not in customer_data:
+                    customer_data[key] = {'order_numbers': []}
+                if order.order_number_snapshot:
+                    customer_data[key]['order_numbers'].append(order.order_number_snapshot)
+        # 收集商品
+        for item in order.items.all():
+            if item.is_makeup_item:
+                continue
+            key = (item.product_name, item.unit)
+            if key not in product_map:
+                product_map[key] = {
+                    'price': item.actual_unit_price or Decimal('0'),
+                    'spec': item.specification or '',
+                }
+
+    # 创建区域
+    existing_areas = set(Area.objects.filter(name__in=area_names, is_active=True).values_list('name', flat=True))
+    missing_areas = [a for a in area_names if a not in existing_areas]
+    if missing_areas:
+        Area.objects.bulk_create([Area(name=n) for n in missing_areas])
+
+    # 创建客户（按名称+区域联合判断）
+    for (pure_name, area_name), info in customer_data.items():
+        area_obj = Area.objects.filter(name=area_name, is_active=True).first() if area_name else None
+        if not Customer.objects.filter(name=pure_name, area=area_obj, is_active=True).exists():
+            Customer.objects.create(name=pure_name, area=area_obj)
+
+    # 处理商品（新建或覆盖价格）
+    existing_prods = Product.objects.filter(is_active=True)
+    existing_prod_map = {}
+    for p in existing_prods:
+        existing_prod_map[(p.name, p.unit)] = p
+
+    for (name, unit), info in product_map.items():
+        key = (name, unit)
+        if key in existing_prod_map:
+            prod = existing_prod_map[key]
+            if prod.price != info['price']:
+                prod.price = info['price']
+                prod.save(update_fields=['price'])
+        else:
+            Product.objects.create(
+                name=name,
+                unit=unit,
+                specification=info.get('spec', ''),
+                price=info['price'],
+                stock_system=0,
+                stock_actual=0
+            )
+
+    # 更新价格快照并标记审核
+    updated_products = Product.objects.filter(is_active=True)
+    price_dict = {}
+    for p in updated_products:
+        price_dict[(p.name, p.unit)] = p.price
+
+    count = 0
+    with transaction.atomic():
+        for order in orders:
+            for item in order.items.all():
+                if not item.is_makeup_item:
+                    key = (item.product_name, item.unit)
+                    if key in price_dict:
+                        item.snapshot_standard_price = price_dict[key]
+                        item.snapshot_customer_price = None
+                        item.save(update_fields=['snapshot_standard_price', 'snapshot_customer_price'])
+            order.is_verified = True
+            order.save(update_fields=['is_verified', 'area', 'customer_name_snapshot'])
+            count += 1
+
+    clear_order_cache()  # 如果未定义，可以注释掉
+    return JsonResponse({'code': 1, 'msg': f'成功审核 {count} 个订单'})
+
+
+def _audit_cancel_orders(cancel_order_nos, user):
+    """
+    批量作废订单
+    """
+    if not cancel_order_nos:
+        return JsonResponse({'code': 0, 'msg': '未提供作废订单号'})
+
+    cancel_orders = Order.objects.filter(order_no__in=cancel_order_nos, is_verified=False)
+    with transaction.atomic():
+        for order in cancel_orders:
+            order.status = 'cancelled'
+            order.is_verified = True
+            order.cancelled_by = user
+            order.cancelled_time = timezone.now()
+            order.cancelled_reason = '批量作废'
+            order.save(update_fields=['status', 'is_verified', 'cancelled_by', 'cancelled_time', 'cancelled_reason'])
+    clear_order_cache()
+    return JsonResponse({'code': 1, 'msg': f'成功作废 {len(cancel_order_nos)} 个订单'})
+
+
+def _audit_update_customer_names(updated_names):
+    """
+    批量更新客户名称快照
+    """
+    if not updated_names:
+        return JsonResponse({'code': 0, 'msg': '未提供客户名称修改'})
+
+    with transaction.atomic():
+        for order_no, new_name in updated_names.items():
+            Order.objects.filter(order_no=order_no, is_verified=False).update(customer_name_snapshot=new_name)
+    return JsonResponse({'code': 1, 'msg': f'成功更新 {len(updated_names)} 个订单的客户名称'})
+
+
+def _audit_update_areas(area_updates):
+    """
+    批量更新订单区域
+    """
+    if not area_updates:
+        return JsonResponse({'code': 0, 'msg': '未提供区域更新'})
+
+    with transaction.atomic():
+        for order_no, area_name in area_updates.items():
+            area_obj, _ = Area.objects.get_or_create(name=area_name, defaults={'is_active': True})
+            Order.objects.filter(order_no=order_no, is_verified=False).update(area=area_obj)
+    return JsonResponse({'code': 1, 'msg': f'成功更新 {len(area_updates)} 个订单的区域'})
+
+
+def _audit_products(new_products):
+    """
+    处理商品（新建或覆盖价格）
+    前端传递的 new_products 包含: {name, unit, spec, price, action}
+    """
+    if not new_products:
+        return JsonResponse({'code': 0, 'msg': '未提供商品数据'})
+
+    created = 0
+    updated = 0
+    with transaction.atomic():
+        for item in new_products:
+            name = item.get('name')
+            unit = item.get('unit')
+            spec = item.get('spec', '')
+            price = Decimal(item.get('price', 0))
+            action = item.get('action', 'create')
+
+            if not name or not unit:
+                continue
+
+            # 查找现有商品（按名称+单位，仅激活状态）
+            existing = Product.objects.filter(name=name, unit=unit, is_active=True).first()
+
+            if existing:
+                # 如果 action 为 'overwrite' 或价格不同，则更新价格
+                if action == 'overwrite' or existing.price != price:
+                    existing.price = price
+                    existing.specification = spec
+                    existing.save(update_fields=['price', 'specification'])
+                    updated += 1
+            else:
+                # 新建商品
+                Product.objects.create(
+                    name=name,
+                    unit=unit,
+                    specification=spec,
+                    price=price,
+                    stock_system=0,
+                    stock_actual=0
+                )
+                created += 1
+
+    msg = f'成功新建 {created} 个商品，更新 {updated} 个商品价格'
+    return JsonResponse({'code': 1, 'msg': msg})
+
+
+def _audit_new_areas(new_areas):
+    """
+    批量创建新区域
+    """
+    if not new_areas:
+        return JsonResponse({'code': 0, 'msg': '未提供区域名称'})
+
+    created = 0
+    with transaction.atomic():
+        for name in new_areas:
+            if name and not Area.objects.filter(name=name, is_active=True).exists():
+                Area.objects.create(name=name)
+                created += 1
+    return JsonResponse({'code': 1, 'msg': f'成功创建 {created} 个区域'})
+
+
+def _audit_new_customers(new_customers):
+    """
+    批量创建新客户（按名称+区域判断）
+    前端传递的 new_customers 包含: {name}
+    此处默认区域为 None，实际可能需要传递 area 字段
+    根据业务，可以扩展从订单中提取区域，但这里简化
+    """
+    if not new_customers:
+        return JsonResponse({'code': 0, 'msg': '未提供客户名称'})
+
+    created = 0
+    with transaction.atomic():
+        for item in new_customers:
+            name = item.get('name')
+            # 若需要区域，可从 item.get('area') 获取，但前端未传递，此处使用默认 None
+            if name and not Customer.objects.filter(name=name, is_active=True).exists():
+                Customer.objects.create(name=name, area=None)
+                created += 1
+    return JsonResponse({'code': 1, 'msg': f'成功创建 {created} 个客户'})
+
+
+def _audit_reaudit_orders(reaudit_order_nos):
+    """
+    将已审核订单标记为未审核（重新审核）
+    """
+    if not reaudit_order_nos:
+        return JsonResponse({'code': 0, 'msg': '未提供重新审核订单号'})
+
+    count = Order.objects.filter(order_no__in=reaudit_order_nos, is_verified=True).update(is_verified=False)
+    clear_order_cache()
+    return JsonResponse({'code': 1, 'msg': f'成功将 {count} 个订单标记为重新审核'})
 
 @never_cache
 @login_required
@@ -2806,150 +3058,56 @@ def audit_orders_confirm(request):
     except:
         return JsonResponse({'code': 0, 'msg': 'JSON 格式错误'})
 
-    order_nos = payload.get('order_nos', [])
-    cancel_order_nos = payload.get('cancel_order_nos', [])
-    updated_customer_names = payload.get('updated_customer_names', {})
-    area_updates = payload.get('area_updates', {})
-    reaudit_order_nos = payload.get('reaudit_order_nos', [])
+    action = payload.get('action', '')
 
-    reaudit_count = 0
+    # ---------- 根据 action 执行不同逻辑 ----------
+    if action == 'normal':
+        # 正常审核
+        order_nos = payload.get('order_nos', [])
+        if not order_nos:
+            return JsonResponse({'code': 0, 'msg': '未提供订单号'})
+        # 执行完整审核流程（原有正常审核逻辑）
+        return _audit_normal_orders(order_nos, request.user)
 
-    # ---------- 0. 重新审核 ----------
-    if reaudit_order_nos:
-        reaudit_orders = Order.objects.filter(order_no__in=reaudit_order_nos, is_verified=True)
-        with transaction.atomic():
-            reaudit_count = reaudit_orders.update(is_verified=False)
-        clear_order_cache()
+    elif action == 'cancel':
+        cancel_order_nos = payload.get('cancel_order_nos', [])
+        if not cancel_order_nos:
+            return JsonResponse({'code': 0, 'msg': '未提供作废订单号'})
+        return _audit_cancel_orders(cancel_order_nos, request.user)
 
-    # ---------- 1. 作废订单 ----------
-    if cancel_order_nos:
-        cancel_orders = Order.objects.filter(order_no__in=cancel_order_nos, is_verified=False)
-        with transaction.atomic():
-            for order in cancel_orders:
-                order.status = 'cancelled'
-                order.is_verified = True
-                order.cancelled_by = request.user
-                order.cancelled_time = timezone.now()
-                order.cancelled_reason = '批量作废'
-                order.save(
-                    update_fields=['status', 'is_verified', 'cancelled_by', 'cancelled_time', 'cancelled_reason'])
-        clear_order_cache()
+    elif action == 'format':
+        updated_customer_names = payload.get('updated_customer_names', {})
+        if not updated_customer_names:
+            return JsonResponse({'code': 0, 'msg': '未提供客户名称修改'})
+        return _audit_update_customer_names(updated_customer_names)
 
-    # ---------- 2. 正常审核订单 ----------
-    if not order_nos:
-        return JsonResponse(
-            {'code': 1, 'msg': f'已作废 {len(cancel_order_nos)} 个订单，重新审核 {reaudit_count} 个订单'})
+    elif action == 'area':
+        area_updates = payload.get('area_updates', {})
+        if not area_updates:
+            return JsonResponse({'code': 0, 'msg': '未提供区域更新'})
+        return _audit_update_areas(area_updates)
 
-    orders = list(Order.objects.filter(order_no__in=order_nos, is_verified=False)
-                  .select_related('area')
-                  .prefetch_related('items'))
-    if not orders:
-        return JsonResponse({'code': 0, 'msg': '所选订单均不存在或已审核'})
+    elif action == 'products':
+        new_products = payload.get('new_products', [])
+        # 处理商品（新建或更新价格）
+        return _audit_products(new_products)
 
-    # 应用客户名和区域更新
-    for order in orders:
-        if order.order_no in updated_customer_names:
-            order.customer_name_snapshot = updated_customer_names[order.order_no]
-        if order.order_no in area_updates:
-            area_name = area_updates[order.order_no]
-            area_obj, _ = Area.objects.get_or_create(name=area_name, defaults={'is_active': True})
-            order.area = area_obj
-        if not order.area and order.customer_name_snapshot:
-            extracted_area, _ = parse_customer_name(order.customer_name_snapshot)
-            if extracted_area:
-                area_obj, _ = Area.objects.get_or_create(name=extracted_area, defaults={'is_active': True})
-                order.area = area_obj
+    elif action == 'areas':
+        new_areas = payload.get('new_areas', [])
+        return _audit_new_areas(new_areas)
 
-    # 收集基础数据（区域、客户、商品）
-    area_names = set()
-    customer_names = set()
-    customer_area = {}
-    product_map = {}
+    elif action == 'customers':
+        new_customers = payload.get('new_customers', [])
+        return _audit_new_customers(new_customers)
 
-    for order in orders:
-        if order.area:
-            area_names.add(order.area.name)
-        raw_customer = order.customer_name_snapshot or ''
-        if raw_customer:
-            final_area, pure_name = parse_customer_name(raw_customer, order.area.name if order.area else '')
-            if pure_name:
-                customer_names.add(pure_name)
-                if pure_name not in customer_area:
-                    customer_area[pure_name] = final_area or order.area.name if order.area else ''
-        for item in order.items.all():
-            if item.is_makeup_item:
-                continue
-            key = (item.product_name, item.unit)
-            if key not in product_map:
-                product_map[key] = {
-                    'price': item.actual_unit_price or Decimal('0'),
-                    'spec': item.specification or '',
-                }
+    elif action == 'reaudit':
+        reaudit_order_nos = payload.get('reaudit_order_nos', [])
+        if not reaudit_order_nos:
+            return JsonResponse({'code': 0, 'msg': '未提供重新审核订单号'})
+        return _audit_reaudit_orders(reaudit_order_nos)
 
-    # 创建区域
-    existing_areas = set(Area.objects.filter(name__in=area_names, is_active=True).values_list('name', flat=True))
-    missing_areas = [a for a in area_names if a not in existing_areas]
-    if missing_areas:
-        Area.objects.bulk_create([Area(name=n) for n in missing_areas])
-
-    # 创建客户
-    existing_cust = set(Customer.objects.filter(name__in=customer_names, is_active=True).values_list('name', flat=True))
-    for name in customer_names:
-        if name not in existing_cust:
-            area_name = customer_area.get(name, '')
-            area_obj = Area.objects.filter(name=area_name).first()
-            Customer.objects.create(name=name, area=area_obj)
-
-    # 处理商品
-    existing_prods = Product.objects.filter(is_active=True)
-    existing_prod_map = {}
-    for p in existing_prods:
-        existing_prod_map[(p.name, p.unit)] = p
-
-    for (name, unit), info in product_map.items():
-        key = (name, unit)
-        if key in existing_prod_map:
-            prod = existing_prod_map[key]
-            if prod.price != info['price']:
-                prod.price = info['price']
-                prod.save(update_fields=['price'])
-        else:
-            Product.objects.create(
-                name=name,
-                unit=unit,
-                specification=info.get('spec', ''),
-                price=info['price'],
-                stock_system=0,
-                stock_actual=0
-            )
-
-    # 更新价格快照并标记审核
-    updated_products = Product.objects.filter(is_active=True)
-    price_dict = {}
-    for p in updated_products:
-        price_dict[(p.name, p.unit)] = p.price
-
-    count = 0
-    with transaction.atomic():
-        for order in orders:
-            for item in order.items.all():
-                if not item.is_makeup_item:
-                    key = (item.product_name, item.unit)
-                    if key in price_dict:
-                        item.snapshot_standard_price = price_dict[key]
-                        item.snapshot_customer_price = None
-                        item.save(update_fields=['snapshot_standard_price', 'snapshot_customer_price'])
-
-            # 🔥 关键修复：将订单标记为已审核
-            order.is_verified = True
-            order.save(update_fields=['is_verified', 'area', 'customer_name_snapshot'])
-            count += 1
-
-    clear_order_cache()
-    return JsonResponse({
-        'code': 1,
-        'msg': f'成功审核 {count} 个订单，作废 {len(cancel_order_nos)} 个订单，重新审核 {reaudit_count} 个订单'
-    })
+    else:
+        return JsonResponse({'code': 0, 'msg': '未知操作类型'})
 
 def audit_order_page(request):
     """渲染订单审核页面（全新独立页面）"""
