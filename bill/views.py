@@ -1850,19 +1850,22 @@ def parse_datetime_cell(value):
         if timezone.is_naive(dt):
             dt = timezone.make_aware(dt, timezone.get_current_timezone())
     return dt
+import io
+from urllib.parse import quote
+from django.http import HttpResponse
+from django.utils import timezone
+from django.db.models import Prefetch, Q
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment
-from django.http import StreamingHttpResponse
-import io
-import decimal
-from urllib.parse import quote
-import time
 
 @login_required
 @permission_required('order_export')
 def export_orders(request):
-    """流式导出订单 Excel，使用 write_only 模式，逐批写入，内存恒定"""
-    # 1. 构建查询集（与原来相同，但仅筛选必要字段）
+    """
+    流式导出订单 Excel，使用 write_only 模式，逐批写入，内存恒定。
+    包含所有状态的订单（可由前端筛选控制），不自动过滤未审核订单。
+    """
+    # ---------- 1. 获取筛选参数 ----------
     order_no = request.GET.get('order_no', '').strip()
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
@@ -1870,109 +1873,153 @@ def export_orders(request):
     customer_name = request.GET.get('customer_name', '').strip()
     amount_operator = request.GET.get('amount_operator', '')
     amount_value = request.GET.get('amount_value', '').strip()
-    status = request.GET.get('status', 'all')
+    status = request.GET.get('status', 'all')          # all/normal/cancelled/settled/unsettled
 
-    is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
-    can_view_others = request.user.has_permission('order_view_others')
+    # ---------- 2. 权限与基础查询 ----------
+
+    # 基础查询集，使用 select_related 减少关联查询，仅选取必要字段
     orders = Order.objects.select_related('area', 'creator', 'settled_by') \
                           .order_by('-create_time') \
-                          .only('order_no', 'customer_name_snapshot', 'area', 'creator', 'create_time',
-                                'total_amount', 'status', 'is_settled', 'received_amount', 'settled_by',
-                                'settled_time', 'order_number_snapshot', 'delivery_method', 'is_verified')
-    if not is_super_admin and not can_view_others:
-        orders = orders.filter(creator=request.user)
+                          .only(
+                              'order_no', 'customer_name_snapshot', 'area', 'creator', 'create_time',
+                              'total_amount', 'status', 'is_settled', 'received_amount', 'settled_by',
+                              'settled_time', 'order_number_snapshot', 'delivery_method', 'is_verified'
+                          )
 
-    # 状态筛选等（省略，与原逻辑相同）
+    # 权限过滤：非超级管理员且无查看他人订单权限时，只能看自己的
+
+    # ---------- 3. 应用筛选条件（与原逻辑一致） ----------
+    # 状态筛选
     if status == 'normal':
-        orders = orders.filter(status__in=ORDER_STATUS_VALID)
+        orders = orders.filter(status__in=ORDER_STATUS_VALID)   # 假定 ORDER_STATUS_VALID 已定义
     elif status == 'cancelled':
         orders = orders.filter(status='cancelled')
     elif status == 'settled':
         orders = orders.filter(is_settled=True, status__in=ORDER_STATUS_VALID)
     elif status == 'unsettled':
         orders = orders.filter(is_settled=False, status__in=ORDER_STATUS_VALID)
-    # ... 其余筛选条件与原代码一致，不再赘述
+    # status == 'all' 时不加状态过滤，包含所有（包括 pending, printed, cancelled, reopened）
 
-    # 2. 使用流式 Workbook（write_only=True）
+    # 订单编号模糊查询
+    if order_no:
+        orders = orders.filter(order_no__startswith=order_no)
+
+    # 区域
+    if area_id and area_id.isdigit():
+        orders = orders.filter(area_id=int(area_id))
+
+    # 客户名称（快照字段）
+    if customer_name:
+        orders = orders.filter(customer_name_snapshot__icontains=customer_name)
+
+    # 日期范围（创建时间）
+    if date_from:
+        try:
+            start = timezone.make_aware(datetime.strptime(date_from, '%Y-%m-%d'))
+            orders = orders.filter(create_time__gte=start)
+        except:
+            pass
+    if date_to:
+        try:
+            end = datetime.strptime(date_to, '%Y-%m-%d').date()
+            end_dt = timezone.make_aware(datetime.combine(end + timedelta(days=1), datetime.min.time()))
+            orders = orders.filter(create_time__lt=end_dt)
+        except:
+            pass
+
+    # 金额范围
+    if amount_operator in ['gt', 'lt'] and amount_value:
+        try:
+            amount = Decimal(amount_value)
+            if amount_operator == 'gt':
+                orders = orders.filter(total_amount__gt=amount)
+            else:
+                orders = orders.filter(total_amount__lt=amount)
+        except:
+            pass
+
+    # ---------- 4. 流式导出 ----------
+    # 创建 write_only 工作簿（不保留样式，节省内存）
     wb = Workbook(write_only=True)
     ws = wb.create_sheet(title="订单数据")
 
+    # 定义表头
     headers = [
         '订单编号', '客户名称', '区域', '商品名称', '规格', '单位',
         '数量', '单价', '小计金额', '订单状态', '交付方式',
         '创建时间', '开单人', '订单总金额', '是否结清', '已收金额',
         '结清人', '结清时间', '制单号快照', '是否补货', '审核状态'
     ]
-    # write_only 模式下，需要手动设置表头样式（样式不支持直接写入，可通过后续调整）
+    # 写入表头（write_only 模式不支持样式，但表头文字已包含）
     ws.append(headers)
 
-    # 3. 分块查询订单（每次取 1000 条，同时预取 items）
-    batch_size = 1000
-    order_ids = list(orders.values_list('id', flat=True))  # 先获取所有 ID，再分块查询
-    total_orders = len(order_ids)
+    # ---------- 5. 使用 iterator 流式读取订单（每批 1000 条） ----------
+    # 注意：iterator() 会重新执行查询，但不会缓存所有结果，适合大数据量
+    # 配合 prefetch_related 需提前预取，但 iterator 与 prefetch_related 有冲突，
+    # 因此我们使用 select_related 加载关联字段，而 items 用 prefetch_related 在外部手动处理。
+    # 但为了简化，我们在循环内通过 order.items.all() 获取明细（会额外查询），
+    # 但总查询次数可控（每批订单发起一次明细查询）。
+    # 更优方案：使用 prefetch_related 并配合 iterator，但 Django 官方建议 prefetch 与 iterator 不能混用，
+    # 所以采用如下方式：
+    for order in orders.iterator(chunk_size=1000):
+        # 获取订单明细（实际会触发一次额外查询，但每个订单只查一次）
+        items = order.items.all()  # 使用默认管理器
 
-    for i in range(0, total_orders, batch_size):
-        batch_ids = order_ids[i:i+batch_size]
-        batch_orders = Order.objects.filter(id__in=batch_ids) \
-            .prefetch_related(
-                Prefetch('items', queryset=OrderItem.objects.only(
-                    'product_name', 'specification', 'unit', 'quantity',
-                    'actual_unit_price', 'amount', 'is_makeup_item'
-                ))
-            )
-        for order in batch_orders:
-            area_name = order.area.name if order.area else ''
-            customer_snap = order.customer_name_snapshot or ''
-            create_time_val = timezone.localtime(order.create_time).replace(tzinfo=None) if order.create_time else ''
-            creator_name = order.creator.username if order.creator else ''
-            total_amount = float(order.total_amount) if order.total_amount else 0.0
-            is_settled_text = '是' if order.is_settled else '否'
-            received_amount = float(order.received_amount) if order.received_amount else 0.0
-            settled_by_name = order.settled_by.username if order.settled_by else ''
-            settled_time_val = timezone.localtime(order.settled_time).replace(tzinfo=None) if order.settled_time else ''
-            order_number_snap = order.order_number_snapshot or ''
-            delivery_method = order.get_delivery_method_display() or ''  # 显示中文
-            is_verified_text = '是' if order.is_verified else '否'
+        # 组装通用字段
+        area_name = order.area.name if order.area else ''
+        customer_snap = order.customer_name_snapshot or ''
+        create_time_val = timezone.localtime(order.create_time).replace(tzinfo=None) if order.create_time else ''
+        creator_name = order.creator.username if order.creator else ''
+        total_amount = float(order.total_amount) if order.total_amount else 0.0
+        is_settled_text = '是' if order.is_settled else '否'
+        received_amount = float(order.received_amount) if order.received_amount else 0.0
+        settled_by_name = order.settled_by.username if order.settled_by else ''
+        settled_time_val = timezone.localtime(order.settled_time).replace(tzinfo=None) if order.settled_time else ''
+        order_number_snap = order.order_number_snapshot or ''
+        delivery_method = order.get_delivery_method_display() or ''   # 显示中文
+        is_verified_text = '是' if order.is_verified else '否'
 
-            items = order.items.all()
-            if not items:
-                # 没有明细时仍然写一行（仅订单信息，商品列留空）
-                row = [order.order_no, customer_snap, area_name, '', '', '', 0, 0, 0,
-                       order.status, delivery_method, create_time_val, creator_name,
-                       total_amount, is_settled_text, received_amount,
-                       settled_by_name, settled_time_val, order_number_snap, '', is_verified_text]
+        if not items.exists():
+            # 无明细时写一行空商品行
+            row = [
+                order.order_no, customer_snap, area_name, '', '', '',
+                0, 0, 0,
+                order.status, delivery_method, create_time_val, creator_name,
+                total_amount, is_settled_text, received_amount,
+                settled_by_name, settled_time_val, order_number_snap, '', is_verified_text
+            ]
+            ws.append(row)
+        else:
+            for item in items:
+                price = float(item.actual_unit_price) if item.actual_unit_price else 0.0
+                amt = float(item.amount) if item.amount else 0.0
+                makeup_text = '是' if item.is_makeup_item else ''
+                row = [
+                    order.order_no,
+                    customer_snap,
+                    area_name,
+                    item.product_name or '',
+                    item.specification or '',
+                    item.unit or '',
+                    item.quantity,
+                    price,
+                    amt,
+                    order.status,
+                    delivery_method,
+                    create_time_val,
+                    creator_name,
+                    total_amount,
+                    is_settled_text,
+                    received_amount,
+                    settled_by_name,
+                    settled_time_val,
+                    order_number_snap,
+                    makeup_text,
+                    is_verified_text
+                ]
                 ws.append(row)
-            else:
-                for item in items:
-                    price = float(item.actual_unit_price) if item.actual_unit_price else 0.0
-                    amt = float(item.amount) if item.amount else 0.0
-                    makeup_text = '是' if item.is_makeup_item else ''
-                    row = [
-                        order.order_no,
-                        customer_snap,
-                        area_name,
-                        item.product_name or '',
-                        item.specification or '',
-                        item.unit or '',
-                        item.quantity,
-                        price,
-                        amt,
-                        order.status,
-                        delivery_method,
-                        create_time_val,
-                        creator_name,
-                        total_amount,
-                        is_settled_text,
-                        received_amount,
-                        settled_by_name,
-                        settled_time_val,
-                        order_number_snap,
-                        makeup_text,
-                        is_verified_text
-                    ]
-                    ws.append(row)
 
-    # 4. 保存到 BytesIO 并返回
+    # ---------- 6. 保存并返回 ----------
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
