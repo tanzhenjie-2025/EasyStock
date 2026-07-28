@@ -2343,13 +2343,7 @@ if (lastRow) {
     restoreOnlyPrintDataSetting();
     focusOnFirstEmptyField();
     
-    // 在 window.onload 中添加（或放在独立初始化函数中）
-document.getElementById('bill-tbody').addEventListener('input', function(e) {
-    const target = e.target;
-    if (target.tagName === 'INPUT') {
-        scrollInputToView(target);
-    }
-});
+        
 
     // 事件委托：规格输入（实时 + 回车）
     document.getElementById('bill-tbody').addEventListener('input', function(e) {
