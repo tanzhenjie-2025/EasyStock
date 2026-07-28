@@ -677,6 +677,9 @@ box-sizing: border-box;
 {% block extra_js %}
     <script>
         // ========== 全局配置 ==========
+        let productSuggestFixedTop = false;   // 商品搜索下拉固定顶部标志
+let customerSuggestFixedTop = false;  // 客户搜索下拉固定顶部标志
+let unitSuggestFixedTop = false;      // 单位搜索下拉固定顶部标志
         let allUnitsCache = null;
         let rowIdCounter = 0;
         const inputColsCount = 5;
@@ -890,12 +893,16 @@ function restoreOnlyPrintDataSetting() {
             document.body.appendChild(suggestBox);
         }
         function hideSuggest() {
-            if (suggestBox) suggestBox.style.display = 'none';
-            currentSearchInput = null;
-            currentSuggestList = [];
-            currentCustomerInput = null;
-            currentCustomerList = [];
-        }
+    if (suggestBox) suggestBox.style.display = 'none';
+    currentSearchInput = null;
+    currentSuggestList = [];
+    currentCustomerInput = null;
+    currentCustomerList = [];
+    // 重置所有固定标志
+    productSuggestFixedTop = false;
+    customerSuggestFixedTop = false;
+    unitSuggestFixedTop = false;
+}
         function hideAllSuggest(e) {
             if (e && e.target.closest('.suggest-dropdown')) return;
             if (e && e.target.classList.contains('name-input')) return;
@@ -1002,6 +1009,7 @@ function showSuggest(input, list) {
     const rect = input.getBoundingClientRect();
     suggestBox.innerHTML = '';
 
+    // ---------- 渲染建议列表（恢复） ----------
     const totalPages = Math.ceil(list.length / SUGGEST_PAGE_SIZE);
     if (suggestCurrentPage >= totalPages) {
         suggestCurrentPage = Math.max(0, totalPages - 1);
@@ -1010,7 +1018,6 @@ function showSuggest(input, list) {
     const start = suggestCurrentPage * SUGGEST_PAGE_SIZE;
     const end = Math.min(start + SUGGEST_PAGE_SIZE, list.length);
 
-    // 渲染当前页建议
     for (let i = start; i < end; i++) {
         const item = list[i];
         const div = document.createElement('div');
@@ -1048,16 +1055,24 @@ function showSuggest(input, list) {
 
         suggestBox.appendChild(navDiv);
     }
+    // ---------- 渲染结束 ----------
 
-    // 先隐藏显示并计算高度
+    // 计算高度并自适应位置
     suggestBox.style.visibility = 'hidden';
     suggestBox.style.display = 'block';
     const dropdownHeight = suggestBox.offsetHeight;
 
-    // 视口自适应：如果下方空间不足且上方空间足够，则显示在输入框上方
-    let top = rect.bottom + window.scrollY;
-    if (rect.bottom + dropdownHeight > window.innerHeight && rect.top - dropdownHeight > 0) {
+    let top;
+    if (productSuggestFixedTop) {
         top = rect.top + window.scrollY - dropdownHeight;
+    } else {
+        if (rect.bottom + dropdownHeight > window.innerHeight && rect.top - dropdownHeight > 0) {
+            top = rect.top + window.scrollY - dropdownHeight;
+            productSuggestFixedTop = true;
+        } else {
+            top = rect.bottom + window.scrollY;
+            productSuggestFixedTop = false;
+        }
     }
 
     suggestBox.style.left = rect.left + 'px';
