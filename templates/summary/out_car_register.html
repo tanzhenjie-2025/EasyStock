@@ -10,6 +10,29 @@
         margin: 20px auto;
         padding: 0 15px;
     }
+    /* 标题栏弹性布局，使清除按钮靠右 */
+    .header-bar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+    }
+    .header-bar h1 {
+        margin: 0;
+    }
+    .btn-clear-cache {
+        background: #dc3545;
+        color: #fff;
+        border: none;
+        padding: 6px 16px;
+        border-radius: 4px;
+        font-size: 14px;
+        cursor: pointer;
+    }
+    .btn-clear-cache:hover {
+        background: #c82333;
+    }
+
     .btn-add-row {
         padding: 8px 20px;
         font-size: 16px;
@@ -107,7 +130,7 @@
     .btn-export:hover { background: #218838; }
 
     @media print {
-        .navbar, .btn-add-row, .btn-group, .suggest-dropdown { display: none !important; }
+        .navbar, .btn-add-row, .btn-group, .suggest-dropdown, .btn-clear-cache { display: none !important; }
         .bill-table input { border: none; }
         .btn-del { display: none; }
     }
@@ -120,7 +143,7 @@
     @media (max-width: 576px) {
         .bill-table { font-size: 12px; }
         .bill-table input { font-size: 12px; padding: 4px; }
-        .btn-add-row, .btn-export { padding: 10px 15px; font-size: 14px; min-height: 44px; }
+        .btn-add-row, .btn-export, .btn-clear-cache { padding: 10px 15px; font-size: 14px; min-height: 44px; }
         .content-container { padding: 0 8px; }
         .bill-table th:nth-child(1), .bill-table td:nth-child(1) { width: 40px; }
         .bill-table th:nth-child(2), .bill-table td:nth-child(2) { width: 40%; }
@@ -132,7 +155,10 @@
 
 {% block content %}
 <div class="content-container">
-    <h1 class="mb-3">出车登记工具（表格版）</h1>
+    <div class="header-bar">
+        <h1>出车登记工具（表格版）</h1>
+        <button class="btn-clear-cache" onclick="clearCache()">清除缓存</button>
+    </div>
     <button class="btn-add-row" onclick="addBlankRow()">新增空白行</button>
 
     <div class="table-responsive">
@@ -164,6 +190,93 @@
 
 {% block extra_js %}
 <script>
+    // ========== 缓存相关 ==========
+    const STORAGE_KEY = 'out_car_register_data';
+    let saveTimeout = null;
+
+    // 防抖保存（500ms）
+    function debouncedSave() {
+        if (saveTimeout) clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(() => {
+            saveState();
+            saveTimeout = null;
+        }, 500);
+    }
+
+    // 保存状态到 localStorage
+    function saveState() {
+        const rows = [];
+        document.querySelectorAll('#bill-tbody tr').forEach(tr => {
+            const nameInput = tr.querySelector('.customer-name-input');
+            const amountInput = tr.querySelector('.amount-input');
+            rows.push({
+                name: nameInput ? nameInput.value : '',
+                amount: amountInput ? amountInput.value : '0.00'
+            });
+        });
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(rows));
+    }
+
+    // 从 localStorage 加载状态
+    function loadState() {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (!stored) return false;
+        try {
+            const rows = JSON.parse(stored);
+            if (!rows || rows.length === 0) return false;
+            // 清空表格
+            const tbody = document.getElementById('bill-tbody');
+            tbody.innerHTML = '';
+            rowIdCounter = 0;
+            // 重建行
+            rows.forEach(rowData => {
+                const tr = createRowFromData(rowData.name, rowData.amount);
+                tbody.appendChild(tr);
+            });
+            updateRowNumbers();
+            calcTotalAmount();
+            return true;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // 根据数据创建行（不触发保存）
+    function createRowFromData(name, amount) {
+        rowIdCounter++;
+        const tr = document.createElement('tr');
+        tr.dataset.rowId = rowIdCounter;
+        tr.innerHTML = `
+            <td class="serial-cell">${document.getElementById('bill-tbody').children.length + 1}</td>
+            <td></td>
+            <td></td>
+            <td><button class="btn-del" onclick="deleteRow(this)">删除</button></td>
+        `;
+        const nameInput = createInputElement('text', 'customer-name-input', '客户名称/拼音', name);
+        const amountInput = createInputElement('text', 'amount-input', '金额', amount);
+        tr.cells[1].appendChild(nameInput);
+        tr.cells[2].appendChild(amountInput);
+        return tr;
+    }
+
+    // 清除缓存并重置表格
+    function clearCache() {
+        if (!confirm('确定要清除所有缓存数据吗？当前输入将被清空。')) return;
+        localStorage.removeItem(STORAGE_KEY);
+        // 重置表格为5行空白行
+        const tbody = document.getElementById('bill-tbody');
+        tbody.innerHTML = '';
+        rowIdCounter = 0;
+        for (let i = 0; i < 5; i++) {
+            addBlankRow(true); // 不触发保存
+        }
+        saveState(); // 保存空状态
+        updateRowNumbers();
+        calcTotalAmount();
+        const firstInput = document.querySelector('#bill-tbody .customer-name-input');
+        if (firstInput) firstInput.focus();
+    }
+
     // ========== 全局变量 ==========
     let rowIdCounter = 0;
     let suggestBox = null;
@@ -281,6 +394,7 @@
         currentCustomerInput.focus();
         const len = currentCustomerInput.value.length;
         currentCustomerInput.setSelectionRange(len, len);
+        debouncedSave(); // 选择后保存
     }
 
     function customerGoToPage(delta) {
@@ -345,7 +459,7 @@
     // ========== 表格操作 ==========
     function createInputElement(type, className, placeholder, value = '') {
         const input = document.createElement('input');
-        input.type = 'text';   // 所有输入框均为文本类型
+        input.type = 'text';
         input.className = className;
         input.placeholder = placeholder;
         input.value = value;
@@ -354,6 +468,7 @@
         if (className === 'customer-name-input') {
             input.addEventListener('input', function() {
                 debouncedCustomerSearch(this);
+                debouncedSave(); // 输入时保存
             });
             input.addEventListener('blur', function(e) {
                 setTimeout(() => {
@@ -362,11 +477,10 @@
                 }, 200);
             });
         } else if (className === 'amount-input') {
-            // 金额输入框：输入时更新总额
             input.addEventListener('input', function() {
                 calcTotalAmount();
+                debouncedSave(); // 输入时保存
             });
-            // 失去焦点时尝试格式化为数字（若无效则置0）
             input.addEventListener('blur', function() {
                 let val = this.value.trim();
                 if (val === '') val = '0';
@@ -374,36 +488,38 @@
                 if (isNaN(num) || num < 0) num = 0;
                 this.value = num.toFixed(2);
                 calcTotalAmount();
+                debouncedSave();
             });
         }
 
-        // 所有输入框统一绑定键盘事件
         input.addEventListener('keydown', handleInputKeydown);
-
         return input;
     }
 
-    function addBlankRow(returnRow = false) {
-    const tbody = document.getElementById('bill-tbody');
-    const rowCount = tbody.children.length; // 不再限制
+    function addBlankRow(returnRow = false, skipSave = false) {
+        const tbody = document.getElementById('bill-tbody');
+        const rowCount = tbody.children.length;
 
-    rowIdCounter++;
-    const tr = document.createElement('tr');
-    tr.dataset.rowId = rowIdCounter;
-    tr.innerHTML = `
-        <td class="serial-cell">${rowCount + 1}</td>
-        <td></td>
-        <td></td>
-        <td><button class="btn-del" onclick="deleteRow(this)">删除</button></td>
-    `;
-    tr.cells[1].appendChild(createInputElement('text', 'customer-name-input', '客户名称/拼音'));
-    tr.cells[2].appendChild(createInputElement('text', 'amount-input', '金额', '0.00'));
+        rowIdCounter++;
+        const tr = document.createElement('tr');
+        tr.dataset.rowId = rowIdCounter;
+        tr.innerHTML = `
+            <td class="serial-cell">${rowCount + 1}</td>
+            <td></td>
+            <td></td>
+            <td><button class="btn-del" onclick="deleteRow(this)">删除</button></td>
+        `;
+        const nameInput = createInputElement('text', 'customer-name-input', '客户名称/拼音');
+        const amountInput = createInputElement('text', 'amount-input', '金额', '0.00');
+        tr.cells[1].appendChild(nameInput);
+        tr.cells[2].appendChild(amountInput);
 
-    tbody.appendChild(tr);
-    updateRowNumbers();
-    calcTotalAmount();
-    if (returnRow) return tr;
-}
+        tbody.appendChild(tr);
+        updateRowNumbers();
+        calcTotalAmount();
+        if (!skipSave) debouncedSave();
+        if (returnRow) return tr;
+    }
 
     function deleteRow(btn) {
         const tr = btn.closest('tr');
@@ -412,6 +528,7 @@
         tr.remove();
         updateRowNumbers();
         calcTotalAmount();
+        debouncedSave();
     }
 
     function updateRowNumbers() {
@@ -437,7 +554,7 @@
         const trIdx = allTr.indexOf(tr);
         const inputs = tr.querySelectorAll('input');
         const idx = Array.from(inputs).indexOf(input);
-        const colCount = inputs.length; // 每行2个输入框
+        const colCount = inputs.length;
 
         let target;
         if (direction === 'ArrowLeft' || direction === 'ArrowRight') {
@@ -468,12 +585,10 @@
         const inputs = tr.querySelectorAll('input');
         const idx = Array.from(inputs).indexOf(input);
         if (idx < inputs.length - 1) {
-            // 不在最后一列 → 跳到下一列（金额列）
             const target = inputs[idx + 1];
             target.focus();
             target.select();
         } else {
-            // 在最后一列（金额）→ 新增行并聚焦到新行的名称列
             const newTr = addBlankRow(true);
             if (newTr) {
                 const target = newTr.querySelector('.customer-name-input');
@@ -547,9 +662,18 @@
     // ========== 初始化 ==========
     window.onload = function() {
         initSuggestBox();
-        for (let i = 0; i < 5; i++) {
-            addBlankRow();
+        // 尝试加载缓存
+        const hasCache = loadState();
+        if (!hasCache) {
+            // 无缓存，默认5行空白
+            for (let i = 0; i < 5; i++) {
+                addBlankRow(false, true); // 不触发保存
+            }
+            saveState(); // 保存空状态
         }
+        // 无论是否有缓存，更新序号和总额（loadState已做，但以防万一）
+        updateRowNumbers();
+        calcTotalAmount();
         const firstInput = document.querySelector('#bill-tbody .customer-name-input');
         if (firstInput) firstInput.focus();
     };
