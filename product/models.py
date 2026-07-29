@@ -1,5 +1,5 @@
 from django.db import models, transaction
-from pypinyin import lazy_pinyin
+from pypinyin import lazy_pinyin, Style
 from django.utils import timezone
 from accounts.models import User
 from django.db.models import Q, UniqueConstraint
@@ -61,8 +61,9 @@ class Product(models.Model):
     all_objects = models.Manager()
 
     def save(self, *args, **kwargs):
-        self.pinyin_full = ''.join(lazy_pinyin(self.name, style=0))
-        self.pinyin_abbr = ''.join([p[0] for p in lazy_pinyin(self.name, style=0)])
+        pinyin_list = lazy_pinyin(self.name, style=Style.NORMAL)
+        self.pinyin_full = ''.join(pinyin_list)
+        self.pinyin_abbr = ''.join([p[0] for p in pinyin_list])
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
@@ -113,8 +114,9 @@ class ProductAlias(models.Model):
     all_objects = models.Manager()
 
     def save(self, *args, **kwargs):
-        self.alias_pinyin_full = ''.join(lazy_pinyin(self.alias_name, style=0))
-        self.alias_pinyin_abbr = ''.join([p[0] for p in lazy_pinyin(self.alias_name, style=0)])
+        pinyin_list = lazy_pinyin(self.name, style=Style.NORMAL)
+        self.pinyin_full = ''.join(pinyin_list)
+        self.pinyin_abbr = ''.join([p[0] for p in pinyin_list])
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
@@ -166,9 +168,9 @@ class Unit(models.Model):
         return self.name
 
     def save(self, *args, **kwargs):
-        # 自动生成单位名称的全拼和首字母
-        self.pinyin_full = ''.join(lazy_pinyin(self.name, style=0))
-        self.pinyin_abbr = ''.join([p[0] for p in lazy_pinyin(self.name, style=0)])
+        pinyin_list = lazy_pinyin(self.name, style=Style.NORMAL)
+        self.pinyin_full = ''.join(pinyin_list)
+        self.pinyin_abbr = ''.join([p[0] for p in pinyin_list])
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):

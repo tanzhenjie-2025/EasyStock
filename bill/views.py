@@ -262,52 +262,67 @@ def index(request):
 
     return render(request, 'bill/index.html', context)
 
+from django.db.models import Q
+
+def build_product_search_q(keyword: str) -> Q:
+    kw = keyword.strip()
+    if not kw:
+        return Q(id=-1)
+
+    # 关键修改：使用 isascii() 判断是否为纯 ASCII 字母（英文/拼音）
+    if kw.isascii() and kw.isalpha():
+        # 纯拼音/英文：全拼、首字母缩写（含别名）
+        q = (
+            Q(pinyin_full__icontains=kw) |
+            Q(pinyin_abbr__icontains=kw) |
+            Q(aliases__alias_pinyin_full__icontains=kw) |
+            Q(aliases__alias_pinyin_abbr__icontains=kw)
+        )
+        # 针对短词（≤2）增加前缀匹配加速（可选）
+        if len(kw) <= 2:
+            q |= (
+                Q(pinyin_abbr__startswith=kw) |
+                Q(aliases__alias_pinyin_abbr__startswith=kw)
+            )
+        return q
+    else:
+        # 中文或混合字符：直接匹配名称和别名
+        return Q(name__icontains=kw) | Q(aliases__alias_name__icontains=kw)
+
+from django.core.cache import cache
+import logging
+
+
 
 @login_required
 @permission_required(PERM_PRODUCT_SEARCH)
 def search_product(request):
-    """商品搜索（手动缓存版）"""
     keyword = request.GET.get('keyword', '').strip()
     customer_id = request.GET.get('customer_id', '').strip()
-
     if not keyword:
         return JsonResponse({'code': 0, 'data': []})
 
-    # 🔥 手动缓存：基础商品信息缓存
-    cache_key = f"{CACHE_PREFIX_PRODUCT_SEARCH}{keyword}"
+    cache_key = f"{CACHE_PREFIX_PRODUCT_SEARCH}_{keyword}"
     cached_products = cache.get(cache_key)
 
     if cached_products is None:
-        product_matches = Product.objects.filter(
-            Q(name__icontains=keyword) |
-            Q(pinyin_full__icontains=keyword) |
-            Q(pinyin_abbr__icontains=keyword)
-        )
-
-        alias_matches = ProductAlias.objects.filter(
-            Q(alias_name__icontains=keyword) |
-            Q(alias_pinyin_full__icontains=keyword) |
-            Q(alias_pinyin_abbr__icontains=keyword)
-        ).values_list('product_id', flat=True)
-        alias_products = Product.objects.filter(id__in=alias_matches)
-
-        all_products = (product_matches | alias_products).distinct()[:200]
-
-        cached_products = []
-        for p in all_products:
-            cached_products.append({
+        q_filter = build_product_search_q(keyword)
+        all_products = Product.objects.filter(q_filter).distinct()[:200]
+        cached_products = [
+            {
                 'id': p.id,
                 'name': p.name,
                 'standard_price': float(p.price),
                 'unit': p.unit,
                 'stock_system': p.stock_system,
-                # 👇 新增规格字段
-                'specification': p.specification
-            })
+                'specification': p.specification,
+            }
+            for p in all_products
+        ]
         cache.set(cache_key, cached_products, timeout=CACHE_PRODUCT_SEARCH)
         logger.info(f"设置商品搜索缓存: {cache_key}")
 
-    # 客户专属价查询（保留，无优化）
+    # 客户专属价查询
     customer_prices = {}
     if customer_id:
         product_ids = [item['id'] for item in cached_products]
@@ -325,9 +340,8 @@ def search_product(request):
             'standard_price': item['standard_price'],
             'unit': item['unit'],
             'stock_system': item['stock_system'],
-            'specification': item['specification']
+            'specification': item['specification'],
         })
-
     return JsonResponse({'code': 1, 'data': data})
 
 
