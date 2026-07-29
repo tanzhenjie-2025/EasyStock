@@ -3263,15 +3263,22 @@ def add_order_from_existing(request, order_no):
     # 获取原订单明细
     items = OrderItem.objects.select_related('product').filter(order=original_order)
 
-    # 构造传递给开单页的数据（复用 reopen_order_data 结构）
+    # ---- 获取制单号：优先使用订单快照，其次客户当前制单号 ----
+    order_number = original_order.order_number_snapshot
+    if not order_number and original_order.customer:
+        order_number = original_order.customer.order_number  # 假设客户模型有 order_number 字段
+    # 若仍为空则留空，前端可自行输入
+
+    # 构造传递给开单页的数据
     order_data = {
-        'order_no': original_order.order_no,          # ✅ 新增：原订单号（用于显示和JS传参）
-        'original_order_no': original_order.order_no, # 保留，明确语义（可选）
+        'order_no': original_order.order_no,
+        'original_order_no': original_order.order_no,
         'customer_id': original_order.customer_id if original_order.customer else '',
         'customer_name': original_order.customer_name_snapshot or (
             f"{original_order.area.name} | {original_order.customer.name}"
             if original_order.customer and original_order.area else ''
         ),
+        'order_number': order_number,                       # ✅ 新增：制单号
         'items': [
             {
                 'id': item.product_id if item.product else '',
@@ -3284,7 +3291,7 @@ def add_order_from_existing(request, order_no):
             }
             for item in items
         ],
-        'is_add': True,   # 前端可用此标识区分“加单”和“重开”（可选）
+        'is_add': True,   # 前端可用此标识区分“加单”和“重开”
     }
 
     context = {
