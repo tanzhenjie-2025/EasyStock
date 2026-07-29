@@ -28,4 +28,7 @@ path('api/product-order-source/<int:product_id>/', views.get_product_order_sourc
 path('tag-list/', views.tag_list, name='tag_list'),
 path('user-list/', views.user_list, name='user_list'),
 
+    path('out-car-register/', views.out_car_register, name='out_car_register'),
+    path('export-excel/', views.export_excel, name='export_excel'),
+
 ]

@@ -801,3 +801,191 @@ def tag_list(request):
     tags = ProductTag.objects.filter(is_active=True).order_by('sort_order', 'id')
     data = [{'id': t.id, 'name': t.name, 'color': t.color} for t in tags]
     return JsonResponse(data, safe=False)
+
+
+from openpyxl import Workbook
+from openpyxl.styles import Border, Side
+from django.http import HttpResponse, JsonResponse
+from django.contrib.auth.decorators import login_required
+import json
+from django.shortcuts import render
+
+
+@login_required
+def out_car_register(request):
+    """出车登记工具页面"""
+    return render(request, 'summary/out_car_register.html')
+
+
+@login_required
+def export_excel(request):
+    """导出出车登记数据为 Excel（重名合并、分栏、紧凑列宽、总计、右侧信息列）"""
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
+
+    try:
+        data = json.loads(request.body)
+        rows = data.get('rows', [])
+        if not rows:
+            return JsonResponse({'code': 0, 'msg': '无数据可导出'})
+    except:
+        return JsonResponse({'code': 0, 'msg': '数据格式错误'})
+
+    # ---------- 辅助函数：提取客户名称（去掉"|"及之前） ----------
+    def extract_name(raw):
+        if '|' in raw:
+            return raw.split('|', 1)[1].strip()
+        return raw.strip()
+
+    # ---------- 1. 合并重名，累加金额 ----------
+    merged = {}
+    order = []   # 保持首次出现顺序
+    for row in rows:
+        raw_name = row.get('customer_name', '')
+        name = extract_name(raw_name)
+        amount = row.get('amount', 0)
+        if not isinstance(amount, (int, float)):
+            amount = 0
+        if name not in merged:
+            merged[name] = 0
+            order.append(name)
+        merged[name] += amount
+
+    # 构造最终数据列表
+    processed = [{'name': name, 'amount': merged[name]} for name in order]
+
+    # 计算总金额
+    total_amount = sum(item['amount'] for item in processed)
+
+    n = len(processed)
+    limit = 30  # 左侧最大行数
+
+    # ---------- 创建工作簿 ----------
+    wb = Workbook()
+    ws = wb.active
+    ws.title = '出车登记'
+
+    # 表头
+    headers = ['序号', '客户名称', '客户金额', '备注']
+
+    # ---------- 2. 写入表头（左侧 A~D，右侧 E~H） ----------
+    for col_idx, header in enumerate(headers, start=1):
+        ws.cell(row=1, column=col_idx, value=header)
+    for col_idx, header in enumerate(headers, start=5):
+        ws.cell(row=1, column=col_idx, value=header)
+
+    # ---------- 3. 写入数据 ----------
+    # 左侧数据：前 limit 行
+    left_rows = processed[:limit]
+    left_total = 0
+    for i, item in enumerate(left_rows, start=1):
+        row_num = i + 1
+        ws.cell(row=row_num, column=1, value=i)
+        ws.cell(row=row_num, column=2, value=item['name'])
+        ws.cell(row=row_num, column=3, value=item['amount'])
+        ws.cell(row=row_num, column=4, value='')
+        left_total += item['amount']
+
+    # 左侧总计行（如果左侧有数据）
+    if left_rows:
+        row_num = len(left_rows) + 2
+        ws.cell(row=row_num, column=1, value='总计')
+        ws.cell(row=row_num, column=3, value=left_total)
+
+    # 右侧数据：第 limit+1 行及以后
+    right_rows = processed[limit:]
+    right_total = 0
+    if right_rows:
+        for i, item in enumerate(right_rows, start=1):
+            row_num = i + 1
+            seq = limit + i
+            ws.cell(row=row_num, column=5, value=seq)
+            ws.cell(row=row_num, column=6, value=item['name'])
+            ws.cell(row=row_num, column=7, value=item['amount'])
+            ws.cell(row=row_num, column=8, value='')
+            right_total += item['amount']
+
+        # 右侧总计行
+        row_num = len(right_rows) + 2
+        ws.cell(row=row_num, column=5, value='总计')
+        ws.cell(row=row_num, column=7, value=right_total)
+
+    # ---------- 4. 右侧信息列（I列） ----------
+    # 计算起始行：从右侧数据（含总计）的下方空一行开始
+    right_data_row_count = len(right_rows) + (1 if right_rows else 0)  # 数据行 + 总计行（如果有）
+    # 如果右侧没有数据，则从左侧数据下方开始
+    if right_rows:
+        start_row = right_data_row_count + 3  # 表头占1行，数据行数 + 总计行 + 1空行 + 1偏移？实际计算：
+        # 右侧数据从第2行开始，如果有 right_data_row_count 行（包括总计），则最后一行行号 = 1 + right_data_row_count
+        # 所以起始行 = 1 + right_data_row_count + 1（空行） + 1（再向下移一行）？为了美观，从 right_data_row_count + 2 行开始（即数据结束后的下一行）
+        # 更准确：
+        last_data_row = 1 + right_data_row_count  # 最后数据行（包括总计）
+        start_row = last_data_row + 2  # 空一行再写信息
+    else:
+        # 左侧数据行数 + 总计行（如果有）
+        left_data_row_count = len(left_rows) + (1 if left_rows else 0)
+        last_data_row = 1 + left_data_row_count
+        start_row = last_data_row + 2
+
+    # 信息项（标签和值合并为字符串，总金额留空）
+    info_items = [
+        '路线',
+        '总金额',      # 不填值
+        '退货',
+        '司机',
+        '搭档',
+        '零钱:200元',
+        '实金额',
+        '补贴',
+        '时间'
+    ]
+
+    for idx, label in enumerate(info_items):
+        row = start_row + idx
+        # 如果 label 是 '总金额'，只写标签，不写值
+        if label == '总金额':
+            ws.cell(row=row, column=9, value='总金额')
+        else:
+            ws.cell(row=row, column=9, value=label)
+
+    # ---------- 5. 设置列宽（紧凑） ----------
+    col_widths = {
+        1: 6,   # 序号
+        2: 14,  # 客户名称
+        3: 10,  # 金额
+        4: 8,   # 备注
+        5: 6,   # 序号(右)
+        6: 14,  # 客户名称(右)
+        7: 10,  # 金额(右)
+        8: 8,   # 备注(右)
+        9: 15,  # 信息列
+    }
+    for col, width in col_widths.items():
+        ws.column_dimensions[chr(64 + col)].width = width
+
+    # ---------- 6. 添加边框（所有有数据的单元格） ----------
+    # 计算最大行：信息列最后一行
+    max_row = start_row + len(info_items) - 1
+    # 确保覆盖数据区
+    max_row = max(max_row, 1 + max(len(left_rows), len(right_rows)) + 2)  # 加2考虑到总计行
+    thin_border = Border(
+        left=Side(style='thin'),
+        right=Side(style='thin'),
+        top=Side(style='thin'),
+        bottom=Side(style='thin')
+    )
+    for row in ws.iter_rows(min_row=1, max_row=max_row, min_col=1, max_col=9):
+        for cell in row:
+            if cell.value is not None:
+                cell.border = thin_border
+
+    # ---------- 7. 页面横向 ----------
+    ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+
+    # ---------- 8. 返回 ----------
+    response = HttpResponse(
+        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+    response['Content-Disposition'] = 'attachment; filename=出车登记.xlsx'
+    wb.save(response)
+    return response

@@ -1,0 +1,562 @@
+{% extends "base.html" %}
+
+{% block title %}出车登记工具（表格版） - EasyStock{% endblock %}
+
+{% block extra_css %}
+<style>
+    body { font-family: "Microsoft YaHei", sans-serif; margin: 0; }
+    .content-container {
+        max-width: 1000px;
+        margin: 20px auto;
+        padding: 0 15px;
+    }
+    .btn-add-row {
+        padding: 8px 20px;
+        font-size: 16px;
+        cursor: pointer;
+        background: #0066cc;
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        margin-bottom: 10px;
+    }
+    .btn-add-row:hover { background: #0055bb; }
+
+    .bill-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 20px;
+        table-layout: fixed;
+    }
+    .bill-table th, .bill-table td {
+        border: 1px solid #000;
+        padding: 8px;
+        text-align: center;
+        position: relative;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .bill-table th:nth-child(1), .bill-table td:nth-child(1) { width: 60px; } /* 序号 */
+    .bill-table th:nth-child(2), .bill-table td:nth-child(2) { width: 50%; } /* 客户名称 */
+    .bill-table th:nth-child(3), .bill-table td:nth-child(3) { width: 30%; } /* 客户金额 */
+    .bill-table th:nth-child(4), .bill-table td:nth-child(4) { width: 80px; } /* 操作 */
+
+    .bill-table th { background: #e9e9e9; font-weight: bold; }
+    .bill-table input {
+        width: 95%;
+        padding: 6px;
+        text-align: center;
+        border: 1px solid #ddd;
+        border-radius: 3px;
+        font-size: 14px;
+        outline: none;
+    }
+    .bill-table input:focus { border-color: #0066cc; }
+    .serial-cell { font-weight: bold; color: #666; }
+    .btn-del {
+        padding: 4px 8px;
+        background: #ff4400;
+        color: #fff;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 12px;
+    }
+    .btn-del:hover { background: #dd3300; }
+    .total-row { background: #f0f0f0; font-weight: bold; }
+
+    /* 客户搜索建议框 */
+    .suggest-dropdown {
+        position: absolute;
+        top: 100%; left: 0;
+        min-width: 300px;
+        max-width: 500px;
+        background: #fff;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        z-index: 9999;
+        font-size: 14px;
+        text-align: left;
+        white-space: nowrap;
+        overflow: hidden;
+    }
+    .suggest-dropdown div {
+        padding: 6px 12px;
+        cursor: pointer;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        overflow: hidden;
+    }
+    .suggest-dropdown div:hover,
+    .suggest-dropdown div.active {
+        background: #0066cc;
+        color: #fff;
+    }
+
+    .btn-group { margin: 20px 0; }
+    .btn-export {
+        background: #28a745;
+        color: #fff;
+        border: none;
+        padding: 10px 20px;
+        font-size: 16px;
+        cursor: pointer;
+        border-radius: 4px;
+    }
+    .btn-export:hover { background: #218838; }
+
+    @media print {
+        .navbar, .btn-add-row, .btn-group, .suggest-dropdown { display: none !important; }
+        .bill-table input { border: none; }
+        .btn-del { display: none; }
+    }
+
+    .table-responsive {
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    @media (max-width: 576px) {
+        .bill-table { font-size: 12px; }
+        .bill-table input { font-size: 12px; padding: 4px; }
+        .btn-add-row, .btn-export { padding: 10px 15px; font-size: 14px; min-height: 44px; }
+        .content-container { padding: 0 8px; }
+        .bill-table th:nth-child(1), .bill-table td:nth-child(1) { width: 40px; }
+        .bill-table th:nth-child(2), .bill-table td:nth-child(2) { width: 40%; }
+        .bill-table th:nth-child(3), .bill-table td:nth-child(3) { width: 30%; }
+        .bill-table th:nth-child(4), .bill-table td:nth-child(4) { width: 50px; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="content-container">
+    <h1 class="mb-3">出车登记工具（表格版）</h1>
+    <button class="btn-add-row" onclick="addBlankRow()">新增空白行</button>
+
+    <div class="table-responsive">
+        <table class="bill-table" id="bill-table">
+            <thead>
+                <tr>
+                    <th>序号</th>
+                    <th>客户名称</th>
+                    <th>客户金额（¥）</th>
+                    <th>操作</th>
+                </tr>
+            </thead>
+            <tbody id="bill-tbody"></tbody>
+            <tfoot>
+                <tr class="total-row">
+                    <td colspan="2" align="right">总金额：</td>
+                    <td id="total-amount">¥0.00</td>
+                    <td></td>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+
+    <div class="btn-group">
+        <button class="btn-export" onclick="exportExcel()">导出 Excel</button>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // ========== 全局变量 ==========
+    let rowIdCounter = 0;
+    let suggestBox = null;
+    let currentCustomerInput = null;
+    let currentCustomerList = [];
+    let customerSuggestCurrentPage = 0;
+    const CUSTOMER_SUGGEST_PAGE_SIZE = 8;
+
+    // ========== 初始化建议框 ==========
+    function initSuggestBox() {
+        suggestBox = document.createElement('div');
+        suggestBox.className = 'suggest-dropdown';
+        document.body.appendChild(suggestBox);
+    }
+    function hideSuggest() {
+        if (suggestBox) suggestBox.style.display = 'none';
+        currentCustomerInput = null;
+        currentCustomerList = [];
+    }
+    function hideAllSuggest(e) {
+        if (e && e.target.closest('.suggest-dropdown')) return;
+        if (e && e.target.classList.contains('customer-name-input')) return;
+        hideSuggest();
+    }
+    window.addEventListener('click', hideAllSuggest);
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') hideSuggest();
+    });
+
+    // ========== 防抖 ==========
+    function debounce(func, delay = 500) {
+        let timeoutId;
+        return function(...args) {
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(() => func.apply(this, args), delay);
+        };
+    }
+    const debouncedCustomerSearch = debounce(onCustomerInput, 500);
+
+    // ========== 客户搜索 ==========
+    async function onCustomerInput(input) {
+        const keyword = input.value.trim();
+        if (!keyword) { hideSuggest(); return; }
+        currentCustomerInput = input;
+        customerSuggestCurrentPage = 0;
+        try {
+            const res = await fetch(`/bill/search-customer/?keyword=${encodeURIComponent(keyword)}`);
+            const data = await res.json();
+            if (data.code === 1 && data.data.length > 0) {
+                currentCustomerList = data.data;
+                showCustomerSuggest(input, data.data);
+            } else { hideSuggest(); }
+        } catch (e) { hideSuggest(); }
+    }
+
+    function showCustomerSuggest(input, list) {
+        const rect = input.getBoundingClientRect();
+        suggestBox.innerHTML = '';
+
+        const totalPages = Math.ceil(list.length / CUSTOMER_SUGGEST_PAGE_SIZE);
+        if (customerSuggestCurrentPage >= totalPages) {
+            customerSuggestCurrentPage = Math.max(0, totalPages - 1);
+        }
+
+        const start = customerSuggestCurrentPage * CUSTOMER_SUGGEST_PAGE_SIZE;
+        const end = Math.min(start + CUSTOMER_SUGGEST_PAGE_SIZE, list.length);
+
+        for (let i = start; i < end; i++) {
+            const item = list[i];
+            const div = document.createElement('div');
+            div.textContent = `${(i - start) + 1} ${item.full_name}`;
+            div.dataset.index = i;
+            div.onclick = () => selectCustomerItem(i);
+            suggestBox.appendChild(div);
+        }
+
+        if (totalPages > 1) {
+            const navDiv = document.createElement('div');
+            navDiv.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:4px 8px; font-size:12px; color:#666; background:#f8f9fa;';
+            const prevBtn = document.createElement('button');
+            prevBtn.textContent = '◀ 上页';
+            prevBtn.style.cssText = 'padding:2px 8px; font-size:12px; cursor:pointer; border:1px solid #ccc; background:#fff; border-radius:3px;';
+            prevBtn.onclick = (e) => { e.stopPropagation(); customerGoToPage(-1); };
+            if (customerSuggestCurrentPage === 0) prevBtn.disabled = true;
+            navDiv.appendChild(prevBtn);
+
+            const pageText = document.createElement('span');
+            pageText.textContent = `${customerSuggestCurrentPage+1}/${totalPages}`;
+            navDiv.appendChild(pageText);
+
+            const nextBtn = document.createElement('button');
+            nextBtn.textContent = '下页 ▶';
+            nextBtn.style.cssText = 'padding:2px 8px; font-size:12px; cursor:pointer; border:1px solid #ccc; background:#fff; border-radius:3px;';
+            nextBtn.onclick = (e) => { e.stopPropagation(); customerGoToPage(1); };
+            if (customerSuggestCurrentPage >= totalPages - 1) nextBtn.disabled = true;
+            navDiv.appendChild(nextBtn);
+            suggestBox.appendChild(navDiv);
+        }
+
+        suggestBox.style.display = 'block';
+        suggestBox.style.left = rect.left + 'px';
+        let top = rect.bottom + window.scrollY;
+        const height = suggestBox.offsetHeight;
+        if (rect.bottom + height > window.innerHeight && rect.top - height > 0) {
+            top = rect.top + window.scrollY - height;
+        }
+        suggestBox.style.top = top + 'px';
+    }
+
+    function selectCustomerItem(index) {
+        const item = currentCustomerList[index];
+        if (!item || !currentCustomerInput) return;
+        currentCustomerInput.value = item.full_name;
+        hideSuggest();
+        currentCustomerInput.focus();
+        const len = currentCustomerInput.value.length;
+        currentCustomerInput.setSelectionRange(len, len);
+    }
+
+    function customerGoToPage(delta) {
+        if (!currentCustomerList.length || !currentCustomerInput) return;
+        const totalPages = Math.ceil(currentCustomerList.length / CUSTOMER_SUGGEST_PAGE_SIZE);
+        const newPage = customerSuggestCurrentPage + delta;
+        if (newPage >= 0 && newPage < totalPages) {
+            customerSuggestCurrentPage = newPage;
+            showCustomerSuggest(currentCustomerInput, currentCustomerList);
+            currentCustomerInput.focus();
+        }
+    }
+
+    // ========== 通用键盘事件处理（适用于所有输入框） ==========
+    function handleInputKeydown(e) {
+        const input = e.target;
+        // 客户名称输入框的搜索建议快捷键
+        if (input.classList.contains('customer-name-input') && currentCustomerList.length > 0) {
+            e.stopImmediatePropagation();
+            if (e.key === '=' || e.key === '+') {
+                e.preventDefault();
+                customerGoToPage(1);
+                return;
+            }
+            if (e.key === '-' || e.key === '_') {
+                e.preventDefault();
+                customerGoToPage(-1);
+                return;
+            }
+            if (e.key === ' ') {
+                e.preventDefault();
+                selectCustomerItem(customerSuggestCurrentPage * CUSTOMER_SUGGEST_PAGE_SIZE);
+                return;
+            }
+            const num = parseInt(e.key);
+            if (!isNaN(num) && num >= 1 && num <= CUSTOMER_SUGGEST_PAGE_SIZE) {
+                const absoluteIndex = customerSuggestCurrentPage * CUSTOMER_SUGGEST_PAGE_SIZE + (num - 1);
+                if (absoluteIndex < currentCustomerList.length) {
+                    e.preventDefault();
+                    selectCustomerItem(absoluteIndex);
+                }
+                return;
+            }
+            if (e.key === 'Escape') {
+                hideSuggest();
+                return;
+            }
+        }
+
+        // 通用导航
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleEnterKey(input);
+            return;
+        }
+        if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+            e.preventDefault();
+            navigateInTable(input, e.key);
+        }
+    }
+
+    // ========== 表格操作 ==========
+    function createInputElement(type, className, placeholder, value = '') {
+        const input = document.createElement('input');
+        input.type = 'text';   // 所有输入框均为文本类型
+        input.className = className;
+        input.placeholder = placeholder;
+        input.value = value;
+        input.autocomplete = 'off';
+
+        if (className === 'customer-name-input') {
+            input.addEventListener('input', function() {
+                debouncedCustomerSearch(this);
+            });
+            input.addEventListener('blur', function(e) {
+                setTimeout(() => {
+                    if (suggestBox && suggestBox.contains(document.activeElement)) return;
+                    hideSuggest();
+                }, 200);
+            });
+        } else if (className === 'amount-input') {
+            // 金额输入框：输入时更新总额
+            input.addEventListener('input', function() {
+                calcTotalAmount();
+            });
+            // 失去焦点时尝试格式化为数字（若无效则置0）
+            input.addEventListener('blur', function() {
+                let val = this.value.trim();
+                if (val === '') val = '0';
+                let num = parseFloat(val);
+                if (isNaN(num) || num < 0) num = 0;
+                this.value = num.toFixed(2);
+                calcTotalAmount();
+            });
+        }
+
+        // 所有输入框统一绑定键盘事件
+        input.addEventListener('keydown', handleInputKeydown);
+
+        return input;
+    }
+
+    function addBlankRow(returnRow = false, ignoreLimit = false) {
+        const tbody = document.getElementById('bill-tbody');
+        const rowCount = tbody.children.length;
+        if (!ignoreLimit && rowCount >= 20) {
+            alert('最多20行');
+            if (returnRow) return null;
+            return;
+        }
+
+        rowIdCounter++;
+        const tr = document.createElement('tr');
+        tr.dataset.rowId = rowIdCounter;
+        tr.innerHTML = `
+            <td class="serial-cell">${rowCount + 1}</td>
+            <td></td>
+            <td></td>
+            <td><button class="btn-del" onclick="deleteRow(this)">删除</button></td>
+        `;
+        tr.cells[1].appendChild(createInputElement('text', 'customer-name-input', '客户名称/拼音'));
+        tr.cells[2].appendChild(createInputElement('text', 'amount-input', '金额', '0.00'));
+
+        tbody.appendChild(tr);
+        updateRowNumbers();
+        calcTotalAmount();
+        if (returnRow) return tr;
+    }
+
+    function deleteRow(btn) {
+        const tr = btn.closest('tr');
+        const tbody = document.getElementById('bill-tbody');
+        if (tbody.children.length <= 1) { alert('至少保留1行'); return; }
+        tr.remove();
+        updateRowNumbers();
+        calcTotalAmount();
+    }
+
+    function updateRowNumbers() {
+        document.querySelectorAll('#bill-tbody tr').forEach((r, i) => {
+            r.querySelector('.serial-cell').textContent = i + 1;
+        });
+    }
+
+    function calcTotalAmount() {
+        let total = 0;
+        document.querySelectorAll('#bill-tbody .amount-input').forEach(input => {
+            const val = parseFloat(input.value) || 0;
+            total += val;
+        });
+        document.getElementById('total-amount').textContent = `¥${total.toFixed(2)}`;
+    }
+
+    // ========== 键盘导航 ==========
+    function navigateInTable(input, direction) {
+        const tr = input.closest('tr');
+        if (!tr) return;
+        const allTr = Array.from(document.querySelectorAll('#bill-tbody tr'));
+        const trIdx = allTr.indexOf(tr);
+        const inputs = tr.querySelectorAll('input');
+        const idx = Array.from(inputs).indexOf(input);
+        const colCount = inputs.length; // 每行2个输入框
+
+        let target;
+        if (direction === 'ArrowLeft' || direction === 'ArrowRight') {
+            let targetIdx = (direction === 'ArrowLeft') ? (idx - 1 + colCount) % colCount : (idx + 1) % colCount;
+            target = inputs[targetIdx];
+            target.focus();
+            if (target.classList.contains('amount-input')) {
+                target.select();
+            } else {
+                const len = target.value.length;
+                target.setSelectionRange(len, len);
+            }
+        } else if (direction === 'ArrowUp' || direction === 'ArrowDown') {
+            const rowCount = allTr.length;
+            let targetRowIdx = (direction === 'ArrowUp') ? (trIdx - 1 + rowCount) % rowCount : (trIdx + 1) % rowCount;
+            const targetTr = allTr[targetRowIdx];
+            const targetInputs = targetTr.querySelectorAll('input');
+            const targetIdx = Math.min(idx, targetInputs.length - 1);
+            target = targetInputs[targetIdx];
+            target.focus();
+            const len = target.value.length;
+            target.setSelectionRange(len, len);
+        }
+    }
+
+    function handleEnterKey(input) {
+        const tr = input.closest('tr');
+        const inputs = tr.querySelectorAll('input');
+        const idx = Array.from(inputs).indexOf(input);
+        if (idx < inputs.length - 1) {
+            // 不在最后一列 → 跳到下一列（金额列）
+            const target = inputs[idx + 1];
+            target.focus();
+            target.select();
+        } else {
+            // 在最后一列（金额）→ 新增行并聚焦到新行的名称列
+            const newTr = addBlankRow(true);
+            if (newTr) {
+                const target = newTr.querySelector('.customer-name-input');
+                target.focus();
+                target.setSelectionRange(0, target.value.length);
+            }
+        }
+    }
+
+    // ========== 导出 Excel ==========
+    async function exportExcel() {
+        const rows = [];
+        document.querySelectorAll('#bill-tbody tr').forEach(tr => {
+            const nameInput = tr.querySelector('.customer-name-input');
+            const amountInput = tr.querySelector('.amount-input');
+            const customerName = nameInput ? nameInput.value.trim() : '';
+            const amount = parseFloat(amountInput ? amountInput.value : 0) || 0;
+            rows.push({ customer_name: customerName, amount: amount });
+        });
+
+        const filteredRows = rows.filter(r => r.customer_name !== '' || r.amount !== 0);
+        if (filteredRows.length === 0) {
+            alert('没有数据可导出');
+            return;
+        }
+
+        const csrfToken = getCsrfToken();
+        try {
+            const response = await fetch('/summary/export-excel/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({ rows: filteredRows })
+            });
+            if (response.ok) {
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `出车登记_${new Date().toISOString().slice(0,10)}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            } else {
+                const err = await response.json();
+                alert('导出失败：' + (err.msg || '未知错误'));
+            }
+        } catch (e) {
+            alert('导出失败：' + e.message);
+        }
+    }
+
+    function getCsrfToken() {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, 10) === 'csrftoken=') {
+                    cookieValue = decodeURIComponent(cookie.substring(10));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+
+    // ========== 初始化 ==========
+    window.onload = function() {
+        initSuggestBox();
+        for (let i = 0; i < 5; i++) {
+            addBlankRow();
+        }
+        const firstInput = document.querySelector('#bill-tbody .customer-name-input');
+        if (firstInput) firstInput.focus();
+    };
+</script>
+{% endblock %}
