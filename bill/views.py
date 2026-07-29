@@ -1242,6 +1242,8 @@ def find_float_start(items_display):
         if all(items_display[start + i] is None for i in range(3)):
             return start
     return None
+# bill/views.py
+
 @login_required
 @permission_required(PERM_ORDER_REOPEN)
 def reopen_order_edit(request, order_no):
@@ -1262,6 +1264,10 @@ def reopen_order_edit(request, order_no):
             f"{original_order.area.name} | {original_order.customer.name}"
             if original_order.customer and original_order.area else ''
         ),
+        # ========== 新增：制单号快照 ==========
+        'order_number': original_order.order_number_snapshot or '',
+        # ========== 新增：重开标志，供前端添加空白行 ==========
+        'reopen': True,
         'items': [
             {
                 'id': item.product_id if item.product else '',
@@ -1280,8 +1286,7 @@ def reopen_order_edit(request, order_no):
         'is_super_admin': is_super_admin,
         'reopen_order_data': order_data,
     }
-    context.update(get_sort_context())   # 注入排序数据
-
+    context.update(get_sort_context())
     return render(request, 'bill/index.html', context)
 
 @ajax_login_required

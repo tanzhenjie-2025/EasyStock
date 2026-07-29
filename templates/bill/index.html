@@ -2411,6 +2411,14 @@ if (lastRow) {
             addBlankRow();
         }
     }
+    
+    {% if reopen_order_data %}
+    // ... 填充客户、制单号、商品行的代码保持不变 ...
+    // ========== 重开时额外添加3行空白行 ==========
+    for (let i = 0; i < 3; i++) {
+        addBlankRow();
+    }
+{% endif %}
         // 若超过16行截断
         const actualCount = getActualRowCount();
         if (actualCount > 15) {
