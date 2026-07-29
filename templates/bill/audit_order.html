@@ -475,16 +475,15 @@ $('#confirmAuditBtn').click(function() {
         case 'tab-products':
             action = 'products';
             const products = [];
-            $('#productTableBody tr').each(function() {
-                const $row = $(this);
-                if (!$row.find('.product-check').is(':checked')) return;
-                const name = $row.find('td:eq(1)').text().trim();
-                const unit = $row.find('td:eq(2)').text().trim();
-                const spec = $row.find('td:eq(3)').text().trim();
-                const price = $row.find('td:eq(4)').text().trim();
-                const actionType = $row.find('.prod-action').val() || 'create';
-                if (name) products.push({ name, unit, spec, price, action: actionType });
-            });
+            $('#productTableBody input.product-check:checked').each(function() {
+    const $row = $(this).closest('tr');
+    const name = $row.find('td:eq(1)').text().trim();
+    const unit = $row.find('td:eq(2)').text().trim();
+    const spec = $row.find('td:eq(3)').text().trim();
+    const price = $row.find('td:eq(4)').text().trim();
+    const actionType = $row.find('.prod-action').val() || 'create';
+    if (name) products.push({ name, unit, spec, price, action: actionType });
+});
             if (products.length === 0) {
                 $('#messageArea').html('<div class="alert alert-warning">请至少勾选一个商品进行处理</div>');
                 $btn.prop('disabled', false).text('确认审核');
