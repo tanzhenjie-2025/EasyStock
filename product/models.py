@@ -3,7 +3,22 @@ from pypinyin import lazy_pinyin, Style
 from django.utils import timezone
 from accounts.models import User
 from django.db.models import Q, UniqueConstraint
+from pypinyin import pinyin, lazy_pinyin, Style
 
+def get_pinyin_abbr(text):
+    """生成拼音首字母缩写，保留数字/英文原样，全部转为小写"""
+    parts = []
+    for ch in text:
+        if '\u4e00' <= ch <= '\u9fff':  # 中文字符
+            py = pinyin(ch, style=Style.NORMAL)[0][0]
+            parts.append(py[0])          # 首字母
+        else:
+            parts.append(ch)
+    return ''.join(parts).lower()
+
+def get_pinyin_full(text):
+    """生成全拼（连续无空格），全部小写"""
+    return ''.join(lazy_pinyin(text, style=Style.NORMAL)).lower()
 # ====================== 新增：软删除管理器 ======================
 class SoftDeleteManager(models.Manager):
     """默认只查询未删除（is_active=True）的数据"""
@@ -61,9 +76,8 @@ class Product(models.Model):
     all_objects = models.Manager()
 
     def save(self, *args, **kwargs):
-        pinyin_list = lazy_pinyin(self.name, style=Style.NORMAL)
-        self.pinyin_full = ''.join(pinyin_list)
-        self.pinyin_abbr = ''.join([p[0] for p in pinyin_list])
+        self.pinyin_full = get_pinyin_full(self.name)
+        self.pinyin_abbr = get_pinyin_abbr(self.name)
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
@@ -114,9 +128,9 @@ class ProductAlias(models.Model):
     all_objects = models.Manager()
 
     def save(self, *args, **kwargs):
-        pinyin_list = lazy_pinyin(self.name, style=Style.NORMAL)
-        self.pinyin_full = ''.join(pinyin_list)
-        self.pinyin_abbr = ''.join([p[0] for p in pinyin_list])
+        # 注意：原代码错误地用了 self.name，应使用 self.alias_name
+        self.alias_pinyin_full = get_pinyin_full(self.alias_name)
+        self.alias_pinyin_abbr = get_pinyin_abbr(self.alias_name)
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
@@ -168,9 +182,8 @@ class Unit(models.Model):
         return self.name
 
     def save(self, *args, **kwargs):
-        pinyin_list = lazy_pinyin(self.name, style=Style.NORMAL)
-        self.pinyin_full = ''.join(pinyin_list)
-        self.pinyin_abbr = ''.join([p[0] for p in pinyin_list])
+        self.pinyin_full = get_pinyin_full(self.name)
+        self.pinyin_abbr = get_pinyin_abbr(self.name)
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):
