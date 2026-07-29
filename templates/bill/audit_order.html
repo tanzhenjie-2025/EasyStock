@@ -406,14 +406,21 @@ function renderAssignOrders(unassignedOrders, allCustomers) {
     $('#assignTableBody').html(html);
 
     // 如果有建议客户，默认选中
-    $('.assign-customer-select').each(function() {
-        const orderNo = $(this).data('order');
-        // 从数据中找建议ID
-        const orderData = unassignedOrders.find(o => o.order_no === orderNo);
-        if (orderData && orderData.suggested_customer_id) {
-            $(this).val(orderData.suggested_customer_id);
+    // 如果有建议客户，默认选中（增加触发 change 事件）
+$('.assign-customer-select').each(function() {
+    const orderNo = $(this).data('order');
+    const orderData = unassignedOrders.find(o => o.order_no === orderNo);
+    if (orderData && orderData.suggested_customer_id) {
+        const $select = $(this);
+        // 检查选项是否存在
+        if ($select.find('option[value="' + orderData.suggested_customer_id + '"]').length) {
+            $select.val(orderData.suggested_customer_id).trigger('change');
+        } else {
+            // 若选项不存在（理论上不会发生），可选：追加选项
+            console.warn('建议客户ID ' + orderData.suggested_customer_id + ' 不在下拉列表中');
         }
-    });
+    }
+});
 }
 
 function bindCheckboxEvents() {
@@ -546,27 +553,22 @@ $('#confirmAuditBtn').click(function() {
             
         case 'tab-assign':
     action = 'assign';
-    // 收集每个勾选订单的客户选择
     const assignments = {};
-    let valid = true;
+    const unassignedOrdersData = auditData.unassigned_orders || [];
     $('.assign-check:checked').each(function() {
         const orderNo = this.value;
         const $row = $(this).closest('tr');
-        const customerId = $row.find('.assign-customer-select').val();
+        let customerId = $row.find('.assign-customer-select').val();
         if (!customerId) {
-            valid = false;
-            $('#messageArea').html(`<div class="alert alert-danger">订单 ${orderNo} 未选择归属客户</div>`);
-            $btn.prop('disabled', false).text('确认审核');
-            return false;
+            const orderData = unassignedOrdersData.find(o => o.order_no === orderNo);
+            if (orderData && orderData.suggested_customer_id) {
+                customerId = orderData.suggested_customer_id;
+            }
         }
-        assignments[orderNo] = parseInt(customerId, 10);
+        if (customerId) {
+            assignments[orderNo] = parseInt(customerId, 10);
+        }
     });
-    if (!valid) return;
-    if (Object.keys(assignments).length === 0) {
-        $('#messageArea').html('<div class="alert alert-warning">请至少勾选一个订单进行归属</div>');
-        $btn.prop('disabled', false).text('确认审核');
-        return;
-    }
     payload = { assignments: assignments };
     break;
 

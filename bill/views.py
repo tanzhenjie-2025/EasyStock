@@ -2920,13 +2920,15 @@ def _audit_assign_orders(assignments):
     clear_order_cache()  # 如果未定义可注释
     return JsonResponse({'code': 1, 'msg': f'成功归属 {updated_count} 个订单'})
 
+from django.db.models import Q  # 确保顶部已导入
+
 @never_cache
 @login_required
 @permission_required(PERM_ORDER_CREATE)
 def audit_orders_preview(request):
     """
     审核预览：将未审核订单分为四类，并检测新区域/客户/商品/价格冲突。
-    增加：已审核但无区域的订单（用于重新审核）
+    增加：已审核但无区域或客户归属的订单（用于重新审核）
     增加：未关联客户的未审核订单（用于订单归属）
     """
     if request.method not in ('GET', 'POST'):
@@ -2938,8 +2940,12 @@ def audit_orders_preview(request):
         .prefetch_related('items') \
         .order_by('-create_time')
 
-    # ---------- 2. 已审核但无区域的订单（重新审核候选） ----------
-    reaudit_orders_qs = Order.objects.filter(is_verified=True, area__isnull=True).exclude(status='cancelled') \
+    # ---------- 2. 已审核但无区域或客户归属的订单（重新审核候选） ----------
+    # 🔥 修改点：增加 Q(customer__isnull=True) 条件
+    reaudit_orders_qs = Order.objects.filter(
+        Q(area__isnull=True) | Q(customer__isnull=True),  # 位置参数
+        is_verified=True  # 关键字参数
+    ).exclude(status='cancelled') \
         .select_related('area') \
         .prefetch_related('items') \
         .order_by('-create_time')
@@ -3081,7 +3087,7 @@ def audit_orders_preview(request):
                 'order_numbers': ', '.join(set(info['order_numbers'])) if info['order_numbers'] else ''
             })
 
-    # ---------- 已审核无区域订单（重新审核候选） ----------
+    # ---------- 已审核无区域或客户归属的订单（重新审核候选） ----------
     reaudit_orders = []
     for order in reaudit_orders_qs:
         reaudit_orders.append({
