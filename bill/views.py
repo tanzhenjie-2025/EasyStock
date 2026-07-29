@@ -2891,6 +2891,35 @@ def _audit_reaudit_orders(reaudit_order_nos):
     clear_order_cache()
     return JsonResponse({'code': 1, 'msg': f'成功将 {count} 个订单标记为重新审核'})
 
+def _audit_assign_orders(assignments):
+    """
+    批量归属订单到客户
+    assignments: dict {order_no: customer_id}
+    """
+    if not assignments:
+        return JsonResponse({'code': 0, 'msg': '未提供归属数据'})
+
+    # 获取所有客户ID映射
+    customer_ids = set(assignments.values())
+    customers = Customer.objects.filter(id__in=customer_ids, is_active=True)
+    customer_dict = {c.id: c for c in customers}
+    missing_ids = customer_ids - set(customer_dict.keys())
+    if missing_ids:
+        return JsonResponse({'code': 0, 'msg': f'以下客户不存在或已禁用: {", ".join(map(str, missing_ids))}'})
+
+    # 批量更新订单
+    updated_count = 0
+    with transaction.atomic():
+        for order_no, cust_id in assignments.items():
+            order = Order.objects.filter(order_no=order_no, is_verified=False, customer__isnull=True).first()
+            if order:
+                order.customer = customer_dict[cust_id]
+                order.save(update_fields=['customer'])
+                updated_count += 1
+
+    clear_order_cache()  # 如果未定义可注释
+    return JsonResponse({'code': 1, 'msg': f'成功归属 {updated_count} 个订单'})
+
 @never_cache
 @login_required
 @permission_required(PERM_ORDER_CREATE)
@@ -2898,6 +2927,7 @@ def audit_orders_preview(request):
     """
     审核预览：将未审核订单分为四类，并检测新区域/客户/商品/价格冲突。
     增加：已审核但无区域的订单（用于重新审核）
+    增加：未关联客户的未审核订单（用于订单归属）
     """
     if request.method not in ('GET', 'POST'):
         return JsonResponse({'code': 0, 'msg': '仅支持GET/POST'})
@@ -3061,6 +3091,55 @@ def audit_orders_preview(request):
             'create_time': order.create_time.strftime('%Y-%m-%d %H:%M'),
         })
 
+    # ---------- 订单归属：未关联客户的未审核订单 ----------
+    unassigned_orders = []
+    # 未审核且客户为空（且未作废）
+    unverified_unassigned = Order.objects.filter(
+        is_verified=False,
+        customer__isnull=True
+    ).exclude(status='cancelled').select_related('area').order_by('-create_time')
+
+    # 获取所有活跃客户用于前端下拉（同时用于建议匹配）
+    all_customers = Customer.objects.filter(is_active=True).values('id', 'name', 'area__name')
+    all_customer_id_map = {}  # 用于快速按 name + area_name 查找客户 id
+    for c in all_customers:
+        area_name = c['area__name'] or ''
+        key = (c['name'], area_name)
+        all_customer_id_map[key] = c['id']
+
+    for order in unverified_unassigned:
+        raw_customer = order.customer_name_snapshot or ''
+        area_name = order.area.name if order.area else ''
+        # 解析快照
+        parsed_area, pure_name = parse_customer_name(raw_customer, area_name)
+        final_area = parsed_area or area_name
+        # 尝试匹配建议客户
+        suggested_id = None
+        suggested_name = None
+        if pure_name:
+            key = (pure_name, final_area)
+            if key in all_customer_id_map:
+                suggested_id = all_customer_id_map[key]
+                # 获取客户名称（从 all_customers 中取）
+                for c in all_customers:
+                    if c['id'] == suggested_id:
+                        suggested_name = c['name']
+                        break
+
+        unassigned_orders.append({
+            'order_no': order.order_no,
+            'customer_snapshot': raw_customer,
+            'area_name': area_name,
+            'suggested_customer_id': suggested_id,
+            'suggested_customer_name': suggested_name,
+        })
+
+    # 格式化 all_customers 为前端所需结构（id, name, area）
+    all_customers_list = [
+        {'id': c['id'], 'name': c['name'], 'area': c['area__name'] or ''}
+        for c in all_customers
+    ]
+
     return JsonResponse({
         'code': 1,
         'data': {
@@ -3072,8 +3151,11 @@ def audit_orders_preview(request):
             'new_products': new_products,
             'conflict_products': conflict_products,
             'new_customers': new_customers,
-            'reaudit_orders': reaudit_orders,    # 新增
+            'reaudit_orders': reaudit_orders,
             'total_unverified': unverified_orders.count(),
+            # 新增订单归属数据
+            'unassigned_orders': unassigned_orders,
+            'all_customers': all_customers_list,
         }
     })
 
@@ -3136,6 +3218,11 @@ def audit_orders_confirm(request):
         if not reaudit_order_nos:
             return JsonResponse({'code': 0, 'msg': '未提供重新审核订单号'})
         return _audit_reaudit_orders(reaudit_order_nos)
+    elif action == 'assign':
+        assignments = payload.get('assignments', {})
+        if not assignments:
+            return JsonResponse({'code': 0, 'msg': '未提供归属数据'})
+        return _audit_assign_orders(assignments)
 
     else:
         return JsonResponse({'code': 0, 'msg': '未知操作类型'})

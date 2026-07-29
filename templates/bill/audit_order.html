@@ -41,6 +41,7 @@
         <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-areas">新建区域</a></li>
         <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-customers">新建客户</a></li>
         <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-reaudit">重新审核</a></li>
+        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-assign">订单归属</a></li>
     </ul>
 
     <div class="tab-content mt-3">
@@ -149,6 +150,28 @@
             </tr>
         </thead>
         <tbody id="reauditTableBody"></tbody>
+    </table>
+</div>
+        
+        <!-- 订单归属 -->
+<div class="tab-pane fade" id="tab-assign">
+    <div class="alert alert-info">以下订单未关联客户，请选择要归属的客户。</div>
+    <div class="d-flex justify-content-between mb-2">
+        <button class="btn btn-sm btn-outline-primary" id="selectAllAssign">全选</button>
+        <button class="btn btn-sm btn-outline-secondary" id="deselectAllAssign">取消全选</button>
+    </div>
+    <table class="table">
+        <thead>
+            <tr>
+                <th style="width:40px"><input type="checkbox" id="masterAssignCheck" checked></th>
+                <th>订单编号</th>
+                <th>客户快照</th>
+                <th>区域</th>
+                <th>建议客户</th>
+                <th>选择归属客户</th>
+            </tr>
+        </thead>
+        <tbody id="assignTableBody"></tbody>
     </table>
 </div>
     </div>
@@ -344,9 +367,53 @@ if (data.reaudit_orders && data.reaudit_orders.length) {
     reauditHtml = `<tr><td colspan="5" class="text-center text-muted">暂无已审核无区域的订单</td></tr>`;
 }
 $('#reauditTableBody').html(reauditHtml);
+// 渲染订单归属
+renderAssignOrders(data.unassigned_orders || [], data.all_customers || []);
 
     // 绑定全选/取消
     bindCheckboxEvents();
+}
+
+function renderAssignOrders(unassignedOrders, allCustomers) {
+    let html = '';
+    if (unassignedOrders.length === 0) {
+        html = `<tr><td colspan="6" class="text-center text-muted">暂无未关联客户的订单</td></tr>`;
+    } else {
+        // 客户下拉选项（按名称排序）
+        let customerOptions = '';
+        allCustomers.sort((a, b) => a.name.localeCompare(b.name));
+        allCustomers.forEach(c => {
+            customerOptions += `<option value="${c.id}">${c.name}${c.area ? ' (' + c.area + ')' : ''}</option>`;
+        });
+
+        unassignedOrders.forEach(o => {
+            const selected = o.suggested_customer_id ? `selected` : '';
+            html += `<tr>
+                <td><input type="checkbox" class="assign-check" value="${o.order_no}" checked></td>
+                <td>${o.order_no}</td>
+                <td>${o.customer_snapshot}</td>
+                <td>${o.area_name || '<span class="text-muted">无</span>'}</td>
+                <td>${o.suggested_customer_name || '无建议'}</td>
+                <td>
+                    <select class="form-select form-select-sm assign-customer-select" data-order="${o.order_no}">
+                        <option value="">-- 请选择客户 --</option>
+                        ${customerOptions}
+                    </select>
+                </td>
+            </tr>`;
+        });
+    }
+    $('#assignTableBody').html(html);
+
+    // 如果有建议客户，默认选中
+    $('.assign-customer-select').each(function() {
+        const orderNo = $(this).data('order');
+        // 从数据中找建议ID
+        const orderData = unassignedOrders.find(o => o.order_no === orderNo);
+        if (orderData && orderData.suggested_customer_id) {
+            $(this).val(orderData.suggested_customer_id);
+        }
+    });
 }
 
 function bindCheckboxEvents() {
@@ -377,6 +444,11 @@ function bindCheckboxEvents() {
 $('#masterReauditCheck').on('change', function() { $('.reaudit-check').prop('checked', this.checked); });
 $('#selectAllReaudit').click(function() { $('.reaudit-check').prop('checked', true); });
 $('#deselectAllReaudit').click(function() { $('.reaudit-check').prop('checked', false); });
+
+// 订单归属
+$('#masterAssignCheck').on('change', function() { $('.assign-check').prop('checked', this.checked); });
+$('#selectAllAssign').click(function() { $('.assign-check').prop('checked', true); });
+$('#deselectAllAssign').click(function() { $('.assign-check').prop('checked', false); });
 }
 
 // 确认审核
@@ -471,6 +543,32 @@ $('#confirmAuditBtn').click(function() {
             }
             payload = { area_updates: areaUpdates };
             break;
+            
+        case 'tab-assign':
+    action = 'assign';
+    // 收集每个勾选订单的客户选择
+    const assignments = {};
+    let valid = true;
+    $('.assign-check:checked').each(function() {
+        const orderNo = this.value;
+        const $row = $(this).closest('tr');
+        const customerId = $row.find('.assign-customer-select').val();
+        if (!customerId) {
+            valid = false;
+            $('#messageArea').html(`<div class="alert alert-danger">订单 ${orderNo} 未选择归属客户</div>`);
+            $btn.prop('disabled', false).text('确认审核');
+            return false;
+        }
+        assignments[orderNo] = parseInt(customerId, 10);
+    });
+    if (!valid) return;
+    if (Object.keys(assignments).length === 0) {
+        $('#messageArea').html('<div class="alert alert-warning">请至少勾选一个订单进行归属</div>');
+        $btn.prop('disabled', false).text('确认审核');
+        return;
+    }
+    payload = { assignments: assignments };
+    break;
 
         case 'tab-products':
             action = 'products';
