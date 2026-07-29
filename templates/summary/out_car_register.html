@@ -383,32 +383,27 @@
         return input;
     }
 
-    function addBlankRow(returnRow = false, ignoreLimit = false) {
-        const tbody = document.getElementById('bill-tbody');
-        const rowCount = tbody.children.length;
-        if (!ignoreLimit && rowCount >= 20) {
-            alert('最多20行');
-            if (returnRow) return null;
-            return;
-        }
+    function addBlankRow(returnRow = false) {
+    const tbody = document.getElementById('bill-tbody');
+    const rowCount = tbody.children.length; // 不再限制
 
-        rowIdCounter++;
-        const tr = document.createElement('tr');
-        tr.dataset.rowId = rowIdCounter;
-        tr.innerHTML = `
-            <td class="serial-cell">${rowCount + 1}</td>
-            <td></td>
-            <td></td>
-            <td><button class="btn-del" onclick="deleteRow(this)">删除</button></td>
-        `;
-        tr.cells[1].appendChild(createInputElement('text', 'customer-name-input', '客户名称/拼音'));
-        tr.cells[2].appendChild(createInputElement('text', 'amount-input', '金额', '0.00'));
+    rowIdCounter++;
+    const tr = document.createElement('tr');
+    tr.dataset.rowId = rowIdCounter;
+    tr.innerHTML = `
+        <td class="serial-cell">${rowCount + 1}</td>
+        <td></td>
+        <td></td>
+        <td><button class="btn-del" onclick="deleteRow(this)">删除</button></td>
+    `;
+    tr.cells[1].appendChild(createInputElement('text', 'customer-name-input', '客户名称/拼音'));
+    tr.cells[2].appendChild(createInputElement('text', 'amount-input', '金额', '0.00'));
 
-        tbody.appendChild(tr);
-        updateRowNumbers();
-        calcTotalAmount();
-        if (returnRow) return tr;
-    }
+    tbody.appendChild(tr);
+    updateRowNumbers();
+    calcTotalAmount();
+    if (returnRow) return tr;
+}
 
     function deleteRow(btn) {
         const tr = btn.closest('tr');

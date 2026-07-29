@@ -819,7 +819,7 @@ def out_car_register(request):
 
 @login_required
 def export_excel(request):
-    """导出出车登记数据为 Excel（重名合并、分栏、紧凑列宽、总计、右侧信息列）"""
+    """导出出车登记数据为 Excel（重名合并、分栏、紧凑列宽、总计、右侧信息列无边框）"""
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
@@ -851,12 +851,8 @@ def export_excel(request):
             order.append(name)
         merged[name] += amount
 
-    # 构造最终数据列表
     processed = [{'name': name, 'amount': merged[name]} for name in order]
-
-    # 计算总金额
     total_amount = sum(item['amount'] for item in processed)
-
     n = len(processed)
     limit = 30  # 左侧最大行数
 
@@ -865,7 +861,6 @@ def export_excel(request):
     ws = wb.active
     ws.title = '出车登记'
 
-    # 表头
     headers = ['序号', '客户名称', '客户金额', '备注']
 
     # ---------- 2. 写入表头（左侧 A~D，右侧 E~H） ----------
@@ -875,7 +870,6 @@ def export_excel(request):
         ws.cell(row=1, column=col_idx, value=header)
 
     # ---------- 3. 写入数据 ----------
-    # 左侧数据：前 limit 行
     left_rows = processed[:limit]
     left_total = 0
     for i, item in enumerate(left_rows, start=1):
@@ -886,13 +880,11 @@ def export_excel(request):
         ws.cell(row=row_num, column=4, value='')
         left_total += item['amount']
 
-    # 左侧总计行（如果左侧有数据）
     if left_rows:
         row_num = len(left_rows) + 2
         ws.cell(row=row_num, column=1, value='总计')
         ws.cell(row=row_num, column=3, value=left_total)
 
-    # 右侧数据：第 limit+1 行及以后
     right_rows = processed[limit:]
     right_total = 0
     if right_rows:
@@ -905,79 +897,55 @@ def export_excel(request):
             ws.cell(row=row_num, column=8, value='')
             right_total += item['amount']
 
-        # 右侧总计行
         row_num = len(right_rows) + 2
         ws.cell(row=row_num, column=5, value='总计')
         ws.cell(row=row_num, column=7, value=right_total)
 
-    # ---------- 4. 右侧信息列（I列） ----------
-    # 计算起始行：从右侧数据（含总计）的下方空一行开始
-    right_data_row_count = len(right_rows) + (1 if right_rows else 0)  # 数据行 + 总计行（如果有）
-    # 如果右侧没有数据，则从左侧数据下方开始
+    # ---------- 4. 右侧信息列（I列），每个信息间隔一行 ----------
+    # 计算起始行：从右侧数据结束行 + 2（空一行）或左侧数据结束行 + 2
     if right_rows:
-        start_row = right_data_row_count + 3  # 表头占1行，数据行数 + 总计行 + 1空行 + 1偏移？实际计算：
-        # 右侧数据从第2行开始，如果有 right_data_row_count 行（包括总计），则最后一行行号 = 1 + right_data_row_count
-        # 所以起始行 = 1 + right_data_row_count + 1（空行） + 1（再向下移一行）？为了美观，从 right_data_row_count + 2 行开始（即数据结束后的下一行）
-        # 更准确：
-        last_data_row = 1 + right_data_row_count  # 最后数据行（包括总计）
-        start_row = last_data_row + 2  # 空一行再写信息
+        right_data_row_count = len(right_rows) + 1  # 数据行 + 总计行
+        last_data_row = 1 + right_data_row_count    # 表头占第1行
+        start_row = last_data_row + 2               # 空一行再写信息
     else:
-        # 左侧数据行数 + 总计行（如果有）
-        left_data_row_count = len(left_rows) + (1 if left_rows else 0)
+        left_data_row_count = len(left_rows) + 1    # 数据行 + 总计行（如果有）
         last_data_row = 1 + left_data_row_count
         start_row = last_data_row + 2
 
-    # 信息项（标签和值合并为字符串，总金额留空）
-    info_items = [
-        '路线',
-        '总金额',      # 不填值
-        '退货',
-        '司机',
-        '搭档',
-        '零钱:200元',
-        '实金额',
-        '补贴',
-        '时间'
-    ]
+    # 信息项列表（标签字符串，总金额只写标签不写值）
+    info_labels = ['路线:', '总金额:', '退货:', '司机:', '搭档:', '零钱:200元', '实金额:', '补贴:', '时间:']
+    # 每个信息间隔一行：行号每次 +2
+    for idx, label in enumerate(info_labels):
+        row = start_row + idx * 2   # 0,2,4,8...
+        ws.cell(row=row, column=9, value=label)
 
-    for idx, label in enumerate(info_items):
-        row = start_row + idx
-        # 如果 label 是 '总金额'，只写标签，不写值
-        if label == '总金额':
-            ws.cell(row=row, column=9, value='总金额')
-        else:
-            ws.cell(row=row, column=9, value=label)
-
-    # ---------- 5. 设置列宽（紧凑） ----------
+    # ---------- 5. 设置列宽 ----------
     col_widths = {
-        1: 6,   # 序号
-        2: 14,  # 客户名称
-        3: 10,  # 金额
-        4: 8,   # 备注
-        5: 6,   # 序号(右)
-        6: 14,  # 客户名称(右)
-        7: 10,  # 金额(右)
-        8: 8,   # 备注(右)
-        9: 15,  # 信息列
+        1: 6, 2: 14, 3: 10, 4: 8,
+        5: 6, 6: 14, 7: 10, 8: 8,
+        9: 15,
     }
     for col, width in col_widths.items():
         ws.column_dimensions[chr(64 + col)].width = width
 
-    # ---------- 6. 添加边框（所有有数据的单元格） ----------
-    # 计算最大行：信息列最后一行
-    max_row = start_row + len(info_items) - 1
-    # 确保覆盖数据区
-    max_row = max(max_row, 1 + max(len(left_rows), len(right_rows)) + 2)  # 加2考虑到总计行
+    # ---------- 6. 添加边框（只对 A~H 列，不包含 I列） ----------
+    # 计算最大行数：数据区最大行（左侧或右侧） + 表头行
+    max_data_row = 1 + max(len(left_rows), len(right_rows)) + 2  # +2 因为可能总计行
+    # 信息列可能更靠下
+    max_row = max(max_data_row, start_row + (len(info_labels)-1)*2)
     thin_border = Border(
         left=Side(style='thin'),
         right=Side(style='thin'),
         top=Side(style='thin'),
         bottom=Side(style='thin')
     )
-    for row in ws.iter_rows(min_row=1, max_row=max_row, min_col=1, max_col=9):
+    # 遍历 A~H 列（1~8）
+    for row in ws.iter_rows(min_row=1, max_row=max_row, min_col=1, max_col=8):
         for cell in row:
-            if cell.value is not None:
-                cell.border = thin_border
+            # 所有单元格均加边框，不管值是否为 None，确保空白单元格也有边框（包括总计行的备注列）
+            cell.border = thin_border
+
+    # 注意：信息列（I列）不加边框，所以不处理第9列
 
     # ---------- 7. 页面横向 ----------
     ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
