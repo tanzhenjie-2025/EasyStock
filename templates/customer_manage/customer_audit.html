@@ -132,6 +132,55 @@ $(document).ready(function() {
     loadAuditPreview();
 });
 
+// ========== 键盘导航处理函数（新增） ==========
+function handleKeyNavigation(e) {
+    const target = e.target;
+    // 只处理 input（文本输入）和 select，排除 checkbox
+    if (target.tagName !== 'INPUT' && target.tagName !== 'SELECT') return;
+    // 对于 select，只响应回车键（上下键保留原生选择功能）
+    if (target.tagName === 'SELECT' && e.key !== 'Enter') return;
+    // 对于 input，只响应 Enter / ArrowUp / ArrowDown
+    if (target.tagName === 'INPUT' && !['Enter', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+
+    // 阻止默认行为（防止页面滚动、表单提交、select 打开下拉等）
+    e.preventDefault();
+
+    const tbody = $(target).closest('tbody');
+    if (!tbody.length) return;
+
+    // 获取当前 tbody 内所有可编辑控件（文本输入框 + 下拉框），并按 DOM 顺序排列
+    const controls = tbody.find('input:not([type="checkbox"]), select')
+                          .filter(function() {
+                              return $(this).is(':visible') && !$(this).prop('disabled');
+                          })
+                          .toArray();
+
+    const currentIndex = controls.indexOf(target);
+    if (currentIndex === -1) return;
+
+    let newIndex = currentIndex;
+    if (e.key === 'Enter' || e.key === 'ArrowDown') {
+        newIndex = currentIndex + 1;
+    } else if (e.key === 'ArrowUp') {
+        newIndex = currentIndex - 1;
+    }
+
+    // 循环导航：如果超出范围则跳到首/尾
+    if (newIndex >= controls.length) {
+        newIndex = 0;
+    } else if (newIndex < 0) {
+        newIndex = controls.length - 1;
+    }
+
+    if (newIndex !== currentIndex) {
+        $(controls[newIndex]).focus();
+        // 如果是 input，自动选中文本方便重新输入
+        if (controls[newIndex].tagName === 'INPUT') {
+            $(controls[newIndex]).select();
+        }
+    }
+}
+
 function loadAreas() {
     $.ajax({
         url: '/customer-manage/area/list/',
@@ -261,20 +310,24 @@ function renderPage(data) {
 }
 
 function bindEvents() {
-    // 区域
-    $('#masterAreaCheck').on('change', function() { $('.area-check').prop('checked', this.checked); });
-    $('#selectAllArea').click(function() { $('.area-check').prop('checked', true); });
-    $('#deselectAllArea').click(function() { $('.area-check').prop('checked', false); });
+    // ---- 全选事件（原有逻辑，保持不变） ----
+    $('#masterAreaCheck').off('change').on('change', function() { $('.area-check').prop('checked', this.checked); });
+    $('#selectAllArea').off('click').on('click', function() { $('.area-check').prop('checked', true); });
+    $('#deselectAllArea').off('click').on('click', function() { $('.area-check').prop('checked', false); });
 
-    // 制单号
-    $('#masterOrderCheck').on('change', function() { $('.order-check').prop('checked', this.checked); });
-    $('#selectAllOrder').click(function() { $('.order-check').prop('checked', true); });
-    $('#deselectAllOrder').click(function() { $('.order-check').prop('checked', false); });
+    $('#masterOrderCheck').off('change').on('change', function() { $('.order-check').prop('checked', this.checked); });
+    $('#selectAllOrder').off('click').on('click', function() { $('.order-check').prop('checked', true); });
+    $('#deselectAllOrder').off('click').on('click', function() { $('.order-check').prop('checked', false); });
 
-    // 电话
-    $('#masterPhoneCheck').on('change', function() { $('.phone-check').prop('checked', this.checked); });
-    $('#selectAllPhone').click(function() { $('.phone-check').prop('checked', true); });
-    $('#deselectAllPhone').click(function() { $('.phone-check').prop('checked', false); });
+    $('#masterPhoneCheck').off('change').on('change', function() { $('.phone-check').prop('checked', this.checked); });
+    $('#selectAllPhone').off('click').on('click', function() { $('.phone-check').prop('checked', true); });
+    $('#deselectAllPhone').off('click').on('click', function() { $('.phone-check').prop('checked', false); });
+
+    // ---- 键盘导航事件（新增） ----
+    // 使用命名空间避免重复绑定，每次重新绑定前先移除之前的监听
+    $('#areaTableBody, #orderTableBody, #phoneTableBody')
+        .off('keydown.auditNav')
+        .on('keydown.auditNav', handleKeyNavigation);
 }
 
 // ========== 确认区域 ==========
