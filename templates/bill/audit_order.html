@@ -504,15 +504,24 @@ $('#confirmAuditBtn').click(function() {
             break;
 
         case 'tab-customers':
-            action = 'customers';
-            const customers = $('.customer-check:checked').map(function() { return this.value; }).get();
-            if (customers.length === 0) {
-                $('#messageArea').html('<div class="alert alert-warning">请至少勾选一个客户进行创建</div>');
-                $btn.prop('disabled', false).text('确认审核');
-                return;
-            }
-            payload = { new_customers: customers.map(n => ({ name: n })) };
-            break;
+    action = 'customers';
+    const customers = [];
+    $('.customer-check:checked').each(function() {
+        const row = $(this).closest('tr');
+        const name = $(this).val();
+        // 获取所属区域（第3列，索引为2）
+        const area = row.find('td:eq(2)').text().trim();
+        if (name) {
+            customers.push({ name: name, area: area });
+        }
+    });
+    if (customers.length === 0) {
+        $('#messageArea').html('<div class="alert alert-warning">请至少勾选一个客户进行创建</div>');
+        $btn.prop('disabled', false).text('确认审核');
+        return;
+    }
+    payload = { new_customers: customers };
+    break;
 
         case 'tab-reaudit':
             action = 'reaudit';

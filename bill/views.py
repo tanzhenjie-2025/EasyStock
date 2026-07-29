@@ -2631,9 +2631,6 @@ def _audit_normal_orders(order_nos, user):
     if not orders:
         return JsonResponse({'code': 0, 'msg': '所选订单均不存在或已审核'})
 
-    # 应用客户名和区域更新（若有，但此处没有传入，可忽略，若需要可从payload传入）
-    # 假设正常审核不需要额外更新，直接使用订单现有数据
-
     # 收集基础数据（区域、客户、商品）
     area_names = set()
     customer_data = {}  # key: (pure_name, area_name) -> {'order_numbers': []}
@@ -2646,6 +2643,9 @@ def _audit_normal_orders(order_nos, user):
         if raw_customer:
             final_area, pure_name = parse_customer_name(raw_customer, order.area.name if order.area else '')
             if pure_name:
+                # 将解析出的区域也加入待创建区域列表，确保客户区域存在
+                if final_area:
+                    area_names.add(final_area)
                 key = (pure_name, final_area)
                 if key not in customer_data:
                     customer_data[key] = {'order_numbers': []}
@@ -2834,9 +2834,8 @@ def _audit_new_areas(new_areas):
 def _audit_new_customers(new_customers):
     """
     批量创建新客户（按名称+区域判断）
-    前端传递的 new_customers 包含: {name}
-    此处默认区域为 None，实际可能需要传递 area 字段
-    根据业务，可以扩展从订单中提取区域，但这里简化
+    前端传递的 new_customers 应包含: {name, area}
+    其中 area 为区域名称字符串，可以为空。
     """
     if not new_customers:
         return JsonResponse({'code': 0, 'msg': '未提供客户名称'})
@@ -2844,11 +2843,21 @@ def _audit_new_customers(new_customers):
     created = 0
     with transaction.atomic():
         for item in new_customers:
-            name = item.get('name')
-            # 若需要区域，可从 item.get('area') 获取，但前端未传递，此处使用默认 None
-            if name and not Customer.objects.filter(name=name, is_active=True).exists():
-                Customer.objects.create(name=name, area=None)
+            name = item.get('name', '').strip()
+            area_name = item.get('area', '').strip()
+            if not name:
+                continue
+
+            # 获取或创建区域（仅当区域名非空时）
+            area_obj = None
+            if area_name:
+                area_obj, _ = Area.objects.get_or_create(name=area_name, defaults={'is_active': True})
+
+            # 检查是否已存在同名且同区域的活跃客户
+            if not Customer.objects.filter(name=name, area=area_obj, is_active=True).exists():
+                Customer.objects.create(name=name, area=area_obj)
                 created += 1
+
     return JsonResponse({'code': 1, 'msg': f'成功创建 {created} 个客户'})
 
 
