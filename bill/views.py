@@ -1552,6 +1552,9 @@ def get_customer_recent_products(request):
             free_data['id'] = -100000 - free_offset
             recent_products.append(free_data)
 
+        # ===== 新增：按最近购买数量降序排序 =====
+        recent_products.sort(key=lambda x: (x.get('last_quantity', 0), x.get('last_purchase_time', '')), reverse=True)
+
         # 缓存
         cache.set(cache_key, recent_products, timeout=CACHE_CUSTOMER_RECENT_PRODUCT)
         logger.info(
