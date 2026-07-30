@@ -2812,14 +2812,16 @@ def _audit_products(new_products):
             existing = Product.objects.filter(name=name, unit=unit, is_active=True).first()
 
             if existing:
-                # 如果 action 为 'overwrite' 或价格不同，则更新价格
+                # ======== 🔥 修改点开始 ========
+                # 覆盖价格时：仅更新价格，保留原有规格（不做任何修改）
                 if action == 'overwrite' or existing.price != price:
                     existing.price = price
-                    existing.specification = spec
-                    existing.save(update_fields=['price', 'specification'])
+                    # 注意：这里不再更新 specification 字段
+                    existing.save(update_fields=['price'])
                     updated += 1
+                # ======== 🔥 修改点结束 ========
             else:
-                # 新建商品
+                # 新建商品（规格按传入值写入）
                 Product.objects.create(
                     name=name,
                     unit=unit,
