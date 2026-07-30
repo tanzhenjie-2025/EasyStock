@@ -421,65 +421,145 @@ renderAssignOrders(data.unassigned_orders || [], data.all_customers || []);
 }
 
 function renderAssignItems(unassignedItems, allProducts) {
-    let html = '';
-    if (unassignedItems.length === 0) {
-        html = `<tr><td colspan="7" class="text-center text-muted">暂无未归属商品的订单项</td></tr>`;
-    } else {
-        // 构建商品下拉选项（按名称排序）
-        let productOptions = '';
-        allProducts.sort((a, b) => a.name.localeCompare(b.name));
-        allProducts.forEach(p => {
-            productOptions += `<option value="${p.id}">${p.name}（${p.unit}）</option>`;
-        });
-
-        unassignedItems.forEach(item => {
-            const suggested = item.suggested_product_id || '';
-            html += `<tr>
-                <td><input type="checkbox" class="assign-item-check" value="${item.item_id}" checked></td>
-                <td>${item.order_no}</td>
-                <td>${item.product_name}</td>
-                <td>${item.unit}</td>
-                <td>${item.specification}</td>
-                <td>${suggested ? (allProducts.find(p => p.id == suggested)?.name || '') : '无推荐'}</td>
-                <td>
-                    <select class="form-select form-select-sm assign-item-select" data-item="${item.item_id}" style="width:100%;">
-                        <option value="">-- 请选择 --</option>
-                        ${productOptions}
-                    </select>
-                </td>
-            </tr>`;
-        });
+    if (!unassignedItems || unassignedItems.length === 0) {
+        $('#assignItemsTableBody').html('<tr><td colspan="7" class="text-center text-muted">暂无未归属商品的订单项</td></tr>');
+        return;
     }
+
+    // 分组
+    const groups = {};
+    unassignedItems.forEach(item => {
+        const key = item.product_name + '||' + item.unit;
+        if (!groups[key]) {
+            groups[key] = {
+                product_name: item.product_name,
+                unit: item.unit,
+                items: []
+            };
+        }
+        groups[key].items.push(item);
+    });
+
+    // 商品下拉选项
+    let productOptions = '';
+    allProducts.sort((a, b) => a.name.localeCompare(b.name));
+    allProducts.forEach(p => {
+        productOptions += `<option value="${p.id}">${p.name}（${p.unit}）</option>`;
+    });
+
+    let html = '';
+    let groupIndex = 0;
+    for (const key in groups) {
+        const group = groups[key];
+        const groupId = 'group-' + groupIndex;
+        const firstItem = group.items[0];
+        const suggestedId = firstItem.suggested_product_id || '';
+
+        html += `
+        <tr class="table-secondary">
+            <td colspan="7">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                    <span class="fw-bold">分组：${group.product_name}（${group.unit}）</span>
+                    <span class="badge bg-info">${group.items.length} 项</span>
+                    <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#${groupId}">
+                        展开/折叠
+                    </button>
+                </div>
+            </td>
+        </tr>
+        <tr>
+            <td colspan="7" class="p-0">
+                <div class="collapse show" id="${groupId}">
+                    <div class="p-2 border-bottom">
+                        <div class="row g-2 align-items-center">
+                            <div class="col-md-2">
+                                <label class="form-label mb-0">商品名称</label>
+                                <input type="text" class="form-control form-control-sm batch-name" value="${group.product_name}" data-group="${groupId}">
+                            </div>
+                            <div class="col-md-1">
+                                <label class="form-label mb-0">单位</label>
+                                <input type="text" class="form-control form-control-sm batch-unit" value="${group.unit}" data-group="${groupId}">
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label mb-0">规格</label>
+                                <input type="text" class="form-control form-control-sm batch-spec" value="${firstItem.specification || ''}" data-group="${groupId}">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label mb-0">归属商品</label>
+                                <select class="form-select form-select-sm batch-product-select" data-group="${groupId}" data-suggested="${suggestedId}">
+                                    <option value="">-- 不归属（仅修改快照） --</option>
+                                    ${productOptions}
+                                </select>
+                            </div>
+                            <div class="col-md-1">
+                                <label class="form-label mb-0">全选</label>
+                                <input type="checkbox" class="form-check-input batch-select-all" data-group="${groupId}" checked>
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <table class="table table-sm table-bordered mb-0">
+                                <thead>
+                                    <tr>
+                                        <th style="width:30px"><input type="checkbox" class="batch-item-master" data-group="${groupId}" checked></th>
+                                        <th>订单编号</th>
+                                        <th>原名称</th>
+                                        <th>原单位</th>
+                                        <th>原规格</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                        `;
+        group.items.forEach(item => {
+            html += `
+                <tr>
+                    <td><input type="checkbox" class="batch-item-check" data-group="${groupId}" value="${item.item_id}" checked></td>
+                    <td>${item.order_no}</td>
+                    <td>${item.product_name}</td>
+                    <td>${item.unit}</td>
+                    <td>${item.specification || ''}</td>
+                </tr>
+            `;
+        });
+        html += `
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </td>
+        </tr>
+        `;
+        groupIndex++;
+    }
+
     $('#assignItemsTableBody').html(html);
 
     // 初始化 Select2
-    $('.assign-item-select').select2({
+    $('.batch-product-select').select2({
         placeholder: '搜索商品...',
         allowClear: true,
         width: '100%'
     });
 
-    // 设置推荐值
-    $('.assign-item-select').each(function() {
+    // 根据 data-suggested 设置默认值
+    $('.batch-product-select').each(function() {
         const $select = $(this);
-        const itemId = $select.data('item');
-        const itemData = unassignedItems.find(i => i.item_id == itemId);
-        if (itemData && itemData.suggested_product_id) {
-            if ($select.find('option[value="' + itemData.suggested_product_id + '"]').length) {
-                $select.val(itemData.suggested_product_id).trigger('change');
-            }
+        const suggested = $select.data('suggested');
+        if (suggested && $select.find('option[value="' + suggested + '"]').length) {
+            $select.val(suggested).trigger('change');
         }
     });
 
-    // 绑定全选事件（这些绑定也可以统一放到 bindCheckboxEvents 中，但为了清晰，单独绑定）
-    $('#masterAssignItemsCheck').off('change').on('change', function() {
-        $('.assign-item-check').prop('checked', this.checked);
+    // 绑定全选
+    $('.batch-select-all').on('change', function() {
+        const groupId = $(this).data('group');
+        $('.batch-item-check[data-group="' + groupId + '"]').prop('checked', this.checked);
     });
-    $('#selectAllAssignItems').off('click').click(function() {
-        $('.assign-item-check').prop('checked', true);
-    });
-    $('#deselectAllAssignItems').off('click').click(function() {
-        $('.assign-item-check').prop('checked', false);
+    $('.batch-item-check').on('change', function() {
+        const groupId = $(this).data('group');
+        const $checks = $('.batch-item-check[data-group="' + groupId + '"]');
+        const allChecked = $checks.length === $checks.filter(':checked').length;
+        $('.batch-select-all[data-group="' + groupId + '"]').prop('checked', allChecked);
     });
 }
 
@@ -683,28 +763,53 @@ $('#confirmAuditBtn').click(function() {
         }
 
     case 'tab-assign-items': {
-        
-    action = 'assign_items';
-    const assignments = {};
-    $('.assign-item-check:checked').each(function () {
-        const itemId = parseInt(this.value, 10);
-if (isNaN(itemId)) return;
-        
-        const $row = $(this).closest('tr');
-        const selectedProductId = $row.find('.assign-item-select').val();
-        if (selectedProductId) {
-            assignments[itemId] = parseInt(selectedProductId, 10);
-        }
+    action = 'batch_assign_items';
+    const groups = [];
+    // 遍历每个分组
+    $('.batch-product-select').each(function() {
+        const $select = $(this);
+        const groupId = $select.data('group');
+        const $row = $select.closest('.collapse').find('.row');
+        const $name = $row.find('.batch-name');
+        const $unit = $row.find('.batch-unit');
+        const $spec = $row.find('.batch-spec');
+        const targetProductId = $select.val(); // 可能为空字符串
+
+        // 获取该组选中的订单项ID
+        const itemIds = [];
+        $('.batch-item-check[data-group="' + groupId + '"]:checked').each(function() {
+            itemIds.push(parseInt(this.value, 10));
+        });
+        if (itemIds.length === 0) return; // 该组无选中项，跳过
+
+        // 获取原始名称和单位（用于标识分组，但实际更新时用自定义值）
+        const originalName = $('.batch-name', $row).data('original') || ''; // 我们可以在生成时保存原始值
+        const originalUnit = $('.batch-unit', $row).data('original') || '';
+        // 由于未保存原始值，我们可以从组内第一个未选中项获取，但为了简单，我们从该组第一个item的data属性获取
+        // 但更可靠：在生成时在input上添加data-original属性，或直接使用当前值作为原值
+        // 此处我们用当前值作为原值（因为用户可能修改）
+        const groupKey = {
+            name: $name.val().trim(),
+            unit: $unit.val().trim()
+        };
+
+        groups.push({
+            group_key: groupKey,
+            custom_name: $name.val().trim(),
+            custom_unit: $unit.val().trim(),
+            custom_spec: $spec.val().trim(),
+            target_product_id: targetProductId ? parseInt(targetProductId, 10) : 0,
+            item_ids: itemIds
+        });
     });
-    console.log('【商品归属】提交数据:', assignments);  // 重要
-    if (Object.keys(assignments).length === 0) {
-        $('#messageArea').html('<div class="alert alert-warning">请至少勾选一项并选择归属商品，或直接取消勾选无需归属的项</div>');
+
+    console.log('【批量归属】提交数据:', groups);
+    if (groups.length === 0) {
+        $('#messageArea').html('<div class="alert alert-warning">请至少在一个分组中选择要处理的订单项</div>');
         $btn.prop('disabled', false).text('确认审核');
         return;
     }
-    
-    
-    payload = { assignments: assignments };
+    payload = { groups: groups };
     break;
 }
 

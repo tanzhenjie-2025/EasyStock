@@ -3024,6 +3024,101 @@ def _audit_assign_items(assignments):
             'msg': f'成功归属 {updated_count} 个商品，跳过 {skipped_count} 个无效项'
         })
 
+
+def _audit_batch_assign_items(groups_data):
+    """
+    批量分组归属商品，支持修改快照字段
+    groups_data: [
+        {
+            "group_key": {"name": "原名称", "unit": "原单位"},
+            "custom_name": "新名称（可选）",
+            "custom_unit": "新单位（可选）",
+            "custom_spec": "新规格（可选）",
+            "target_product_id": 123,  # 可选，0表示不归属
+            "item_ids": [1,2,3]
+        }
+    ]
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    if not groups_data:
+        return JsonResponse({'code': 0, 'msg': '未提供分组数据'})
+
+    total_updated = 0
+    total_skipped = 0
+    errors = []
+
+    with transaction.atomic():
+        for group in groups_data:
+            item_ids = group.get('item_ids', [])
+            if not item_ids:
+                continue
+
+            target_product_id = group.get('target_product_id', 0)
+            custom_name = group.get('custom_name', '').strip()
+            custom_unit = group.get('custom_unit', '').strip()
+            custom_spec = group.get('custom_spec', '').strip()
+
+            # 获取该组所有订单项（必须未归属、未审核、非补货）
+            items = OrderItem.objects.filter(
+                id__in=item_ids,
+                product__isnull=True,
+                is_makeup_item=False,
+                order__is_verified=False
+            ).select_related('order')
+            if not items:
+                logger.warning(f"分组 {group.get('group_key')} 无有效订单项")
+                total_skipped += len(item_ids)
+                continue
+
+            # 获取目标商品（如果指定）
+            target_product = None
+            if target_product_id:
+                try:
+                    target_product = Product.objects.get(id=target_product_id, is_active=True)
+                except Product.DoesNotExist:
+                    errors.append(f"商品ID {target_product_id} 不存在或已禁用，分组跳过")
+                    total_skipped += len(item_ids)
+                    continue
+
+            # 确定最终用于更新的名称、单位、规格
+            # 优先使用用户自定义值，否则使用原订单项的值或商品值
+            first_item = items[0]
+            default_name = first_item.product_name
+            default_unit = first_item.unit
+            default_spec = first_item.specification or ''
+            if target_product:
+                # 如果选择了商品，且用户未自定义，则使用商品属性
+                final_name = custom_name if custom_name else target_product.name
+                final_unit = custom_unit if custom_unit else target_product.unit
+                final_spec = custom_spec if custom_spec else target_product.specification or ''
+            else:
+                # 未选择商品，只更新快照（允许用户自定义）
+                final_name = custom_name if custom_name else default_name
+                final_unit = custom_unit if custom_unit else default_unit
+                final_spec = custom_spec if custom_spec else default_spec
+
+            # 批量更新所有订单项
+            for item in items:
+                if target_product:
+                    item.product = target_product
+                    # 如果用户自定义了名称/单位/规格，则用自定义值覆盖快照
+                # 更新快照字段
+                item.product_name = final_name
+                item.unit = final_unit
+                item.specification = final_spec
+                # 如果未选择商品，但用户修改了名称/单位/规格，仍然更新快照（保持product为null）
+                item.save(update_fields=['product', 'product_name', 'unit', 'specification'])
+                total_updated += 1
+
+    msg = f'成功更新 {total_updated} 个订单项'
+    if errors:
+        msg += '；' + '；'.join(errors[:5])
+    if total_skipped:
+        msg += f'；跳过 {total_skipped} 个无效项'
+    return JsonResponse({'code': 1, 'msg': msg})
+
 from django.db.models import Q  # 确保顶部已导入
 
 @never_cache
@@ -3381,6 +3476,11 @@ def audit_orders_confirm(request):
     elif action == 'assign_items':
         assignments = payload.get('assignments', {})
         return _audit_assign_items(assignments)
+    elif action == 'batch_assign_items':
+        groups_data = payload.get('groups', [])
+        if not groups_data:
+            return JsonResponse({'code': 0, 'msg': '未提供分组数据'})
+        return _audit_batch_assign_items(groups_data)
     else:
         return JsonResponse({'code': 0, 'msg': '未知操作类型'})
 
