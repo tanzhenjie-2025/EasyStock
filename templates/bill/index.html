@@ -18,9 +18,9 @@
             display: inline-block;
         }
         body { font-family: "Microsoft YaHei", sans-serif; margin: 0; }
-        .content-container { 
-            max-width: 1000px; 
-            margin: 20px auto; 
+        .content-container {
+            max-width: 1000px;
+            margin: 20px auto;
             padding: 0 15px;
         }
         .btn-add-row { padding: 8px 20px; font-size: 16px; cursor: pointer; background: #0066cc; color: #fff; border: none; border-radius: 4px; margin-bottom: 10px; }
@@ -41,7 +41,7 @@
 
         .bill-table td:nth-child(2) input { text-align: center; }
         .bill-table th { background: #e9e9e9; font-weight: bold; }
-        .bill-table input { 
+        .bill-table input {
             width: 95%; padding: 6px; text-align: center; border: 1px solid #ddd; border-radius: 3px; font-size: 14px; outline: none;
         }
         .bill-table input:focus { border-color: #0066cc; }
@@ -104,7 +104,7 @@
             z-index: 99999;
             overflow: hidden;
         }
-        
+
         .modal-content {
             background: #fff;
             margin: 2vh auto;
@@ -134,7 +134,7 @@
             z-index: 10;
         }
         .modal-close:hover { color: #ff4400; }
-        
+
         .modal-header h4 { margin: 0 0 10px 0; padding-right: 30px; }
 
         .recent-search-box {
@@ -197,7 +197,7 @@
             flex-direction: column;
             border-right: 1px solid #eee;
         }
-        
+
         .right-panel {
             flex: 1;
             padding: 15px 20px 15px 10px;
@@ -330,7 +330,7 @@
         .recent-products-table tbody tr:hover { background-color: #f5f5f5; }
         .recent-products-table tbody tr.added { background-color: #fff8e1; }
         .recent-products-table tbody tr.added:hover { background-color: #fef3c7; }
-        
+
         .btn-add-cart {
             padding: 5px 12px;
             background: #28a745;
@@ -341,7 +341,7 @@
             font-size: 12px;
         }
         .recent-products-table tr:hover .btn-add-cart { background: #218838; }
-        
+
         .cart-quantity-input {
             width: 100%;
             box-sizing: border-box;
@@ -518,6 +518,26 @@
         .cart-table td:nth-child(3) {
             display: none;
         }
+
+        #btnRecentBuy {
+    position: relative;
+}
+#recentBuyBadge {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    background: #dc3545;
+    color: #fff;
+    border-radius: 50%;
+    padding: 2px 6px;
+    font-size: 10px;
+    line-height: 1.4;
+    min-width: 18px;
+    text-align: center;
+    border: 1px solid #fff;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    display: none; /* 默认隐藏 */
+}
     </style>
 {% endblock %}
 
@@ -560,7 +580,10 @@
     <div class="mb-3 customer-area">
         <label class="form-label">选择客户：</label>
         <input type="text" id="customerInput" class="form-control form-control-sm customer-input" placeholder="输入区域/客户名（输入法式选择）">
-        <button id="btnRecentBuy" class="btn btn-sm btn-outline-secondary" onclick="openRecentBuyModal()" disabled>用户最近购买</button>
+        <button id="btnRecentBuy" class="btn btn-sm btn-outline-secondary position-relative" onclick="openRecentBuyModal()" disabled>
+    用户最近购买
+    <span id="recentBuyBadge" class="badge" style="display:none;">0</span>
+</button>
         <label class="form-label">制单号：</label>
         <input type="text" id="orderNumberInput" class="form-control form-control-sm order-input" placeholder="必填">
     </div>
@@ -601,14 +624,14 @@
 <div class="recent-buy-modal" id="recentBuyModal">
     <div class="modal-content">
         <span class="modal-close" onclick="closeRecentBuyModal()">&times;</span>
-        
+
         <!-- 顶部：标题、搜索、标签 -->
         <div class="modal-header">
             <h4>客户最近购买商品</h4>
             <div class="recent-search-box">
-                <input 
-                    type="text" 
-                    class="recent-search-input" 
+                <input
+                    type="text"
+                    class="recent-search-input"
                     id="recentSearchInput"
                     placeholder="搜索最近购买的商品 (按 Enter 聚焦第一个，按 ESC 关闭)..."
                     oninput="filterRecentProducts()"
@@ -664,13 +687,13 @@
                             <tbody id="cartTbody"></tbody>
                         </table>
                     </div>
-                    
+
                     <div class="cart-footer">
                         <div class="cart-total">
                             金额总计：<span id="cartTotalAmount">¥0.00</span>
                         </div>
-                        <button 
-                            class="btn-batch-add" 
+                        <button
+                            class="btn-batch-add"
                             id="btnBatchAdd"
                             onclick="batchAddToBill()"
                             disabled
@@ -746,10 +769,12 @@
             }
         });
         document.getElementById('customerInput').addEventListener('change', function() {
-            const btn = document.getElementById('btnRecentBuy');
-            btn.disabled = !this.dataset.customerId;
-        });
-        
+    const customerId = this.dataset.customerId || '';
+    updateRecentBuyBadge(customerId);
+    const btn = document.getElementById('btnRecentBuy');
+    btn.disabled = !customerId;
+});
+
         // ========== 表单状态缓存 ==========
         const STORAGE_KEY = 'bill_form_state';
         const debouncedSaveFormState = debounce(saveFormState, 500);
@@ -787,59 +812,62 @@
         }
 
         function restoreFormState() {
-            const saved = localStorage.getItem(STORAGE_KEY);
-            if (!saved) return false;
-            try {
-                const state = JSON.parse(saved);
-                const customerInput = document.getElementById('customerInput');
-                customerInput.value = state.customerName || '';
-                customerInput.dataset.customerId = state.customerId || '';
-                customerInput.dataset.customerName = state.customerName || '';
-                customerInput.dataset.orderNumber = state.customerOrderNumber || '';
-                const orderInput = document.getElementById('orderNumberInput');
-                orderInput.value = state.orderNumber || '';
-                const tbody = document.getElementById('bill-tbody');
-                tbody.innerHTML = '';
-                rowIdCounter = 0;
-                if (state.rows && state.rows.length > 0) {
-                    const rowsToAdd = state.rows.slice(0, 16);
-                    rowsToAdd.forEach(rowData => {
-                        const tr = addBlankRow(true, true);
-                        if (!tr) return;
-                        const nameInput = tr.querySelector('.name-input');
-                        nameInput.value = rowData.name || '';
-                        nameInput.dataset.productId = rowData.productId || '';
-                        const specInput = tr.querySelector('.spec-input');
-                        specInput.value = rowData.spec || '';
-                        if (rowData.isMakeup) {
-                            specInput.dataset.isMakeup = '1';
-                            specInput.dataset.operationType = rowData.operationType || '';
-                            tr.classList.add('makeup-row');
-                        } else {
-                            specInput.dataset.isMakeup = '0';
-                            tr.classList.remove('makeup-row');
-                        }
-                        tr.querySelector('.quantity-input').value = rowData.quantity || 0;
-                        tr.querySelector('.unit-input').value = rowData.unit || '';
-                        const priceInput = tr.querySelector('.price-input');
-                        if (rowData.isMakeup) {
-                            priceInput.value = 0;
-                        } else {
-                            priceInput.value = rowData.price || 0;
-                        }
-                        calcRowAmount(priceInput);
-                    });
-                    updateRowNumbers();
-                    calcTotalAmount();
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (!saved) return false;
+    try {
+        const state = JSON.parse(saved);
+        const customerInput = document.getElementById('customerInput');
+        customerInput.value = state.customerName || '';
+        customerInput.dataset.customerId = state.customerId || '';
+        customerInput.dataset.customerName = state.customerName || '';
+        customerInput.dataset.orderNumber = state.customerOrderNumber || '';
+        const orderInput = document.getElementById('orderNumberInput');
+        orderInput.value = state.orderNumber || '';
+        const tbody = document.getElementById('bill-tbody');
+        tbody.innerHTML = '';
+        rowIdCounter = 0;
+        if (state.rows && state.rows.length > 0) {
+            const rowsToAdd = state.rows.slice(0, 16);
+            rowsToAdd.forEach(rowData => {
+                const tr = addBlankRow(true, true);
+                if (!tr) return;
+                const nameInput = tr.querySelector('.name-input');
+                nameInput.value = rowData.name || '';
+                nameInput.dataset.productId = rowData.productId || '';
+                const specInput = tr.querySelector('.spec-input');
+                specInput.value = rowData.spec || '';
+                if (rowData.isMakeup) {
+                    specInput.dataset.isMakeup = '1';
+                    specInput.dataset.operationType = rowData.operationType || '';
+                    tr.classList.add('makeup-row');
                 } else {
-                    for (let i = 0; i < 3; i++) addBlankRow();
+                    specInput.dataset.isMakeup = '0';
+                    tr.classList.remove('makeup-row');
                 }
-                customerInput.dispatchEvent(new Event('change'));
-                return true;
-            } catch(e) {
-                return false;
-            }
+                tr.querySelector('.quantity-input').value = rowData.quantity || 0;
+                tr.querySelector('.unit-input').value = rowData.unit || '';
+                const priceInput = tr.querySelector('.price-input');
+                if (rowData.isMakeup) {
+                    priceInput.value = 0;
+                } else {
+                    priceInput.value = rowData.price || 0;
+                }
+                calcRowAmount(priceInput);
+            });
+            updateRowNumbers();
+            calcTotalAmount();
+        } else {
+            for (let i = 0; i < 3; i++) addBlankRow();
         }
+        // 恢复后更新角标
+        const customerId = customerInput.dataset.customerId || '';
+        updateRecentBuyBadge(customerId);
+        customerInput.dispatchEvent(new Event('change'));
+        return true;
+    } catch(e) {
+        return false;
+    }
+}
 
         function clearFormState() {
             localStorage.removeItem(STORAGE_KEY);
@@ -855,9 +883,12 @@
                 customerInput.dataset.orderNumber = '';
                 document.getElementById('btnRecentBuy').disabled = true;
                 customerInput.focus();
+                // 隐藏角标
+        document.getElementById('recentBuyBadge').style.display = 'none';
+        customerInput.focus();
             }
         }
-        
+
         function focusAndSetCaret(target, direction) {
             if (!target) return;
             target.focus();
@@ -1123,6 +1154,27 @@
             if (key === 'Escape') hideSuggest();
         }
 
+        async function updateRecentBuyBadge(customerId) {
+    const badge = document.getElementById('recentBuyBadge');
+    if (!customerId) {
+        badge.style.display = 'none';
+        return;
+    }
+    try {
+        const res = await fetch(`/bill/get-customer-recent-products/?customer_id=${encodeURIComponent(customerId)}`);
+        const data = await res.json();
+        if (data.code === 1) {
+            const count = data.data.length;
+            badge.textContent = count;
+            badge.style.display = count > 0 ? 'inline-block' : 'none';
+        } else {
+            badge.style.display = 'none';
+        }
+    } catch (e) {
+        badge.style.display = 'none';
+    }
+}
+
         // ========== 客户搜索逻辑 ==========
         async function onCustomerInput(input) {
             const keyword = input.value.trim();
@@ -1202,6 +1254,10 @@
             const orderInput = document.getElementById('orderNumberInput');
             orderInput.value = item.order_number || '';
             currentCustomerInput.dispatchEvent(new Event('change'));
+
+            // 在 selectCustomerItem 函数内，设置完 customerInput 数据后
+const customerId = item.id;
+updateRecentBuyBadge(customerId);
             hideSuggest();
             if (!item.order_number) {
                 setTimeout(() => {
@@ -1307,8 +1363,8 @@
             let target;
             if (direction === 'left' || direction === 'right') {
                 const colCount = inputs.length;
-                let targetIdx = (direction === 'left') 
-                    ? (idx - 1 + colCount) % colCount 
+                let targetIdx = (direction === 'left')
+                    ? (idx - 1 + colCount) % colCount
                     : (idx + 1) % colCount;
                 target = inputs[targetIdx];
                 if (target.classList.contains('quantity-input') || target.classList.contains('price-input') || target.classList.contains('unit-input')) {
@@ -1761,19 +1817,21 @@
         }
 
         function resetBill(){
-            document.getElementById('bill-tbody').innerHTML='';
-            rowIdCounter=0;
-            for (let i = 0; i < 5; i++) {
-                addBlankRow();
-            }
-            const customerInput = document.getElementById('customerInput');
-            if (customerInput) {
-                customerInput.value = '';
-                delete customerInput.dataset.customerId;
-                document.getElementById('btnRecentBuy').disabled = true;
-            }
-            originalOrderNo = null;
-        }
+    document.getElementById('bill-tbody').innerHTML='';
+    rowIdCounter=0;
+    for (let i = 0; i < 5; i++) {
+        addBlankRow();
+    }
+    const customerInput = document.getElementById('customerInput');
+    if (customerInput) {
+        customerInput.value = '';
+        delete customerInput.dataset.customerId;
+        document.getElementById('btnRecentBuy').disabled = true;
+        // 隐藏角标
+        document.getElementById('recentBuyBadge').style.display = 'none';
+    }
+    originalOrderNo = null;
+}
 
         // ========== 单位搜索逻辑 ==========
         async function onUnitInput(input) {
@@ -2202,7 +2260,7 @@
                 }
             });
             const newRowsToAdd = uniqueNewIds.filter(id => !existingProductIds.has(id)).length;
-            
+
             if (currentActual + newRowsToAdd > 16) {
                 alert(`当前已有 ${currentActual} 行商品，本次加购会新增 ${newRowsToAdd} 行，超过16行限制，请减少加购商品。`);
                 return;
@@ -2419,6 +2477,12 @@
                 customerInput.dataset.customerId = "{{ reopen_order_data.customer_id }}";
                 customerInput.dataset.customerName = "{{ reopen_order_data.customer_name }}";
                 customerInput.dispatchEvent(new Event('change'));
+                
+                // 更新角标（重开订单场景）
+    const customerId = "{{ reopen_order_data.customer_id }}";
+    updateRecentBuyBadge(customerId);
+
+    
 
                 const orderNumberInput = document.getElementById('orderNumberInput');
                 if (orderNumberInput) {
