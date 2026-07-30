@@ -2922,6 +2922,84 @@ def _audit_assign_orders(assignments):
     clear_order_cache()  # 如果未定义可注释
     return JsonResponse({'code': 1, 'msg': f'成功归属 {updated_count} 个订单'})
 
+def _audit_assign_items(assignments):
+    """
+    批量归属订单项到商品，自动跳过无效项
+    增加详细日志以诊断全部无效的问题
+    """
+    print("=== 进入 _audit_assign_items ===")
+    print(f"接收到的 assignments 原始数据: {assignments}")
+
+    if not assignments:
+        return JsonResponse({'code': 0, 'msg': '未提供归属数据'})
+
+    # 过滤掉 value 为 None 或空字符串的项
+    valid_assignments = {k: v for k, v in assignments.items() if v}
+    print(f"过滤后的 valid_assignments: {valid_assignments}")
+
+    if not valid_assignments:
+        return JsonResponse({'code': 0, 'msg': '请至少选择一个有效的商品进行归属'})
+
+    # 强制转换键为整数（防止前端传字符串）
+    try:
+        item_ids = set(int(k) for k in valid_assignments.keys())
+        product_ids = set(int(v) for v in valid_assignments.values())
+    except ValueError as e:
+        return JsonResponse({'code': 0, 'msg': f'ID 格式错误: {e}'})
+
+    print(f"item_ids (整数): {item_ids}")
+    print(f"product_ids (整数): {product_ids}")
+
+    # 获取所有商品ID，并校验存在性
+    products = Product.objects.filter(id__in=product_ids, is_active=True)
+    product_dict = {p.id: p for p in products}
+    print(f"找到的商品数量: {len(product_dict)}")
+
+    # 获取所有符合条件的订单项（product为null、订单未审核、非补货）
+    items = OrderItem.objects.filter(
+        id__in=item_ids,
+        product__isnull=True,
+        is_makeup_item=False,
+        order__is_verified=False
+    ).select_related('order')
+    item_dict = {item.id: item for item in items}
+    print(f"找到的符合条件的订单项数量: {len(item_dict)}")
+    print(f"符合条件的订单项ID: {list(item_dict.keys())}")
+
+    updated_count = 0
+    skipped_count = 0
+    with transaction.atomic():
+        for item_id, prod_id in valid_assignments.items():
+            # 确保 item_id 和 prod_id 为整数
+            item_id = int(item_id)
+            prod_id = int(prod_id)
+            item = item_dict.get(item_id)
+            if item and prod_id in product_dict:
+                item.product = product_dict[prod_id]
+                item.save(update_fields=['product'])
+                updated_count += 1
+            else:
+                skipped_count += 1
+                # 打印跳过原因
+                if item_id not in item_dict:
+                    print(f"跳过 item_id={item_id}: 不在符合条件的订单项中")
+                elif prod_id not in product_dict:
+                    print(f"跳过 prod_id={prod_id}: 商品不存在或已禁用")
+
+    print(f"最终: 成功 {updated_count}, 跳过 {skipped_count}")
+    print("=== 结束 _audit_assign_items ===")
+
+    if updated_count == 0:
+        return JsonResponse({
+            'code': 0,
+            'msg': f'所有项均无效，跳过 {skipped_count} 项（请检查订单项是否已归属或订单已审核）'
+        })
+    else:
+        return JsonResponse({
+            'code': 1,
+            'msg': f'成功归属 {updated_count} 个商品，跳过 {skipped_count} 个无效项'
+        })
+
 from django.db.models import Q  # 确保顶部已导入
 
 @never_cache
@@ -3122,6 +3200,37 @@ def audit_orders_preview(request):
     # 获取所有活跃客户用于前端下拉（同时用于建议匹配）
     all_customers = Customer.objects.filter(is_active=True).values('id', 'name', 'area__name')
     all_customer_id_map = {}  # 用于快速按 name + area_name 查找客户 id
+
+    # ---------- 新增：未归属商品项（未审核订单中的未归属商品项） ----------
+    unassigned_items = []
+    # 查询未审核订单中，product 为空的订单项（排除补货品项）
+    unassigned_qs = OrderItem.objects.filter(
+        order__is_verified=False,
+        product__isnull=True,
+        is_makeup_item=False
+    ).select_related('order').only(
+        'id', 'product_name', 'unit', 'specification', 'order__order_no'
+    ).order_by('order__order_no')
+
+    # 获取所有活跃商品，用于前端下拉（id, name, unit）
+    all_products_for_assign = Product.objects.filter(is_active=True).values('id', 'name', 'unit')
+
+    # 构建商品查找字典 (name, unit) -> id
+    prod_lookup = {(p['name'], p['unit']): p['id'] for p in all_products_for_assign}
+
+    for item in unassigned_qs:
+        suggested_id = prod_lookup.get((item.product_name, item.unit))
+        unassigned_items.append({
+            'item_id': item.id,
+            'order_no': item.order.order_no,
+            'product_name': item.product_name,
+            'unit': item.unit,
+            'specification': item.specification or '',
+            'suggested_product_id': suggested_id,
+        })
+
+    # 全量商品列表（用于下拉）
+    all_products_list = list(all_products_for_assign)  # 每个元素为 {'id':..., 'name':..., 'unit':...}
     for c in all_customers:
         area_name = c['area__name'] or ''
         key = (c['name'], area_name)
@@ -3173,9 +3282,11 @@ def audit_orders_preview(request):
             'new_customers': new_customers,
             'reaudit_orders': reaudit_orders,
             'total_unverified': unverified_orders.count(),
-            # 新增订单归属数据
             'unassigned_orders': unassigned_orders,
             'all_customers': all_customers_list,
+            # 新增以下两行
+            'unassigned_items': unassigned_items,
+            'all_products': all_products_list,
         }
     })
 
@@ -3243,7 +3354,9 @@ def audit_orders_confirm(request):
         if not assignments:
             return JsonResponse({'code': 0, 'msg': '未提供归属数据'})
         return _audit_assign_orders(assignments)
-
+    elif action == 'assign_items':
+        assignments = payload.get('assignments', {})
+        return _audit_assign_items(assignments)
     else:
         return JsonResponse({'code': 0, 'msg': '未知操作类型'})
 

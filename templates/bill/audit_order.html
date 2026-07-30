@@ -2,6 +2,7 @@
 {% block title %}订单审核 - EasyStock{% endblock %}
 
 {% block extra_css %}
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
 <style>
     .summary-card { border-left: 4px solid; }
     .summary-card.new { border-left-color: #0d6efd; }
@@ -42,6 +43,7 @@
         <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-customers">新建客户</a></li>
         <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-reaudit">重新审核</a></li>
         <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-assign">订单归属</a></li>
+        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-assign-items">商品归属</a></li>
     </ul>
 
     <div class="tab-content mt-3">
@@ -155,7 +157,7 @@
         <tbody id="reauditTableBody"></tbody>
     </table>
 </div>
-        
+
         <!-- 订单归属 -->
 <div class="tab-pane fade" id="tab-assign">
     <div class="alert alert-info">以下订单未关联客户，请选择要归属的客户。</div>
@@ -177,6 +179,34 @@
         <tbody id="assignTableBody"></tbody>
     </table>
 </div>
+
+        <!-- 商品归属 -->
+<div class="tab-pane fade" id="tab-assign-items">
+    <div class="alert alert-info">
+        以下订单项尚未关联商品，请选择正确的商品进行归属。系统已根据“商品名称+单位”推荐匹配项。
+    </div>
+    <div class="d-flex justify-content-between mb-2">
+        <button class="btn btn-sm btn-outline-primary" id="selectAllAssignItems">全选</button>
+        <button class="btn btn-sm btn-outline-secondary" id="deselectAllAssignItems">取消全选</button>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-bordered">
+            <thead>
+                <tr>
+                    <th style="width:40px"><input type="checkbox" id="masterAssignItemsCheck" checked></th>
+                    <th>订单编号</th>
+                    <th>商品名称</th>
+                    <th>单位</th>
+                    <th>规格</th>
+                    <th>推荐商品</th>
+                    <th>归属商品（搜索选择）</th>
+                </tr>
+            </thead>
+            <tbody id="assignItemsTableBody"></tbody>
+        </table>
+    </div>
+</div>
+
     </div>
 
     <div class="mt-4 d-flex justify-content-between">
@@ -188,7 +218,9 @@
 {% endblock %}
 
 {% block extra_js %}
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
 <script>
+
 let auditData = null;
 
 $(document).ready(function() {
@@ -221,7 +253,8 @@ function loadAuditPreview() {
 function renderPage(data) {
     $('#loadingArea').hide();
     $('#mainContent').show();
-
+    // 渲染商品归属
+renderAssignItems(data.unassigned_items || [], data.all_products || []);
     // 摘要卡片
     let cards = '';
     if (data.new_areas.length) cards += `<div class="col-md-2"><div class="card summary-card new p-2"><strong>新区域</strong><br>${data.new_areas.length} 个</div></div>`;
@@ -385,6 +418,69 @@ renderAssignOrders(data.unassigned_orders || [], data.all_customers || []);
 
     // 绑定全选/取消
     bindCheckboxEvents();
+}
+
+function renderAssignItems(unassignedItems, allProducts) {
+    let html = '';
+    if (unassignedItems.length === 0) {
+        html = `<tr><td colspan="7" class="text-center text-muted">暂无未归属商品的订单项</td></tr>`;
+    } else {
+        // 构建商品下拉选项（按名称排序）
+        let productOptions = '';
+        allProducts.sort((a, b) => a.name.localeCompare(b.name));
+        allProducts.forEach(p => {
+            productOptions += `<option value="${p.id}">${p.name}（${p.unit}）</option>`;
+        });
+
+        unassignedItems.forEach(item => {
+            const suggested = item.suggested_product_id || '';
+            html += `<tr>
+                <td><input type="checkbox" class="assign-item-check" value="${item.item_id}" checked></td>
+                <td>${item.order_no}</td>
+                <td>${item.product_name}</td>
+                <td>${item.unit}</td>
+                <td>${item.specification}</td>
+                <td>${suggested ? (allProducts.find(p => p.id == suggested)?.name || '') : '无推荐'}</td>
+                <td>
+                    <select class="form-select form-select-sm assign-item-select" data-item="${item.item_id}" style="width:100%;">
+                        <option value="">-- 请选择 --</option>
+                        ${productOptions}
+                    </select>
+                </td>
+            </tr>`;
+        });
+    }
+    $('#assignItemsTableBody').html(html);
+
+    // 初始化 Select2
+    $('.assign-item-select').select2({
+        placeholder: '搜索商品...',
+        allowClear: true,
+        width: '100%'
+    });
+
+    // 设置推荐值
+    $('.assign-item-select').each(function() {
+        const $select = $(this);
+        const itemId = $select.data('item');
+        const itemData = unassignedItems.find(i => i.item_id == itemId);
+        if (itemData && itemData.suggested_product_id) {
+            if ($select.find('option[value="' + itemData.suggested_product_id + '"]').length) {
+                $select.val(itemData.suggested_product_id).trigger('change');
+            }
+        }
+    });
+
+    // 绑定全选事件（这些绑定也可以统一放到 bindCheckboxEvents 中，但为了清晰，单独绑定）
+    $('#masterAssignItemsCheck').off('change').on('change', function() {
+        $('.assign-item-check').prop('checked', this.checked);
+    });
+    $('#selectAllAssignItems').off('click').click(function() {
+        $('.assign-item-check').prop('checked', true);
+    });
+    $('#deselectAllAssignItems').off('click').click(function() {
+        $('.assign-item-check').prop('checked', false);
+    });
 }
 
 function renderAssignOrders(unassignedOrders, allCustomers) {
@@ -563,27 +659,54 @@ $('#confirmAuditBtn').click(function() {
             }
             payload = { area_updates: areaUpdates };
             break;
-            
-        case 'tab-assign':
-    action = 'assign';
-    const assignments = {};
-    const unassignedOrdersData = auditData.unassigned_orders || [];
-    $('.assign-check:checked').each(function() {
-        const orderNo = this.value;
-        const $row = $(this).closest('tr');
-        let customerId = $row.find('.assign-customer-select').val();
-        if (!customerId) {
-            const orderData = unassignedOrdersData.find(o => o.order_no === orderNo);
-            if (orderData && orderData.suggested_customer_id) {
-                customerId = orderData.suggested_customer_id;
-            }
+
+        case 'tab-assign': {
+            action = 'assign';
+            const assignments = {};
+            const unassignedOrdersData = auditData.unassigned_orders || [];
+            $('.assign-check:checked').each(function () {
+                const orderNo = this.value;
+                const $row = $(this).closest('tr');
+                let customerId = $row.find('.assign-customer-select').val();
+                if (!customerId) {
+                    const orderData = unassignedOrdersData.find(o => o.order_no === orderNo);
+                    if (orderData && orderData.suggested_customer_id) {
+                        customerId = orderData.suggested_customer_id;
+                    }
+                }
+                if (customerId) {
+                    assignments[orderNo] = parseInt(customerId, 10);
+                }
+            });
+            payload = {assignments: assignments};
+            break;
         }
-        if (customerId) {
-            assignments[orderNo] = parseInt(customerId, 10);
+
+    case 'tab-assign-items': {
+        
+    action = 'assign_items';
+    const assignments = {};
+    $('.assign-item-check:checked').each(function () {
+        const itemId = parseInt(this.value, 10);
+if (isNaN(itemId)) return;
+        
+        const $row = $(this).closest('tr');
+        const selectedProductId = $row.find('.assign-item-select').val();
+        if (selectedProductId) {
+            assignments[itemId] = parseInt(selectedProductId, 10);
         }
     });
+    console.log('【商品归属】提交数据:', assignments);  // 重要
+    if (Object.keys(assignments).length === 0) {
+        $('#messageArea').html('<div class="alert alert-warning">请至少勾选一项并选择归属商品，或直接取消勾选无需归属的项</div>');
+        $btn.prop('disabled', false).text('确认审核');
+        return;
+    }
+    
+    
     payload = { assignments: assignments };
     break;
+}
 
         case 'tab-products':
             action = 'products';
