@@ -132,9 +132,11 @@
 </table>
         </div>
 
-        <!-- 重新审核 -->
+<!-- 重新审核 -->
 <div class="tab-pane fade" id="tab-reaudit">
-    <div class="alert alert-warning">以下订单已审核但无区域，勾选后点击确认将重新开启审核流程（标记为未审核）。</div>
+    <div class="alert alert-warning">
+        以下订单已审核但无区域，或存在订单项商品未归属，勾选后点击确认将重新开启审核流程（标记为未审核）。
+    </div>
     <div class="d-flex justify-content-between mb-2">
         <button class="btn btn-sm btn-outline-primary" id="selectAllReaudit">全选</button>
         <button class="btn btn-sm btn-outline-secondary" id="deselectAllReaudit">取消全选</button>
@@ -147,6 +149,7 @@
                 <th>客户快照</th>
                 <th>金额</th>
                 <th>开单时间</th>
+                <th>缺失商品</th>   <!-- 新增列 -->
             </tr>
         </thead>
         <tbody id="reauditTableBody"></tbody>
@@ -351,20 +354,30 @@ data.new_customers.forEach(function(c) {
 });
 $('#customerTableBody').html(custHtml);
 
-// 8. 重新审核（已审核无区域）
+// 8. 重新审核（已审核无区域 或 存在未归属商品）
 let reauditHtml = '';
 if (data.reaudit_orders && data.reaudit_orders.length) {
     data.reaudit_orders.forEach(function(o) {
+        // 构建缺失商品显示文本
+        let missingText = '';
+        if (o.missing_products && o.missing_products.length) {
+            missingText = o.missing_products.join('、');
+        } else {
+            missingText = '<span class="text-muted">无缺失</span>';
+        }
+        // 如果有缺失商品，加一个警告标记
+        const warningBadge = o.has_missing ? ' <span class="badge bg-warning text-dark">需补充归属</span>' : '';
         reauditHtml += `<tr>
             <td><input type="checkbox" class="reaudit-check" value="${o.order_no}" checked></td>
             <td>${o.order_no}</td>
             <td>${o.customer_snapshot || '<span class="text-muted">无客户</span>'}</td>
             <td>¥${o.total_amount.toFixed(2)}</td>
             <td>${o.create_time}</td>
+            <td>${missingText} ${warningBadge}</td>
         </tr>`;
     });
 } else {
-    reauditHtml = `<tr><td colspan="5" class="text-center text-muted">暂无已审核无区域的订单</td></tr>`;
+    reauditHtml = `<tr><td colspan="6" class="text-center text-muted">暂无需要重新审核的订单</td></tr>`;
 }
 $('#reauditTableBody').html(reauditHtml);
 // 渲染订单归属

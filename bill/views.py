@@ -2930,7 +2930,7 @@ from django.db.models import Q  # 确保顶部已导入
 def audit_orders_preview(request):
     """
     审核预览：将未审核订单分为四类，并检测新区域/客户/商品/价格冲突。
-    增加：已审核但无区域或客户归属的订单（用于重新审核）
+    增加：已审核但无区域、无客户或存在未归属商品的订单（用于重新审核）
     增加：未关联客户的未审核订单（用于订单归属）
     """
     if request.method not in ('GET', 'POST'):
@@ -2942,11 +2942,18 @@ def audit_orders_preview(request):
         .prefetch_related('items') \
         .order_by('-create_time')
 
-    # ---------- 2. 已审核但无区域或客户归属的订单（重新审核候选） ----------
-    # 🔥 修改点：增加 Q(customer__isnull=True) 条件
+    # ---------- 2. 已审核但无区域、无客户或存在未归属商品的订单（重新审核候选） ----------
+    from django.db.models import Exists, OuterRef
+
+    # 子查询：存在 product 为 null 的订单项（且商品名称不为空）
+    has_missing_product = OrderItem.objects.filter(
+        order=OuterRef('pk'),
+        product__isnull=True
+    ).exclude(product_name='')
+
     reaudit_orders_qs = Order.objects.filter(
-        Q(area__isnull=True) | Q(customer__isnull=True),  # 位置参数
-        is_verified=True  # 关键字参数
+        Q(area__isnull=True) | Q(customer__isnull=True) | Q(Exists(has_missing_product)),
+        is_verified=True
     ).exclude(status='cancelled') \
         .select_related('area') \
         .prefetch_related('items') \
@@ -3089,14 +3096,19 @@ def audit_orders_preview(request):
                 'order_numbers': ', '.join(set(info['order_numbers'])) if info['order_numbers'] else ''
             })
 
-    # ---------- 已审核无区域或客户归属的订单（重新审核候选） ----------
+    # ---------- 重新审核订单列表（含缺失商品信息） ----------
     reaudit_orders = []
     for order in reaudit_orders_qs:
+        # 获取缺失商品名称列表
+        missing_items = order.items.filter(product__isnull=True).values_list('product_name', flat=True)
+        missing_names = list(missing_items) if missing_items else []
         reaudit_orders.append({
             'order_no': order.order_no,
             'customer_snapshot': order.customer_name_snapshot or '',
             'total_amount': float(order.total_amount),
             'create_time': order.create_time.strftime('%Y-%m-%d %H:%M'),
+            'missing_products': missing_names,   # 供前端显示
+            'has_missing': bool(missing_names),  # 是否有缺失
         })
 
     # ---------- 订单归属：未关联客户的未审核订单 ----------
