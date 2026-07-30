@@ -3,6 +3,7 @@ from django.db.models.functions import Coalesce
 from django.shortcuts import render, redirect, get_object_or_404
 from django.http import HttpResponseBadRequest
 from django.shortcuts import render
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_POST
 from mpmath import re
 
@@ -2585,7 +2586,6 @@ def import_orders_confirm(request):
 def import_order_page(request):
     return render(request, 'bill/import_order.html')
 
-from collections import defaultdict
 
 def parse_customer_name(customer_snapshot, area_name=''):
     """
@@ -2598,16 +2598,6 @@ def parse_customer_name(customer_snapshot, area_name=''):
         parts = customer_snapshot.split(' | ', 1)
         return (parts[0].strip(), parts[1].strip())
     return (area_name, customer_snapshot.strip())
-
-from django.views.decorators.cache import never_cache
-from django.views.decorators.cache import never_cache
-from django.contrib.auth.decorators import login_required, permission_required
-from django.http import JsonResponse
-from django.shortcuts import render
-from django.db import transaction
-from decimal import Decimal
-import json
-from .models import Order, OrderItem, Area, Customer, Product
 
 # ---------- 辅助函数 ----------
 def parse_customer_name(raw_name, default_area=None):
@@ -2631,40 +2621,35 @@ def is_customer_name_format_valid(raw_name):
     parts = raw_name.split('|')
     return len(parts) == 2 and parts[0].strip() and parts[1].strip()
 
-from decimal import Decimal
-from django.utils import timezone
-from django.db import transaction
-from .models import Order, OrderItem, Area, Customer, Product
-
 # ---------- 辅助函数（补全） ----------
 
 def _audit_normal_orders(order_nos, user):
     """
-    正常审核订单（完整流程）
+    正常审核订单（完整流程 + 自动商品归属）
+    增加规范化匹配，避免因空格/大小写导致匹配失败
     """
     if not order_nos:
         return JsonResponse({'code': 0, 'msg': '未提供订单号'})
 
-    # 获取待审核订单
     orders = list(Order.objects.filter(order_no__in=order_nos, is_verified=False)
                   .select_related('area')
                   .prefetch_related('items'))
     if not orders:
         return JsonResponse({'code': 0, 'msg': '所选订单均不存在或已审核'})
 
-    # 收集基础数据（区域、客户、商品）
+    # ---- 收集基础数据 ----
     area_names = set()
-    customer_data = {}  # key: (pure_name, area_name) -> {'order_numbers': []}
-    product_map = {}
+    customer_data = {}
+    product_map = {}  # key: (name_lower, unit_lower) -> {'price': Decimal, 'spec': str, 'raw_name': str, 'raw_unit': str}
 
     for order in orders:
         if order.area:
             area_names.add(order.area.name)
+
         raw_customer = order.customer_name_snapshot or ''
         if raw_customer:
             final_area, pure_name = parse_customer_name(raw_customer, order.area.name if order.area else '')
             if pure_name:
-                # 将解析出的区域也加入待创建区域列表，确保客户区域存在
                 if final_area:
                     area_names.add(final_area)
                 key = (pure_name, final_area)
@@ -2672,74 +2657,89 @@ def _audit_normal_orders(order_nos, user):
                     customer_data[key] = {'order_numbers': []}
                 if order.order_number_snapshot:
                     customer_data[key]['order_numbers'].append(order.order_number_snapshot)
-        # 收集商品
+
         for item in order.items.all():
             if item.is_makeup_item:
                 continue
-            key = (item.product_name, item.unit)
-            if key not in product_map:
-                product_map[key] = {
+            # 规范化键（小写+去除两端空格）
+            norm_key = (item.product_name.strip().lower(), item.unit.strip().lower())
+            if norm_key not in product_map:
+                product_map[norm_key] = {
                     'price': item.actual_unit_price or Decimal('0'),
                     'spec': item.specification or '',
+                    'raw_name': item.product_name.strip(),   # 保留原始名称（去除空格）
+                    'raw_unit': item.unit.strip(),
                 }
 
-    # 创建区域
-    existing_areas = set(Area.objects.filter(name__in=area_names, is_active=True).values_list('name', flat=True))
-    missing_areas = [a for a in area_names if a not in existing_areas]
-    if missing_areas:
-        Area.objects.bulk_create([Area(name=n) for n in missing_areas])
-
-    # 创建客户（按名称+区域联合判断）
-    for (pure_name, area_name), info in customer_data.items():
-        area_obj = Area.objects.filter(name=area_name, is_active=True).first() if area_name else None
-        if not Customer.objects.filter(name=pure_name, area=area_obj, is_active=True).exists():
-            Customer.objects.create(name=pure_name, area=area_obj)
-
-    # 处理商品（新建或覆盖价格）
-    existing_prods = Product.objects.filter(is_active=True)
-    existing_prod_map = {}
-    for p in existing_prods:
-        existing_prod_map[(p.name, p.unit)] = p
-
-    for (name, unit), info in product_map.items():
-        key = (name, unit)
-        if key in existing_prod_map:
-            prod = existing_prod_map[key]
-            if prod.price != info['price']:
-                prod.price = info['price']
-                prod.save(update_fields=['price'])
-        else:
-            Product.objects.create(
-                name=name,
-                unit=unit,
-                specification=info.get('spec', ''),
-                price=info['price'],
-                stock_system=0,
-                stock_actual=0
-            )
-
-    # 更新价格快照并标记审核
-    updated_products = Product.objects.filter(is_active=True)
-    price_dict = {}
-    for p in updated_products:
-        price_dict[(p.name, p.unit)] = p.price
-
-    count = 0
+    # ---- 原子事务开始 ----
     with transaction.atomic():
+        # 1. 创建区域
+        existing_areas = set(Area.objects.filter(name__in=area_names, is_active=True).values_list('name', flat=True))
+        missing_areas = [a for a in area_names if a not in existing_areas]
+        if missing_areas:
+            Area.objects.bulk_create([Area(name=n) for n in missing_areas])
+
+        # 2. 创建客户
+        for (pure_name, area_name), info in customer_data.items():
+            area_obj = Area.objects.filter(name=area_name, is_active=True).first() if area_name else None
+            if not Customer.objects.filter(name=pure_name, area=area_obj, is_active=True).exists():
+                Customer.objects.create(name=pure_name, area=area_obj)
+
+        # 3. 处理商品（新建或更新价格），使用规范化键判断
+        existing_products = Product.objects.filter(is_active=True)
+        existing_prod_map = {}
+        for p in existing_products:
+            norm_key = (p.name.strip().lower(), p.unit.strip().lower())
+            existing_prod_map[norm_key] = p
+
+        for norm_key, info in product_map.items():
+            if norm_key in existing_prod_map:
+                prod = existing_prod_map[norm_key]
+                if prod.price != info['price']:
+                    prod.price = info['price']
+                    prod.save(update_fields=['price'])
+            else:
+                # 使用原始名称和单位创建商品（已去除两端空格）
+                Product.objects.create(
+                    name=info['raw_name'],
+                    unit=info['raw_unit'],
+                    specification=info.get('spec', ''),
+                    price=info['price'],
+                    stock_system=0,
+                    stock_actual=0
+                )
+
+        # 4. 重新获取所有活跃商品，构建规范化键映射
+        all_products = Product.objects.filter(is_active=True)
+        product_dict = {}
+        for p in all_products:
+            norm_key = (p.name.strip().lower(), p.unit.strip().lower())
+            product_dict[norm_key] = p
+
+        # 5. 遍历订单项，自动归属商品 + 更新价格快照
         for order in orders:
             for item in order.items.all():
-                if not item.is_makeup_item:
-                    key = (item.product_name, item.unit)
-                    if key in price_dict:
-                        item.snapshot_standard_price = price_dict[key]
-                        item.snapshot_customer_price = None
-                        item.save(update_fields=['snapshot_standard_price', 'snapshot_customer_price'])
-            order.is_verified = True
-            order.save(update_fields=['is_verified', 'area', 'customer_name_snapshot'])
-            count += 1
+                if item.is_makeup_item:
+                    continue
+                norm_key = (item.product_name.strip().lower(), item.unit.strip().lower())
+                prod = product_dict.get(norm_key)
+                if prod:
+                    if not item.product:
+                        item.product = prod
+                    item.snapshot_standard_price = prod.price
+                    item.snapshot_customer_price = None
+                    item.save(update_fields=['product', 'snapshot_standard_price', 'snapshot_customer_price'])
+                else:
+                    # 可选日志：记录未匹配到的商品，便于排查
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"订单 {order.order_no} 项 '{item.product_name}' 单位 '{item.unit}' 未匹配到商品")
 
-    clear_order_cache()  # 如果未定义，可以注释掉
-    return JsonResponse({'code': 1, 'msg': f'成功审核 {count} 个订单'})
+            order.is_verified = True
+            order.save(update_fields=['is_verified'])
+
+    clear_order_cache()
+    return JsonResponse({'code': 1, 'msg': f'成功审核 {len(orders)} 个订单（含商品自动归属）'})
 
 
 def _audit_cancel_orders(cancel_order_nos, user):
@@ -2791,14 +2791,15 @@ def _audit_update_areas(area_updates):
 
 def _audit_products(new_products):
     """
-    处理商品（新建或覆盖价格）
-    前端传递的 new_products 包含: {name, unit, spec, price, action}
+    处理商品（新建或覆盖价格），并自动归属到未审核订单中匹配的未归属项
     """
     if not new_products:
         return JsonResponse({'code': 0, 'msg': '未提供商品数据'})
 
     created = 0
     updated = 0
+    processed_products = []  # 用于收集本次处理过的商品实例
+
     with transaction.atomic():
         for item in new_products:
             name = item.get('name')
@@ -2810,21 +2811,16 @@ def _audit_products(new_products):
             if not name or not unit:
                 continue
 
-            # 查找现有商品（按名称+单位，仅激活状态）
             existing = Product.objects.filter(name=name, unit=unit, is_active=True).first()
 
             if existing:
-                # ======== 🔥 修改点开始 ========
-                # 覆盖价格时：仅更新价格，保留原有规格（不做任何修改）
                 if action == 'overwrite' or existing.price != price:
                     existing.price = price
-                    # 注意：这里不再更新 specification 字段
                     existing.save(update_fields=['price'])
                     updated += 1
-                # ======== 🔥 修改点结束 ========
+                    processed_products.append(existing)
             else:
-                # 新建商品（规格按传入值写入）
-                Product.objects.create(
+                new_prod = Product.objects.create(
                     name=name,
                     unit=unit,
                     specification=spec,
@@ -2833,6 +2829,32 @@ def _audit_products(new_products):
                     stock_actual=0
                 )
                 created += 1
+                processed_products.append(new_prod)
+
+        # ========== 自动归属订单项 ==========
+        if processed_products:
+            # 构建 (名称规范, 单位规范) -> Product 映射
+            prod_map = {}
+            for p in processed_products:
+                norm_key = (p.name.strip().lower(), p.unit.strip().lower())
+                prod_map[norm_key] = p
+
+            # 查询未审核订单中未归属的商品项（product为null且非补货）
+            items_to_update = OrderItem.objects.filter(
+                order__is_verified=False,
+                product__isnull=True,
+                is_makeup_item=False
+            )
+
+            for order_item in items_to_update:
+                norm_key = (order_item.product_name.strip().lower(), order_item.unit.strip().lower())
+                prod = prod_map.get(norm_key)
+                if prod:
+                    order_item.product = prod
+                    order_item.snapshot_standard_price = prod.price
+                    order_item.snapshot_customer_price = None
+                    order_item.save(update_fields=['product', 'snapshot_standard_price', 'snapshot_customer_price'])
+        # ==================================
 
     msg = f'成功新建 {created} 个商品，更新 {updated} 个商品价格'
     return JsonResponse({'code': 1, 'msg': msg})
