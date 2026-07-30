@@ -1486,7 +1486,6 @@ def get_customer_recent_products(request):
         return JsonResponse({'code': 1, 'data': cached_data})
 
     try:
-        # 获取最近有效订单ID（取10个，覆盖足够的最近购买记录）
         recent_order_ids = list(
             Order.objects.filter(
                 customer_id=customer_id,
@@ -1506,9 +1505,8 @@ def get_customer_recent_products(request):
             is_makeup_item=False
         ).select_related('product', 'order').order_by('-order__create_time')
 
-        # 分别处理有product的商品与自由开单商品
-        product_dict = {}          # key: product.id
-        free_product_dict = {}     # key: "free_产品名|规格|单位|价格"
+        product_dict = {}
+        free_product_dict = {}
 
         for item in order_items:
             if item.product:
@@ -1516,35 +1514,31 @@ def get_customer_recent_products(request):
                 if product.id in product_dict:
                     continue
 
-                # ----- 价格快照逻辑 -----
-                # 1. 优先使用开单时的实际单价（成交价快照）
+                # ----- 价格快照逻辑（保持不变） -----
                 if item.actual_unit_price is not None:
                     final_price = float(item.actual_unit_price)
-                # 2. 若无实际单价，尝试客户价快照
                 elif item.snapshot_customer_price is not None:
                     final_price = float(item.snapshot_customer_price)
-                # 3. 再尝试标准价快照
                 elif item.snapshot_standard_price is not None:
                     final_price = float(item.snapshot_standard_price)
-                # 4. 兜底：使用商品当前标准价
                 else:
                     final_price = float(product.price)
 
-                # 规格：优先使用订单明细中的规格快照
                 specification = item.specification or product.specification or ''
 
                 product_dict[product.id] = {
                     'id': product.id,
                     'name': product.name,
-                    'price': final_price,                    # 成交价快照
-                    'standard_price': float(product.price),  # 当前标准价（用于对比）
+                    'price': final_price,
+                    'standard_price': float(product.price),
                     'unit': product.unit,
                     'last_purchase_time': item.order.create_time.strftime('%Y-%m-%d %H:%M'),
                     'last_quantity': item.quantity,
                     'specification': specification,
+                    # ===== 新增：标签列表 =====
+                    'tags': [],   # 稍后批量填充
                 }
             else:
-                # 自由开单商品：使用当时的成交价（原有逻辑不变）
                 name = item.product_name or ''
                 spec = item.specification or ''
                 unit = item.unit or ''
@@ -1561,7 +1555,20 @@ def get_customer_recent_products(request):
                     'last_purchase_time': item.order.create_time.strftime('%Y-%m-%d %H:%M'),
                     'last_quantity': item.quantity,
                     'specification': spec,
+                    'tags': [],   # 自由商品无标签
                 }
+
+        # ===== 批量获取商品标签 =====
+        product_ids = [pid for pid in product_dict.keys()]
+        if product_ids:
+            from django.db.models import Prefetch
+            products_with_tags = Product.objects.filter(id__in=product_ids).prefetch_related(
+                Prefetch('tags', to_attr='tags_list')
+            )
+            for p in products_with_tags:
+                tags = [tag.name for tag in p.tags_list]   # 获取标签名称列表
+                if p.id in product_dict:
+                    product_dict[p.id]['tags'] = tags
 
         # 组装结果
         recent_products = list(product_dict.values())
@@ -1571,15 +1578,10 @@ def get_customer_recent_products(request):
             free_data['id'] = -100000 - free_offset
             recent_products.append(free_data)
 
-        # ===== 新增：按最近购买数量降序排序 =====
         recent_products.sort(key=lambda x: (x.get('last_quantity', 0), x.get('last_purchase_time', '')), reverse=True)
 
-        # 缓存
         cache.set(cache_key, recent_products, timeout=CACHE_CUSTOMER_RECENT_PRODUCT)
-        logger.info(
-            f"设置客户最近商品缓存: {cache_key} "
-            f"(含{len(product_dict)}个系统商品, {len(free_product_dict)}个自由商品)"
-        )
+        logger.info(f"设置客户最近商品缓存: {cache_key} (含{len(product_dict)}个系统商品, {len(free_product_dict)}个自由商品)")
 
         return JsonResponse({'code': 1, 'data': recent_products})
 

@@ -6,7 +6,7 @@
 <!-- 页面专属样式 -->
 {% block extra_css %}
     <style>
-    .makeup-row { background-color: #e7f3ff; }  /* 浅蓝背景，表示补货 */
+    .makeup-row { background-color: #e7f3ff; }
         /* 原有样式保留 */
         .reopen-tag {
             background: #ffc107;
@@ -26,23 +26,20 @@
         .btn-add-row { padding: 8px 20px; font-size: 16px; cursor: pointer; background: #0066cc; color: #fff; border: none; border-radius: 4px; margin-bottom: 10px; }
         .btn-add-row:hover { background: #0055bb; }
 
-        .bill-table { width: 100%; border-collapse: collapse; margin-bottom: 20px;table-layout: fixed; }
-        .bill-table th, .bill-table td { border: 1px solid #000; padding: 8px; text-align: center; position: relative; overflow: hidden;
-text-overflow: ellipsis;}
+        .bill-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; table-layout: fixed; }
+        .bill-table th, .bill-table td { border: 1px solid #000; padding: 8px; text-align: center; position: relative; overflow: hidden; text-overflow: ellipsis; }
 
         /* ========== 列宽调整：主开单表格 ========== */
-.bill-table th:nth-child(1), .bill-table td:nth-child(1) { width: 50px; } /* 序号 */
-.bill-table th:nth-child(2), .bill-table td:nth-child(2) { width: 28%; text-align: center; } /* 商品名称：加宽 + 居中 */
-.bill-table th:nth-child(3), .bill-table td:nth-child(3) { width: 15%; } /* 商品规格 */
-.bill-table th:nth-child(4), .bill-table td:nth-child(4) { width: 80px; } /* 销售数量：收窄 */
-.bill-table th:nth-child(5), .bill-table td:nth-child(5) { width: 70px; } /* 销售单位：收窄 */
-.bill-table th:nth-child(6), .bill-table td:nth-child(6) { width: 100px; } /* 销售单价 */
-.bill-table th:nth-child(7), .bill-table td:nth-child(7) { width: 110px; } /* 销售金额 */
-.bill-table th:nth-child(8), .bill-table td:nth-child(8) { width: 60px; } /* 操作 */
+        .bill-table th:nth-child(1), .bill-table td:nth-child(1) { width: 50px; }
+        .bill-table th:nth-child(2), .bill-table td:nth-child(2) { width: 28%; text-align: center; }
+        .bill-table th:nth-child(3), .bill-table td:nth-child(3) { width: 15%; }
+        .bill-table th:nth-child(4), .bill-table td:nth-child(4) { width: 80px; }
+        .bill-table th:nth-child(5), .bill-table td:nth-child(5) { width: 70px; }
+        .bill-table th:nth-child(6), .bill-table td:nth-child(6) { width: 100px; }
+        .bill-table th:nth-child(7), .bill-table td:nth-child(7) { width: 110px; }
+        .bill-table th:nth-child(8), .bill-table td:nth-child(8) { width: 60px; }
 
-/* 名称列输入框左对齐 */
-/* 名称列输入框居中 */
-.bill-table td:nth-child(2) input { text-align: center; }
+        .bill-table td:nth-child(2) input { text-align: center; }
         .bill-table th { background: #e9e9e9; font-weight: bold; }
         .bill-table input { 
             width: 95%; padding: 6px; text-align: center; border: 1px solid #ddd; border-radius: 3px; font-size: 14px; outline: none;
@@ -105,27 +102,25 @@ text-overflow: ellipsis;}
             height: 100%;
             background: rgba(0,0,0,0.5);
             z-index: 99999;
-            overflow: hidden; /* 防止外层滚动 */
+            overflow: hidden;
         }
         
-        /* 模态框内容容器：改为上下结构（头部+身体） */
         .modal-content {
             background: #fff;
-            margin: 2vh auto; /* 上下留边 */
-            padding: 0; /* 移除内边距，交给子元素处理 */
+            margin: 2vh auto;
+            padding: 0;
             border-radius: 8px;
             width: 95%;
-            max-width: 1400px; /* 加宽以适应分栏 */
-            height: 90vh; /* 固定高度 */
+            max-width: 1400px;
+            height: 90vh;
             display: flex;
             flex-direction: column;
             position: relative;
         }
 
-        /* 模态框头部：标题、关闭、搜索框 */
         .modal-header {
             padding: 20px 20px 0 20px;
-            flex-shrink: 0; /* 不压缩 */
+            flex-shrink: 0;
             border-bottom: 1px solid #eee;
         }
 
@@ -140,10 +135,10 @@ text-overflow: ellipsis;}
         }
         .modal-close:hover { color: #ff4400; }
         
-        .modal-header h4 { margin: 0 0 15px 0; padding-right: 30px; }
+        .modal-header h4 { margin: 0 0 10px 0; padding-right: 30px; }
 
         .recent-search-box {
-            margin-bottom: 15px;
+            margin-bottom: 10px;
             display: flex;
             gap: 10px;
             align-items: center;
@@ -156,33 +151,61 @@ text-overflow: ellipsis;}
             border-radius: 4px;
         }
 
-        /* 模态框身体：左右分栏 */
+        /* ===== 新增：标签栏样式 ===== */
+        .recent-tags-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 12px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #f0f0f0;
+            max-height: 60px;
+            overflow-y: auto;
+        }
+        .tag-filter-btn {
+            padding: 4px 14px;
+            border: 1px solid #ccc;
+            border-radius: 20px;
+            background: #fff;
+            cursor: pointer;
+            font-size: 13px;
+            color: #333;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .tag-filter-btn:hover {
+            background: #e9ecef;
+        }
+        .tag-filter-btn.active {
+            background: #0066cc;
+            color: #fff;
+            border-color: #0066cc;
+        }
+
+        /* 模态框身体 */
         .modal-body {
             display: flex;
-            flex: 1; /* 占满剩余空间 */
+            flex: 1;
             overflow: hidden;
             padding: 0;
         }
 
-        /* 左侧：商品选择区 */
         .left-panel {
-            flex: 1.5; /* 占据比例稍大 */
+            flex: 1.5;
             padding: 15px 10px 15px 20px;
             display: flex;
             flex-direction: column;
             border-right: 1px solid #eee;
         }
         
-        /* 右侧：购物车区 */
         .right-panel {
-            flex: 1; /* 占据比例稍小 */
+            flex: 1;
             padding: 15px 20px 15px 10px;
             display: flex;
             flex-direction: column;
-            background: #fafbfc; /* 轻微背景色区分 */
+            background: #fafbfc;
         }
 
-        /* 表格容器：负责滚动 */
         .table-scroll-wrapper {
             flex: 1;
             overflow-y: auto;
@@ -191,11 +214,10 @@ text-overflow: ellipsis;}
             background: #fff;
         }
 
-        /* 表格样式微调 */
         .recent-products-table, .cart-table {
             width: 100%;
             border-collapse: collapse;
-            margin: 0; /* 移除margin */
+            margin: 0;
             table-layout: fixed;
         }
         .recent-products-table th,
@@ -206,40 +228,58 @@ text-overflow: ellipsis;}
             padding: 10px 8px;
             text-align: center;
             font-size: 14px;
-            white-space: nowrap; /* 防止换行 */
+            white-space: nowrap;
             overflow: hidden;
-text-overflow: ellipsis;
+            text-overflow: ellipsis;
         }
 
         /* ========== 列宽调整：左侧商品列表 ========== */
-.recent-products-table th:nth-child(1), .recent-products-table td:nth-child(1) { width: 32%; text-align: left; } /* 商品名称：加宽 + 左对齐 */
-.recent-products-table th:nth-child(2), .recent-products-table td:nth-child(2) { width: 14%; } /* 规格 */
-.recent-products-table th:nth-child(3), .recent-products-table td:nth-child(3) { width: 90px; } /* 单价 */
-.recent-products-table th:nth-child(4), .recent-products-table td:nth-child(4) { width: 60px; } /* 单位：收窄 */
-.recent-products-table th:nth-child(5), .recent-products-table td:nth-child(5) { width: 90px; } /* 最后购买 */
-.recent-products-table th:nth-child(6), .recent-products-table td:nth-child(6) { width: 70px; } /* 上次数量：收窄 */
-.recent-products-table th:nth-child(7), .recent-products-table td:nth-child(7) { width: 60px; } /* 操作 */
+        .recent-products-table th:nth-child(1), .recent-products-table td:nth-child(1) { width: 32%; text-align: left; }
+        .recent-products-table th:nth-child(2), .recent-products-table td:nth-child(2) { width: 14%; }
+        .recent-products-table th:nth-child(3), .recent-products-table td:nth-child(3) { width: 90px; }
+        .recent-products-table th:nth-child(4), .recent-products-table td:nth-child(4) { width: 60px; }
+        .recent-products-table th:nth-child(5), .recent-products-table td:nth-child(5) { width: 90px; }
+        .recent-products-table th:nth-child(6), .recent-products-table td:nth-child(6) { width: 70px; }
+        .recent-products-table th:nth-child(7), .recent-products-table td:nth-child(7) { width: 60px; }
 
-/* ========== 列宽调整：右侧购物车 ========== */
-.cart-table th:nth-child(1), .cart-table td:nth-child(1) { width: 40px; } /* 序号 */
-.cart-table th:nth-child(2), .cart-table td:nth-child(2) { width: 35%; text-align: left; } /* 商品名称：加宽 + 左对齐 */
-.cart-table th:nth-child(3), .cart-table td:nth-child(3) { width: 15%; } /* 规格 */
-.cart-table th:nth-child(4), .cart-table td:nth-child(4) { width: 70px; } /* 数量：收窄 */
-.cart-table th:nth-child(5), .cart-table td:nth-child(5) { width: 50px; } /* 单位：收窄 */
-.cart-table th:nth-child(6), .cart-table td:nth-child(6) { width: 90px; } /* 金额 */
-.cart-table th:nth-child(7), .cart-table td:nth-child(7) { width: 40px; } /* 删除 */
+        /* ========== 列宽调整：右侧购物车 ========== */
+        .cart-table th:nth-child(1), .cart-table td:nth-child(1) { width: 40px; }
+        .cart-table th:nth-child(2), .cart-table td:nth-child(2) { width: 35%; text-align: left; }
+        .cart-table th:nth-child(3), .cart-table td:nth-child(3) { width: 15%; }
+        .cart-table th:nth-child(4), .cart-table td:nth-child(4) { width: 70px; }
+        .cart-table th:nth-child(5), .cart-table td:nth-child(5) { width: 50px; }
+        .cart-table th:nth-child(6), .cart-table td:nth-child(6) { width: 90px; }
+        .cart-table th:nth-child(7), .cart-table td:nth-child(7) { width: 40px; }
 
         .recent-products-table th,
         .cart-table th {
             background: #f8f9fa;
             font-weight: bold;
-            position: sticky; /* 表头吸顶 */
+            position: sticky;
             top: 0;
             z-index: 10;
             box-shadow: 0 2px 2px -1px rgba(0,0,0,0.1);
         }
 
-        /* 购物车区域特定样式 */
+        /* ===== 分组标题样式 ===== */
+        .group-header td {
+            background: #f1f3f5;
+            font-weight: bold;
+            color: #0066cc;
+            padding: 6px 12px;
+            text-align: left;
+            font-size: 15px;
+            border-bottom: 2px solid #ddd;
+        }
+        .group-header .group-badge {
+            background: #0066cc;
+            color: #fff;
+            border-radius: 12px;
+            padding: 0 10px;
+            font-size: 12px;
+            margin-left: 8px;
+        }
+
         .cart-container {
             display: flex;
             flex-direction: column;
@@ -282,7 +322,7 @@ text-overflow: ellipsis;
             cursor: not-allowed;
         }
 
-        /* ========== 行交互样式（保留并优化） ========== */
+        /* 行交互 */
         .recent-products-table tbody tr {
             transition: all 0.1s ease;
             cursor: pointer;
@@ -304,7 +344,7 @@ text-overflow: ellipsis;
         
         .cart-quantity-input {
             width: 100%;
-box-sizing: border-box;
+            box-sizing: border-box;
             padding: 6px 4px;
             text-align: center;
             border: 1px solid #ddd;
@@ -320,7 +360,6 @@ box-sizing: border-box;
             font-size: 12px;
         }
 
-        /* 动画 */
         .highlight-row { animation: highlight 1s ease; }
         @keyframes highlight {
             0% { background: #d4edda; }
@@ -333,140 +372,115 @@ box-sizing: border-box;
         .flash-green { animation: flash-green 0.2s ease; }
 
         /* ============================================ */
-/* 移动端 & 平板端响应式优化                     */
-/* ============================================ */
+        /* 移动端 & 平板端响应式优化                     */
+        /* ============================================ */
 
-/* 基础响应式容器 (已在 base.html 定义，此处可复用) */
-.table-responsive {
-    width: 100%;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-}
+        .table-responsive {
+            width: 100%;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
 
-/* 客户区域弹性布局 */
-.customer-area {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-}
-.customer-area .form-label {
-    margin-bottom: 0;
-    white-space: nowrap;
-}
-.customer-input {
-    flex: 1 1 200px;
-    min-width: 160px;
-}
-.order-input {
-    flex: 1 1 150px;
-    min-width: 120px;
-}
+        .customer-area {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+        }
+        .customer-area .form-label {
+            margin-bottom: 0;
+            white-space: nowrap;
+        }
+        .customer-input {
+            flex: 1 1 200px;
+            min-width: 160px;
+        }
+        .order-input {
+            flex: 1 1 150px;
+            min-width: 120px;
+        }
 
-/* ========== 平板竖屏及以下 (≤991px) ========== */
-@media (max-width: 991px) {
-    /* 标题缩小 */
-    h1 { font-size: 1.5rem; }
+        @media (max-width: 991px) {
+            h1 { font-size: 1.5rem; }
+            .bill-table {
+                font-size: 13px;
+            }
+            .bill-table th, .bill-table td {
+                padding: 4px;
+            }
+            .bill-table input {
+                font-size: 13px;
+                padding: 5px;
+            }
+        }
 
-    /* 主表格字体和内边距缩小 */
-    .bill-table {
-        font-size: 13px;
-    }
-    .bill-table th, .bill-table td {
-        padding: 4px;
-    }
-    .bill-table input {
-        font-size: 13px;
-        padding: 5px;
-    }
-    /* 隐藏序号和操作列 (可选，若不想隐藏可不加) */
-    .bill-table th:nth-child(1),
-    .bill-table td:nth-child(1),
-    .bill-table th:nth-child(8),
-    .bill-table td:nth-child(8) {
-        
-    }
+        @media (max-width: 576px) {
+            .content-container {
+                padding: 0 8px;
+            }
+            h1 { font-size: 1.2rem; }
+            .btn-add-row, .btn-save, .btn-print, button {
+                padding: 10px 15px;
+                font-size: 14px;
+                min-height: 44px;
+            }
+            .btn-del {
+                padding: 6px 10px;
+                font-size: 13px;
+            }
+            .bill-table {
+                font-size: 12px;
+            }
+            .bill-table input {
+                font-size: 12px;
+                padding: 4px;
+            }
+            .customer-area {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .customer-input, .order-input {
+                width: 100%;
+                flex: none;
+            }
+            .suggest-dropdown {
+                max-width: 90vw !important;
+                left: 5vw !important;
+                right: auto !important;
+                font-size: 12px;
+            }
+            .suggest-dropdown div {
+                padding: 8px 10px;
+            }
 
-}
-
-/* ========== 手机端 (≤576px) ========== */
-@media (max-width: 576px) {
-    .content-container {
-        padding: 0 8px;
-    }
-    h1 { font-size: 1.2rem; }
-
-    /* 按钮增大触摸区 */
-    .btn-add-row, .btn-save, .btn-print, button {
-        padding: 10px 15px;
-        font-size: 14px;
-        min-height: 44px;
-    }
-    .btn-del {
-        padding: 6px 10px;
-        font-size: 13px;
-    }
-
-    /* 表格更小字体 */
-    .bill-table {
-        font-size: 12px;
-    }
-    .bill-table input {
-        font-size: 12px;
-        padding: 4px;
-    }
-
-    /* 客户区垂直堆叠 */
-    .customer-area {
-        flex-direction: column;
-        align-items: stretch;
-    }
-    .customer-input, .order-input {
-        width: 100%;
-        flex: none;
-    }
-
-    /* 候选下拉框不超出屏幕 */
-    .suggest-dropdown {
-        max-width: 90vw !important;
-        left: 5vw !important;
-        right: auto !important;
-        font-size: 12px;
-    }
-    .suggest-dropdown div {
-        padding: 8px 10px;
-    }
-
-    /* ===== 最近购买模态框改为上下布局 ===== */
-    .recent-buy-modal .modal-content {
-        width: 100%;
-        height: 95vh;
-        margin: 2.5vh auto;
-        border-radius: 0;
-    }
-    .modal-body {
-        flex-direction: column;
-        overflow-y: auto;
-    }
-    .left-panel, .right-panel {
-        flex: none;
-        width: 100%;
-        max-height: 50vh;
-        overflow-y: auto;
-        border-right: none;
-        border-bottom: 1px solid #eee;
-        padding: 10px;
-    }
-    .right-panel {
-        background: #fff;
-    }
-    /* 模态框内表格允许横向滚动 */
-    .left-panel .table-scroll-wrapper,
-    .right-panel .table-scroll-wrapper {
-        overflow-x: auto;
-    }
-}
-                /* 修复最近购买模态框表格：名称/规格列被挤没的问题 */
+            .recent-buy-modal .modal-content {
+                width: 100%;
+                height: 95vh;
+                margin: 2.5vh auto;
+                border-radius: 0;
+            }
+            .modal-body {
+                flex-direction: column;
+                overflow-y: auto;
+            }
+            .left-panel, .right-panel {
+                flex: none;
+                width: 100%;
+                max-height: 50vh;
+                overflow-y: auto;
+                border-right: none;
+                border-bottom: 1px solid #eee;
+                padding: 10px;
+            }
+            .right-panel {
+                background: #fff;
+            }
+            .left-panel .table-scroll-wrapper,
+            .right-panel .table-scroll-wrapper {
+                overflow-x: auto;
+            }
+        }
+        /* 修复最近购买模态框表格：名称/规格列被挤没的问题 */
         .recent-products-table {
             table-layout: auto !important;
         }
@@ -476,13 +490,12 @@ box-sizing: border-box;
         }
         .recent-products-table th:nth-child(1),
         .recent-products-table td:nth-child(1) {
-            min-width: 110px;      /* 名称列最小宽度 */
+            min-width: 110px;
         }
         .recent-products-table th:nth-child(2),
         .recent-products-table td:nth-child(2) {
-            min-width: 60px;       /* 规格列最小宽度 */
+            min-width: 60px;
         }
-        /* 隐藏左侧表格的第5列（最后购买）、第6列（上次数量） */
         .recent-products-table th:nth-child(5),
         .recent-products-table td:nth-child(5),
         .recent-products-table th:nth-child(6),
@@ -490,7 +503,6 @@ box-sizing: border-box;
             display: none;
         }
 
-        /* 右侧购物车表格同样处理 */
         .cart-table {
             table-layout: auto !important;
         }
@@ -500,9 +512,8 @@ box-sizing: border-box;
         }
         .cart-table th:nth-child(2),
         .cart-table td:nth-child(2) {
-            min-width: 80px;       /* 名称列最小宽度 */
+            min-width: 80px;
         }
-        /* 隐藏购物车表格的规格列（第3列） */
         .cart-table th:nth-child(3),
         .cart-table td:nth-child(3) {
             display: none;
@@ -513,29 +524,27 @@ box-sizing: border-box;
 <!-- 页面主体内容 -->
 {% block content %}
     <div class="content-container">
-    <!-- 标题行：左侧标题，右侧排序按钮 -->
-    <!-- 标题行：左侧标题，右侧按钮组（允许内部换行，整体不换行） -->
-<!-- 标题行：左侧标题，右侧按钮组（强制不换行，完整显示） -->
-<div class="d-flex justify-content-between align-items-center mb-2" style="flex-wrap: nowrap; overflow: visible;">
-    <h1 class="mb-0" style="flex-shrink: 0; white-space: nowrap;">快速开单工具（表格版）</h1>
-    <div style="display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; overflow: visible; flex-shrink: 0;">
-        <button class="btn btn-sm btn-outline-primary" onclick="sortBillTable()" title="按规则排序" style="flex-shrink: 0;">
-            📋 点击排序
-        </button>
-        <button class="btn btn-sm btn-outline-secondary" onclick="goToSortRules()" title="设置排序规则" style="flex-shrink: 0;">
-            ⚙️ 排序规则
-        </button>
-        <button class="btn btn-sm btn-outline-danger" onclick="refreshContent()" title="清空当前输入并重置缓存" style="flex-shrink: 0;">
-            🔄 刷新内容
-        </button>
-        <label title="保存时自动排序（偏好会缓存在本地）" style="white-space: nowrap; flex-shrink: 0; margin: 0;">
-            <input type="checkbox" id="autoSortCheckbox" onchange="saveAutoSortSetting()"> 默认排序
-        </label>
-        <label title="只打印数据（需模板）" style="white-space: nowrap; flex-shrink: 0; margin: 0;">
-            <input type="checkbox" id="onlyPrintDataCheckbox" onchange="saveOnlyPrintDataSetting()"> 套打模式
-        </label>
+    <!-- 标题行 -->
+    <div class="d-flex justify-content-between align-items-center mb-2" style="flex-wrap: nowrap; overflow: visible;">
+        <h1 class="mb-0" style="flex-shrink: 0; white-space: nowrap;">快速开单工具（表格版）</h1>
+        <div style="display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; overflow: visible; flex-shrink: 0;">
+            <button class="btn btn-sm btn-outline-primary" onclick="sortBillTable()" title="按规则排序" style="flex-shrink: 0;">
+                📋 点击排序
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" onclick="goToSortRules()" title="设置排序规则" style="flex-shrink: 0;">
+                ⚙️ 排序规则
+            </button>
+            <button class="btn btn-sm btn-outline-danger" onclick="refreshContent()" title="清空当前输入并重置缓存" style="flex-shrink: 0;">
+                🔄 刷新内容
+            </button>
+            <label title="保存时自动排序（偏好会缓存在本地）" style="white-space: nowrap; flex-shrink: 0; margin: 0;">
+                <input type="checkbox" id="autoSortCheckbox" onchange="saveAutoSortSetting()"> 默认排序
+            </label>
+            <label title="只打印数据（需模板）" style="white-space: nowrap; flex-shrink: 0; margin: 0;">
+                <input type="checkbox" id="onlyPrintDataCheckbox" onchange="saveOnlyPrintDataSetting()"> 套打模式
+            </label>
+        </div>
     </div>
-</div>
 
     {% if reopen_order_data %}
     <div class="reopen-tag">
@@ -545,21 +554,21 @@ box-sizing: border-box;
             🔄 重开订单：原作废单号 {{ reopen_order_data.order_no }}
         {% endif %}
     </div>
-{% endif %}
+    {% endif %}
 
     <!-- 客户输入框 + 最近购买按钮 -->
     <div class="mb-3 customer-area">
-    <label class="form-label">选择客户：</label>
-    <input type="text" id="customerInput" class="form-control form-control-sm customer-input" placeholder="输入区域/客户名（输入法式选择）">
-    <button id="btnRecentBuy" class="btn btn-sm btn-outline-secondary" onclick="openRecentBuyModal()" disabled>用户最近购买</button>
-    <label class="form-label">制单号：</label>
-    <input type="text" id="orderNumberInput" class="form-control form-control-sm order-input" placeholder="必填">
-</div>
+        <label class="form-label">选择客户：</label>
+        <input type="text" id="customerInput" class="form-control form-control-sm customer-input" placeholder="输入区域/客户名（输入法式选择）">
+        <button id="btnRecentBuy" class="btn btn-sm btn-outline-secondary" onclick="openRecentBuyModal()" disabled>用户最近购买</button>
+        <label class="form-label">制单号：</label>
+        <input type="text" id="orderNumberInput" class="form-control form-control-sm order-input" placeholder="必填">
+    </div>
 
     <button class="btn-add-row" onclick="addBlankRow()">新增空白行</button>
 
     <div class="table-responsive">
-    <table class="bill-table" id="bill-table">
+        <table class="bill-table" id="bill-table">
             <thead>
                 <tr>
                     <th>序号</th>
@@ -581,105 +590,108 @@ box-sizing: border-box;
                 </tr>
             </tfoot>
         </table>
+    </div>
+
+    <div class="btn-group">
+        <button class="btn-save" onclick="saveOrder()">保存并提交</button>
+    </div>
 </div>
 
-
-        <div class="btn-group">
-            <button class="btn-save" onclick="saveOrder()">保存并提交</button>
+<!-- ========== 重构：最近购买模态框 HTML 结构 ========== -->
+<div class="recent-buy-modal" id="recentBuyModal">
+    <div class="modal-content">
+        <span class="modal-close" onclick="closeRecentBuyModal()">&times;</span>
+        
+        <!-- 顶部：标题、搜索、标签 -->
+        <div class="modal-header">
+            <h4>客户最近购买商品</h4>
+            <div class="recent-search-box">
+                <input 
+                    type="text" 
+                    class="recent-search-input" 
+                    id="recentSearchInput"
+                    placeholder="搜索最近购买的商品 (按 Enter 聚焦第一个，按 ESC 关闭)..."
+                    oninput="filterRecentProducts()"
+                    onkeydown="handleModalSearchKeydown(event)"
+                >
+            </div>
+            <!-- ===== 新增：标签筛选栏 ===== -->
+            <div class="recent-tags-bar" id="recentTagsBar">
+                <!-- 由 JS 动态生成 -->
+            </div>
         </div>
-    </div>
 
-    <!-- ========== 重构：最近购买模态框 HTML 结构 ========== -->
-    <div class="recent-buy-modal" id="recentBuyModal">
-        <div class="modal-content">
-            <span class="modal-close" onclick="closeRecentBuyModal()">&times;</span>
-            
-            <!-- 顶部：标题与搜索 -->
-            <div class="modal-header">
-                <h4>客户最近购买商品</h4>
-                <div class="recent-search-box">
-                    <input 
-                        type="text" 
-                        class="recent-search-input" 
-                        id="recentSearchInput"
-                        placeholder="搜索最近购买的商品 (按 Enter 聚焦第一个，按 ESC 关闭)..."
-                        oninput="filterRecentProducts()"
-                        onkeydown="handleModalSearchKeydown(event)"
-                    >
+        <!-- 身体：左右分栏 -->
+        <div class="modal-body">
+            <!-- 左侧：商品列表 -->
+            <div class="left-panel">
+                <div style="font-size: 13px; color: #666; margin-bottom: 8px;">👆 点击商品行快速加购</div>
+                <div class="table-scroll-wrapper" id="leftScrollWrapper">
+                    <table class="recent-products-table" id="recentProductsTable">
+                        <thead>
+                            <tr>
+                                <th>商品名称</th>
+                                <th>规格</th>
+                                <th>单价</th>
+                                <th>单位</th>
+                                <th>最后购买</th>
+                                <th>上次数量</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recentProductsTbody"></tbody>
+                    </table>
                 </div>
             </div>
 
-            <!-- 身体：左右分栏 -->
-            <div class="modal-body">
-                <!-- 左侧：商品列表 -->
-                <div class="left-panel">
-                    <div style="font-size: 13px; color: #666; margin-bottom: 8px;">👆 点击商品行快速加购</div>
-                    <div class="table-scroll-wrapper" id="leftScrollWrapper">
-                        <table class="recent-products-table" id="recentProductsTable">
+            <!-- 右侧：购物车 -->
+            <div class="right-panel">
+                <div class="cart-container">
+                    <h5>🛒 待加购清单</h5>
+                    <div class="table-scroll-wrapper" id="rightScrollWrapper">
+                        <table class="cart-table" id="cartTable">
                             <thead>
                                 <tr>
+                                    <th style="width: 40px;">序</th>
                                     <th>商品名称</th>
                                     <th>规格</th>
-                                    <th>单价</th>
-                                    <th>单位</th>
-                                    <th>最后购买</th>
-                                    <th>上次数量</th>
-                                    <th>操作</th>
+                                    <th style="width: 100px;">数量</th>
+                                    <th style="width: 50px;">单位</th>
+                                    <th>金额</th>
+                                    <th style="width: 50px;">删</th>
                                 </tr>
                             </thead>
-                            <tbody id="recentProductsTbody"></tbody>
+                            <tbody id="cartTbody"></tbody>
                         </table>
                     </div>
-                </div>
-
-                <!-- 右侧：购物车 -->
-                <div class="right-panel">
-                    <div class="cart-container">
-                        <h5>🛒 待加购清单</h5>
-                        <div class="table-scroll-wrapper" id="rightScrollWrapper">
-                            <table class="cart-table" id="cartTable">
-                                <thead>
-                                    <tr>
-                                        <th style="width: 40px;">序</th>
-                                        <th>商品名称</th>
-                                        <th>规格</th>
-                                        <th style="width: 100px;">数量</th>
-                                        <th style="width: 50px;">单位</th>
-                                        <th>金额</th>
-                                        <th style="width: 50px;">删</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="cartTbody"></tbody>
-                            </table>
+                    
+                    <div class="cart-footer">
+                        <div class="cart-total">
+                            金额总计：<span id="cartTotalAmount">¥0.00</span>
                         </div>
-                        
-                        <div class="cart-footer">
-                            <div class="cart-total">
-                                金额总计：<span id="cartTotalAmount">¥0.00</span>
-                            </div>
-                            <button 
-                                class="btn-batch-add" 
-                                id="btnBatchAdd"
-                                onclick="batchAddToBill()"
-                                disabled
-                            >
-                                一键加购到开单页
-                            </button>
-                        </div>
+                        <button 
+                            class="btn-batch-add" 
+                            id="btnBatchAdd"
+                            onclick="batchAddToBill()"
+                            disabled
+                        >
+                            一键加购到开单页
+                        </button>
                     </div>
                 </div>
             </div>
         </div>
     </div>
+</div>
 {% endblock %}
 
 <!-- 页面专属JS -->
 {% block extra_js %}
     <script>
         // ========== 全局配置 ==========
-        let productSuggestFixedTop = false;   // 商品搜索下拉固定顶部标志
-let customerSuggestFixedTop = false;  // 客户搜索下拉固定顶部标志
-let unitSuggestFixedTop = false;      // 单位搜索下拉固定顶部标志
+        let productSuggestFixedTop = false;
+        let customerSuggestFixedTop = false;
+        let unitSuggestFixedTop = false;
         let allUnitsCache = null;
         let rowIdCounter = 0;
         const inputColsCount = 5;
@@ -695,35 +707,35 @@ let unitSuggestFixedTop = false;      // 单位搜索下拉固定顶部标志
         let cartItems = [];
         let cartIdCounter = 0;
         let addedProductIds = [];
+        // ===== 新增：标签筛选状态 =====
+        let selectedTag = 'all';          // 'all' 或具体标签名称 或 '无标签'
+        let allTags = [];                // 所有真实标签名称（去重）
+        let searchKeyword = '';
 
         // 单位搜索相关
         let currentUnitInput = null;
         let currentUnitList = [];
         const debouncedUnitSearch = debounce(onUnitInput, 500);
 
-
         // ========== 搜索建议翻页变量 ==========
-        let suggestCurrentPage = 0;          // 当前页码（0-based）
-        const SUGGEST_PAGE_SIZE = 8;         // 每页显示条数
-        
-        // ========== 客户搜索建议翻页变量 ==========
-let customerSuggestCurrentPage = 0;          // 当前页码（0-based）
-const CUSTOMER_SUGGEST_PAGE_SIZE = 8;        // 每页显示条数
+        let suggestCurrentPage = 0;
+        const SUGGEST_PAGE_SIZE = 8;
+        let customerSuggestCurrentPage = 0;
+        const CUSTOMER_SUGGEST_PAGE_SIZE = 8;
 
-               // ========== 排序相关（多阶段） ==========
-// 服务端直接注入排序规则和标签映射，无需异步加载
-let sortStagesCache = JSON.parse('{{ sort_stages_json|safe }}');
-window.productTagsMap = JSON.parse('{{ product_tags_map_json|safe }}');
-let isSortDataReady = true;   // 数据已就绪，可随时排序
+        // ========== 排序相关 ==========
+        let sortStagesCache = JSON.parse('{{ sort_stages_json|safe }}');
+        window.productTagsMap = JSON.parse('{{ product_tags_map_json|safe }}');
+        let isSortDataReady = true;
 
         try {
-        sortStagesCache = JSON.parse('{{ sort_stages_json|safe }}');
-    } catch(e) { console.error('排序规则解析失败', e); }
+            sortStagesCache = JSON.parse('{{ sort_stages_json|safe }}');
+        } catch(e) { console.error('排序规则解析失败', e); }
 
-    window.productTagsMap = {};
-    try {
-        window.productTagsMap = JSON.parse('{{ product_tags_map_json|safe }}');
-    } catch(e) { console.error('标签映射解析失败', e); }
+        window.productTagsMap = {};
+        try {
+            window.productTagsMap = JSON.parse('{{ product_tags_map_json|safe }}');
+        } catch(e) { console.error('标签映射解析失败', e); }
 
         // ========== 初始化 ==========
         initSuggestBox();
@@ -739,152 +751,138 @@ let isSortDataReady = true;   // 数据已就绪，可随时排序
         });
         
         // ========== 表单状态缓存 ==========
-const STORAGE_KEY = 'bill_form_state';
+        const STORAGE_KEY = 'bill_form_state';
+        const debouncedSaveFormState = debounce(saveFormState, 500);
 
-// 防抖保存状态（避免频繁写入）
-const debouncedSaveFormState = debounce(saveFormState, 500);
-
-function saveFormState() {
-    const state = {};
-    // 客户信息
-    const customerInput = document.getElementById('customerInput');
-    state.customerName = customerInput.value;
-    state.customerId = customerInput.dataset.customerId || '';
-    state.customerOrderNumber = customerInput.dataset.orderNumber || '';
-    // 制单号
-    const orderInput = document.getElementById('orderNumberInput');
-    state.orderNumber = orderInput.value;
-    // 表格行数据
-    const rows = [];
-    document.querySelectorAll('#bill-tbody tr').forEach(tr => {
-        const nameInput = tr.querySelector('.name-input');
-        const specInput = tr.querySelector('.spec-input');
-        const qtyInput = tr.querySelector('.quantity-input');
-        const unitInput = tr.querySelector('.unit-input');
-        const priceInput = tr.querySelector('.price-input');
-        rows.push({
-            name: nameInput.value,
-            spec: specInput.value,
-            quantity: qtyInput.value,
-            unit: unitInput.value,
-            price: priceInput.value,
-            productId: nameInput.dataset.productId || '',
-            isMakeup: specInput.dataset.isMakeup === '1',
-            operationType: specInput.dataset.operationType || '',
-        });
-    });
-    state.rows = rows;
-    try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch(e) {}
-}
-
-function restoreFormState() {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (!saved) return false;
-    try {
-        const state = JSON.parse(saved);
-        // 恢复客户
-        const customerInput = document.getElementById('customerInput');
-        customerInput.value = state.customerName || '';
-        customerInput.dataset.customerId = state.customerId || '';
-        customerInput.dataset.customerName = state.customerName || '';
-        customerInput.dataset.orderNumber = state.customerOrderNumber || '';
-        // 恢复制单号
-        const orderInput = document.getElementById('orderNumberInput');
-        orderInput.value = state.orderNumber || '';
-        // 恢复表格行（最多16行）
-        const tbody = document.getElementById('bill-tbody');
-        tbody.innerHTML = '';
-        rowIdCounter = 0;
-        if (state.rows && state.rows.length > 0) {
-            const rowsToAdd = state.rows.slice(0, 16);
-            rowsToAdd.forEach(rowData => {
-                const tr = addBlankRow(true, true); // 忽略行数限制
-                if (!tr) return;
+        function saveFormState() {
+            const state = {};
+            const customerInput = document.getElementById('customerInput');
+            state.customerName = customerInput.value;
+            state.customerId = customerInput.dataset.customerId || '';
+            state.customerOrderNumber = customerInput.dataset.orderNumber || '';
+            const orderInput = document.getElementById('orderNumberInput');
+            state.orderNumber = orderInput.value;
+            const rows = [];
+            document.querySelectorAll('#bill-tbody tr').forEach(tr => {
                 const nameInput = tr.querySelector('.name-input');
-                nameInput.value = rowData.name || '';
-                nameInput.dataset.productId = rowData.productId || '';
                 const specInput = tr.querySelector('.spec-input');
-                specInput.value = rowData.spec || '';
-                if (rowData.isMakeup) {
-                    specInput.dataset.isMakeup = '1';
-                    specInput.dataset.operationType = rowData.operationType || '';
-                    tr.classList.add('makeup-row');
-                } else {
-                    specInput.dataset.isMakeup = '0';
-                    tr.classList.remove('makeup-row');
-                }
-                tr.querySelector('.quantity-input').value = rowData.quantity || 0;
-                tr.querySelector('.unit-input').value = rowData.unit || '';
+                const qtyInput = tr.querySelector('.quantity-input');
+                const unitInput = tr.querySelector('.unit-input');
                 const priceInput = tr.querySelector('.price-input');
-                if (rowData.isMakeup) {
-                    priceInput.value = 0;
-                } else {
-                    priceInput.value = rowData.price || 0;
-                }
-                calcRowAmount(priceInput);
+                rows.push({
+                    name: nameInput.value,
+                    spec: specInput.value,
+                    quantity: qtyInput.value,
+                    unit: unitInput.value,
+                    price: priceInput.value,
+                    productId: nameInput.dataset.productId || '',
+                    isMakeup: specInput.dataset.isMakeup === '1',
+                    operationType: specInput.dataset.operationType || '',
+                });
             });
-            updateRowNumbers();
-            calcTotalAmount();
-        } else {
-            // 无行数据时默认添加3行空行
-            for (let i = 0; i < 3; i++) addBlankRow();
+            state.rows = rows;
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            } catch(e) {}
         }
-        // 触发客户change事件，更新“最近购买”按钮状态
-        customerInput.dispatchEvent(new Event('change'));
-        return true;
-    } catch(e) {
-        return false;
-    }
-}
 
-function clearFormState() {
-    localStorage.removeItem(STORAGE_KEY);
-}
+        function restoreFormState() {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (!saved) return false;
+            try {
+                const state = JSON.parse(saved);
+                const customerInput = document.getElementById('customerInput');
+                customerInput.value = state.customerName || '';
+                customerInput.dataset.customerId = state.customerId || '';
+                customerInput.dataset.customerName = state.customerName || '';
+                customerInput.dataset.orderNumber = state.customerOrderNumber || '';
+                const orderInput = document.getElementById('orderNumberInput');
+                orderInput.value = state.orderNumber || '';
+                const tbody = document.getElementById('bill-tbody');
+                tbody.innerHTML = '';
+                rowIdCounter = 0;
+                if (state.rows && state.rows.length > 0) {
+                    const rowsToAdd = state.rows.slice(0, 16);
+                    rowsToAdd.forEach(rowData => {
+                        const tr = addBlankRow(true, true);
+                        if (!tr) return;
+                        const nameInput = tr.querySelector('.name-input');
+                        nameInput.value = rowData.name || '';
+                        nameInput.dataset.productId = rowData.productId || '';
+                        const specInput = tr.querySelector('.spec-input');
+                        specInput.value = rowData.spec || '';
+                        if (rowData.isMakeup) {
+                            specInput.dataset.isMakeup = '1';
+                            specInput.dataset.operationType = rowData.operationType || '';
+                            tr.classList.add('makeup-row');
+                        } else {
+                            specInput.dataset.isMakeup = '0';
+                            tr.classList.remove('makeup-row');
+                        }
+                        tr.querySelector('.quantity-input').value = rowData.quantity || 0;
+                        tr.querySelector('.unit-input').value = rowData.unit || '';
+                        const priceInput = tr.querySelector('.price-input');
+                        if (rowData.isMakeup) {
+                            priceInput.value = 0;
+                        } else {
+                            priceInput.value = rowData.price || 0;
+                        }
+                        calcRowAmount(priceInput);
+                    });
+                    updateRowNumbers();
+                    calcTotalAmount();
+                } else {
+                    for (let i = 0; i < 3; i++) addBlankRow();
+                }
+                customerInput.dispatchEvent(new Event('change'));
+                return true;
+            } catch(e) {
+                return false;
+            }
+        }
 
-function refreshContent() {
-    if (confirm('确定要刷新内容吗？当前输入将被清空且无法恢复。')) {
-        clearFormState();
-        resetBill(); // 重置表格为3行空行，清空客户和制单号
-        // resetBill 会清空客户和制单号，但不会清除 dataset，补充清除
-        const customerInput = document.getElementById('customerInput');
-        customerInput.dataset.customerId = '';
-        customerInput.dataset.customerName = '';
-        customerInput.dataset.orderNumber = '';
-        document.getElementById('btnRecentBuy').disabled = true;
-        // 聚焦客户输入框
-        customerInput.focus();
-    }
-}
+        function clearFormState() {
+            localStorage.removeItem(STORAGE_KEY);
+        }
+
+        function refreshContent() {
+            if (confirm('确定要刷新内容吗？当前输入将被清空且无法恢复。')) {
+                clearFormState();
+                resetBill();
+                const customerInput = document.getElementById('customerInput');
+                customerInput.dataset.customerId = '';
+                customerInput.dataset.customerName = '';
+                customerInput.dataset.orderNumber = '';
+                document.getElementById('btnRecentBuy').disabled = true;
+                customerInput.focus();
+            }
+        }
         
-        // 聚焦并设置光标位置，direction: 'left'|'right'|'up'|'down'
-function focusAndSetCaret(target, direction) {
-    if (!target) return;
-    target.focus();
-    const len = target.value.length;
-    if (direction === 'right' || direction === 'down') {
-        target.setSelectionRange(0, 0);
-    } else if (direction === 'left' || direction === 'up') {
-        target.setSelectionRange(len, len);
-    } else {
-        target.setSelectionRange(0, 0); // fallback
-    }
-}
+        function focusAndSetCaret(target, direction) {
+            if (!target) return;
+            target.focus();
+            const len = target.value.length;
+            if (direction === 'right' || direction === 'down') {
+                target.setSelectionRange(0, 0);
+            } else if (direction === 'left' || direction === 'up') {
+                target.setSelectionRange(len, len);
+            } else {
+                target.setSelectionRange(0, 0);
+            }
+        }
 
-// 只打印数据复选框的设置保存与恢复
-function saveOnlyPrintDataSetting() {
-    const checkbox = document.getElementById('onlyPrintDataCheckbox');
-    localStorage.setItem('bill_only_print_data', checkbox.checked ? 'true' : 'false');
-}
+        function saveOnlyPrintDataSetting() {
+            const checkbox = document.getElementById('onlyPrintDataCheckbox');
+            localStorage.setItem('bill_only_print_data', checkbox.checked ? 'true' : 'false');
+        }
 
-function restoreOnlyPrintDataSetting() {
-    const checkbox = document.getElementById('onlyPrintDataCheckbox');
-    if (checkbox) {
-        const saved = localStorage.getItem('bill_only_print_data');
-        checkbox.checked = (saved === 'true');
-    }
-}
+        function restoreOnlyPrintDataSetting() {
+            const checkbox = document.getElementById('onlyPrintDataCheckbox');
+            if (checkbox) {
+                const saved = localStorage.getItem('bill_only_print_data');
+                checkbox.checked = (saved === 'true');
+            }
+        }
 
         // ========== 通用候选框逻辑 ==========
         function initSuggestBox() {
@@ -893,16 +891,15 @@ function restoreOnlyPrintDataSetting() {
             document.body.appendChild(suggestBox);
         }
         function hideSuggest() {
-    if (suggestBox) suggestBox.style.display = 'none';
-    currentSearchInput = null;
-    currentSuggestList = [];
-    currentCustomerInput = null;
-    currentCustomerList = [];
-    // 重置所有固定标志
-    productSuggestFixedTop = false;
-    customerSuggestFixedTop = false;
-    unitSuggestFixedTop = false;
-}
+            if (suggestBox) suggestBox.style.display = 'none';
+            currentSearchInput = null;
+            currentSuggestList = [];
+            currentCustomerInput = null;
+            currentCustomerList = [];
+            productSuggestFixedTop = false;
+            customerSuggestFixedTop = false;
+            unitSuggestFixedTop = false;
+        }
         function hideAllSuggest(e) {
             if (e && e.target.closest('.suggest-dropdown')) return;
             if (e && e.target.classList.contains('name-input')) return;
@@ -911,68 +908,54 @@ function restoreOnlyPrintDataSetting() {
             hideSuggest();
         }
 
-        // 规格输入框快捷键
-function handleSpecKeydown(e) {
-    const input = e.target;
-    // 仅在光标在开头且无内容时触发快捷键，避免干扰已输入内容
-    if (input.selectionStart !== 0 || input.value.length > 0) return;
-    let char = '';
-    e.preventDefault();
-    input.value = char;
-    // 手动触发 input 事件，让 updateMakeupFlag 执行
-    input.dispatchEvent(new Event('input'));
-}
+        function handleSpecKeydown(e) {
+            const input = e.target;
+            if (input.selectionStart !== 0 || input.value.length > 0) return;
+            let char = '';
+            e.preventDefault();
+            input.value = char;
+            input.dispatchEvent(new Event('input'));
+        }
 
-// 根据输入内容自动判断补货标记（只要包含“补”或“换”字即视为补货）
-function updateMakeupFlag(input) {
-    const val = input.value.trim();
-    let isMakeup = false;
-    let operationType = '';
+        function updateMakeupFlag(input) {
+            const val = input.value.trim();
+            let isMakeup = false;
+            let operationType = '';
+            if (val.includes('退') || val.includes('带')) {
+                isMakeup = true;
+                operationType = 'return';
+            } else if (val.includes('补')) {
+                isMakeup = true;
+                operationType = 'supplement';
+            } else if (val.includes('换')) {
+                isMakeup = true;
+                operationType = 'exchange';
+            }
+            const tr = input.closest('tr');
+            input.dataset.isMakeup = isMakeup ? '1' : '0';
+            input.dataset.operationType = operationType;
+            if (isMakeup) {
+                tr.classList.add('makeup-row');
+            } else {
+                tr.classList.remove('makeup-row');
+            }
+            const priceInput = tr.querySelector('.price-input');
+            if (isMakeup && priceInput) {
+                priceInput.value = 0;
+                calcRowAmount(priceInput);
+            }
+        }
 
-    // 关键词判断（优先级：退货优先，但实际互斥，一次只能一种）
-    if (val.includes('退') || val.includes('带')) {
-        isMakeup = true;
-        operationType = 'return';
-    } else if (val.includes('补')) {
-        isMakeup = true;
-        operationType = 'supplement';
-    } else if (val.includes('换')) {
-        isMakeup = true;
-        operationType = 'exchange';
-    }
-
-    // 保存状态到 dataset
-    const tr = input.closest('tr');
-    input.dataset.isMakeup = isMakeup ? '1' : '0';
-    input.dataset.operationType = operationType;
-
-    // 行样式
-    if (isMakeup) {
-        tr.classList.add('makeup-row');
-    } else {
-        tr.classList.remove('makeup-row');
-    }
-
-    // 异常商品单价强制归零
-    const priceInput = tr.querySelector('.price-input');
-    if (isMakeup && priceInput) {
-        priceInput.value = 0;
-        calcRowAmount(priceInput);
-    }
-    // 若变为正常，保留用户已输入的单价（不做自动恢复）
-}
-
-// 统一设置行样式和数据标记
-function setMakeupFlag(input, isMakeup) {
-    const tr = input.closest('tr');
-    if (isMakeup) {
-        tr.classList.add('makeup-row');
-        input.dataset.isMakeup = '1';
-    } else {
-        tr.classList.remove('makeup-row');
-        input.dataset.isMakeup = '0';
-    }
-}
+        function setMakeupFlag(input, isMakeup) {
+            const tr = input.closest('tr');
+            if (isMakeup) {
+                tr.classList.add('makeup-row');
+                input.dataset.isMakeup = '1';
+            } else {
+                tr.classList.remove('makeup-row');
+                input.dataset.isMakeup = '0';
+            }
+        }
 
         // ========== 防抖函数 ==========
         function debounce(func, delay = 500) {
@@ -992,7 +975,7 @@ function setMakeupFlag(input, isMakeup) {
             const keyword = input.value.trim();
             if (!keyword) { hideSuggest(); return; }
             currentSearchInput = input;
-            suggestCurrentPage = 0;   // 每次搜索重置为第一页
+            suggestCurrentPage = 0;
             const customerId = document.getElementById('customerInput')?.dataset.customerId || '';
             try {
                 const res = await fetch(`/bill/search-product/?keyword=${encodeURIComponent(keyword)}&customer_id=${encodeURIComponent(customerId)}`);
@@ -1004,775 +987,561 @@ function setMakeupFlag(input, isMakeup) {
             } catch (e) { hideSuggest(); }
         }
 
-        // ========== 商品搜索建议（带视口自适应） ==========
-function showSuggest(input, list) {
-    const rect = input.getBoundingClientRect();
-    suggestBox.innerHTML = '';
-
-    // ---------- 渲染建议列表（恢复） ----------
-    const totalPages = Math.ceil(list.length / SUGGEST_PAGE_SIZE);
-    if (suggestCurrentPage >= totalPages) {
-        suggestCurrentPage = Math.max(0, totalPages - 1);
-    }
-
-    const start = suggestCurrentPage * SUGGEST_PAGE_SIZE;
-    const end = Math.min(start + SUGGEST_PAGE_SIZE, list.length);
-
-    for (let i = start; i < end; i++) {
-        const item = list[i];
-        const div = document.createElement('div');
-        let priceText = `¥${item.price}/${item.unit}`;
-        if (item.standard_price !== item.price) {
-            priceText = `¥${item.price}/${item.unit}（原价¥${item.standard_price}）`;
+        function showSuggest(input, list) {
+            const rect = input.getBoundingClientRect();
+            suggestBox.innerHTML = '';
+            const totalPages = Math.ceil(list.length / SUGGEST_PAGE_SIZE);
+            if (suggestCurrentPage >= totalPages) {
+                suggestCurrentPage = Math.max(0, totalPages - 1);
+            }
+            const start = suggestCurrentPage * SUGGEST_PAGE_SIZE;
+            const end = Math.min(start + SUGGEST_PAGE_SIZE, list.length);
+            for (let i = start; i < end; i++) {
+                const item = list[i];
+                const div = document.createElement('div');
+                let priceText = `¥${item.price}/${item.unit}`;
+                if (item.standard_price !== item.price) {
+                    priceText = `¥${item.price}/${item.unit}（原价¥${item.standard_price}）`;
+                }
+                div.textContent = `${(i - start) + 1} ${item.name}  ${priceText}`;
+                div.dataset.index = i;
+                div.onclick = () => selectItem(i);
+                suggestBox.appendChild(div);
+            }
+            if (totalPages > 1) {
+                const navDiv = document.createElement('div');
+                navDiv.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:4px 8px; font-size:12px; color:#666; background:#f8f9fa;';
+                const prevBtn = document.createElement('button');
+                prevBtn.textContent = '◀ 上页';
+                prevBtn.style.cssText = 'padding:2px 8px; font-size:12px; cursor:pointer; border:1px solid #ccc; background:#fff; border-radius:3px;';
+                prevBtn.onclick = (e) => { e.stopPropagation(); goToPage(-1); };
+                if (suggestCurrentPage === 0) prevBtn.disabled = true;
+                navDiv.appendChild(prevBtn);
+                const pageText = document.createElement('span');
+                pageText.textContent = `${suggestCurrentPage+1}/${totalPages}`;
+                navDiv.appendChild(pageText);
+                const nextBtn = document.createElement('button');
+                nextBtn.textContent = '下页 ▶';
+                nextBtn.style.cssText = 'padding:2px 8px; font-size:12px; cursor:pointer; border:1px solid #ccc; background:#fff; border-radius:3px;';
+                nextBtn.onclick = (e) => { e.stopPropagation(); goToPage(1); };
+                if (suggestCurrentPage >= totalPages - 1) nextBtn.disabled = true;
+                navDiv.appendChild(nextBtn);
+                suggestBox.appendChild(navDiv);
+            }
+            suggestBox.style.visibility = 'hidden';
+            suggestBox.style.display = 'block';
+            const dropdownHeight = suggestBox.offsetHeight;
+            let top;
+            if (productSuggestFixedTop) {
+                top = rect.top + window.scrollY - dropdownHeight;
+            } else {
+                if (rect.bottom + dropdownHeight > window.innerHeight && rect.top - dropdownHeight > 0) {
+                    top = rect.top + window.scrollY - dropdownHeight;
+                    productSuggestFixedTop = true;
+                } else {
+                    top = rect.bottom + window.scrollY;
+                    productSuggestFixedTop = false;
+                }
+            }
+            suggestBox.style.left = rect.left + 'px';
+            suggestBox.style.top = top + 'px';
+            suggestBox.style.visibility = 'visible';
         }
-        div.textContent = `${(i - start) + 1} ${item.name}  ${priceText}`;
-        div.dataset.index = i;
-        div.onclick = () => selectItem(i);
-        suggestBox.appendChild(div);
-    }
-
-    // 翻页按钮
-    if (totalPages > 1) {
-        const navDiv = document.createElement('div');
-        navDiv.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:4px 8px; font-size:12px; color:#666; background:#f8f9fa;';
-        const prevBtn = document.createElement('button');
-        prevBtn.textContent = '◀ 上页';
-        prevBtn.style.cssText = 'padding:2px 8px; font-size:12px; cursor:pointer; border:1px solid #ccc; background:#fff; border-radius:3px;';
-        prevBtn.onclick = (e) => { e.stopPropagation(); goToPage(-1); };
-        if (suggestCurrentPage === 0) prevBtn.disabled = true;
-        navDiv.appendChild(prevBtn);
-
-        const pageText = document.createElement('span');
-        pageText.textContent = `${suggestCurrentPage+1}/${totalPages}`;
-        navDiv.appendChild(pageText);
-
-        const nextBtn = document.createElement('button');
-        nextBtn.textContent = '下页 ▶';
-        nextBtn.style.cssText = 'padding:2px 8px; font-size:12px; cursor:pointer; border:1px solid #ccc; background:#fff; border-radius:3px;';
-        nextBtn.onclick = (e) => { e.stopPropagation(); goToPage(1); };
-        if (suggestCurrentPage >= totalPages - 1) nextBtn.disabled = true;
-        navDiv.appendChild(nextBtn);
-
-        suggestBox.appendChild(navDiv);
-    }
-    // ---------- 渲染结束 ----------
-
-    // 计算高度并自适应位置
-    suggestBox.style.visibility = 'hidden';
-    suggestBox.style.display = 'block';
-    const dropdownHeight = suggestBox.offsetHeight;
-
-    let top;
-    if (productSuggestFixedTop) {
-        top = rect.top + window.scrollY - dropdownHeight;
-    } else {
-        if (rect.bottom + dropdownHeight > window.innerHeight && rect.top - dropdownHeight > 0) {
-            top = rect.top + window.scrollY - dropdownHeight;
-            productSuggestFixedTop = true;
-        } else {
-            top = rect.bottom + window.scrollY;
-            productSuggestFixedTop = false;
-        }
-    }
-
-    suggestBox.style.left = rect.left + 'px';
-    suggestBox.style.top = top + 'px';
-    suggestBox.style.visibility = 'visible';
-}
 
         function selectItem(index) {
-    const item = currentSuggestList[index];
-    if (!item || !currentSearchInput) return;
-    const input = currentSearchInput;
-    const tr = input.closest('tr');
-    const nameInput = tr.querySelector('.name-input');
-    nameInput.value = item.name;
-    nameInput.dataset.productId = item.id;
-
-    const specInput = tr.querySelector('.spec-input');
-    specInput.value = item.specification || '';
-    updateMakeupFlag(specInput);          // 触发补货检测（可能将价格置0）
-
-    const priceInput = tr.querySelector('.price-input');
-    // 若非补货，使用建议价；否则保持 updateMakeupFlag 设置的 0
-    if (specInput.dataset.isMakeup !== '1') {
-        priceInput.value = item.price;
-    }
-    tr.querySelector('.unit-input').value = item.unit;
-    calcRowAmount(priceInput);
-    hideSuggest();
-
-    // 焦点回到商品名称输入框，光标放到文本末尾
-    if (input) {
-        input.focus();
-        const len = input.value.length;
-        input.setSelectionRange(len, len);
-    }
-}
-
-        // ========== 翻页辅助函数 ==========
-function goToPage(delta) {
-    // delta: +1 下翻，-1 上翻
-    if (!currentSuggestList.length || !currentSearchInput) return;
-    const totalPages = Math.ceil(currentSuggestList.length / SUGGEST_PAGE_SIZE);
-    const newPage = suggestCurrentPage + delta;
-    if (newPage >= 0 && newPage < totalPages) {
-        suggestCurrentPage = newPage;
-        showSuggest(currentSearchInput, currentSuggestList);
-        currentSearchInput.focus();
-    }
-}
-        function handleProductInputKey(e) {
-    // ===== 统一处理 Enter 键：直接跳转下一格，忽略建议 =====
-    if (e.key === 'Enter') {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        hideSuggest();                // 关闭下拉框
-        handleEnterKey(e.target);    // 执行与普通输入框相同的跳转逻辑
-        return;
-    }
-
-    // 如果没有建议列表，则不处理其他按键，让默认的 bindInputKeyboardEvents 处理方向键等
-    if (!currentSuggestList.length) return;
-
-    // 以下为有建议列表时，处理数字、空格、翻页等原有逻辑
-    e.stopImmediatePropagation();
-
-    const code = e.code;
-    const key = e.key;
-
-    // 下翻
-    if (code === 'Equal' || key === '=' || key === '+') {
-        e.preventDefault();
-        goToPage(1);
-        return;
-    }
-    // 上翻
-    if (code === 'Minus' || key === '-' || key === '_') {
-        e.preventDefault();
-        goToPage(-1);
-        return;
-    }
-    // 空格选择第一项
-    if (key === ' ') {
-        e.preventDefault();
-        selectItem(suggestCurrentPage * SUGGEST_PAGE_SIZE);
-        return;
-    }
-    // 数字 1-8 选择
-    const num = parseInt(key);
-    if (!isNaN(num) && num >= 1 && num <= SUGGEST_PAGE_SIZE) {
-        const absoluteIndex = suggestCurrentPage * SUGGEST_PAGE_SIZE + (num - 1);
-        if (absoluteIndex < currentSuggestList.length) {
-            e.preventDefault();
-            selectItem(absoluteIndex);
-        }
-        return;
-    }
-
-    if (key === 'Escape') hideSuggest();
-}
-
-        // ========== 客户搜索逻辑 (保持原样) ==========
-        async function onCustomerInput(input) {
-    const keyword = input.value.trim();
-    if (!keyword) { hideSuggest(); return; }
-    currentCustomerInput = input;
-    customerSuggestCurrentPage = 0;   // 重置为第一页
-    try {
-        const res = await fetch(`/bill/search-customer/?keyword=${encodeURIComponent(keyword)}`);
-        const data = await res.json();
-        if (data.code === 1 && data.data.length > 0) {
-            currentCustomerList = data.data;
-            showCustomerSuggest(input, data.data);
-        } else { hideSuggest(); }
-    } catch (e) { hideSuggest(); }
-}
-
-        // ========== 单位模糊搜索逻辑 ==========
-async function onUnitInput(input) {
-    const keyword = input.value.trim();
-    // 不因为关键词为空而隐藏，而是请求对应的数据
-    currentUnitInput = input;
-    try {
-        const res = await fetch(`/product/search-unit/?keyword=${encodeURIComponent(keyword)}`);
-        const data = await res.json();
-        if (data.code === 1 && data.data.length > 0) {
-            currentUnitList = data.data;
-            showUnitSuggest(input, data.data);
-        } else {
-            hideSuggest();
-        }
-    } catch (e) {
-        hideSuggest();
-    }
-}
-
-async function loadAllUnitsWithCache(input) {
-    currentUnitInput = input;
-    // 如果还没有缓存，请求全部单位（keyword为空）
-    if (!allUnitsCache) {
-        try {
-            const res = await fetch(`/product/search-unit/?keyword=`);
-            const data = await res.json();
-            if (data.code === 1 && data.data.length > 0) {
-                allUnitsCache = data.data;
-            } else {
-                allUnitsCache = [];
+            const item = currentSuggestList[index];
+            if (!item || !currentSearchInput) return;
+            const input = currentSearchInput;
+            const tr = input.closest('tr');
+            const nameInput = tr.querySelector('.name-input');
+            nameInput.value = item.name;
+            nameInput.dataset.productId = item.id;
+            const specInput = tr.querySelector('.spec-input');
+            specInput.value = item.specification || '';
+            updateMakeupFlag(specInput);
+            const priceInput = tr.querySelector('.price-input');
+            if (specInput.dataset.isMakeup !== '1') {
+                priceInput.value = item.price;
             }
-        } catch (e) {
-            allUnitsCache = [];
+            tr.querySelector('.unit-input').value = item.unit;
+            calcRowAmount(priceInput);
+            hideSuggest();
+            if (input) {
+                input.focus();
+                const len = input.value.length;
+                input.setSelectionRange(len, len);
+            }
         }
-    }
-    if (allUnitsCache.length > 0) {
-        currentUnitList = allUnitsCache;
-        showUnitSuggest(input, allUnitsCache);
-    } else {
-        hideSuggest();
-    }
-}
 
-function showUnitSuggest(input, list) {
-    const rect = input.getBoundingClientRect();
-    suggestBox.innerHTML = '';
-
-    list.slice(0, 8).forEach((item, idx) => {
-        const div = document.createElement('div');
-        div.textContent = `${idx+1} ${item.name}`;
-        div.dataset.index = idx;
-        div.onclick = () => selectUnitItem(idx);
-        suggestBox.appendChild(div);
-    });
-
-    // 预计算高度
-    suggestBox.style.visibility = 'hidden';
-    suggestBox.style.display = 'block';
-    const dropdownHeight = suggestBox.offsetHeight;
-
-    let top = rect.bottom + window.scrollY;
-    if (rect.bottom + dropdownHeight > window.innerHeight && rect.top - dropdownHeight > 0) {
-        top = rect.top + window.scrollY - dropdownHeight;
-    }
-
-    suggestBox.style.left = rect.left + 'px';
-    suggestBox.style.top = top + 'px';
-    suggestBox.style.visibility = 'visible';
-}
-
-function selectUnitItem(index) {
-    const item = currentUnitList[index];
-    if (!item || !currentUnitInput) return;
-    currentUnitInput.value = item.name;
-    hideSuggest();
-}
-
-function handleUnitInputKey(e) {
-    if (!currentUnitList.length) return;
-    if (e.key === ' ') { e.preventDefault(); selectUnitItem(0); }
-    const num = parseInt(e.key);
-    if (!isNaN(num) && num >= 1 && num <= currentUnitList.length) {
-        e.preventDefault(); selectUnitItem(num - 1);
-    }
-    if (e.key === 'Escape') hideSuggest();
-}
-
-        function showCustomerSuggest(input, list) {
-    const rect = input.getBoundingClientRect();
-    suggestBox.style.left = rect.left + 'px';
-    suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
-    suggestBox.innerHTML = '';
-
-    const totalPages = Math.ceil(list.length / CUSTOMER_SUGGEST_PAGE_SIZE);
-    if (customerSuggestCurrentPage >= totalPages) {
-        customerSuggestCurrentPage = Math.max(0, totalPages - 1);
-    }
-
-    const start = customerSuggestCurrentPage * CUSTOMER_SUGGEST_PAGE_SIZE;
-    const end = Math.min(start + CUSTOMER_SUGGEST_PAGE_SIZE, list.length);
-
-    // 渲染当前页建议
-    for (let i = start; i < end; i++) {
-        const item = list[i];
-        const div = document.createElement('div');
-        // 显示页内序号 1~8
-        div.textContent = `${(i - start) + 1} ${item.full_name}`;
-        div.dataset.index = i;          // 全局索引，用于选择
-        div.onclick = () => selectCustomerItem(i);
-        suggestBox.appendChild(div);
-    }
-
-    // 翻页按钮 + 页码显示
-    if (totalPages > 1) {
-        const navDiv = document.createElement('div');
-        navDiv.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:4px 8px; font-size:12px; color:#666; background:#f8f9fa;';
-
-        const prevBtn = document.createElement('button');
-        prevBtn.textContent = '◀ 上页';
-        prevBtn.style.cssText = 'padding:2px 8px; font-size:12px; cursor:pointer; border:1px solid #ccc; background:#fff; border-radius:3px;';
-        prevBtn.onclick = (e) => { e.stopPropagation(); customerGoToPage(-1); };
-        if (customerSuggestCurrentPage === 0) prevBtn.disabled = true;
-        navDiv.appendChild(prevBtn);
-
-        const pageText = document.createElement('span');
-        pageText.textContent = `${customerSuggestCurrentPage+1}/${totalPages}`;
-        navDiv.appendChild(pageText);
-
-        const nextBtn = document.createElement('button');
-        nextBtn.textContent = '下页 ▶';
-        nextBtn.style.cssText = 'padding:2px 8px; font-size:12px; cursor:pointer; border:1px solid #ccc; background:#fff; border-radius:3px;';
-        nextBtn.onclick = (e) => { e.stopPropagation(); customerGoToPage(1); };
-        if (customerSuggestCurrentPage >= totalPages - 1) nextBtn.disabled = true;
-        navDiv.appendChild(nextBtn);
-
-        suggestBox.appendChild(navDiv);
-    }
-
-    suggestBox.style.display = 'block';
-}
-function customerGoToPage(delta) {
-    if (!currentCustomerList.length || !currentCustomerInput) return;
-    const totalPages = Math.ceil(currentCustomerList.length / CUSTOMER_SUGGEST_PAGE_SIZE);
-    const newPage = customerSuggestCurrentPage + delta;
-    if (newPage >= 0 && newPage < totalPages) {
-        customerSuggestCurrentPage = newPage;
-        showCustomerSuggest(currentCustomerInput, currentCustomerList);
-        currentCustomerInput.focus();
-    }
-}
-        function selectCustomerItem(index) {
-    const item = currentCustomerList[index];
-    if (!item || !currentCustomerInput) return;
-    currentCustomerInput.value = item.full_name;
-    currentCustomerInput.dataset.customerId = item.id;
-    currentCustomerInput.dataset.customerName = item.full_name;
-
-    // 🔥 存储制单号到 dataset，并回填
-    currentCustomerInput.dataset.orderNumber = item.order_number || '';
-    const orderInput = document.getElementById('orderNumberInput');
-    orderInput.value = item.order_number || '';
-
-    currentCustomerInput.dispatchEvent(new Event('change'));
-    hideSuggest();
-
-    // 若没有制单号，自动聚焦到制单号输入框
-    if (!item.order_number) {
-        setTimeout(() => {
-            orderInput.focus();
-            orderInput.select();
-        }, 100);
-    }
-}
-        function handleCustomerInputKey(e) {
-            if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        const firstProductInput = document.querySelector('#bill-tbody .name-input');
-        if (firstProductInput) {
-            firstProductInput.focus();
-            firstProductInput.select();
+        function goToPage(delta) {
+            if (!currentSuggestList.length || !currentSearchInput) return;
+            const totalPages = Math.ceil(currentSuggestList.length / SUGGEST_PAGE_SIZE);
+            const newPage = suggestCurrentPage + delta;
+            if (newPage >= 0 && newPage < totalPages) {
+                suggestCurrentPage = newPage;
+                showSuggest(currentSearchInput, currentSuggestList);
+                currentSearchInput.focus();
+            }
         }
-        return;
-    }
-            
-            // 右键边缘跳转至制单号
-if (e.key === 'ArrowRight') {
-    const len = e.target.value.length;
-    if (e.target.selectionStart === len && e.target.selectionEnd === len) {
-        e.preventDefault();
-        const orderInput = document.getElementById('orderNumberInput');
-        focusAndSetCaret(orderInput, 'right');
-    }
-    return; // 阻止后续处理
-}
-    // ===== 统一处理 Enter 键（整合制单号逻辑） =====
-    if (e.key === 'Enter') {
-        e.preventDefault();
-        hideSuggest();
 
-        const orderNumberInput = document.getElementById('orderNumberInput');
-        const customerInput = document.getElementById('customerInput');
-        const hasOrderNumber = customerInput.dataset.orderNumber && customerInput.dataset.orderNumber.trim() !== '';
-
-        if (!hasOrderNumber && customerInput.dataset.customerId) {
-    focusAndSetCaret(orderNumberInput, 'right');
-} else {
-    const firstProductInput = document.querySelector('#bill-tbody .name-input');
-    if (firstProductInput) {
-        focusAndSetCaret(firstProductInput, 'right');
-    }
-}
-        return;
-    }
-
-    // Shift+Enter 保存（原有逻辑）
-    if (e.shiftKey && e.key === 'Enter') {
-        e.preventDefault();
-        saveOrder();
-        return;
-    }
-
-    // 如果没有建议列表，不处理其他按键（让 bindInputKeyboardEvents 处理方向键等）
-    if (!currentCustomerList.length) return;
-
-    // 以下为有建议列表时的专属快捷键处理
-    e.stopImmediatePropagation();
-
-    const code = e.code;
-    const key = e.key;
-
-    // 下翻（= 键）
-    if (code === 'Equal' || key === '=' || key === '+') {
-        e.preventDefault();
-        customerGoToPage(1);
-        return;
-    }
-    // 上翻（- 键）
-    if (code === 'Minus' || key === '-' || key === '_') {
-        e.preventDefault();
-        customerGoToPage(-1);
-        return;
-    }
-    // 空格选择第一项
-    if (key === ' ') {
-        e.preventDefault();
-        selectCustomerItem(customerSuggestCurrentPage * CUSTOMER_SUGGEST_PAGE_SIZE);
-        return;
-    }
-    // 数字 1-8 选择
-    const num = parseInt(key);
-    if (!isNaN(num) && num >= 1 && num <= CUSTOMER_SUGGEST_PAGE_SIZE) {
-        const absoluteIndex = customerSuggestCurrentPage * CUSTOMER_SUGGEST_PAGE_SIZE + (num - 1);
-        if (absoluteIndex < currentCustomerList.length) {
-            e.preventDefault();
-            selectCustomerItem(absoluteIndex);
-        }
-        return;
-    }
-
-    if (key === 'Escape') hideSuggest();
-}
-        function initCustomerInput() {
-    const customerInput = document.getElementById('customerInput');
-    if (customerInput) {
-        customerInput.addEventListener('input', () => debouncedCustomerSearch(customerInput));
-        customerInput.addEventListener('keydown', handleCustomerInputKey);
-        // 修改 blur 事件：如果焦点转移到了建议下拉框内，则不隐藏
-        customerInput.addEventListener('blur', function(e) {
-            const relatedTarget = e.relatedTarget;
-            // 如果 relatedTarget 存在且在 suggestBox 内部，则不做隐藏（例如点击翻页按钮或建议项）
-            if (relatedTarget && suggestBox && suggestBox.contains(relatedTarget)) {
+        function handleProductInputKey(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                hideSuggest();
+                handleEnterKey(e.target);
                 return;
             }
-            setTimeout(hideSuggest, 200);
-        });
-    }
-}
-
-function navigateInTable(input, direction) {
-    const tr = input.closest('tr');
-    if (!tr) return;
-    const allTr = Array.from(document.querySelectorAll('#bill-tbody tr'));
-    const trIdx = allTr.indexOf(tr);
-    const inputs = tr.querySelectorAll('input');
-    const idx = Array.from(inputs).indexOf(input);
-    
-    let target;
-    if (direction === 'left' || direction === 'right') {
-        const colCount = inputs.length;
-        let targetIdx = (direction === 'left') 
-            ? (idx - 1 + colCount) % colCount 
-            : (idx + 1) % colCount;
-        target = inputs[targetIdx];
-        // 🔹 对数量、单价、单位输入框全选
-        if (target.classList.contains('quantity-input') || target.classList.contains('price-input') || target.classList.contains('unit-input')) {
-            target.focus();
-            target.select();
-        } else {
-            focusAndSetCaret(target, direction);
-        }
-    } else { // up / down
-        const rowCount = allTr.length;
-        let targetRowIdx = (direction === 'up')
-            ? (trIdx - 1 + rowCount) % rowCount
-            : (trIdx + 1) % rowCount;
-        const targetTr = allTr[targetRowIdx];
-        const targetInputs = targetTr.querySelectorAll('input');
-        const targetIdx = Math.min(idx, targetInputs.length - 1);
-        target = targetInputs[targetIdx];
-
-        const start = input.selectionStart;
-        const end = input.selectionEnd;
-        const len = input.value.length;
-        let caretPos = 'left';
-        if (start === 0 && end === 0) {
-            caretPos = 'right';
-        } else if (start === len && end === len) {
-            caretPos = 'left';
-        } else if (start === 0 && end === len) {
-            caretPos = 'left';
-        } else {
-            caretPos = 'left';
+            if (!currentSuggestList.length) return;
+            e.stopImmediatePropagation();
+            const code = e.code;
+            const key = e.key;
+            if (code === 'Equal' || key === '=' || key === '+') {
+                e.preventDefault();
+                goToPage(1);
+                return;
+            }
+            if (code === 'Minus' || key === '-' || key === '_') {
+                e.preventDefault();
+                goToPage(-1);
+                return;
+            }
+            if (key === ' ') {
+                e.preventDefault();
+                selectItem(suggestCurrentPage * SUGGEST_PAGE_SIZE);
+                return;
+            }
+            const num = parseInt(key);
+            if (!isNaN(num) && num >= 1 && num <= SUGGEST_PAGE_SIZE) {
+                const absoluteIndex = suggestCurrentPage * SUGGEST_PAGE_SIZE + (num - 1);
+                if (absoluteIndex < currentSuggestList.length) {
+                    e.preventDefault();
+                    selectItem(absoluteIndex);
+                }
+                return;
+            }
+            if (key === 'Escape') hideSuggest();
         }
 
-        // 🔹 对数量、单价、单位输入框全选
-        if (target.classList.contains('quantity-input') || target.classList.contains('price-input') || target.classList.contains('unit-input')) {
-            target.focus();
-            target.select();
-        } else {
-            focusAndSetCaret(target, caretPos);
+        // ========== 客户搜索逻辑 ==========
+        async function onCustomerInput(input) {
+            const keyword = input.value.trim();
+            if (!keyword) { hideSuggest(); return; }
+            currentCustomerInput = input;
+            customerSuggestCurrentPage = 0;
+            try {
+                const res = await fetch(`/bill/search-customer/?keyword=${encodeURIComponent(keyword)}`);
+                const data = await res.json();
+                if (data.code === 1 && data.data.length > 0) {
+                    currentCustomerList = data.data;
+                    showCustomerSuggest(input, data.data);
+                } else { hideSuggest(); }
+            } catch (e) { hideSuggest(); }
         }
-    }
-}
 
-        // ========== 制单号输入框键盘事件（新增） ==========
+        function showCustomerSuggest(input, list) {
+            const rect = input.getBoundingClientRect();
+            suggestBox.style.left = rect.left + 'px';
+            suggestBox.style.top = (rect.bottom + window.scrollY) + 'px';
+            suggestBox.innerHTML = '';
+            const totalPages = Math.ceil(list.length / CUSTOMER_SUGGEST_PAGE_SIZE);
+            if (customerSuggestCurrentPage >= totalPages) {
+                customerSuggestCurrentPage = Math.max(0, totalPages - 1);
+            }
+            const start = customerSuggestCurrentPage * CUSTOMER_SUGGEST_PAGE_SIZE;
+            const end = Math.min(start + CUSTOMER_SUGGEST_PAGE_SIZE, list.length);
+            for (let i = start; i < end; i++) {
+                const item = list[i];
+                const div = document.createElement('div');
+                div.textContent = `${(i - start) + 1} ${item.full_name}`;
+                div.dataset.index = i;
+                div.onclick = () => selectCustomerItem(i);
+                suggestBox.appendChild(div);
+            }
+            if (totalPages > 1) {
+                const navDiv = document.createElement('div');
+                navDiv.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:4px 8px; font-size:12px; color:#666; background:#f8f9fa;';
+                const prevBtn = document.createElement('button');
+                prevBtn.textContent = '◀ 上页';
+                prevBtn.style.cssText = 'padding:2px 8px; font-size:12px; cursor:pointer; border:1px solid #ccc; background:#fff; border-radius:3px;';
+                prevBtn.onclick = (e) => { e.stopPropagation(); customerGoToPage(-1); };
+                if (customerSuggestCurrentPage === 0) prevBtn.disabled = true;
+                navDiv.appendChild(prevBtn);
+                const pageText = document.createElement('span');
+                pageText.textContent = `${customerSuggestCurrentPage+1}/${totalPages}`;
+                navDiv.appendChild(pageText);
+                const nextBtn = document.createElement('button');
+                nextBtn.textContent = '下页 ▶';
+                nextBtn.style.cssText = 'padding:2px 8px; font-size:12px; cursor:pointer; border:1px solid #ccc; background:#fff; border-radius:3px;';
+                nextBtn.onclick = (e) => { e.stopPropagation(); customerGoToPage(1); };
+                if (customerSuggestCurrentPage >= totalPages - 1) nextBtn.disabled = true;
+                navDiv.appendChild(nextBtn);
+                suggestBox.appendChild(navDiv);
+            }
+            suggestBox.style.display = 'block';
+        }
+
+        function customerGoToPage(delta) {
+            if (!currentCustomerList.length || !currentCustomerInput) return;
+            const totalPages = Math.ceil(currentCustomerList.length / CUSTOMER_SUGGEST_PAGE_SIZE);
+            const newPage = customerSuggestCurrentPage + delta;
+            if (newPage >= 0 && newPage < totalPages) {
+                customerSuggestCurrentPage = newPage;
+                showCustomerSuggest(currentCustomerInput, currentCustomerList);
+                currentCustomerInput.focus();
+            }
+        }
+
+        function selectCustomerItem(index) {
+            const item = currentCustomerList[index];
+            if (!item || !currentCustomerInput) return;
+            currentCustomerInput.value = item.full_name;
+            currentCustomerInput.dataset.customerId = item.id;
+            currentCustomerInput.dataset.customerName = item.full_name;
+            currentCustomerInput.dataset.orderNumber = item.order_number || '';
+            const orderInput = document.getElementById('orderNumberInput');
+            orderInput.value = item.order_number || '';
+            currentCustomerInput.dispatchEvent(new Event('change'));
+            hideSuggest();
+            if (!item.order_number) {
+                setTimeout(() => {
+                    orderInput.focus();
+                    orderInput.select();
+                }, 100);
+            }
+        }
+
+        function handleCustomerInputKey(e) {
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                const firstProductInput = document.querySelector('#bill-tbody .name-input');
+                if (firstProductInput) {
+                    firstProductInput.focus();
+                    firstProductInput.select();
+                }
+                return;
+            }
+            if (e.key === 'ArrowRight') {
+                const len = e.target.value.length;
+                if (e.target.selectionStart === len && e.target.selectionEnd === len) {
+                    e.preventDefault();
+                    const orderInput = document.getElementById('orderNumberInput');
+                    focusAndSetCaret(orderInput, 'right');
+                }
+                return;
+            }
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                hideSuggest();
+                const orderNumberInput = document.getElementById('orderNumberInput');
+                const customerInput = document.getElementById('customerInput');
+                const hasOrderNumber = customerInput.dataset.orderNumber && customerInput.dataset.orderNumber.trim() !== '';
+                if (!hasOrderNumber && customerInput.dataset.customerId) {
+                    focusAndSetCaret(orderNumberInput, 'right');
+                } else {
+                    const firstProductInput = document.querySelector('#bill-tbody .name-input');
+                    if (firstProductInput) {
+                        focusAndSetCaret(firstProductInput, 'right');
+                    }
+                }
+                return;
+            }
+            if (e.shiftKey && e.key === 'Enter') {
+                e.preventDefault();
+                saveOrder();
+                return;
+            }
+            if (!currentCustomerList.length) return;
+            e.stopImmediatePropagation();
+            const code = e.code;
+            const key = e.key;
+            if (code === 'Equal' || key === '=' || key === '+') {
+                e.preventDefault();
+                customerGoToPage(1);
+                return;
+            }
+            if (code === 'Minus' || key === '-' || key === '_') {
+                e.preventDefault();
+                customerGoToPage(-1);
+                return;
+            }
+            if (key === ' ') {
+                e.preventDefault();
+                selectCustomerItem(customerSuggestCurrentPage * CUSTOMER_SUGGEST_PAGE_SIZE);
+                return;
+            }
+            const num = parseInt(key);
+            if (!isNaN(num) && num >= 1 && num <= CUSTOMER_SUGGEST_PAGE_SIZE) {
+                const absoluteIndex = customerSuggestCurrentPage * CUSTOMER_SUGGEST_PAGE_SIZE + (num - 1);
+                if (absoluteIndex < currentCustomerList.length) {
+                    e.preventDefault();
+                    selectCustomerItem(absoluteIndex);
+                }
+                return;
+            }
+            if (key === 'Escape') hideSuggest();
+        }
+
+        function initCustomerInput() {
+            const customerInput = document.getElementById('customerInput');
+            if (customerInput) {
+                customerInput.addEventListener('input', () => debouncedCustomerSearch(customerInput));
+                customerInput.addEventListener('keydown', handleCustomerInputKey);
+                customerInput.addEventListener('blur', function(e) {
+                    const relatedTarget = e.relatedTarget;
+                    if (relatedTarget && suggestBox && suggestBox.contains(relatedTarget)) {
+                        return;
+                    }
+                    setTimeout(hideSuggest, 200);
+                });
+            }
+        }
+
+        function navigateInTable(input, direction) {
+            const tr = input.closest('tr');
+            if (!tr) return;
+            const allTr = Array.from(document.querySelectorAll('#bill-tbody tr'));
+            const trIdx = allTr.indexOf(tr);
+            const inputs = tr.querySelectorAll('input');
+            const idx = Array.from(inputs).indexOf(input);
+            let target;
+            if (direction === 'left' || direction === 'right') {
+                const colCount = inputs.length;
+                let targetIdx = (direction === 'left') 
+                    ? (idx - 1 + colCount) % colCount 
+                    : (idx + 1) % colCount;
+                target = inputs[targetIdx];
+                if (target.classList.contains('quantity-input') || target.classList.contains('price-input') || target.classList.contains('unit-input')) {
+                    target.focus();
+                    target.select();
+                } else {
+                    focusAndSetCaret(target, direction);
+                }
+            } else {
+                const rowCount = allTr.length;
+                let targetRowIdx = (direction === 'up')
+                    ? (trIdx - 1 + rowCount) % rowCount
+                    : (trIdx + 1) % rowCount;
+                const targetTr = allTr[targetRowIdx];
+                const targetInputs = targetTr.querySelectorAll('input');
+                const targetIdx = Math.min(idx, targetInputs.length - 1);
+                target = targetInputs[targetIdx];
+                const start = input.selectionStart;
+                const end = input.selectionEnd;
+                const len = input.value.length;
+                let caretPos = 'left';
+                if (start === 0 && end === 0) {
+                    caretPos = 'right';
+                } else if (start === len && end === len) {
+                    caretPos = 'left';
+                } else if (start === 0 && end === len) {
+                    caretPos = 'left';
+                } else {
+                    caretPos = 'left';
+                }
+                if (target.classList.contains('quantity-input') || target.classList.contains('price-input') || target.classList.contains('unit-input')) {
+                    target.focus();
+                    target.select();
+                } else {
+                    focusAndSetCaret(target, caretPos);
+                }
+            }
+        }
+
+        // ========== 制单号输入框键盘事件 ==========
         function initOrderNumberInput() {
             const orderInput = document.getElementById('orderNumberInput');
             if (orderInput) {
                 orderInput.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') {
-        e.preventDefault();
-        if (e.shiftKey) {
-            saveOrder();
-        } else {
-            const firstProductInput = document.querySelector('#bill-tbody .name-input');
-            if (firstProductInput) {
-                focusAndSetCaret(firstProductInput, 'right');
-            }
-        }
-        return;
-    }
-    
-    // 新增向下键
-    if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        const firstProductInput = document.querySelector('#bill-tbody .name-input');
-        if (firstProductInput) focusAndSetCaret(firstProductInput, 'down');
-        return;
-    }
-    // ---- 新增左键边缘跳转到客户名称 ----
-    if (e.key === 'ArrowLeft') {
-        const start = orderInput.selectionStart;
-        const end = orderInput.selectionEnd;
-        if (start === 0 && end === 0) {
-            e.preventDefault();
-            const customerInput = document.getElementById('customerInput');
-            focusAndSetCaret(customerInput, 'left');
-        }
-        // 否则默认行为
-    }
-});
-            }
-        }
-
-        // ========== 表格行操作 (保持原样) ==========
-        function createInputElement(type, className, placeholder, value = '') {
-    const input = document.createElement('input');
-    input.type = type;   // 默认为传入类型
-    input.className = className;
-    input.placeholder = placeholder;
-    input.value = value;
-
-    // 如果是数量或单价，改用文本类型并启用数字键盘
-    if (className === 'quantity-input' || className === 'price-input') {
-        input.type = 'text';
-        input.inputMode = 'decimal';   // 移动端显示数字键盘
-        // 保留 min/step 属性（可选，但类型为 text 时它们无效，可删除）
-        // 但为了兼容，我们保留或删除均可
-        // 由于改为 text，我们会手动处理数值验证，但保存时会 parseFloat，所以可以
-    }
-
-    // 规格列专属处理
-    if (className === 'spec-input') {
-        input.placeholder = '商品规格';
-        input.addEventListener('input', updateMakeupFlag);
-        input.addEventListener('change', updateMakeupFlag);
-    }
-
-    // 数量/单价输入实时计算金额（无论类型）
-    if (className === 'quantity-input' || className === 'price-input') {
-        input.addEventListener('input', () => calcRowAmount(input));
-        // 输入时过滤非数字字符（可选）
-        input.addEventListener('blur', function() {
-            let val = this.value.trim();
-            if (val === '') val = '0';
-            // 如果是数量，转为整数；单价转为浮点数
-            if (className === 'quantity-input') {
-                let num = parseInt(val);
-                if (isNaN(num) || num < 0) num = 1;
-                this.value = num;
-            } else if (className === 'price-input') {
-                let num = parseFloat(val);
-                if (isNaN(num) || num < 0) num = 0;
-                this.value = num.toFixed(2);
-            }
-            calcRowAmount(this);
-        });
-    }
-
-    // 商品名称：拼音搜索 + 快捷键，并清除 productId
-    if (className === 'name-input') {
-        input.addEventListener('input', () => {
-            input.dataset.productId = '';
-            debouncedProductSearch(input);
-        });
-        input.addEventListener('keydown', handleProductInputKey);
-    }
-
-    // 单位：聚焦显示全部，输入防抖搜索
-    if (className === 'unit-input') {
-        input.addEventListener('focus', () => {
-            if (input.value.trim()) {
-                onUnitInput(input);
-            } else {
-                loadAllUnitsWithCache(input);
-            }
-        });
-        input.addEventListener('input', () => debouncedUnitSearch(input));
-        input.addEventListener('keydown', handleUnitInputKey);
-    }
-
-    // 通用模糊/建议框保护
-    if (className === 'name-input' || className === 'unit-input') {
-        input.addEventListener('blur', function(e) {
-            setTimeout(() => {
-                if (suggestBox && suggestBox.contains(document.activeElement)) {
-                    return;
-                }
-                hideSuggest();
-            }, 200);
-        });
-    }
-
-    bindInputKeyboardEvents(input);
-    return input;
-}
-        function bindInputKeyboardEvents(input) {
-    input.addEventListener('keydown', function(e) {
-        if (e.shiftKey && e.key === 'Enter') {
-            e.preventDefault();
-            saveOrder();
-            return;
-        }
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            handleEnterKey(input);
-            return;
-        }
-        const key = e.key;
-        if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key)) {
-            // ---- 左右键：全选时也跳转 ----
-            if (key === 'ArrowLeft') {
-                const start = input.selectionStart;
-                const end = input.selectionEnd;
-                const len = input.value.length;
-                if (len === 0) {
-                    e.preventDefault();
-                    navigateInTable(input, 'left');
-                    return;
-                }
-                // 全选状态：直接跳转左
-                if (start === 0 && end === len) {
-                    e.preventDefault();
-                    navigateInTable(input, 'left');
-                    return;
-                }
-                if (start === 0) {
-                    e.preventDefault();
-                    navigateInTable(input, 'left');
-                }
-                return;
-            }
-            if (key === 'ArrowRight') {
-                const start = input.selectionStart;
-                const end = input.selectionEnd;
-                const len = input.value.length;
-                if (len === 0) {
-                    e.preventDefault();
-                    navigateInTable(input, 'right');
-                    return;
-                }
-                if (start === 0 && end === len) {
-                    e.preventDefault();
-                    navigateInTable(input, 'right');
-                    return;
-                }
-                if (start === len) {
-                    e.preventDefault();
-                    navigateInTable(input, 'right');
-                }
-                return;
-            }
-            // ---- 上下键：始终拦截 ----
-            e.preventDefault();
-            if (key === 'ArrowUp') {
-                const tr = input.closest('tr');
-                if (tr) {
-                    const allTr = Array.from(document.querySelectorAll('#bill-tbody tr'));
-                    const trIdx = allTr.indexOf(tr);
-                    // 第一行任意输入框 → 跳转到客户名称
-                    if (trIdx === 0) {
-                        const customerInput = document.getElementById('customerInput');
-                        if (customerInput) focusAndSetCaret(customerInput, 'up');
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (e.shiftKey) {
+                            saveOrder();
+                        } else {
+                            const firstProductInput = document.querySelector('#bill-tbody .name-input');
+                            if (firstProductInput) {
+                                focusAndSetCaret(firstProductInput, 'right');
+                            }
+                        }
                         return;
                     }
-                }
-                navigateInTable(input, 'up');
-            } else if (key === 'ArrowDown') {
-                navigateInTable(input, 'down');
+                    if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        const firstProductInput = document.querySelector('#bill-tbody .name-input');
+                        if (firstProductInput) focusAndSetCaret(firstProductInput, 'down');
+                        return;
+                    }
+                    if (e.key === 'ArrowLeft') {
+                        const start = orderInput.selectionStart;
+                        const end = orderInput.selectionEnd;
+                        if (start === 0 && end === 0) {
+                            e.preventDefault();
+                            const customerInput = document.getElementById('customerInput');
+                            focusAndSetCaret(customerInput, 'left');
+                        }
+                    }
+                });
             }
         }
-    });
-}
+
+        // ========== 表格行操作 ==========
+        function createInputElement(type, className, placeholder, value = '') {
+            const input = document.createElement('input');
+            input.type = type;
+            input.className = className;
+            input.placeholder = placeholder;
+            input.value = value;
+            if (className === 'quantity-input' || className === 'price-input') {
+                input.type = 'text';
+                input.inputMode = 'decimal';
+            }
+            if (className === 'spec-input') {
+                input.placeholder = '商品规格';
+                input.addEventListener('input', updateMakeupFlag);
+                input.addEventListener('change', updateMakeupFlag);
+            }
+            if (className === 'quantity-input' || className === 'price-input') {
+                input.addEventListener('input', () => calcRowAmount(input));
+                input.addEventListener('blur', function() {
+                    let val = this.value.trim();
+                    if (val === '') val = '0';
+                    if (className === 'quantity-input') {
+                        let num = parseInt(val);
+                        if (isNaN(num) || num < 0) num = 1;
+                        this.value = num;
+                    } else if (className === 'price-input') {
+                        let num = parseFloat(val);
+                        if (isNaN(num) || num < 0) num = 0;
+                        this.value = num.toFixed(2);
+                    }
+                    calcRowAmount(this);
+                });
+            }
+            if (className === 'name-input') {
+                input.addEventListener('input', () => {
+                    input.dataset.productId = '';
+                    debouncedProductSearch(input);
+                });
+                input.addEventListener('keydown', handleProductInputKey);
+            }
+            if (className === 'unit-input') {
+                input.addEventListener('focus', () => {
+                    if (input.value.trim()) {
+                        onUnitInput(input);
+                    } else {
+                        loadAllUnitsWithCache(input);
+                    }
+                });
+                input.addEventListener('input', () => debouncedUnitSearch(input));
+                input.addEventListener('keydown', handleUnitInputKey);
+            }
+            if (className === 'name-input' || className === 'unit-input') {
+                input.addEventListener('blur', function(e) {
+                    setTimeout(() => {
+                        if (suggestBox && suggestBox.contains(document.activeElement)) {
+                            return;
+                        }
+                        hideSuggest();
+                    }, 200);
+                });
+            }
+            bindInputKeyboardEvents(input);
+            return input;
+        }
+
+        function bindInputKeyboardEvents(input) {
+            input.addEventListener('keydown', function(e) {
+                if (e.shiftKey && e.key === 'Enter') {
+                    e.preventDefault();
+                    saveOrder();
+                    return;
+                }
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleEnterKey(input);
+                    return;
+                }
+                const key = e.key;
+                if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(key)) {
+                    if (key === 'ArrowLeft') {
+                        const start = input.selectionStart;
+                        const end = input.selectionEnd;
+                        const len = input.value.length;
+                        if (len === 0) {
+                            e.preventDefault();
+                            navigateInTable(input, 'left');
+                            return;
+                        }
+                        if (start === 0 && end === len) {
+                            e.preventDefault();
+                            navigateInTable(input, 'left');
+                            return;
+                        }
+                        if (start === 0) {
+                            e.preventDefault();
+                            navigateInTable(input, 'left');
+                        }
+                        return;
+                    }
+                    if (key === 'ArrowRight') {
+                        const start = input.selectionStart;
+                        const end = input.selectionEnd;
+                        const len = input.value.length;
+                        if (len === 0) {
+                            e.preventDefault();
+                            navigateInTable(input, 'right');
+                            return;
+                        }
+                        if (start === 0 && end === len) {
+                            e.preventDefault();
+                            navigateInTable(input, 'right');
+                            return;
+                        }
+                        if (start === len) {
+                            e.preventDefault();
+                            navigateInTable(input, 'right');
+                        }
+                        return;
+                    }
+                    e.preventDefault();
+                    if (key === 'ArrowUp') {
+                        const tr = input.closest('tr');
+                        if (tr) {
+                            const allTr = Array.from(document.querySelectorAll('#bill-tbody tr'));
+                            const trIdx = allTr.indexOf(tr);
+                            if (trIdx === 0) {
+                                const customerInput = document.getElementById('customerInput');
+                                if (customerInput) focusAndSetCaret(customerInput, 'up');
+                                return;
+                            }
+                        }
+                        navigateInTable(input, 'up');
+                    } else if (key === 'ArrowDown') {
+                        navigateInTable(input, 'down');
+                    }
+                }
+            });
+        }
+
         function handleEnterKey(input) {
-    const tr = input.closest('tr');
-    const inputs = tr.querySelectorAll('input');
-    const idx = Array.from(inputs).indexOf(input);
-    if (idx < inputColsCount - 1) {
-        const target = inputs[idx + 1];
-        // 🔹 对数量、单价、单位输入框全选
-        if (target.classList.contains('quantity-input') || target.classList.contains('price-input') || target.classList.contains('unit-input')) {
-            target.focus();
-            target.select();
-        } else {
-            focusAndSetCaret(target, 'right');
-        }
-    } else {
-        const newTr = addBlankRow(true);
-        const target = newTr.querySelector('.name-input');
-        focusAndSetCaret(target, 'right');
-    }
-}
-        function handleDirectionKeys(input, key) {
-    const tr = input.closest('tr');
-    const allTr = Array.from(document.querySelectorAll('#bill-tbody tr'));
-    const trIdx = allTr.indexOf(tr);
-    const inputs = tr.querySelectorAll('input');
-    const idx = Array.from(inputs).indexOf(input);
-    const rowCount = allTr.length;
-    switch(key) {
-        case 'ArrowLeft':
-            const l = idx === 0 ? inputColsCount-1 : idx-1;
-            inputs[l].focus(); inputs[l].select(); break;
-        case 'ArrowRight':
-            const r = idx === inputColsCount-1 ? 0 : idx+1;
-            inputs[r].focus(); inputs[r].select(); break;
-        case 'ArrowUp':
-            // 新增：若在第一行且当前是商品名称输入框，跳转到客户姓名
-            if (trIdx === 0 && input.classList.contains('name-input')) {
-                const customerInput = document.getElementById('customerInput');
-                if (customerInput) {
-                    customerInput.focus();
-                    customerInput.select();
-                    break;
+            const tr = input.closest('tr');
+            const inputs = tr.querySelectorAll('input');
+            const idx = Array.from(inputs).indexOf(input);
+            if (idx < inputColsCount - 1) {
+                const target = inputs[idx + 1];
+                if (target.classList.contains('quantity-input') || target.classList.contains('price-input') || target.classList.contains('unit-input')) {
+                    target.focus();
+                    target.select();
+                } else {
+                    focusAndSetCaret(target, 'right');
                 }
+            } else {
+                const newTr = addBlankRow(true);
+                const target = newTr.querySelector('.name-input');
+                focusAndSetCaret(target, 'right');
             }
-            
-            const upTr = allTr[trIdx === 0 ? rowCount-1 : trIdx-1];
-            upTr.querySelectorAll('input')[idx].focus(); break;
-        case 'ArrowDown':
-            const dnTr = allTr[trIdx === rowCount-1 ? 0 : trIdx+1];
-            dnTr.querySelectorAll('input')[idx].focus(); break;
-    }
-}
+        }
+
         function handleDeleteRowByKey(input) {
             const tr = input.closest('tr');
             const tbody = document.getElementById('bill-tbody');
@@ -1794,40 +1563,33 @@ function navigateInTable(input, direction) {
                 targetInputs[targetInputIdx].select();
             }
         }
-        
-        // 获取当前表格中商品名称非空的行数（即实际内容行数）
-function getActualRowCount() {
-    const nameInputs = document.querySelectorAll('#bill-tbody .name-input');
-    let count = 0;
-    nameInputs.forEach(input => {
-        if (input.value.trim() !== '') {
-            count++;
+
+        function getActualRowCount() {
+            const nameInputs = document.querySelectorAll('#bill-tbody .name-input');
+            let count = 0;
+            nameInputs.forEach(input => {
+                if (input.value.trim() !== '') {
+                    count++;
+                }
+            });
+            return count;
         }
-    });
-    return count;
-}
-// ========== 自动滚动函数（仅桌面端） ==========
-let scrollRafId = null;
 
-function scrollInputToView(input) {
-    // 移动端不做处理（根据屏幕宽度判断，阈值 768px 与 CSS 响应式一致）
-    if (window.innerWidth <= 768) return;
-    if (!input) return;
+        let scrollRafId = null;
+        function scrollInputToView(input) {
+            if (window.innerWidth <= 768) return;
+            if (!input) return;
+            if (scrollRafId) {
+                cancelAnimationFrame(scrollRafId);
+                scrollRafId = null;
+            }
+            scrollRafId = requestAnimationFrame(() => {
+                input.scrollIntoView({ block: 'end', behavior: 'smooth' });
+                scrollRafId = null;
+            });
+        }
 
-    // 取消之前未执行的滚动任务
-    if (scrollRafId) {
-        cancelAnimationFrame(scrollRafId);
-        scrollRafId = null;
-    }
-
-    // 在下一帧执行滚动，避免频繁 reflow
-    scrollRafId = requestAnimationFrame(() => {
-        // 将输入框滚动到视口底部（block: 'end' 使元素底部对齐视口底部）
-        input.scrollIntoView({ block: 'end', behavior: 'smooth' });
-        scrollRafId = null;
-    });
-}
-        // ========== 计算逻辑 (保持原样) ==========
+        // ========== 计算逻辑 ==========
         function calcRowAmount(input) {
             const tr = input.closest('tr');
             const qty = parseFloat(tr.querySelector('.quantity-input').value) || 0;
@@ -1835,6 +1597,7 @@ function scrollInputToView(input) {
             tr.querySelector('.amount-cell').textContent = `¥${(qty*price).toFixed(2)}`;
             calcTotalAmount();
         }
+
         function calcTotalAmount() {
             let total = 0;
             document.querySelectorAll('#bill-tbody tr').forEach(tr => {
@@ -1843,42 +1606,40 @@ function scrollInputToView(input) {
             });
             document.getElementById('total-amount').textContent = `¥${total.toFixed(2)}`;
         }
+
         function updateRowNumbers() {
             document.querySelectorAll('#bill-tbody tr').forEach((r,i)=>{
                 r.querySelector('.serial-cell').textContent = i+1;
             });
         }
+
         function addBlankRow(returnRow = false, ignoreLimit = false) {
-    // 若未忽略限制且实际行数已达16，则阻止添加并提示
-    if (!ignoreLimit && getActualRowCount() >= 15) {
-        alert('开单最多十六行内容，多出的内容不会被显示');
-        if (returnRow) return null;
-        return;
-    }
+            if (!ignoreLimit && getActualRowCount() >= 15) {
+                alert('开单最多十六行内容，多出的内容不会被显示');
+                if (returnRow) return null;
+                return;
+            }
+            rowIdCounter++;
+            const tbody = document.getElementById('bill-tbody');
+            const tr = document.createElement('tr');
+            tr.dataset.rowId = rowIdCounter;
+            tr.innerHTML = `
+                <td class="serial-cell">${tbody.children.length + 1}</td>
+                <td></td><td></td><td></td><td></td><td></td>
+                <td class="amount-cell">¥0.00</td>
+                <td><button class="btn-del" onclick="deleteRow(this)">删除</button></td>`;
+            tr.cells[1].appendChild(createInputElement('text', 'name-input', '商品名称/拼音'));
+            tr.cells[2].appendChild(createInputElement('text', 'spec-input', '商品规格'));
+            tr.cells[3].appendChild(createInputElement('number', 'quantity-input', '数量', 1));
+            tr.cells[4].appendChild(createInputElement('text', 'unit-input', '单位'));
+            tr.cells[5].appendChild(createInputElement('number', 'price-input', '单价'));
+            tbody.appendChild(tr);
+            updateRowNumbers();
+            calcTotalAmount();
+            debouncedSaveFormState();
+            if (returnRow) return tr;
+        }
 
-    rowIdCounter++;
-    const tbody = document.getElementById('bill-tbody');
-    const tr = document.createElement('tr');
-    tr.dataset.rowId = rowIdCounter;
-    tr.innerHTML = `
-        <td class="serial-cell">${tbody.children.length + 1}</td>
-        <!-- 5个输入列单元格 + 金额 + 操作 -->
-        <td></td><td></td><td></td><td></td><td></td>
-        <td class="amount-cell">¥0.00</td>
-        <td><button class="btn-del" onclick="deleteRow(this)">删除</button></td>`;
-
-    tr.cells[1].appendChild(createInputElement('text', 'name-input', '商品名称/拼音'));
-    tr.cells[2].appendChild(createInputElement('text', 'spec-input', '商品规格'));
-    tr.cells[3].appendChild(createInputElement('number', 'quantity-input', '数量', 1));
-    tr.cells[4].appendChild(createInputElement('text', 'unit-input', '单位'));
-    tr.cells[5].appendChild(createInputElement('number', 'price-input', '单价'));
-
-    tbody.appendChild(tr);
-    updateRowNumbers();
-    calcTotalAmount();
-    debouncedSaveFormState();
-    if (returnRow) return tr;
-}
         function deleteRow(btn) {
             const tr = btn.closest('tr');
             const tbody = document.getElementById('bill-tbody');
@@ -1886,6 +1647,7 @@ function scrollInputToView(input) {
             tr.remove(); updateRowNumbers(); calcTotalAmount();
             debouncedSaveFormState();
         }
+
         function getCsrfToken() {
             let cookieValue = null;
             if (document.cookie && document.cookie !== '') {
@@ -1901,116 +1663,102 @@ function scrollInputToView(input) {
             return cookieValue;
         }
 
-        // ========== 保存/打印/重置 (保持原样) ==========
         // ========== 保存/打印/重置 ==========
-async function saveOrder() {
-    const autoSortCheckbox = document.getElementById('autoSortCheckbox');
-    if (autoSortCheckbox && autoSortCheckbox.checked) {
-        sortBillTable();
-    }
-
-    const customerInput = document.getElementById('customerInput');
-    let customerId = customerInput.dataset.customerId || '';
-    const customerName = customerInput.value.trim();
-
-    if (!customerName) {
-        alert('请填写客户名称！');
-        customerInput.focus();
-        return;
-    }
-
-    const savedCustomerName = customerInput.dataset.customerName || '';
-    if (customerName !== savedCustomerName) {
-        customerId = '';
-    }
-
-    const orderNumberInput = document.getElementById('orderNumberInput');
-    const orderNumber = orderNumberInput ? orderNumberInput.value.trim() : '';
-
-     if (!orderNumber) {
-        alert('请输入制单号！');
-        // 延迟聚焦，避免 alert 干扰
-        setTimeout(() => {
-            orderNumberInput.focus();
-            orderNumberInput.select();  // 可选：全选内容方便直接输入
-        }, 10);
-        return;
-    }
-
-    const items = [];
-    document.querySelectorAll('#bill-tbody tr').forEach(tr => {
-        const nameInput = tr.querySelector('.name-input');
-        const name = nameInput.value.trim();
-        const qty = parseInt(tr.querySelector('.quantity-input').value) || 0;
-        const unit = tr.querySelector('.unit-input').value.trim();
-        const price = parseFloat(tr.querySelector('.price-input').value) || 0;
-        const amt = parseFloat(tr.querySelector('.amount-cell').textContent.replace('¥','')) || 0;
-        const productId = nameInput.dataset.productId || '';
-        const spec = tr.querySelector('.spec-input').value.trim();
-
-        const specInput = tr.querySelector('.spec-input');
-        if (specInput) {
-            updateMakeupFlag(specInput);
-        }
-        const isMakeup = specInput && specInput.dataset.isMakeup === '1';
-        const operationType = specInput ? (specInput.dataset.operationType || '') : '';
-
-        const isRemark = (name === '' && spec !== '');
-        if (isRemark || (name && qty && price >= 0)) {
-            items.push({
-                id: productId,
-                name: name,
-                spec: spec,
-                qty: isRemark ? 0 : qty,
-                unit: unit,
-                price: isRemark ? 0 : price,
-                amt: isRemark ? 0 : amt,
-                is_makeup: isMakeup,
-                operation_type: operationType,
+        async function saveOrder() {
+            const autoSortCheckbox = document.getElementById('autoSortCheckbox');
+            if (autoSortCheckbox && autoSortCheckbox.checked) {
+                sortBillTable();
+            }
+            const customerInput = document.getElementById('customerInput');
+            let customerId = customerInput.dataset.customerId || '';
+            const customerName = customerInput.value.trim();
+            if (!customerName) {
+                alert('请填写客户名称！');
+                customerInput.focus();
+                return;
+            }
+            const savedCustomerName = customerInput.dataset.customerName || '';
+            if (customerName !== savedCustomerName) {
+                customerId = '';
+            }
+            const orderNumberInput = document.getElementById('orderNumberInput');
+            const orderNumber = orderNumberInput ? orderNumberInput.value.trim() : '';
+            if (!orderNumber) {
+                alert('请输入制单号！');
+                setTimeout(() => {
+                    orderNumberInput.focus();
+                    orderNumberInput.select();
+                }, 10);
+                return;
+            }
+            const items = [];
+            document.querySelectorAll('#bill-tbody tr').forEach(tr => {
+                const nameInput = tr.querySelector('.name-input');
+                const name = nameInput.value.trim();
+                const qty = parseInt(tr.querySelector('.quantity-input').value) || 0;
+                const unit = tr.querySelector('.unit-input').value.trim();
+                const price = parseFloat(tr.querySelector('.price-input').value) || 0;
+                const amt = parseFloat(tr.querySelector('.amount-cell').textContent.replace('¥','')) || 0;
+                const productId = nameInput.dataset.productId || '';
+                const spec = tr.querySelector('.spec-input').value.trim();
+                const specInput = tr.querySelector('.spec-input');
+                if (specInput) {
+                    updateMakeupFlag(specInput);
+                }
+                const isMakeup = specInput && specInput.dataset.isMakeup === '1';
+                const operationType = specInput ? (specInput.dataset.operationType || '') : '';
+                const isRemark = (name === '' && spec !== '');
+                if (isRemark || (name && qty && price >= 0)) {
+                    items.push({
+                        id: productId,
+                        name: name,
+                        spec: spec,
+                        qty: isRemark ? 0 : qty,
+                        unit: unit,
+                        price: isRemark ? 0 : price,
+                        amt: isRemark ? 0 : amt,
+                        is_makeup: isMakeup,
+                        operation_type: operationType,
+                    });
+                }
             });
+            if (!items.length) { alert('请填写商品'); return; }
+            const total = items.reduce((s, i) => s + parseFloat(i.amt), 0).toFixed(2);
+            try {
+                const requestData = {
+                    items,
+                    total_amount: total,
+                    customer_id: customerId,
+                    customer_name: customerName,
+                    order_number: orderNumber,
+                };
+                if (originalOrderNo) {
+                    requestData.original_order_no = originalOrderNo;
+                }
+                const r = await fetch(`/bill/save-order/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCsrfToken()
+                    },
+                    body: JSON.stringify(requestData)
+                });
+                const d = await r.json();
+                if (d.code === 1) {
+                    clearFormState();
+                    const onlyPrintDataCheckbox = document.getElementById('onlyPrintDataCheckbox');
+                    const onlyPrintData = onlyPrintDataCheckbox ? onlyPrintDataCheckbox.checked : false;
+                    const printUrl = onlyPrintData
+                        ? `/bill/print-key-data/?order_no=${d.order_no}`
+                        : `/bill/print/?order_no=${d.order_no}`;
+                    window.location.href = printUrl;
+                } else {
+                    alert(d.msg);
+                }
+            } catch (e) {
+                alert('保存失败：' + e.message);
+            }
         }
-    });
-
-    if (!items.length) { alert('请填写商品'); return; }
-    const total = items.reduce((s, i) => s + parseFloat(i.amt), 0).toFixed(2);
-
-    try {
-        const requestData = {
-            items,
-            total_amount: total,
-            customer_id: customerId,
-            customer_name: customerName,
-            order_number: orderNumber,
-        };
-        if (originalOrderNo) {
-            requestData.original_order_no = originalOrderNo;
-        }
-        const r = await fetch(`/bill/save-order/`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCsrfToken()
-            },
-            body: JSON.stringify(requestData)
-        });
-        const d = await r.json();
-        if (d.code === 1) {
-            clearFormState(); // 保存成功后清除缓存
-            // ========== 修改点：根据“只打印数据”复选框选择跳转地址 ==========
-            const onlyPrintDataCheckbox = document.getElementById('onlyPrintDataCheckbox');
-const onlyPrintData = onlyPrintDataCheckbox ? onlyPrintDataCheckbox.checked : false;
-const printUrl = onlyPrintData
-    ? `/bill/print-key-data/?order_no=${d.order_no}`   // 使用查询参数
-    : `/bill/print/?order_no=${d.order_no}`;           // 使用查询参数
-window.location.href = printUrl;
-            // ============================================================
-        } else {
-            alert(d.msg);
-        }
-    } catch (e) {
-        alert('保存失败：' + e.message);
-    }
-}
 
         function resetBill(){
             document.getElementById('bill-tbody').innerHTML='';
@@ -2027,7 +1775,89 @@ window.location.href = printUrl;
             originalOrderNo = null;
         }
 
-        // ========== 核心修改：最近购买功能逻辑 ==========
+        // ========== 单位搜索逻辑 ==========
+        async function onUnitInput(input) {
+            const keyword = input.value.trim();
+            currentUnitInput = input;
+            try {
+                const res = await fetch(`/product/search-unit/?keyword=${encodeURIComponent(keyword)}`);
+                const data = await res.json();
+                if (data.code === 1 && data.data.length > 0) {
+                    currentUnitList = data.data;
+                    showUnitSuggest(input, data.data);
+                } else {
+                    hideSuggest();
+                }
+            } catch (e) {
+                hideSuggest();
+            }
+        }
+
+        async function loadAllUnitsWithCache(input) {
+            currentUnitInput = input;
+            if (!allUnitsCache) {
+                try {
+                    const res = await fetch(`/product/search-unit/?keyword=`);
+                    const data = await res.json();
+                    if (data.code === 1 && data.data.length > 0) {
+                        allUnitsCache = data.data;
+                    } else {
+                        allUnitsCache = [];
+                    }
+                } catch (e) {
+                    allUnitsCache = [];
+                }
+            }
+            if (allUnitsCache.length > 0) {
+                currentUnitList = allUnitsCache;
+                showUnitSuggest(input, allUnitsCache);
+            } else {
+                hideSuggest();
+            }
+        }
+
+        function showUnitSuggest(input, list) {
+            const rect = input.getBoundingClientRect();
+            suggestBox.innerHTML = '';
+            list.slice(0, 8).forEach((item, idx) => {
+                const div = document.createElement('div');
+                div.textContent = `${idx+1} ${item.name}`;
+                div.dataset.index = idx;
+                div.onclick = () => selectUnitItem(idx);
+                suggestBox.appendChild(div);
+            });
+            suggestBox.style.visibility = 'hidden';
+            suggestBox.style.display = 'block';
+            const dropdownHeight = suggestBox.offsetHeight;
+            let top = rect.bottom + window.scrollY;
+            if (rect.bottom + dropdownHeight > window.innerHeight && rect.top - dropdownHeight > 0) {
+                top = rect.top + window.scrollY - dropdownHeight;
+            }
+            suggestBox.style.left = rect.left + 'px';
+            suggestBox.style.top = top + 'px';
+            suggestBox.style.visibility = 'visible';
+        }
+
+        function selectUnitItem(index) {
+            const item = currentUnitList[index];
+            if (!item || !currentUnitInput) return;
+            currentUnitInput.value = item.name;
+            hideSuggest();
+        }
+
+        function handleUnitInputKey(e) {
+            if (!currentUnitList.length) return;
+            if (e.key === ' ') { e.preventDefault(); selectUnitItem(0); }
+            const num = parseInt(e.key);
+            if (!isNaN(num) && num >= 1 && num <= currentUnitList.length) {
+                e.preventDefault(); selectUnitItem(num - 1);
+            }
+            if (e.key === 'Escape') hideSuggest();
+        }
+
+        // ============================================================
+        // ========== 核心修改：最近购买功能（按标签分组） ==========
+        // ============================================================
 
         async function openRecentBuyModal() {
             const customerId = document.getElementById('customerInput').dataset.customerId;
@@ -2039,16 +1869,29 @@ window.location.href = printUrl;
                 const data = await res.json();
                 if (data.code === 1) {
                     allRecentProducts = data.data;
-                    renderRecentProductsTable(allRecentProducts);
+                    // ===== 提取所有标签 =====
+                    extractAllTags();
+                    // ===== 渲染标签栏 =====
+                    renderTagsBar();
+                    // ===== 重置选中标签为“全部” =====
+                    selectedTag = 'all';
+                    searchKeyword = '';
+                    document.getElementById('recentSearchInput').value = '';
+                    // ===== 渲染表格 =====
+                    renderRecentProductsTable();
                 } else {
                     alert(data.msg);
                     allRecentProducts = [];
-                    renderRecentProductsTable([]);
+                    extractAllTags();
+                    renderTagsBar();
+                    renderRecentProductsTable();
                 }
             } catch (e) {
                 alert('加载最近购买商品失败：' + e.message);
                 allRecentProducts = [];
-                renderRecentProductsTable([]);
+                extractAllTags();
+                renderTagsBar();
+                renderRecentProductsTable();
             }
 
             document.getElementById('recentBuyModal').style.display = 'flex';
@@ -2057,57 +1900,170 @@ window.location.href = printUrl;
         }
 
         function closeRecentBuyModal() {
-    // 隐藏模态框
-    document.getElementById('recentBuyModal').style.display = 'none';
-    // 焦点回到开单页面的第一个商品名称输入框
-    const firstProductInput = document.querySelector('#bill-tbody .name-input');
-    if (firstProductInput) {
-        firstProductInput.focus();
-        firstProductInput.select();  // 可选，选中文本方便直接输入
-    }
-}
-
-        // 新增：处理模态框搜索框快捷键
-        function handleModalSearchKeydown(e) {
-            if(e.key === 'Enter') {
-                e.preventDefault();
-                const firstRow = document.querySelector('#recentProductsTbody tr:not([style*="display: none"])');
-                if(firstRow) {
-                    const pid = parseInt(firstRow.dataset.productId);
-                    addToCart(pid, {target: firstRow});
-                }
+            document.getElementById('recentBuyModal').style.display = 'none';
+            const firstProductInput = document.querySelector('#bill-tbody .name-input');
+            if (firstProductInput) {
+                firstProductInput.focus();
+                firstProductInput.select();
             }
         }
 
-        function renderRecentProductsTable(products) {
+        // ===== 新增：提取所有标签 =====
+        function extractAllTags() {
+            const tagSet = new Set();
+            allRecentProducts.forEach(product => {
+                if (product.tags && Array.isArray(product.tags)) {
+                    product.tags.forEach(tag => tagSet.add(tag));
+                }
+            });
+            allTags = Array.from(tagSet).sort(); // 按字母排序
+        }
+
+        // ===== 新增：渲染标签筛选栏 =====
+        function renderTagsBar() {
+            const bar = document.getElementById('recentTagsBar');
+            bar.innerHTML = '';
+            // 添加“全部”
+            const allBtn = document.createElement('span');
+            allBtn.className = 'tag-filter-btn' + (selectedTag === 'all' ? ' active' : '');
+            allBtn.textContent = '全部';
+            allBtn.dataset.tag = 'all';
+            allBtn.onclick = () => selectTag('all');
+            bar.appendChild(allBtn);
+
+            // 真实标签
+            allTags.forEach(tag => {
+                const btn = document.createElement('span');
+                btn.className = 'tag-filter-btn' + (selectedTag === tag ? ' active' : '');
+                btn.textContent = tag;
+                btn.dataset.tag = tag;
+                btn.onclick = () => selectTag(tag);
+                bar.appendChild(btn);
+            });
+
+            // 添加“无标签”（如果存在无标签商品）
+            const hasNoTag = allRecentProducts.some(p => !p.tags || p.tags.length === 0);
+            if (hasNoTag) {
+                const noTagBtn = document.createElement('span');
+                noTagBtn.className = 'tag-filter-btn' + (selectedTag === '无标签' ? ' active' : '');
+                noTagBtn.textContent = '无标签';
+                noTagBtn.dataset.tag = '无标签';
+                noTagBtn.onclick = () => selectTag('无标签');
+                bar.appendChild(noTagBtn);
+            }
+        }
+
+        // ===== 新增：选择标签 =====
+        function selectTag(tag) {
+            selectedTag = tag;
+            // 更新按钮状态
+            document.querySelectorAll('#recentTagsBar .tag-filter-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tag === tag);
+            });
+            // 重新渲染表格
+            renderRecentProductsTable();
+        }
+
+        // ===== 修改：搜索过滤（仅更新关键词并重新渲染） =====
+        function filterRecentProducts() {
+            const input = document.getElementById('recentSearchInput');
+            searchKeyword = input.value.trim().toLowerCase();
+            renderRecentProductsTable();
+        }
+
+        // ===== 修改：渲染商品列表（按标签分组） =====
+        function renderRecentProductsTable() {
             const tbody = document.getElementById('recentProductsTbody');
-            if (products.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" style="padding: 20px; color: #999;">暂无最近购买商品</td></tr>';
+            // 1. 根据搜索关键词过滤
+            let filtered = allRecentProducts;
+            if (searchKeyword) {
+                filtered = filtered.filter(p => p.name.toLowerCase().includes(searchKeyword));
+            }
+
+            // 2. 根据选中的标签过滤
+            if (selectedTag === 'all') {
+                // 全部：保留所有商品，后续分组显示
+            } else if (selectedTag === '无标签') {
+                filtered = filtered.filter(p => !p.tags || p.tags.length === 0);
+            } else {
+                filtered = filtered.filter(p => p.tags && p.tags.includes(selectedTag));
+            }
+
+            if (filtered.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="padding: 20px; color: #999;">没有匹配的商品</td></tr>';
                 return;
             }
+
+            // 3. 分组：按标签分组（仅当 selectedTag === 'all' 时）
+            let groups = [];
+            if (selectedTag === 'all') {
+                // 按真实标签分组
+                const tagMap = {};
+                const noTagItems = [];
+                filtered.forEach(p => {
+                    if (p.tags && p.tags.length > 0) {
+                        p.tags.forEach(tag => {
+                            if (!tagMap[tag]) tagMap[tag] = [];
+                            tagMap[tag].push(p);
+                        });
+                    } else {
+                        noTagItems.push(p);
+                    }
+                });
+                // 按照 allTags 顺序（已排序）构建分组
+                allTags.forEach(tag => {
+                    if (tagMap[tag] && tagMap[tag].length > 0) {
+                        groups.push({ tag: tag, products: tagMap[tag] });
+                    }
+                });
+                // 无标签组
+                if (noTagItems.length > 0) {
+                    groups.push({ tag: '无标签', products: noTagItems });
+                }
+            } else {
+                // 非“全部”模式：只显示一个分组（当前标签）
+                groups.push({ tag: selectedTag, products: filtered });
+            }
+
+            // 4. 生成 HTML
             let html = '';
-            products.forEach(product => {
-                const isAdded = addedProductIds.includes(product.id);
+            groups.forEach(group => {
+                // 分组标题行
                 html += `
-    <tr class="${isAdded ? 'added' : ''}" data-product-id="${product.id}">
-        <td style="text-align: left; font-weight: 500;">${product.name}</td>
-        <!-- 👇 新增规格显示 -->
-        <td style="font-size: 12px; color: #666;">${product.specification || '-'}</td>
-        <td style="color: #d63384; font-weight: bold;">¥${product.price.toFixed(2)}</td>
-        <td>${product.unit}</td>
-        <td style="color: #666; font-size: 12px;">${product.last_purchase_time}</td>
-        <td style="color: #666;">${product.last_quantity}</td>
-        <td>
-            <button class="btn-add-cart" onclick="addToCart(${product.id}, event)">
-                ${isAdded ? '再加' : '加购'}
-            </button>
-        </td>
-    </tr>
-`;
+                    <tr class="group-header">
+                        <td colspan="7">
+                            ${group.tag}
+                            <span class="group-badge">${group.products.length}</span>
+                        </td>
+                    </tr>
+                `;
+                // 商品行
+                group.products.forEach(product => {
+                    const isAdded = addedProductIds.includes(product.id);
+                    html += `
+                        <tr class="${isAdded ? 'added' : ''}" data-product-id="${product.id}">
+                            <td style="text-align: left; font-weight: 500;">${product.name}</td>
+                            <td style="font-size: 12px; color: #666;">${product.specification || '-'}</td>
+                            <td style="color: #d63384; font-weight: bold;">¥${product.price.toFixed(2)}</td>
+                            <td>${product.unit}</td>
+                            <td style="color: #666; font-size: 12px;">${product.last_purchase_time}</td>
+                            <td style="color: #666;">${product.last_quantity}</td>
+                            <td>
+                                <button class="btn-add-cart" onclick="addToCart(${product.id}, event)">
+                                    ${isAdded ? '再加' : '加购'}
+                                </button>
+                            </td>
+                        </tr>
+                    `;
+                });
             });
+
             tbody.innerHTML = html;
 
+            // 绑定行点击事件（加购）
             document.querySelectorAll('#recentProductsTbody tr').forEach(tr => {
+                // 跳过分组标题行（没有 data-product-id）
+                if (!tr.dataset.productId) return;
                 tr.addEventListener('click', function(e) {
                     if (e.target.classList.contains('btn-add-cart')) return;
                     const productId = parseInt(this.dataset.productId);
@@ -2116,18 +2072,7 @@ window.location.href = printUrl;
             });
         }
 
-        function filterRecentProducts() {
-            const keyword = document.getElementById('recentSearchInput').value.trim().toLowerCase();
-            if (!keyword) {
-                renderRecentProductsTable(allRecentProducts);
-                return;
-            }
-            const filtered = allRecentProducts.filter(product =>
-                product.name.toLowerCase().includes(keyword)
-            );
-            renderRecentProductsTable(filtered);
-        }
-
+        // ===== 修改：addToCart 保持原有逻辑，但增加高亮 =====
         function addToCart(productId, e) {
             const product = allRecentProducts.find(p => p.id === productId);
             if (!product) return;
@@ -2160,17 +2105,18 @@ window.location.href = printUrl;
                 addedProductIds.push(productId);
             }
 
-            renderRecentProductsTable(allRecentProducts);
-            renderCartTable(true); // 传入参数，表示需要滚动到底部
+            // 刷新左侧列表（保留当前标签和搜索状态）
+            renderRecentProductsTable();
+            renderCartTable(true);
         }
 
-        // 修改：增加 autoScroll 参数
+        // ===== 购物车渲染（保持不变，但增加了自动滚动） =====
         function renderCartTable(autoScroll = false) {
             const tbody = document.getElementById('cartTbody');
             const batchBtn = document.getElementById('btnBatchAdd');
 
             if (cartItems.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" style="padding: 20px; color: #999;">👈 请在左侧点击商品加购</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="padding: 20px; color: #999;">👈 请在左侧点击商品加购</td></tr>';
                 batchBtn.disabled = true;
                 document.getElementById('cartTotalAmount').textContent = '¥0.00';
                 return;
@@ -2182,40 +2128,36 @@ window.location.href = printUrl;
             cartItems.forEach((item, index) => {
                 total += parseFloat(item.amount);
                 html += `
-    <tr data-item-id="${item.id}">
-        <td>${index + 1}</td>
-        <td style="text-align: left; font-size: 13px;">${item.name}</td>
-        <!-- 👇 新增规格显示 -->
-        <td style="font-size: 12px; color: #666;">${item.spec || '-'}</td>
-        <td>
-            <input
-                type="number"
-                class="cart-quantity-input"
-                value="${item.quantity}"
-                min="1"
-                onfocus="this.select()"
-                oninput="updateCartItemQuantity(${item.id}, this)"
-            >
-        </td>
-        <td>${item.unit}</td>
-        <td style="font-weight: bold; color: #495057;">¥${item.amount}</td>
-        <td>
-            <button class="cart-del-btn" onclick="deleteCartItem(${item.id})">×</button>
-        </td>
-    </tr>
-`;
+                    <tr data-item-id="${item.id}">
+                        <td>${index + 1}</td>
+                        <td style="text-align: left; font-size: 13px;">${item.name}</td>
+                        <td style="font-size: 12px; color: #666;">${item.spec || '-'}</td>
+                        <td>
+                            <input
+                                type="number"
+                                class="cart-quantity-input"
+                                value="${item.quantity}"
+                                min="1"
+                                onfocus="this.select()"
+                                oninput="updateCartItemQuantity(${item.id}, this)"
+                            >
+                        </td>
+                        <td>${item.unit}</td>
+                        <td style="font-weight: bold; color: #495057;">¥${item.amount}</td>
+                        <td>
+                            <button class="cart-del-btn" onclick="deleteCartItem(${item.id})">×</button>
+                        </td>
+                    </tr>
+                `;
             });
 
             tbody.innerHTML = html;
             document.getElementById('cartTotalAmount').textContent = `¥${total.toFixed(2)}`;
 
-            // 关键交互：如果是加购操作，自动滚动右侧到底部
             if (autoScroll) {
                 const rightWrapper = document.getElementById('rightScrollWrapper');
-                // 稍微延迟一下，确保DOM渲染完成
                 setTimeout(() => {
                     rightWrapper.scrollTop = rightWrapper.scrollHeight;
-                    // 可选：自动聚焦到最后一个输入框
                     const lastInput = tbody.querySelector('tr:last-child .cart-quantity-input');
                     if(lastInput) lastInput.focus();
                 }, 50);
@@ -2238,7 +2180,6 @@ window.location.href = printUrl;
         function deleteCartItem(cartId) {
             const item = cartItems.find(i => i.id === cartId);
             if (item) {
-                // 检查购物车中是否还有这个商品，如果没有才移除高亮
                 const stillExist = cartItems.filter(i => i.productId === item.productId).length > 1;
                 if (!stillExist) {
                     const idx = addedProductIds.indexOf(item.productId);
@@ -2247,341 +2188,298 @@ window.location.href = printUrl;
             }
             cartItems = cartItems.filter(item => item.id !== cartId);
             renderCartTable();
-            renderRecentProductsTable(allRecentProducts);
+            renderRecentProductsTable();
         }
 
         function batchAddToBill() {
-    // 获取当前实际行数
-    const currentActual = getActualRowCount();
-
-    // 计算本次将要新增的独立商品数量（去重，且排除已在表格中存在的商品）
-    const newProductIds = cartItems.map(item => item.productId);
-    const uniqueNewIds = [...new Set(newProductIds)];
-    const existingProductIds = new Set();
-    document.querySelectorAll('#bill-tbody .name-input').forEach(input => {
-        if (input.dataset.productId) {
-            existingProductIds.add(parseInt(input.dataset.productId));
-        }
-    });
-    const newRowsToAdd = uniqueNewIds.filter(id => !existingProductIds.has(id)).length;
-    
-    // 在 batchAddToBill 函数最后（清空模态框并关闭后）添加：
-// 获取最后一行商品名称输入框
-const lastRow = document.querySelector('#bill-tbody tr:last-child .name-input');
-if (lastRow) {
-    // 延迟执行，确保 DOM 已更新
-    setTimeout(() => scrollInputToView(lastRow), 100);
-}
-
-    // 若添加后总行数超过16，则提示并终止
-    if (currentActual + newRowsToAdd > 16) {
-        alert(`当前已有 ${currentActual} 行商品，本次加购会新增 ${newRowsToAdd} 行，超过16行限制，请减少加购商品。`);
-        return;
-    }
-
-    // 原有加购逻辑（此处按原代码保持不变）
-    cartItems.forEach(item => {
-        let existingRow = null;
-        document.querySelectorAll('#bill-tbody tr').forEach(tr => {
-            const nameInput = tr.querySelector('.name-input');
-            if (nameInput.dataset.productId == item.productId) {
-                existingRow = tr;
-            }
-        });
-
-        if (existingRow) {
-            const quantityInput = existingRow.querySelector('.quantity-input');
-            const currentQty = parseInt(quantityInput.value) || 0;
-            quantityInput.value = currentQty + item.quantity;
-            calcRowAmount(quantityInput);
-            existingRow.classList.add('highlight-row');
-            setTimeout(() => existingRow.classList.remove('highlight-row'), 1000);
-        } else {
-            // 添加新行（此时已通过预检测，不会超过限制）
-            const newRow = addBlankRow(true, true); // 忽略检测（已预检）
-            if (!newRow) return; // 防御
-            const nameInput = newRow.querySelector('.name-input');
-            nameInput.value = item.name;
-            nameInput.dataset.productId = item.productId;
-            const specInput = newRow.querySelector('.spec-input');
-            specInput.value = item.spec || '';
-            updateMakeupFlag(specInput);
-            newRow.querySelector('.quantity-input').value = item.quantity;
-            newRow.querySelector('.unit-input').value = item.unit;
-            const priceInput = newRow.querySelector('.price-input');
-            if (specInput.dataset.isMakeup !== '1') {
-                priceInput.value = item.price;
-            } else {
-                priceInput.value = 0;
-            }
-            calcRowAmount(priceInput);
-            newRow.classList.add('highlight-row');
-            setTimeout(() => newRow.classList.remove('highlight-row'), 1000);
-        }
-    });
-
-    // 清空模态框数据
-    cartItems = [];
-    cartIdCounter = 0;
-    addedProductIds = [];
-    document.getElementById('recentBuyModal').style.display = 'none';
-
-    const firstProductInput = document.querySelector('#bill-tbody .name-input');
-    if (firstProductInput) {
-        firstProductInput.focus();
-        firstProductInput.select();
-    }
-}
-
-        // ========== 页面加载初始化 ==========
-        window.onload = function() {
-    restoreAutoSortSetting();
-    initCustomerInput();
-    initOrderNumberInput();
-    restoreOnlyPrintDataSetting();
-    focusOnFirstEmptyField();
-    
-        
-
-    // 事件委托：规格输入（实时 + 回车）
-    document.getElementById('bill-tbody').addEventListener('input', function(e) {
-        if (e.target.classList.contains('spec-input')) {
-            updateMakeupFlag(e.target);
-        }
-    });
-    document.getElementById('bill-tbody').addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' && e.target.classList.contains('spec-input')) {
-            updateMakeupFlag(e.target);
-            e.preventDefault();
-            handleEnterKey(e.target);
-        }
-    });
-
-    // 监听所有输入变化以保存状态（防抖）
-    document.addEventListener('input', function(e) {
-        const target = e.target;
-        if (target.closest('#bill-tbody') || target.id === 'customerInput' || target.id === 'orderNumberInput') {
-            debouncedSaveFormState();
-        }
-    });
-
-    {% if reopen_order_data %}
-        // 重开/加单：清除缓存，使用传入数据填充
-    clearFormState();
-    const customerInput = document.getElementById('customerInput');
-    customerInput.value = "{{ reopen_order_data.customer_name }}";
-    customerInput.dataset.customerId = "{{ reopen_order_data.customer_id }}";
-    customerInput.dataset.customerName = "{{ reopen_order_data.customer_name }}";
-    customerInput.dispatchEvent(new Event('change'));
-
-    // ✅ 填充制单号
-    const orderNumberInput = document.getElementById('orderNumberInput');
-    if (orderNumberInput) {
-        orderNumberInput.value = "{{ reopen_order_data.order_number|default:'' }}";
-    }
-
-        document.getElementById('bill-tbody').innerHTML = '';
-        rowIdCounter = 0;
-        const reopenItems = {{ reopen_order_data.items|safe }};
-        reopenItems.forEach(item => {
-            const tr = addBlankRow(true, true);
-            if (!tr) return;
-            const nameInput = tr.querySelector('.name-input');
-            nameInput.value = item.name;
-            nameInput.dataset.productId = item.id;
-            const specInput = tr.querySelector('.spec-input');
-            specInput.value = item.spec || '';
-            updateMakeupFlag(specInput);
-            tr.querySelector('.quantity-input').value = item.qty;
-            tr.querySelector('.unit-input').value = item.unit;
-            const priceInput = tr.querySelector('.price-input');
-            if (specInput.dataset.isMakeup !== '1') {
-                priceInput.value = item.price;
-            } else {
-                priceInput.value = 0;
-            }
-            calcRowAmount(priceInput);
-        });
-        
-        // ✅ 加单模式：额外添加 3 个空白行
-    if ({{ reopen_order_data.is_add|yesno:"true,false" }}) {
-        for (let i = 0; i < 3; i++) {
-            addBlankRow();
-        }
-    }
-    
-    {% if reopen_order_data %}
-    // ... 填充客户、制单号、商品行的代码保持不变 ...
-    // ========== 重开时额外添加3行空白行 ==========
-    for (let i = 0; i < 3; i++) {
-        addBlankRow();
-    }
-{% endif %}
-        // 若超过16行截断
-        const actualCount = getActualRowCount();
-        if (actualCount > 15) {
-            alert('该订单包含超过15行商品，仅保留前15行。');
-            const rows = document.querySelectorAll('#bill-tbody tr');
-            let count = 0;
-            rows.forEach(tr => {
-                const nameInput = tr.querySelector('.name-input');
-                if (nameInput && nameInput.value.trim() !== '') {
-                    count++;
-                    if (count > 16) tr.remove();
+            const currentActual = getActualRowCount();
+            const newProductIds = cartItems.map(item => item.productId);
+            const uniqueNewIds = [...new Set(newProductIds)];
+            const existingProductIds = new Set();
+            document.querySelectorAll('#bill-tbody .name-input').forEach(input => {
+                if (input.dataset.productId) {
+                    existingProductIds.add(parseInt(input.dataset.productId));
                 }
             });
+            const newRowsToAdd = uniqueNewIds.filter(id => !existingProductIds.has(id)).length;
+            
+            if (currentActual + newRowsToAdd > 16) {
+                alert(`当前已有 ${currentActual} 行商品，本次加购会新增 ${newRowsToAdd} 行，超过16行限制，请减少加购商品。`);
+                return;
+            }
+
+            cartItems.forEach(item => {
+                let existingRow = null;
+                document.querySelectorAll('#bill-tbody tr').forEach(tr => {
+                    const nameInput = tr.querySelector('.name-input');
+                    if (nameInput.dataset.productId == item.productId) {
+                        existingRow = tr;
+                    }
+                });
+
+                if (existingRow) {
+                    const quantityInput = existingRow.querySelector('.quantity-input');
+                    const currentQty = parseInt(quantityInput.value) || 0;
+                    quantityInput.value = currentQty + item.quantity;
+                    calcRowAmount(quantityInput);
+                    existingRow.classList.add('highlight-row');
+                    setTimeout(() => existingRow.classList.remove('highlight-row'), 1000);
+                } else {
+                    const newRow = addBlankRow(true, true);
+                    if (!newRow) return;
+                    const nameInput = newRow.querySelector('.name-input');
+                    nameInput.value = item.name;
+                    nameInput.dataset.productId = item.productId;
+                    const specInput = newRow.querySelector('.spec-input');
+                    specInput.value = item.spec || '';
+                    updateMakeupFlag(specInput);
+                    newRow.querySelector('.quantity-input').value = item.quantity;
+                    newRow.querySelector('.unit-input').value = item.unit;
+                    const priceInput = newRow.querySelector('.price-input');
+                    if (specInput.dataset.isMakeup !== '1') {
+                        priceInput.value = item.price;
+                    } else {
+                        priceInput.value = 0;
+                    }
+                    calcRowAmount(priceInput);
+                    newRow.classList.add('highlight-row');
+                    setTimeout(() => newRow.classList.remove('highlight-row'), 1000);
+                }
+            });
+
+            cartItems = [];
+            cartIdCounter = 0;
+            addedProductIds = [];
+            document.getElementById('recentBuyModal').style.display = 'none';
+
+            const firstProductInput = document.querySelector('#bill-tbody .name-input');
+            if (firstProductInput) {
+                firstProductInput.focus();
+                firstProductInput.select();
+            }
+        }
+
+        // ===== 模态框搜索框快捷键 =====
+        function handleModalSearchKeydown(e) {
+            if(e.key === 'Enter') {
+                e.preventDefault();
+                const firstRow = document.querySelector('#recentProductsTbody tr:not(.group-header)');
+                if(firstRow) {
+                    const pid = parseInt(firstRow.dataset.productId);
+                    addToCart(pid, {target: firstRow});
+                }
+            }
+        }
+
+        // ========== 排序相关 ==========
+        function getStageOrderValue(tr, stageRules) {
+            const nameInput = tr.querySelector('.name-input');
+            const productId = nameInput?.dataset?.productId;
+            const specInput = tr.querySelector('.spec-input');
+            const hasSpec = specInput && specInput.value.trim() !== '';
+
+            let tagIds = [];
+            if (productId && window.productTagsMap && window.productTagsMap[productId]) {
+                tagIds = window.productTagsMap[productId];
+            }
+
+            for (let rule of stageRules) {
+                if (rule.type === 'tag') {
+                    if (tagIds.includes(rule.tag_id)) {
+                        return rule.priority;
+                    }
+                } else if (rule.type === 'spec') {
+                    if (rule.spec_condition === 'has_spec' && hasSpec) {
+                        return rule.priority;
+                    }
+                    if (rule.spec_condition === 'no_spec' && !hasSpec) {
+                        return rule.priority;
+                    }
+                }
+            }
+            return 9999;
+        }
+
+        function sortBillTable() {
+            if (!isSortDataReady) {
+                alert('排序数据正在加载，请稍后再试。');
+                return;
+            }
+            if (!sortStagesCache || sortStagesCache.length === 0) {
+                alert('暂无排序规则，请先设置排序规则。');
+                return;
+            }
+
+            const tbody = document.getElementById('bill-tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+
+            const rowsWithKeys = rows.map(row => {
+                const sortKey = [];
+                for (let stage of sortStagesCache) {
+                    sortKey.push(getStageOrderValue(row, stage.rules || []));
+                }
+                return { row, sortKey };
+            });
+
+            rowsWithKeys.sort((a, b) => {
+                for (let i = 0; i < Math.max(a.sortKey.length, b.sortKey.length); i++) {
+                    let va = a.sortKey[i] !== undefined ? a.sortKey[i] : 9999;
+                    let vb = b.sortKey[i] !== undefined ? b.sortKey[i] : 9999;
+                    if (va !== vb) return va - vb;
+                }
+                return 0;
+            });
+
+            tbody.innerHTML = '';
+            rowsWithKeys.forEach(({ row }) => tbody.appendChild(row));
             updateRowNumbers();
             calcTotalAmount();
         }
-        if (reopenItems.length === 0) addBlankRow();
-        const firstProductInput = document.querySelector('#bill-tbody .name-input');
-        if (firstProductInput) { firstProductInput.focus(); firstProductInput.select(); }
 
-    {% else %}
-        // 正常加载：尝试恢复缓存，若失败则初始化3行空行
-        const restored = restoreFormState();
-        if (!restored) {
-            for (let i = 0; i < 5; i++) {
-                addBlankRow();
+        function goToSortRules() {
+            if (confirm('确定要进入排序规则设置吗？当前开单内容可能不会保留。')) {
+                window.location.href = '/bill/sort-rules/';
             }
+        }
+
+        function saveAutoSortSetting() {
+            const checkbox = document.getElementById('autoSortCheckbox');
+            localStorage.setItem('bill_auto_sort_enabled', checkbox.checked ? 'true' : 'false');
+        }
+
+        function restoreAutoSortSetting() {
+            const checkbox = document.getElementById('autoSortCheckbox');
+            if (checkbox) {
+                const saved = localStorage.getItem('bill_auto_sort_enabled');
+                checkbox.checked = (saved === 'true');
+            }
+        }
+
+        function focusOnFirstEmptyField() {
             const customerInput = document.getElementById('customerInput');
-            if (customerInput) customerInput.focus();
-        }
-    {% endif %}
-};
-
-
-
-
-
-// 获取某行商品在单个阶段内的排序值
-function getStageOrderValue(tr, stageRules) {
-    const nameInput = tr.querySelector('.name-input');
-    const productId = nameInput?.dataset?.productId;
-    const specInput = tr.querySelector('.spec-input');
-    const hasSpec = specInput && specInput.value.trim() !== '';
-
-    let tagIds = [];
-    if (productId && window.productTagsMap && window.productTagsMap[productId]) {
-        tagIds = window.productTagsMap[productId];
-    }
-
-    // 遍历当前阶段的规则（已按priority升序），返回第一个匹配的priority
-    for (let rule of stageRules) {
-        if (rule.type === 'tag') {
-            if (tagIds.includes(rule.tag_id)) {
-                return rule.priority;
+            if (customerInput && !customerInput.value.trim()) {
+                customerInput.focus();
+                return;
             }
-        } else if (rule.type === 'spec') {
-            if (rule.spec_condition === 'has_spec' && hasSpec) {
-                return rule.priority;
+            const orderInput = document.getElementById('orderNumberInput');
+            if (orderInput && !orderInput.value.trim()) {
+                orderInput.focus();
+                return;
             }
-            if (rule.spec_condition === 'no_spec' && !hasSpec) {
-                return rule.priority;
+            const rows = document.querySelectorAll('#bill-tbody tr');
+            for (let tr of rows) {
+                const nameInput = tr.querySelector('.name-input');
+                if (nameInput && !nameInput.value.trim()) {
+                    nameInput.focus();
+                    return;
+                }
+            }
+            if (rows.length > 0) {
+                const lastRow = rows[rows.length - 1];
+                const lastNameInput = lastRow.querySelector('.name-input');
+                if (lastNameInput) {
+                    lastNameInput.focus();
+                    lastNameInput.select();
+                }
             }
         }
-    }
-    // 未匹配：返回一个很大的值，保证排最后
-    return 9999;
-}
 
-// 执行多阶段排序
-// 修改后的排序函数（增加就绪检查）
-function sortBillTable() {
-    if (!isSortDataReady) {
-        alert('排序数据正在加载，请稍后再试。');
-        return;
-    }
-    if (!sortStagesCache || sortStagesCache.length === 0) {
-        alert('暂无排序规则，请先设置排序规则。');
-        return;
-    }
+        // ========== 页面加载初始化 ==========
+        window.onload = function() {
+            restoreAutoSortSetting();
+            initCustomerInput();
+            initOrderNumberInput();
+            restoreOnlyPrintDataSetting();
+            focusOnFirstEmptyField();
 
-    const tbody = document.getElementById('bill-tbody');
-    const rows = Array.from(tbody.querySelectorAll('tr'));
+            document.getElementById('bill-tbody').addEventListener('input', function(e) {
+                if (e.target.classList.contains('spec-input')) {
+                    updateMakeupFlag(e.target);
+                }
+            });
+            document.getElementById('bill-tbody').addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && e.target.classList.contains('spec-input')) {
+                    updateMakeupFlag(e.target);
+                    e.preventDefault();
+                    handleEnterKey(e.target);
+                }
+            });
 
-    const rowsWithKeys = rows.map(row => {
-        const sortKey = [];
-        for (let stage of sortStagesCache) {
-            sortKey.push(getStageOrderValue(row, stage.rules || []));
-        }
-        return { row, sortKey };
-    });
+            document.addEventListener('input', function(e) {
+                const target = e.target;
+                if (target.closest('#bill-tbody') || target.id === 'customerInput' || target.id === 'orderNumberInput') {
+                    debouncedSaveFormState();
+                }
+            });
 
-    rowsWithKeys.sort((a, b) => {
-        for (let i = 0; i < Math.max(a.sortKey.length, b.sortKey.length); i++) {
-            let va = a.sortKey[i] !== undefined ? a.sortKey[i] : 9999;
-            let vb = b.sortKey[i] !== undefined ? b.sortKey[i] : 9999;
-            if (va !== vb) return va - vb;
-        }
-        return 0;
-    });
+            {% if reopen_order_data %}
+                clearFormState();
+                const customerInput = document.getElementById('customerInput');
+                customerInput.value = "{{ reopen_order_data.customer_name }}";
+                customerInput.dataset.customerId = "{{ reopen_order_data.customer_id }}";
+                customerInput.dataset.customerName = "{{ reopen_order_data.customer_name }}";
+                customerInput.dispatchEvent(new Event('change'));
 
-    tbody.innerHTML = '';
-    rowsWithKeys.forEach(({ row }) => tbody.appendChild(row));
-    updateRowNumbers();
-    calcTotalAmount();
-}
+                const orderNumberInput = document.getElementById('orderNumberInput');
+                if (orderNumberInput) {
+                    orderNumberInput.value = "{{ reopen_order_data.order_number|default:'' }}";
+                }
 
-function goToSortRules() {
-    if (confirm('确定要进入排序规则设置吗？当前开单内容可能不会保留。')) {
-        window.location.href = '/bill/sort-rules/';
-    }
-}
-
-// 保存复选框状态到 localStorage
-function saveAutoSortSetting() {
-    const checkbox = document.getElementById('autoSortCheckbox');
-    localStorage.setItem('bill_auto_sort_enabled', checkbox.checked ? 'true' : 'false');
-}
-
-// 页面加载时恢复上次的勾选状态
-function restoreAutoSortSetting() {
-    const checkbox = document.getElementById('autoSortCheckbox');
-    if (checkbox) {
-        const saved = localStorage.getItem('bill_auto_sort_enabled');
-        checkbox.checked = (saved === 'true');
-    }
-}
-
-/**
- * 自动聚焦到页面中第一个未填写的字段
- * 顺序：客户名称 -> 制单号 -> 表格中商品名称（按行，找到第一个空）
- */
-function focusOnFirstEmptyField() {
-    // 1. 客户名称
-    const customerInput = document.getElementById('customerInput');
-    if (customerInput && !customerInput.value.trim()) {
-        customerInput.focus();
-        return;
-    }
-
-    // 2. 制单号
-    const orderInput = document.getElementById('orderNumberInput');
-    if (orderInput && !orderInput.value.trim()) {
-        orderInput.focus();
-        return;
-    }
-
-    // 3. 表格中的商品名称（按顺序找第一个空行）
-    const rows = document.querySelectorAll('#bill-tbody tr');
-    for (let tr of rows) {
-        const nameInput = tr.querySelector('.name-input');
-        if (nameInput && !nameInput.value.trim()) {
-            nameInput.focus();
-            return;
-        }
-    }
-
-    // 4. 所有商品名称都有值：聚焦到最后一行商品名称（方便继续新增）
-    if (rows.length > 0) {
-        const lastRow = rows[rows.length - 1];
-        const lastNameInput = lastRow.querySelector('.name-input');
-        if (lastNameInput) {
-            lastNameInput.focus();
-            lastNameInput.select(); // 可选，全选方便替换
-        }
-    }
-}
+                document.getElementById('bill-tbody').innerHTML = '';
+                rowIdCounter = 0;
+                const reopenItems = {{ reopen_order_data.items|safe }};
+                reopenItems.forEach(item => {
+                    const tr = addBlankRow(true, true);
+                    if (!tr) return;
+                    const nameInput = tr.querySelector('.name-input');
+                    nameInput.value = item.name;
+                    nameInput.dataset.productId = item.id;
+                    const specInput = tr.querySelector('.spec-input');
+                    specInput.value = item.spec || '';
+                    updateMakeupFlag(specInput);
+                    tr.querySelector('.quantity-input').value = item.qty;
+                    tr.querySelector('.unit-input').value = item.unit;
+                    const priceInput = tr.querySelector('.price-input');
+                    if (specInput.dataset.isMakeup !== '1') {
+                        priceInput.value = item.price;
+                    } else {
+                        priceInput.value = 0;
+                    }
+                    calcRowAmount(priceInput);
+                });
+                if ({{ reopen_order_data.is_add|yesno:"true,false" }}) {
+                    for (let i = 0; i < 3; i++) {
+                        addBlankRow();
+                    }
+                }
+                const actualCount = getActualRowCount();
+                if (actualCount > 15) {
+                    alert('该订单包含超过15行商品，仅保留前15行。');
+                    const rows = document.querySelectorAll('#bill-tbody tr');
+                    let count = 0;
+                    rows.forEach(tr => {
+                        const nameInput = tr.querySelector('.name-input');
+                        if (nameInput && nameInput.value.trim() !== '') {
+                            count++;
+                            if (count > 16) tr.remove();
+                        }
+                    });
+                    updateRowNumbers();
+                    calcTotalAmount();
+                }
+                if (reopenItems.length === 0) addBlankRow();
+                const firstProductInput = document.querySelector('#bill-tbody .name-input');
+                if (firstProductInput) { firstProductInput.focus(); firstProductInput.select(); }
+            {% else %}
+                const restored = restoreFormState();
+                if (!restored) {
+                    for (let i = 0; i < 5; i++) {
+                        addBlankRow();
+                    }
+                    const customerInput = document.getElementById('customerInput');
+                    if (customerInput) customerInput.focus();
+                }
+            {% endif %}
+        };
     </script>
 {% endblock %}
