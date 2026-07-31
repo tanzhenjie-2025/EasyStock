@@ -3069,19 +3069,11 @@ def _audit_assign_items(assignments):
 
 def _audit_batch_assign_items(groups_data):
     """
-    批量分组归属商品，支持修改快照字段
-    groups_data: [
-        {
-            "group_key": {"name": "原名称", "unit": "原单位"},
-            "custom_name": "新名称（可选）",
-            "custom_unit": "新单位（可选）",
-            "custom_spec": "新规格（可选）",
-            "target_product_id": 123,  # 可选，0表示不归属
-            "item_ids": [1,2,3]
-        }
-    ]
+    批量分组归属商品，支持修改快照字段，并全覆盖商品信息（名称、单位、规格、单价快照）
+    当选择了商品时，强制使用商品的信息，忽略用户自定义的输入。
     """
     import logging
+    from django.conf import settings
     logger = logging.getLogger(__name__)
 
     if not groups_data:
@@ -3090,6 +3082,7 @@ def _audit_batch_assign_items(groups_data):
     total_updated = 0
     total_skipped = 0
     errors = []
+    affected_order_nos = set()
 
     with transaction.atomic():
         for group in groups_data:
@@ -3102,7 +3095,7 @@ def _audit_batch_assign_items(groups_data):
             custom_unit = group.get('custom_unit', '').strip()
             custom_spec = group.get('custom_spec', '').strip()
 
-            # 获取该组所有订单项（必须未归属、未审核、非补货）
+            # 获取有效订单项
             items = OrderItem.objects.filter(
                 id__in=item_ids,
                 product__isnull=True,
@@ -3114,7 +3107,7 @@ def _audit_batch_assign_items(groups_data):
                 total_skipped += len(item_ids)
                 continue
 
-            # 获取目标商品（如果指定）
+            # 获取目标商品
             target_product = None
             if target_product_id:
                 try:
@@ -3124,35 +3117,50 @@ def _audit_batch_assign_items(groups_data):
                     total_skipped += len(item_ids)
                     continue
 
-            # 确定最终用于更新的名称、单位、规格
-            # 优先使用用户自定义值，否则使用原订单项的值或商品值
-            first_item = items[0]
-            default_name = first_item.product_name
-            default_unit = first_item.unit
-            default_spec = first_item.specification or ''
+            # ========== 核心逻辑修改 ==========
+            # 当选择了商品，强制使用商品信息，忽略用户自定义
             if target_product:
-                # 如果选择了商品，且用户未自定义，则使用商品属性
-                final_name = custom_name if custom_name else target_product.name
-                final_unit = custom_unit if custom_unit else target_product.unit
-                final_spec = custom_spec if custom_spec else target_product.specification or ''
+                final_name = target_product.name
+                final_unit = target_product.unit
+                final_spec = target_product.specification or ''
+                final_price = target_product.price
             else:
-                # 未选择商品，只更新快照（允许用户自定义）
-                final_name = custom_name if custom_name else default_name
-                final_unit = custom_unit if custom_unit else default_unit
-                final_spec = custom_spec if custom_spec else default_spec
+                # 未选商品，使用自定义（若无自定义则保留原快照）
+                first_item = items[0]
+                final_name = custom_name if custom_name else first_item.product_name
+                final_unit = custom_unit if custom_unit else first_item.unit
+                final_spec = custom_spec if custom_spec else first_item.specification or ''
+                final_price = first_item.actual_unit_price or Decimal('0')
 
             # 批量更新所有订单项
             for item in items:
                 if target_product:
                     item.product = target_product
-                    # 如果用户自定义了名称/单位/规格，则用自定义值覆盖快照
-                # 更新快照字段
+                else:
+                    # 如果未选商品，不关联外键，只更新快照
+                    item.product = None
+                # 全覆盖快照字段
                 item.product_name = final_name
                 item.unit = final_unit
                 item.specification = final_spec
-                # 如果未选择商品，但用户修改了名称/单位/规格，仍然更新快照（保持product为null）
-                item.save(update_fields=['product', 'product_name', 'unit', 'specification'])
+                item.actual_unit_price = final_price
+                item.snapshot_standard_price = final_price
+                item.save(update_fields=[
+                    'product', 'product_name', 'unit', 'specification',
+                    'actual_unit_price', 'snapshot_standard_price'
+                ])
                 total_updated += 1
+                if item.order and item.order.order_no:
+                    affected_order_nos.add(item.order.order_no)
+
+    # 清除涉及的订单详情缓存
+    if affected_order_nos:
+        from django.core.cache import cache
+        CACHE_PREFIX = getattr(settings, 'CACHE_PREFIX_ORDER_DETAIL', 'order_detail_')
+        for order_no in affected_order_nos:
+            cache_key = f"{CACHE_PREFIX}{order_no}"
+            cache.delete(cache_key)
+            logger.info(f"已清除订单详情缓存: {order_no}")
 
     msg = f'成功更新 {total_updated} 个订单项'
     if errors:
