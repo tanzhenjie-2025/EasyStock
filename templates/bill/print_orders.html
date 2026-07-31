@@ -48,13 +48,20 @@
             border-collapse: collapse;
             table-layout: fixed;
         }
+        /* 修改：删除 word-break: break-all; 并为 td 单独增加不换行+截断 */
         .bill-table th, .bill-table td {
             border: 1px solid #000;
             padding: 4px 0;
             text-align: center;
             font-size: 14px;
             height: 30px;
-            word-break: break-all;
+            /* word-break: break-all; 已移除 */
+        }
+        /* 新增：商品数据行强制不换行，溢出截断 */
+        .bill-table td {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: clip;
         }
         .bill-table .col-index { width: 5%; }
         .bill-table .col-spec  { width: 18%; }
