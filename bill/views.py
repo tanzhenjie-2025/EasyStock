@@ -3063,60 +3063,61 @@ def _audit_batch_assign_items(groups_data):
 
 from django.db.models import Q  # 确保顶部已导入
 
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+
 @never_cache
 @login_required
 @permission_required(PERM_ORDER_AUDIT)
 def audit_orders_preview(request):
-    """
-    审核预览：将未审核订单分为四类，并检测新区域/客户/商品/价格冲突。
-    增加：已审核但无区域、无客户或存在未归属商品的订单（用于重新审核）
-    增加：未关联客户的未审核订单（用于订单归属）
-    """
     if request.method not in ('GET', 'POST'):
         return JsonResponse({'code': 0, 'msg': '仅支持GET/POST'})
 
-    # ---------- 1. 未审核订单 ----------
-    unverified_orders = Order.objects.filter(is_verified=False).exclude(status='cancelled') \
+    # ---------- 分页参数 ----------
+    page = request.GET.get('page', 1)
+    page_size = request.GET.get('page_size', 20)
+    try:
+        page = int(page)
+        page_size = int(page_size)
+        if page_size > 100:
+            page_size = 100
+    except ValueError:
+        page = 1
+        page_size = 20
+
+    # ---------- 1. 未审核订单（分页） ----------
+    base_qs = Order.objects.filter(is_verified=False).exclude(status='cancelled') \
         .select_related('area') \
         .prefetch_related('items') \
-        .order_by('-create_time')
+        .order_by('-create_time')   # 稳定排序
 
-    # ---------- 2. 已审核但无区域、无客户或存在未归属商品的订单（重新审核候选） ----------
-    from django.db.models import Exists, OuterRef
+    paginator = Paginator(base_qs, page_size)
+    try:
+        page_obj = paginator.page(page)
+    except EmptyPage:
+        page_obj = paginator.page(paginator.num_pages)
 
-    # 子查询：存在 product 为 null 的订单项（且商品名称不为空）
-    has_missing_product = OrderItem.objects.filter(
-        order=OuterRef('pk'),
-        product__isnull=True
-    ).exclude(product_name='')
+    unverified_orders = page_obj.object_list
+    total = paginator.count
+    total_pages = paginator.num_pages
+    current_page = page_obj.number
 
-    reaudit_orders_qs = Order.objects.filter(
-        Q(area__isnull=True) | Q(customer__isnull=True) | Q(Exists(has_missing_product)),
-        is_verified=True
-    ).exclude(status='cancelled') \
-        .select_related('area') \
-        .prefetch_related('items') \
-        .order_by('-create_time')
-
-    # 分类容器
+    # ---------- 分类容器（仅针对当前页订单） ----------
     normal_orders = []
     cancel_candidates = []
     format_invalid = []
     area_empty = []
 
-    # 全局数据收集（以 (纯客户名, 区域) 为键）
-    customer_map = {}   # key: (pure_name, area_name), value: {'order_numbers': []}
+    customer_map = {}      # (pure_name, area_name) -> {order_numbers: []}
     area_names = set()
-    product_map = {}
+    product_map = {}       # (product_name, unit) -> {price, spec}
 
-    # 处理未审核订单
+    # 遍历当前页订单进行分类与数据收集
     for order in unverified_orders:
         raw_customer = order.customer_name_snapshot or ''
         area_name = order.area.name if order.area else ''
         has_items = order.items.exists()
         has_customer = bool(raw_customer)
 
-        # 解析客户名
         parsed_area, pure_name = parse_customer_name(raw_customer, area_name)
         final_area = area_name if area_name else parsed_area
 
@@ -3127,7 +3128,7 @@ def audit_orders_preview(request):
             if order.order_number_snapshot:
                 customer_map[key]['order_numbers'].append(order.order_number_snapshot)
 
-        # 分类逻辑（原有）
+        # 分类判断
         if not has_customer or not has_items:
             cancel_candidates.append({
                 'order_no': order.order_no,
@@ -3176,11 +3177,9 @@ def audit_orders_preview(request):
             'create_time': order.create_time.strftime('%Y-%m-%d %H:%M'),
         })
 
-        # 收集区域
         if area_name:
             area_names.add(area_name)
 
-        # 收集商品
         for item in order.items.all():
             if item.is_makeup_item:
                 continue
@@ -3191,11 +3190,10 @@ def audit_orders_preview(request):
                     'spec': item.specification or '',
                 }
 
-    # ---------- 检测新区域 ----------
+    # ---------- 检测新区域、新客户、新商品、价格冲突（基于当前页） ----------
     existing_areas = set(Area.objects.filter(name__in=area_names, is_active=True).values_list('name', flat=True))
     new_areas = sorted(area_names - existing_areas)
 
-    # ---------- 检测商品 ----------
     existing_products = Product.objects.filter(is_active=True)
     existing_prod_dict = {}
     for p in existing_products:
@@ -3222,10 +3220,8 @@ def audit_orders_preview(request):
                     'order_price': str(order_price),
                 })
 
-    # ---------- 检测新客户（按名称+区域联合判断） ----------
     new_customers = []
     for (pure_name, area_name), info in customer_map.items():
-        # 检查是否存在该名称+该区域的客户
         area_obj = Area.objects.filter(name=area_name, is_active=True).first() if area_name else None
         exists = Customer.objects.filter(name=pure_name, area=area_obj, is_active=True).exists()
         if not exists:
@@ -3235,10 +3231,23 @@ def audit_orders_preview(request):
                 'order_numbers': ', '.join(set(info['order_numbers'])) if info['order_numbers'] else ''
             })
 
-    # ---------- 重新审核订单列表（含缺失商品信息） ----------
+    # ---------- 重新审核（已审核订单）独立处理（可保持全量，也可分页） ----------
+    from django.db.models import Q, Exists, OuterRef
+    has_missing_product = OrderItem.objects.filter(
+        order=OuterRef('pk'),
+        product__isnull=True
+    ).exclude(product_name='')
+
+    reaudit_orders_qs = Order.objects.filter(
+        Q(area__isnull=True) | Q(customer__isnull=True) | Q(Exists(has_missing_product)),
+        is_verified=True
+    ).exclude(status='cancelled') \
+        .select_related('area') \
+        .prefetch_related('items') \
+        .order_by('-create_time')
+
     reaudit_orders = []
     for order in reaudit_orders_qs:
-        # 获取缺失商品名称列表
         missing_items = order.items.filter(product__isnull=True).values_list('product_name', flat=True)
         missing_names = list(missing_items) if missing_items else []
         reaudit_orders.append({
@@ -3246,40 +3255,62 @@ def audit_orders_preview(request):
             'customer_snapshot': order.customer_name_snapshot or '',
             'total_amount': float(order.total_amount),
             'create_time': order.create_time.strftime('%Y-%m-%d %H:%M'),
-            'missing_products': missing_names,   # 供前端显示
-            'has_missing': bool(missing_names),  # 是否有缺失
+            'missing_products': missing_names,
+            'has_missing': bool(missing_names),
         })
 
-    # ---------- 订单归属：未关联客户的未审核订单 ----------
-    unassigned_orders = []
-    # 未审核且客户为空（且未作废）
-    unverified_unassigned = Order.objects.filter(
+    # ---------- 订单归属（未审核且客户为空）仅针对当前页 ----------
+    current_order_nos = [o.order_no for o in unverified_orders]
+    unassigned_qs = Order.objects.filter(
         is_verified=False,
-        customer__isnull=True
-    ).exclude(status='cancelled').select_related('area').order_by('-create_time')
+        customer__isnull=True,
+        order_no__in=current_order_nos
+    ).exclude(status='cancelled').select_related('area')
 
-    # 获取所有活跃客户用于前端下拉（同时用于建议匹配）
     all_customers = Customer.objects.filter(is_active=True).values('id', 'name', 'area__name')
-    all_customer_id_map = {}  # 用于快速按 name + area_name 查找客户 id
+    all_customer_id_map = {(c['name'], c['area__name'] or ''): c['id'] for c in all_customers}
+    all_customers_list = [{'id': c['id'], 'name': c['name'], 'area': c['area__name'] or ''} for c in all_customers]
 
-    # ---------- 新增：未归属商品项（未审核订单中的未归属商品项） ----------
-    unassigned_items = []
-    # 查询未审核订单中，product 为空的订单项（排除补货品项）
-    unassigned_qs = OrderItem.objects.filter(
+    unassigned_orders = []
+    for order in unassigned_qs:
+        raw_customer = order.customer_name_snapshot or ''
+        area_name = order.area.name if order.area else ''
+        parsed_area, pure_name = parse_customer_name(raw_customer, area_name)
+        final_area = parsed_area or area_name
+        suggested_id = None
+        suggested_name = None
+        if pure_name:
+            key = (pure_name, final_area)
+            if key in all_customer_id_map:
+                suggested_id = all_customer_id_map[key]
+                for c in all_customers:
+                    if c['id'] == suggested_id:
+                        suggested_name = c['name']
+                        break
+        unassigned_orders.append({
+            'order_no': order.order_no,
+            'customer_snapshot': raw_customer,
+            'area_name': area_name,
+            'suggested_customer_id': suggested_id,
+            'suggested_customer_name': suggested_name,
+        })
+
+    # ---------- 商品归属（未审核订单项）仅针对当前页 ----------
+    unassigned_items_qs = OrderItem.objects.filter(
         order__is_verified=False,
         product__isnull=True,
-        is_makeup_item=False
+        is_makeup_item=False,
+        order__order_no__in=current_order_nos
     ).select_related('order').only(
         'id', 'product_name', 'unit', 'specification', 'order__order_no'
     ).order_by('order__order_no')
 
-    # 获取所有活跃商品，用于前端下拉（id, name, unit）
     all_products_for_assign = Product.objects.filter(is_active=True).values('id', 'name', 'unit')
-
-    # 构建商品查找字典 (name, unit) -> id
     prod_lookup = {(p['name'], p['unit']): p['id'] for p in all_products_for_assign}
+    all_products_list = list(all_products_for_assign)
 
-    for item in unassigned_qs:
+    unassigned_items = []
+    for item in unassigned_items_qs:
         suggested_id = prod_lookup.get((item.product_name, item.unit))
         unassigned_items.append({
             'item_id': item.id,
@@ -3290,46 +3321,7 @@ def audit_orders_preview(request):
             'suggested_product_id': suggested_id,
         })
 
-    # 全量商品列表（用于下拉）
-    all_products_list = list(all_products_for_assign)  # 每个元素为 {'id':..., 'name':..., 'unit':...}
-    for c in all_customers:
-        area_name = c['area__name'] or ''
-        key = (c['name'], area_name)
-        all_customer_id_map[key] = c['id']
-
-    for order in unverified_unassigned:
-        raw_customer = order.customer_name_snapshot or ''
-        area_name = order.area.name if order.area else ''
-        # 解析快照
-        parsed_area, pure_name = parse_customer_name(raw_customer, area_name)
-        final_area = parsed_area or area_name
-        # 尝试匹配建议客户
-        suggested_id = None
-        suggested_name = None
-        if pure_name:
-            key = (pure_name, final_area)
-            if key in all_customer_id_map:
-                suggested_id = all_customer_id_map[key]
-                # 获取客户名称（从 all_customers 中取）
-                for c in all_customers:
-                    if c['id'] == suggested_id:
-                        suggested_name = c['name']
-                        break
-
-        unassigned_orders.append({
-            'order_no': order.order_no,
-            'customer_snapshot': raw_customer,
-            'area_name': area_name,
-            'suggested_customer_id': suggested_id,
-            'suggested_customer_name': suggested_name,
-        })
-
-    # 格式化 all_customers 为前端所需结构（id, name, area）
-    all_customers_list = [
-        {'id': c['id'], 'name': c['name'], 'area': c['area__name'] or ''}
-        for c in all_customers
-    ]
-
+    # ---------- 返回数据 ----------
     return JsonResponse({
         'code': 1,
         'data': {
@@ -3342,12 +3334,15 @@ def audit_orders_preview(request):
             'conflict_products': conflict_products,
             'new_customers': new_customers,
             'reaudit_orders': reaudit_orders,
-            'total_unverified': unverified_orders.count(),
             'unassigned_orders': unassigned_orders,
             'all_customers': all_customers_list,
-            # 新增以下两行
             'unassigned_items': unassigned_items,
             'all_products': all_products_list,
+            # 分页信息
+            'page': current_page,
+            'page_size': page_size,
+            'total': total,
+            'total_pages': total_pages,
         }
     })
 
