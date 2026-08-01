@@ -70,4 +70,5 @@ path('audit/', views.product_audit_page, name='product_audit'),
 
 path('audit/update-spec/', views.product_audit_update_spec, name='product_audit_update_spec'),
 path('audit/cancel-duplicate/', views.product_audit_cancel_duplicate, name='product_audit_cancel_duplicate'),
+path('audit/replace_canceled_items/', views.product_audit_replace_canceled_items, name='product_audit_replace_canceled_items'),
 ]

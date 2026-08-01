@@ -1625,14 +1625,158 @@ def product_audit_preview(request):
     logger.debug(f'规格缺失: {len(spec_missing_data)} 个')
     logger.debug(f'同名组: {len(duplicate_groups)} 组')
 
+    # ---------- 4. 作废商品关联的订单项（所有订单，不含补货项） ----------
+    canceled_items = OrderItem.objects.filter(
+        product__is_active=False,
+        is_makeup_item=False,  # 排除补货项
+    ).select_related('product', 'order').only(
+        'id', 'product_id', 'product__name', 'product__unit', 'product__specification',
+        'order__order_no', 'quantity', 'amount', 'actual_unit_price',
+        'product_name', 'unit', 'specification'
+    )
+
+    # 按原商品（product_id）分组
+    groups_dict = {}
+    for item in canceled_items:
+        prod = item.product
+        if not prod:
+            continue
+        key = prod.id
+        if key not in groups_dict:
+            groups_dict[key] = {
+                'original_product_id': prod.id,
+                'original_product_name': prod.name,
+                'original_unit': prod.unit,
+                'original_spec': prod.specification or '',
+                'items': []
+            }
+        groups_dict[key]['items'].append({
+            'item_id': item.id,
+            'order_no': item.order.order_no,
+            'quantity': item.quantity,
+            'amount': float(item.amount) if item.amount else 0,
+            'actual_unit_price': float(item.actual_unit_price) if item.actual_unit_price else 0,
+            'product_name_snapshot': item.product_name,
+            'unit_snapshot': item.unit,
+            'spec_snapshot': item.specification or '',
+        })
+
+    # 转为列表，并筛选出至少包含一个订单项的组
+    canceled_product_groups = list(groups_dict.values())
+
+    # 获取所有有效商品供前端选择
+    all_products_for_replace = Product.objects.filter(is_active=True).values('id', 'name', 'unit', 'specification')
+
+
     return JsonResponse({
         'code': 1,
         'data': {
             'products': product_data,
             'spec_missing': spec_missing_data,
             'duplicate_groups': duplicate_groups,
+            'canceled_product_groups': canceled_product_groups,
+            'all_products_for_replace': list(all_products_for_replace),
         }
     })
+
+@login_required
+@permission_required(PERM_PRODUCT_AUDIT)
+def product_audit_replace_canceled_items(request):
+    """
+    批量替换作废商品关联的订单项信息（所有订单，不含补货项）
+    请求体：{"groups": [{"item_ids": [1,2,3], "target_product_id": 123, "custom_name": "", "custom_unit": "", "custom_spec": ""}]}
+    注意：只处理 target_product_id 有效且对应商品存在的分组，否则跳过
+    """
+    import logging
+    from decimal import Decimal
+    from django.core.cache import cache
+    from django.conf import settings
+
+    logger = logging.getLogger(__name__)
+
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST'})
+
+    try:
+        payload = json.loads(request.body)
+    except:
+        return JsonResponse({'code': 0, 'msg': 'JSON格式错误'})
+
+    groups_data = payload.get('groups', [])
+    if not groups_data:
+        return JsonResponse({'code': 0, 'msg': '未提供分组数据'})
+
+    total_updated = 0
+    total_skipped = 0
+    affected_order_nos = set()
+
+    with transaction.atomic():
+        for group in groups_data:
+            item_ids = group.get('item_ids', [])
+            if not item_ids:
+                continue
+
+            target_product_id = group.get('target_product_id', 0)
+
+            # ========== 关键判断：如果没有选择目标商品，跳过该分组 ==========
+            if not target_product_id:
+                total_skipped += len(item_ids)
+                logger.info(f"分组未选择目标商品，跳过 {len(item_ids)} 个订单项")
+                continue
+
+            # 获取目标商品（必须存在且有效）
+            try:
+                target_product = Product.objects.get(id=target_product_id, is_active=True)
+            except Product.DoesNotExist:
+                total_skipped += len(item_ids)
+                logger.warning(f"目标商品ID {target_product_id} 不存在或已禁用，跳过 {len(item_ids)} 个订单项")
+                continue
+
+            # 获取有效的订单项：关联的商品已作废，且非补货项（不限制审核状态）
+            items = OrderItem.objects.filter(
+                id__in=item_ids,
+                product__is_active=False,
+                is_makeup_item=False,
+            ).select_related('order', 'product')
+
+            if not items:
+                total_skipped += len(item_ids)
+                continue
+
+            # 使用目标商品的信息覆盖（忽略自定义字段）
+            final_name = target_product.name
+            final_unit = target_product.unit
+            final_spec = target_product.specification or ''
+            final_price = target_product.price
+
+            # 批量更新所有订单项
+            for item in items:
+                item.product = target_product
+                item.product_name = final_name
+                item.unit = final_unit
+                item.specification = final_spec
+                item.actual_unit_price = final_price
+                item.snapshot_standard_price = final_price
+                item.save(update_fields=[
+                    'product', 'product_name', 'unit', 'specification',
+                    'actual_unit_price', 'snapshot_standard_price'
+                ])
+                total_updated += 1
+                if item.order and item.order.order_no:
+                    affected_order_nos.add(item.order.order_no)
+
+    # 清除涉及的订单详情缓存（如果有）
+    if affected_order_nos:
+        CACHE_PREFIX = getattr(settings, 'CACHE_PREFIX_ORDER_DETAIL', 'order_detail_')
+        for order_no in affected_order_nos:
+            cache_key = f"{CACHE_PREFIX}{order_no}"
+            cache.delete(cache_key)
+            logger.info(f"已清除订单详情缓存: {order_no}")
+
+    msg = f'成功更新 {total_updated} 个订单项'
+    if total_skipped:
+        msg += f'；跳过 {total_skipped} 个未选择目标商品的订单项'
+    return JsonResponse({'code': 1, 'msg': msg})
 # ---------- 规格更新 ----------
 @login_required
 @permission_required(PERM_PRODUCT_AUDIT)
