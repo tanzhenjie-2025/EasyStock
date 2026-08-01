@@ -72,4 +72,6 @@ path('audit/update-spec/', views.product_audit_update_spec, name='product_audit_
 path('audit/cancel-duplicate/', views.product_audit_cancel_duplicate, name='product_audit_cancel_duplicate'),
 path('audit/replace_canceled_items/', views.product_audit_replace_canceled_items, name='product_audit_replace_canceled_items'),
 path('product_audit_clear_spec/', views.product_audit_clear_spec, name='product_audit_clear_spec'),
+
+path('edit/data/<int:pk>/', views.product_edit_data, name='product_edit_data'),
 ]

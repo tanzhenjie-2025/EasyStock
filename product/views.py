@@ -344,7 +344,13 @@ def product_add(request):
             price = request.POST.get('price', '0').strip()
             unit = request.POST.get('unit', '件').strip()
             stock = request.POST.get('stock', '77').strip()
-            specification = request.POST.get('specification', '').strip()  # 新增
+            specification = request.POST.get('specification', '').strip()
+            # 获取标签 ID 列表（可能为空）
+            tag_ids = request.POST.getlist('tags[]') or request.POST.getlist('tags')
+            # 过滤有效整数
+            tag_ids = [int(tid) for tid in tag_ids if tid.strip().isdigit()]
+            # 过滤有效整数
+            tag_ids = [int(tid) for tid in tag_ids if tid.strip().isdigit()]
 
             if not name:
                 return JsonResponse({'code': 0, 'msg': '商品名称不能为空'})
@@ -355,8 +361,12 @@ def product_add(request):
                 name=name, price=float(price), unit=unit,
                 stock_system=int(stock) if stock.isdigit() else 77,
                 stock_actual=int(stock) if stock.isdigit() else 77,
-                specification = specification  # 新增
+                specification=specification
             )
+
+            # 关联标签（如果有）
+            if tag_ids:
+                product.tags.set(tag_ids)
 
             create_operation_log(
                 request=request, op_type='create', obj_type='product',
@@ -367,7 +377,6 @@ def product_add(request):
             clear_product_all_cache()
             return JsonResponse({'code': 1, 'msg': '商品新增成功'})
         except IntegrityError:
-            # 查询已存在的同名同单位启用商品
             exist_product = Product.objects.filter(name=name, unit=unit).first()
             if exist_product:
                 return JsonResponse({
@@ -393,9 +402,10 @@ def product_edit(request, pk):
             price = request.POST.get('price', '0').strip()
             unit = request.POST.get('unit', '件').strip()
             stock = request.POST.get('stock', '77').strip()
-            specification = request.POST.get('specification', '').strip()  # 新增
-            # 可选：接收备注
+            specification = request.POST.get('specification', '').strip()
             remark = request.POST.get('remark', '后台编辑').strip()
+            tag_ids = request.POST.getlist('tags[]') or request.POST.getlist('tags')
+            tag_ids = [int(tid) for tid in tag_ids if tid.strip().isdigit()]
 
             if not name:
                 return JsonResponse({'code': 0, 'msg': '商品名称不能为空'})
@@ -405,19 +415,19 @@ def product_edit(request, pk):
                 return JsonResponse({'code': 0, 'msg': '已存在同名同单位的商品'})
 
             old_info = f"名称={product.name}，单价={product.price}，单位={product.unit}，系统库存={product.stock_system}"
-
-            # 🔥 核心：检测价格变动
             old_price_val = product.price
             new_price_val = decimal.Decimal(price)
 
             product.name = name
             product.price = new_price_val
             product.unit = unit
-            product.specification = specification  # 新增
+            product.specification = specification
             product.stock_system = int(stock) if stock.isdigit() else 77
             product.save()
 
-            # 🔥 如果价格变了，写入历史表
+            # 更新标签
+            product.tags.set(tag_ids)
+
             if old_price_val != new_price_val:
                 ProductPriceHistory.objects.create(
                     product=product,
@@ -466,6 +476,20 @@ def product_restore(request, pk):
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': f'启用失败：{str(e)}'})
 
+@login_required
+@permission_required(PERM_PRODUCT_EDIT)
+def product_edit_data(request, pk):
+    product = get_object_or_404(Product.objects.prefetch_related('tags'), pk=pk)
+    data = {
+        'id': product.id,
+        'name': product.name,
+        'price': float(product.price),
+        'unit': product.unit,
+        'specification': product.specification,
+        'stock': product.stock_system,
+        'tags': [{'id': tag.id, 'name': tag.name, 'color': tag.color} for tag in product.tags.all()]
+    }
+    return JsonResponse(data)
 
 # ====================== 🔥 行内编辑（仅修改系统库存） ======================
 @require_POST
@@ -595,21 +619,6 @@ def alias_delete(request, pk):
         return JsonResponse({'code': 1, 'msg': '别名禁用成功'})
     except Exception as e:
         return JsonResponse({'code': 0, 'msg': str(e)})
-
-@login_required
-@permission_required(PERM_PRODUCT_EDIT)
-def product_edit_data(request, pk):
-    product = get_object_or_404(Product.objects.prefetch_related('aliases'), pk=pk)
-    return JsonResponse({
-        'id': product.id,
-        'name': product.name,
-        'price': float(product.price),
-        'unit': product.unit,
-        'specification': product.specification,  # 新增
-        'stock': product.stock_system,
-        'aliases': [{'id': a.id, 'alias_name': a.alias_name} for a in product.aliases.all()]
-    })
-
 
 # ====================== 导入/导出/快速出入库（仅修改系统库存） ======================
 # product/views.py
