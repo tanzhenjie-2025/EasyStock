@@ -2186,6 +2186,32 @@ def customer_audit_preview(request):
             # 不预填电话
         })
 
+    # 4. 同名客户检测：按名称分组，只保留重复名称的组
+    duplicate_names = (
+        Customer.objects.filter(is_active=True)
+        .values('name')
+        .annotate(cnt=Count('id'))
+        .filter(cnt__gt=1)
+        .values_list('name', flat=True)
+    )
+    duplicate_groups = []
+    for name in duplicate_names:
+        customers = Customer.objects.filter(is_active=True, name=name).select_related('area')
+        group = {
+            'name': name,
+            'customers': [
+                {
+                    'id': c.id,
+                    'name': c.name,
+                    'area': c.area.name if c.area else '',
+                    'order_number': c.order_number or '',
+                    'phone': c.primary_phone or '',
+                }
+                for c in customers
+            ]
+        }
+        duplicate_groups.append(group)
+
     return JsonResponse({
         'code': 1,
         'data': {
@@ -2193,8 +2219,10 @@ def customer_audit_preview(request):
             'area_customers': area_data,
             'order_number_customers': order_number_data,
             'phone_customers': phone_data,
+            'duplicate_groups': duplicate_groups,  # 新增
         }
     })
+
 
 
 # ---------- 确认：区域更新 ----------
@@ -2319,6 +2347,40 @@ def customer_audit_confirm_phone(request):
             CustomerPhone.objects.create(customer=customer, phone=phone, is_primary=True)
             success_count += 1
     msg = f'成功为 {success_count} 个客户添加联系电话。'
+    if error_msgs:
+        msg += ' 错误：' + '；'.join(error_msgs[:3])
+    return JsonResponse({'code': 1, 'msg': msg})
+
+# ---------- 确认：作废同名客户 ----------
+@login_required
+@permission_required(PERM_CUSTOMER_AUDIT)
+def customer_audit_confirm_disable(request):
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST'})
+    try:
+        payload = json.loads(request.body)
+    except:
+        return JsonResponse({'code': 0, 'msg': 'JSON格式错误'})
+
+    customer_ids = payload.get('customer_ids', [])
+    if not customer_ids:
+        return JsonResponse({'code': 0, 'msg': '请至少选择一个客户'})
+
+    success_count = 0
+    error_msgs = []
+    with transaction.atomic():
+        for cid in customer_ids:
+            try:
+                customer = Customer.objects.get(id=cid, is_active=True)
+            except Customer.DoesNotExist:
+                error_msgs.append(f'客户ID {cid} 不存在或已停用')
+                continue
+            customer.is_active = False
+            customer.disabled_time = timezone.now()
+            customer.save(update_fields=['is_active', 'disabled_time'])
+            success_count += 1
+
+    msg = f'成功作废 {success_count} 个客户。'
     if error_msgs:
         msg += ' 错误：' + '；'.join(error_msgs[:3])
     return JsonResponse({'code': 1, 'msg': msg})

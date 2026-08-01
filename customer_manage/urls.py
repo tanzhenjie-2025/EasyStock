@@ -58,5 +58,7 @@ path('audit/customer/', views.customer_audit_page, name='customer_audit'),
     path('api/audit/customer/confirm_phone/', views.customer_audit_confirm_phone, name='customer_audit_confirm_phone'),
 
 path('api/fields/', views.customer_fields_api, name='customer_fields_api'),
+
+path('audit/confirm_disable/', views.customer_audit_confirm_disable, name='customer_audit_confirm_disable'),
 ]
 
