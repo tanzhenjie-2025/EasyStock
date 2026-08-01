@@ -4,7 +4,7 @@ from django.http import JsonResponse, HttpResponse
 from django.core.cache import cache
 from django.views.decorators.http import require_POST
 
-from accounts.models import ROLE_SUPER_ADMIN, PERM_LOG_VIEW_ALL
+from accounts.models import ROLE_SUPER_ADMIN, PERM_LOG_VIEW_ALL, PERM_CUSTOMER_AUDIT
 from bill.models import OrderItem, Order
 from bill.views import parse_customer_name
 from product.models import Product, ProductAlias
@@ -2115,12 +2115,14 @@ def parse_customer_name(raw_name, default_area=None):
 
 # ---------- 页面 ----------
 @login_required
+@permission_required(PERM_CUSTOMER_AUDIT)
 def customer_audit_page(request):
     return render(request, 'customer_manage/customer_audit.html')
 
 
 # ---------- 预览（合并三类数据） ----------
 @login_required
+@permission_required(PERM_CUSTOMER_AUDIT)
 def customer_audit_preview(request):
     # 1. 区域检测：未分配区域的客户
     area_customers = Customer.objects.filter(is_active=True, area__isnull=True).select_related('area')
@@ -2197,6 +2199,7 @@ def customer_audit_preview(request):
 
 # ---------- 确认：区域更新 ----------
 @login_required
+@permission_required(PERM_CUSTOMER_AUDIT)
 def customer_audit_confirm_area(request):
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST'})
@@ -2250,6 +2253,7 @@ def customer_audit_confirm_area(request):
 
 # ---------- 确认：制单号更新 ----------
 @login_required
+@permission_required(PERM_CUSTOMER_AUDIT)
 def customer_audit_confirm_order_number(request):
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST'})
@@ -2283,6 +2287,7 @@ def customer_audit_confirm_order_number(request):
 
 # ---------- 确认：联系电话更新 ----------
 @login_required
+@permission_required(PERM_CUSTOMER_AUDIT)
 def customer_audit_confirm_phone(request):
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST'})

@@ -44,12 +44,15 @@ PERM_ORDER_CANCEL_OTHERS = 'order_cancel_others'  # 作废他人订单
 PERM_ORDER_CANCEL_ANY = 'order_cancel_any'    # 作废任意订单（超级管理员）
 PERM_ORDER_PRICE_CHECK = 'order_price_check'
 
+PERM_ORDER_AUDIT = 'orders_audit' # 订单审核
+
 # 2. 区域管理权限编码
 PERM_AREA_VIEW = 'area_view'  # 查看区域/区域组
 PERM_AREA_ADD = 'area_add'  # 新增区域/区域组
 PERM_AREA_EDIT = 'area_edit'  # 编辑区域/区域组
 PERM_AREA_DELETE = 'area_delete'  # 删除区域/区域组
 
+PERM_AREA_AUDIT = 'area_audit' # 订单审核
 # 2.1 区域组管理权限编码
 PERM_GROUP_VIEW = 'group_view'  # 查看区域/区域组
 PERM_GROUP_ADD = 'group_add'
@@ -77,7 +80,7 @@ PERM_CUSTOMER_IMPORT = 'customer_import'        # 批量导入客户
 PERM_CUSTOMER_PRICE_EXPORT = 'customer_price_export'  # 批量导出客户专属价格
 PERM_CUSTOMER_PRICE_IMPORT = 'customer_price_import'  # 批量导入客户专属价格
 
-
+PERM_CUSTOMER_AUDIT = 'customer_audit' # 客户审核
 # 4. 日志管理权限编码
 PERM_LOG_VIEW = 'log_view'  # 查看自己的操作日志
 PERM_LOG_VIEW_ALL = 'log_view_all'  # 查看所有用户的操作日志
@@ -93,6 +96,7 @@ PERM_PRODUCT_IMPORT = 'product_import'  # 批量导入商品
 PERM_PRODUCT_STOCK_OP = 'product_stock_operation'  # 商品出入库操作
 PERM_PRODUCT_DETAIL = 'product_detail'  # 查看商品详情（含销量/客户价）
 PERM_PRODUCT_SALES_RANK = 'product_sales_rank'  # 查看商品销售排行
+PERM_PRODUCT_AUDIT = 'product_audit' # 商品审核
 
 PERM_UNIT_VIEW = 'unit_view'
 PERM_UNIT_ADD = 'unit_add'
@@ -144,6 +148,7 @@ def init_accounts_data(sender, **kwargs):
             ('order_cancel_others', '作废他人订单', 'order', '作废其他员工创建的订单'),
             ('order_cancel_any', '作废任意订单', 'order', '作废系统中任意订单（仅超级管理员）'),
             ('order_price_check', '价格核算', 'order', '查看并核算订单价格异常与风险'),
+            ('order_audit','订单审核','order','进行订单审核操作'),
 
             # 区域管理
             ('area_view', '查看区域', 'system', '查看区域列表'),
@@ -153,6 +158,8 @@ def init_accounts_data(sender, **kwargs):
             # 区域导入导出
             ('area_import', '区域组导入', 'system', '批量导入区域'),
             ('area_export', '区域组导出', 'system', '批量导出区域'),
+            ('area_audit', '区域审核', 'system', '进行区域审核操作'),
+
             # 区域组管理
             ('group_view', '查看区域组', 'system', '查看区域组列表'),
             ('group_add', '新增区域组', 'system', '新增区域组'),
@@ -161,6 +168,7 @@ def init_accounts_data(sender, **kwargs):
             # 区域组导入导出
             ('group_import', '区域组导入', 'system', '批量导入区域组'),
             ('group_export', '区域组导出', 'system', '批量导出区域组'),
+
 
             # 客户管理
             ('customer_view', '查看客户', 'customer', '查看客户列表/详情'),
@@ -178,6 +186,7 @@ def init_accounts_data(sender, **kwargs):
             ('customer_import', '导入客户', 'customer', '批量导入客户数据（含自动创建区域）'),
             ('customer_price_export', '导出客户价格', 'customer', '批量导出客户专属价格'),
             ('customer_price_import', '导入客户价格', 'customer', '批量导入客户专属价格'),
+            ('customer_audit', '客户审核', 'order', '进行客户审核操作'),
 
             # 日志管理
             ('log_view', '查看个人日志', 'system', '仅查看自己的操作日志'),
@@ -194,7 +203,7 @@ def init_accounts_data(sender, **kwargs):
             ('product_stock_operation', '商品出入库', 'product', '快速调整商品库存'),
             ('product_detail', '商品详情', 'product', '查看商品销量/客户价等详情'),
             ('product_sales_rank', '销售排行查看', 'product', '查看商品销售TOP30排行'),
-
+            ('product_audit', '商品审核', 'product', '进行商品审核操作'),
 
 
             # 用户管理

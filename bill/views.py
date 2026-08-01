@@ -24,7 +24,7 @@ from django.core.cache import cache
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 
 # ========== 导入用户模块的RBAC核心组件 ==========
-from accounts.models import ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OPERATOR, PERM_ORDER_CANCEL_OWN, User
+from accounts.models import ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OPERATOR, PERM_ORDER_CANCEL_OWN, User, PERM_ORDER_AUDIT
 from accounts.views import (
     permission_required,  # RBAC权限装饰器
     create_operation_log,  # 统一日志记录
@@ -3065,7 +3065,7 @@ from django.db.models import Q  # 确保顶部已导入
 
 @never_cache
 @login_required
-@permission_required(PERM_ORDER_CREATE)
+@permission_required(PERM_ORDER_AUDIT)
 def audit_orders_preview(request):
     """
     审核预览：将未审核订单分为四类，并检测新区域/客户/商品/价格冲突。
@@ -3353,7 +3353,7 @@ def audit_orders_preview(request):
 
 
 @login_required
-@permission_required(PERM_ORDER_CREATE)
+@permission_required(PERM_ORDER_AUDIT)
 def audit_orders_confirm(request):
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST'})
@@ -3426,6 +3426,8 @@ def audit_orders_confirm(request):
     else:
         return JsonResponse({'code': 0, 'msg': '未知操作类型'})
 
+@login_required
+@permission_required(PERM_ORDER_AUDIT)
 def audit_order_page(request):
     """渲染订单审核页面（全新独立页面）"""
     return render(request, 'bill/audit_order.html')

@@ -9,6 +9,7 @@ from django.db.models import Q, Count, Prefetch, OuterRef, Subquery, Sum
 import logging
 import json
 
+from accounts.models import PERM_AREA_AUDIT
 from accounts.views import permission_required, create_operation_log
 from bill.models import Order, OrderItem
 from area_manage.models import Area, AreaGroup
@@ -1746,7 +1747,7 @@ def import_groups_from_io(file_obj, strategy='append'):
 
 # ---------- 区域组审核页面 ----------
 @login_required
-@permission_required('area_manage.change_area', raise_exception=True)
+@permission_required(PERM_AREA_AUDIT)
 def area_group_audit_page(request):
     """渲染区域组审核页面"""
     return render(request, 'area_manage/area_group_audit.html')

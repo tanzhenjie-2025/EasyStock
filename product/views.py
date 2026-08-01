@@ -21,7 +21,7 @@ from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.contrib.auth.decorators import login_required
 from django.db.models import Q, Sum, Count
 
-from accounts.models import ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OPERATOR
+from accounts.models import ROLE_SUPER_ADMIN, ROLE_ADMIN, ROLE_OPERATOR, PERM_PRODUCT_AUDIT
 from product.models import Product, StockIn, StockInItem, ProductPriceHistory, ProductTag
 from bill.views import (
     # 复用缓存工具
@@ -1175,9 +1175,6 @@ def product_statistics_api(request):
     })
 
 
-from django.db import IntegrityError  # 可选，捕获唯一键冲突
-
-
 @login_required
 @permission_required('unit_add')  # 替换为你实际的权限标识
 def unit_add(request):
@@ -1243,15 +1240,6 @@ def unit_toggle_status(request):
     unit.save(update_fields=['is_active'])
     return JsonResponse({'code': 1, 'msg': '状态已更新'})
 
-
-# product/views.py 末尾添加以下函数
-
-import io
-import openpyxl
-from django.db import transaction
-
-from .models import Product, ProductTag, ProductAlias
-import logging
 
 def export_to_excel_buffer(data, title, headers, selected_fields, custom_fields=None, file_name='导出', total_row=None):
     """
@@ -1558,26 +1546,16 @@ def import_products_from_io(file_obj, strategy='append'):
         'errors': errors,
     }
 
-from django.shortcuts import render
-from django.http import JsonResponse
-from django.contrib.auth.decorators import login_required, permission_required
-from django.db import transaction
-from django.utils import timezone
-from .models import Product, ProductTag
-import json
-import logging
-
-
 # ---------- 商品审核页面 ----------
 @login_required
-@permission_required('product.change_product', raise_exception=True)
+@permission_required(PERM_PRODUCT_AUDIT)
 def product_audit_page(request):
     """渲染商品审核页面"""
     return render(request, 'product/product_audit.html')
 
 
 @login_required
-@permission_required('product.change_product', raise_exception=True)
+@permission_required(PERM_PRODUCT_AUDIT)
 def product_audit_preview(request):
     """
     返回三类数据：
@@ -1655,7 +1633,7 @@ def product_audit_preview(request):
     })
 # ---------- 规格更新 ----------
 @login_required
-@permission_required('product.change_product', raise_exception=True)
+@permission_required(PERM_PRODUCT_AUDIT)
 def product_audit_update_spec(request):
     """
     批量更新商品规格（仅限 unit='件' 且 specification 为空的商品）
@@ -1705,7 +1683,7 @@ def product_audit_update_spec(request):
 
 # ---------- 作废同名商品 ----------
 @login_required
-@permission_required('product.change_product', raise_exception=True)
+@permission_required(PERM_PRODUCT_AUDIT)
 def product_audit_cancel_duplicate(request):
     """批量作废同名且无规格的商品（仅允许单位='件'且规格为空）"""
     if request.method != 'POST':
@@ -1734,7 +1712,7 @@ def product_audit_cancel_duplicate(request):
     return JsonResponse({'code': 1, 'msg': f'成功作废 {count} 个商品'})
 
 @login_required
-@permission_required('product.change_product', raise_exception=True)
+@permission_required(PERM_PRODUCT_AUDIT)
 def product_audit_cancel_duplicate(request):
     """
     作废同名无规格组中的选中商品（仅允许作废属于重复组的商品）
@@ -1780,7 +1758,7 @@ def product_audit_cancel_duplicate(request):
     return JsonResponse({'code': 1, 'msg': f'成功作废 {count} 个商品'})
 # ---------- 添加标签 ----------
 @login_required
-@permission_required('product.change_product', raise_exception=True)
+@permission_required(PERM_PRODUCT_AUDIT)
 def product_audit_add_tag(request):
     """批量添加标签，每个商品可指定多个标签（逗号分隔）"""
     if request.method != 'POST':
@@ -1834,7 +1812,7 @@ def product_audit_add_tag(request):
 
 # ---------- 作废商品 ----------
 @login_required
-@permission_required('product.change_product', raise_exception=True)
+@permission_required(PERM_PRODUCT_AUDIT)
 def product_audit_cancel(request):
     """批量作废商品（设置 is_active=False）"""
     if request.method != 'POST':
