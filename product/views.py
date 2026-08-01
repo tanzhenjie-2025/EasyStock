@@ -1560,10 +1560,11 @@ def product_audit_page(request):
 @permission_required(PERM_PRODUCT_AUDIT)
 def product_audit_preview(request):
     """
-    返回三类数据：
+    返回四类数据：
     1. products: 无标签商品（原有功能）
     2. spec_missing: 规格缺失（单位='件'且规格为空）
     3. duplicate_groups: 同名无规格组（不限单位，每组≥2个商品）
+    4. spec_without_unit: 有规格但单位不是'件'（异常）
     """
     # ---------- 1. 无标签商品（兼容原有前端） ----------
     products = Product.objects.filter(is_active=True, tags__isnull=True).only(
@@ -1620,15 +1621,27 @@ def product_audit_preview(request):
 
     duplicate_groups = [{'name': name, 'items': items} for name, items in groups.items()]
 
-    # 调试日志（可删除）
-    logger.debug(f'无标签商品: {len(product_data)} 个')
-    logger.debug(f'规格缺失: {len(spec_missing_data)} 个')
-    logger.debug(f'同名组: {len(duplicate_groups)} 组')
+    # ---------- 4. 新增：有规格但单位不是'件' ----------
+    # 修正：使用 exclude 代替 unit__ne
+    spec_without_unit = Product.objects.filter(
+        is_active=True
+    ).exclude(unit='件').exclude(specification__in=['', None]).only(
+        'id', 'name', 'unit', 'price', 'specification'
+    )
+    spec_without_unit_data = []
+    for p in spec_without_unit:
+        spec_without_unit_data.append({
+            'id': p.id,
+            'name': p.name,
+            'unit': p.unit,
+            'price': float(p.price),
+            'specification': p.specification or '',
+        })
 
-    # ---------- 4. 作废商品关联的订单项（所有订单，不含补货项） ----------
+    # ---------- 5. 作废商品关联的订单项（所有订单，不含补货项） ----------
     canceled_items = OrderItem.objects.filter(
         product__is_active=False,
-        is_makeup_item=False,  # 排除补货项
+        is_makeup_item=False,
     ).select_related('product', 'order').only(
         'id', 'product_id', 'product__name', 'product__unit', 'product__specification',
         'order__order_no', 'quantity', 'amount', 'actual_unit_price',
@@ -1667,17 +1680,49 @@ def product_audit_preview(request):
     # 获取所有有效商品供前端选择
     all_products_for_replace = Product.objects.filter(is_active=True).values('id', 'name', 'unit', 'specification')
 
-
     return JsonResponse({
         'code': 1,
         'data': {
             'products': product_data,
             'spec_missing': spec_missing_data,
             'duplicate_groups': duplicate_groups,
+            'spec_without_unit': spec_without_unit_data,   # 新增
             'canceled_product_groups': canceled_product_groups,
             'all_products_for_replace': list(all_products_for_replace),
         }
     })
+
+@login_required
+@permission_required(PERM_PRODUCT_AUDIT)
+def product_audit_clear_spec(request):
+    """
+    批量清空商品规格（仅限有规格但单位不是'件'的商品）
+    请求体：{"product_ids": [1,2,3]}
+    """
+    if request.method != 'POST':
+        return JsonResponse({'code': 0, 'msg': '仅支持POST'})
+
+    try:
+        payload = json.loads(request.body)
+    except:
+        return JsonResponse({'code': 0, 'msg': 'JSON格式错误'})
+
+    product_ids = payload.get('product_ids', [])
+    if not product_ids:
+        return JsonResponse({'code': 0, 'msg': '未选择商品'})
+
+    # 只处理符合条件：有效、规格非空、单位不是'件'
+    products = Product.objects.filter(
+        id__in=product_ids,
+        is_active=True,
+    ).exclude(specification__in=['', None]).exclude(unit='件')
+
+    if not products.exists():
+        return JsonResponse({'code': 0, 'msg': '没有符合条件的商品可供清空规格'})
+
+    with transaction.atomic():
+        count = products.update(specification='')
+    return JsonResponse({'code': 1, 'msg': f'成功清空 {count} 个商品的规格'})
 
 @login_required
 @permission_required(PERM_PRODUCT_AUDIT)

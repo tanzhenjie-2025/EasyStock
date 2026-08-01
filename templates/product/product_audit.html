@@ -40,6 +40,7 @@
         <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-cancel">🗑️ 作废商品栏</a></li>
         <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-spec">📏 规格检测</a></li>
         <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-duplicate">📋 同名商品审核</a></li>
+        <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-spec-unit-error">⚠️ 单位异常</a></li>
         <!-- 新增：作废商品订单项 -->
         <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-canceled-items">🔄 作废商品订单项</a></li>
     </ul>
@@ -149,6 +150,35 @@
                 <button class="btn btn-danger btn-lg" id="confirmDuplicateCancelBtn">确认作废选中商品</button>
             </div>
         </div>
+        
+        <!-- 单位异常（有规格非件） -->
+<div class="tab-pane fade" id="tab-spec-unit-error">
+    <div class="alert alert-warning">
+        以下商品有规格内容但单位不是“件”，可能存在录入错误。请勾选需要清空规格的商品（默认全不选）。
+    </div>
+    <div class="d-flex justify-content-between mb-2">
+        <button class="btn btn-sm btn-outline-primary" id="selectAllSpecUnitError">全选</button>
+        <button class="btn btn-sm btn-outline-secondary" id="deselectAllSpecUnitError">取消全选</button>
+    </div>
+    <div class="product-list">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th style="width:40px"><input type="checkbox" id="masterSpecUnitErrorCheck"></th>
+                    <th>ID</th>
+                    <th>商品名称</th>
+                    <th>单位</th>
+                    <th>单价</th>
+                    <th>规格内容</th>
+                </tr>
+            </thead>
+            <tbody id="specUnitErrorTableBody"></tbody>
+        </table>
+    </div>
+    <div class="mt-3">
+        <button class="btn btn-warning btn-lg" id="confirmClearSpecBtn">确认清空规格</button>
+    </div>
+</div>
 
         <!-- ========== 新增：作废商品订单项 ========== -->
         <div class="tab-pane fade" id="tab-canceled-items">
@@ -246,114 +276,133 @@
 
         // ========== 主渲染函数 ==========
         function renderPage(data) {
-            $('#loadingArea').hide();
-            $('#mainContent').show();
+    $('#loadingArea').hide();
+    $('#mainContent').show();
 
-            // 摘要卡片
-            let cards = '';
-            if (data.products && data.products.length) {
-                cards += `<div class="col-md-3"><div class="card summary-card warning p-2"><strong>无标签商品</strong><br>${data.products.length} 个</div></div>`;
-            }
-            if (data.spec_missing && data.spec_missing.length) {
-                cards += `<div class="col-md-3"><div class="card summary-card warning p-2"><strong>规格缺失</strong><br>${data.spec_missing.length} 个</div></div>`;
-            }
-            if (data.duplicate_groups && data.duplicate_groups.length) {
-                let total = 0;
-                data.duplicate_groups.forEach(g => total += g.items.length);
-                cards += `<div class="col-md-3"><div class="card summary-card duplicate p-2"><strong>同名冲突</strong><br>${total} 个商品 (${data.duplicate_groups.length} 组)</div></div>`;
-            }
-            // 新增：作废商品订单项摘要
-            const canceledGroups = data.canceled_product_groups || [];
-            if (canceledGroups.length) {
-                let totalItems = 0;
-                canceledGroups.forEach(g => totalItems += g.items.length);
-                cards += `<div class="col-md-3"><div class="card summary-card canceled-items p-2"><strong>作废商品关联订单项</strong><br>${totalItems} 项 (${canceledGroups.length} 组)</div></div>`;
-            }
-            if (!cards) {
-                cards = `<div class="col-md-12"><div class="card p-2"><strong>✅ 所有商品均正常</strong></div></div>`;
-            }
-            $('#summaryCards').html(cards);
+    // 摘要卡片（已包含新增卡片）
+    let cards = '';
+    if (data.products && data.products.length) {
+        cards += `<div class="col-md-3"><div class="card summary-card warning p-2"><strong>无标签商品</strong><br>${data.products.length} 个</div></div>`;
+    }
+    if (data.spec_missing && data.spec_missing.length) {
+        cards += `<div class="col-md-3"><div class="card summary-card warning p-2"><strong>规格缺失</strong><br>${data.spec_missing.length} 个</div></div>`;
+    }
+    if (data.spec_without_unit && data.spec_without_unit.length) {
+        cards += `<div class="col-md-3"><div class="card summary-card warning p-2"><strong>单位异常（有规格非件）</strong><br>${data.spec_without_unit.length} 个</div></div>`;
+    }
+    if (data.duplicate_groups && data.duplicate_groups.length) {
+        let total = 0;
+        data.duplicate_groups.forEach(g => total += g.items.length);
+        cards += `<div class="col-md-3"><div class="card summary-card duplicate p-2"><strong>同名冲突</strong><br>${total} 个商品 (${data.duplicate_groups.length} 组)</div></div>`;
+    }
+    const canceledGroups = data.canceled_product_groups || [];
+    if (canceledGroups.length) {
+        let totalItems = 0;
+        canceledGroups.forEach(g => totalItems += g.items.length);
+        cards += `<div class="col-md-3"><div class="card summary-card canceled-items p-2"><strong>作废商品关联订单项</strong><br>${totalItems} 项 (${canceledGroups.length} 组)</div></div>`;
+    }
+    if (!cards) {
+        cards = `<div class="col-md-12"><div class="card p-2"><strong>✅ 所有商品均正常</strong></div></div>`;
+    }
+    $('#summaryCards').html(cards);
 
-            // 1. 标签检测
-            let tagHtml = '';
-            if (data.products && data.products.length) {
-                data.products.forEach(function(p) {
-                    tagHtml += `<tr>
-                        <td><input type="checkbox" class="tag-check" value="${p.id}"></td>
-                        <td>${p.id}</td>
-                        <td>${p.name}</td>
-                        <td>${p.unit}</td>
-                        <td>${p.price}</td>
-                        <td><input type="text" class="form-control form-control-sm tag-input" data-id="${p.id}" placeholder="标签名称（逗号分隔）"></td>
-                    </tr>`;
-                });
-            } else {
-                tagHtml = `<tr><td colspan="6" class="text-center text-muted">暂无无标签商品</td></tr>`;
-            }
-            $('#tagTableBody').html(tagHtml);
+    // 1. 标签检测
+    let tagHtml = '';
+    if (data.products && data.products.length) {
+        data.products.forEach(function(p) {
+            tagHtml += `<tr>
+                <td><input type="checkbox" class="tag-check" value="${p.id}"></td>
+                <td>${p.id}</td>
+                <td>${p.name}</td>
+                <td>${p.unit}</td>
+                <td>${p.price}</td>
+                <td><input type="text" class="form-control form-control-sm tag-input" data-id="${p.id}" placeholder="标签名称（逗号分隔）"></td>
+            </tr>`;
+        });
+    } else {
+        tagHtml = `<tr><td colspan="6" class="text-center text-muted">暂无无标签商品</td></tr>`;
+    }
+    $('#tagTableBody').html(tagHtml);
 
-            // 2. 作废栏
-            let cancelHtml = '';
-            if (data.products && data.products.length) {
-                data.products.forEach(function(p) {
-                    cancelHtml += `<tr>
-                        <td><input type="checkbox" class="cancel-check" value="${p.id}"></td>
-                        <td>${p.id}</td>
-                        <td>${p.name}</td>
-                        <td>${p.unit}</td>
-                        <td>${p.price}</td>
-                    </tr>`;
-                });
-            } else {
-                cancelHtml = `<tr><td colspan="5" class="text-center text-muted">暂无无标签商品</td></tr>`;
-            }
-            $('#cancelTableBody').html(cancelHtml);
+    // 2. 作废栏
+    let cancelHtml = '';
+    if (data.products && data.products.length) {
+        data.products.forEach(function(p) {
+            cancelHtml += `<tr>
+                <td><input type="checkbox" class="cancel-check" value="${p.id}"></td>
+                <td>${p.id}</td>
+                <td>${p.name}</td>
+                <td>${p.unit}</td>
+                <td>${p.price}</td>
+            </tr>`;
+        });
+    } else {
+        cancelHtml = `<tr><td colspan="5" class="text-center text-muted">暂无无标签商品</td></tr>`;
+    }
+    $('#cancelTableBody').html(cancelHtml);
 
-            // 3. 规格检测
-            let specHtml = '';
-            if (data.spec_missing && data.spec_missing.length) {
-                data.spec_missing.forEach(function(p) {
-                    specHtml += `<tr>
-                        <td><input type="checkbox" class="spec-check" value="${p.id}"></td>
-                        <td>${p.id}</td>
-                        <td>${p.name}</td>
-                        <td>${p.unit}</td>
-                        <td>${p.price}</td>
-                        <td><input type="text" class="form-control form-control-sm spec-input" data-id="${p.id}" placeholder="输入规格内容"></td>
-                    </tr>`;
-                });
-            } else {
-                specHtml = `<tr><td colspan="6" class="text-center text-muted">所有“件”商品均有规格</td></tr>`;
-            }
-            $('#specTableBody').html(specHtml);
+    // 3. 规格检测
+    let specHtml = '';
+    if (data.spec_missing && data.spec_missing.length) {
+        data.spec_missing.forEach(function(p) {
+            specHtml += `<tr>
+                <td><input type="checkbox" class="spec-check" value="${p.id}"></td>
+                <td>${p.id}</td>
+                <td>${p.name}</td>
+                <td>${p.unit}</td>
+                <td>${p.price}</td>
+                <td><input type="text" class="form-control form-control-sm spec-input" data-id="${p.id}" placeholder="输入规格内容"></td>
+            </tr>`;
+        });
+    } else {
+        specHtml = `<tr><td colspan="6" class="text-center text-muted">所有“件”商品均有规格</td></tr>`;
+    }
+    $('#specTableBody').html(specHtml);
 
-            // 4. 同名商品审核
-            let dupHtml = '';
-            if (data.duplicate_groups && data.duplicate_groups.length) {
-                data.duplicate_groups.forEach(function(group) {
-                    dupHtml += `<tr class="group-header"><td colspan="5">📦 ${group.name} (共 ${group.items.length} 个)</td></tr>`;
-                    group.items.forEach(function(p) {
-                        dupHtml += `<tr>
-                            <td><input type="checkbox" class="duplicate-check" value="${p.id}"></td>
-                            <td>${p.name}</td>
-                            <td>${p.id}</td>
-                            <td>${p.unit}</td>
-                            <td>${p.price}</td>
-                        </tr>`;
-                    });
-                });
-            } else {
-                dupHtml = `<tr><td colspan="5" class="text-center text-muted">暂无同名且无规格的商品</td></tr>`;
-            }
-            $('#duplicateTableBody').html(dupHtml);
+    // 4. 同名商品审核
+    let dupHtml = '';
+    if (data.duplicate_groups && data.duplicate_groups.length) {
+        data.duplicate_groups.forEach(function(group) {
+            dupHtml += `<tr class="group-header"><td colspan="5">📦 ${group.name} (共 ${group.items.length} 个)</td></tr>`;
+            group.items.forEach(function(p) {
+                dupHtml += `<tr>
+                    <td><input type="checkbox" class="duplicate-check" value="${p.id}"></td>
+                    <td>${p.name}</td>
+                    <td>${p.id}</td>
+                    <td>${p.unit}</td>
+                    <td>${p.price}</td>
+                </tr>`;
+            });
+        });
+    } else {
+        dupHtml = `<tr><td colspan="5" class="text-center text-muted">暂无同名且无规格的商品</td></tr>`;
+    }
+    $('#duplicateTableBody').html(dupHtml);
 
-            // ========== 新增：渲染作废商品订单项 ==========
-            renderCanceledItems(data.canceled_product_groups || [], data.all_products_for_replace || []);
-            // =================================================
+    // 5. 单位异常（有规格非件）—— 新增
+    let specUnitErrorHtml = '';
+    if (data.spec_without_unit && data.spec_without_unit.length) {
+        data.spec_without_unit.forEach(function(p) {
+            specUnitErrorHtml += `<tr>
+                <td><input type="checkbox" class="spec-unit-error-check" value="${p.id}"></td>
+                <td>${p.id}</td>
+                <td>${p.name}</td>
+                <td>${p.unit}</td>
+                <td>${p.price}</td>
+                <td>${p.specification}</td>
+            </tr>`;
+        });
+    } else {
+        specUnitErrorHtml = `<tr><td colspan="6" class="text-center text-muted">暂无此类商品</td></tr>`;
+    }
+    $('#specUnitErrorTableBody').html(specUnitErrorHtml);
 
-            // 绑定事件
-            bindEvents();
-        }
+    // 6. 作废商品订单项（不变）
+    renderCanceledItems(data.canceled_product_groups || [], data.all_products_for_replace || []);
+
+    // 绑定事件
+    bindEvents();
+}
 
         // ========== 渲染作废商品订单项（新增） ==========
         function renderCanceledItems(groups, allProducts) {
@@ -470,31 +519,42 @@
 
         // ========== 绑定所有事件 ==========
         function bindEvents() {
-            // ---- 标签检测 ----
-            $('#masterTagCheck').off('change').on('change', function() { $('.tag-check').prop('checked', this.checked); });
-            $('#selectAllTag').off('click').on('click', function() { $('.tag-check').prop('checked', true); });
-            $('#deselectAllTag').off('click').on('click', function() { $('.tag-check').prop('checked', false); });
+    // ---- 标签检测 ----
+    $('#masterTagCheck').off('change').on('change', function() { $('.tag-check').prop('checked', this.checked); });
+    $('#selectAllTag').off('click').on('click', function() { $('.tag-check').prop('checked', true); });
+    $('#deselectAllTag').off('click').on('click', function() { $('.tag-check').prop('checked', false); });
 
-            // ---- 作废栏 ----
-            $('#masterCancelCheck').off('change').on('change', function() { $('.cancel-check').prop('checked', this.checked); });
-            $('#selectAllCancel').off('click').on('click', function() { $('.cancel-check').prop('checked', true); });
-            $('#deselectAllCancel').off('click').on('click', function() { $('.cancel-check').prop('checked', false); });
+    // ---- 作废栏 ----
+    $('#masterCancelCheck').off('change').on('change', function() { $('.cancel-check').prop('checked', this.checked); });
+    $('#selectAllCancel').off('click').on('click', function() { $('.cancel-check').prop('checked', true); });
+    $('#deselectAllCancel').off('click').on('click', function() { $('.cancel-check').prop('checked', false); });
 
-            // ---- 规格检测 ----
-            $('#masterSpecCheck').off('change').on('change', function() { $('.spec-check').prop('checked', this.checked); });
-            $('#selectAllSpec').off('click').on('click', function() { $('.spec-check').prop('checked', true); });
-            $('#deselectAllSpec').off('click').on('click', function() { $('.spec-check').prop('checked', false); });
+    // ---- 规格检测 ----
+    $('#masterSpecCheck').off('change').on('change', function() { $('.spec-check').prop('checked', this.checked); });
+    $('#selectAllSpec').off('click').on('click', function() { $('.spec-check').prop('checked', true); });
+    $('#deselectAllSpec').off('click').on('click', function() { $('.spec-check').prop('checked', false); });
 
-            // ---- 同名商品审核 ----
-            $('#masterDuplicateCheck').off('change').on('change', function() { $('.duplicate-check').prop('checked', this.checked); });
-            $('#selectAllDuplicate').off('click').on('click', function() { $('.duplicate-check').prop('checked', true); });
-            $('#deselectAllDuplicate').off('click').on('click', function() { $('.duplicate-check').prop('checked', false); });
+    // ---- 同名商品审核 ----
+    $('#masterDuplicateCheck').off('change').on('change', function() { $('.duplicate-check').prop('checked', this.checked); });
+    $('#selectAllDuplicate').off('click').on('click', function() { $('.duplicate-check').prop('checked', true); });
+    $('#deselectAllDuplicate').off('click').on('click', function() { $('.duplicate-check').prop('checked', false); });
 
-            // ---- 键盘导航 ----
-            $('#tagTableBody, #specTableBody')
-                .off('keydown.auditNav')
-                .on('keydown.auditNav', handleKeyNavigation);
-        }
+    // ---- 单位异常（有规格非件）新增 ----
+    $('#masterSpecUnitErrorCheck').off('change').on('change', function() {
+        $('.spec-unit-error-check').prop('checked', this.checked);
+    });
+    $('#selectAllSpecUnitError').off('click').on('click', function() {
+        $('.spec-unit-error-check').prop('checked', true);
+    });
+    $('#deselectAllSpecUnitError').off('click').on('click', function() {
+        $('.spec-unit-error-check').prop('checked', false);
+    });
+
+    // ---- 键盘导航 ----
+    $('#tagTableBody, #specTableBody')
+        .off('keydown.auditNav')
+        .on('keydown.auditNav', handleKeyNavigation);
+}
 
         // ===================== 确认添加标签 =====================
         $('#confirmAddTagBtn').click(function() {
@@ -541,6 +601,52 @@
                 }
             });
         });
+        
+        // ===================== 确认清空规格（单位异常） =====================
+$('#confirmClearSpecBtn').click(function() {
+    const $btn = $(this);
+    $btn.prop('disabled', true).text('处理中...');
+    $('#messageArea').html('');
+
+    const productIds = [];
+    $('.spec-unit-error-check:checked').each(function() {
+        productIds.push(this.value);
+    });
+
+    if (productIds.length === 0) {
+        $('#messageArea').html('<div class="alert alert-warning">请至少勾选一个商品进行清空规格</div>');
+        $btn.prop('disabled', false).text('确认清空规格');
+        return;
+    }
+
+    if (!confirm(`确定要清空选中的 ${productIds.length} 个商品的规格吗？\n注意：仅清空单位不是“件”且有规格的商品。`)) {
+        $btn.prop('disabled', false).text('确认清空规格');
+        return;
+    }
+
+    $.ajax({
+        url: '{% url "product:product_audit_clear_spec" %}',
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ product_ids: productIds }),
+        beforeSend: function(xhr) {
+            xhr.setRequestHeader('X-CSRFToken', getCsrfToken());
+        },
+        success: function(res) {
+            if (res.code === 1) {
+                $('#messageArea').html(`<div class="alert alert-success">${res.msg}</div>`);
+                setTimeout(function() { location.reload(); }, 1500);
+            } else {
+                $('#messageArea').html(`<div class="alert alert-danger">${res.msg}</div>`);
+                $btn.prop('disabled', false).text('确认清空规格');
+            }
+        },
+        error: function() {
+            $('#messageArea').html('<div class="alert alert-danger">请求失败，请稍后重试</div>');
+            $btn.prop('disabled', false).text('确认清空规格');
+        }
+    });
+});
 
         // ===================== 确认作废商品 =====================
         $('#confirmCancelBtn').click(function() {
