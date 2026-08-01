@@ -233,6 +233,24 @@ def product_manage(request):
         # 序列化商品数据
         product_list_data = []
         for product in page_products:
+            # 从预取的 tags 中构建标签列表（每个标签包含 id、name、color）
+            tag_list = [
+                {
+                    'id': tag.id,
+                    'name': tag.name,
+                    'color': tag.color
+                }
+                for tag in product.tags.all()  # 因为使用了 Prefetch，此操作不会产生额外查询
+            ]
+            # 同样处理别名（如果之前未正确填充，也一并修复）
+            alias_list = [
+                {
+                    'id': alias.id,
+                    'alias_name': alias.alias_name,
+                    # 如果需要更多字段，可继续添加
+                }
+                for alias in product.aliases.all()
+            ]
             product_list_data.append({
                 'id': product.id,
                 'name': product.name,
@@ -241,8 +259,8 @@ def product_manage(request):
                 'specification': product.specification,
                 'stock_system': product.stock_system,
                 'stock_actual': product.stock_actual,
-                'aliases': [...],   # 原有别名序列化逻辑保持不变
-                'tags': [...],      # 原有标签序列化逻辑保持不变
+                'aliases': alias_list,
+                'tags': tag_list,  # ✅ 现在传入了真实标签数据
                 'status': 1 if product.is_active else 0,
                 'pinyin_abbr': product.pinyin_abbr,
             })
