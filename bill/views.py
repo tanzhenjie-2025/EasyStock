@@ -270,25 +270,21 @@ def build_product_search_q(keyword: str) -> Q:
     if not kw:
         return Q(id=-1)
 
-    # 关键修改：使用 isascii() 判断是否为纯 ASCII 字母（英文/拼音）
-    if kw.isascii() and kw.isalpha():
-        # 纯拼音/英文：全拼、首字母缩写（含别名）
-        q = (
-            Q(pinyin_full__icontains=kw) |
-            Q(pinyin_abbr__icontains=kw) |
-            Q(aliases__alias_pinyin_full__icontains=kw) |
-            Q(aliases__alias_pinyin_abbr__icontains=kw)
-        )
-        # 针对短词（≤2）增加前缀匹配加速（可选）
-        if len(kw) <= 2:
-            q |= (
-                Q(pinyin_abbr__startswith=kw) |
-                Q(aliases__alias_pinyin_abbr__startswith=kw)
-            )
-        return q
-    else:
-        # 中文或混合字符：直接匹配名称和别名
+    # 判断是否包含中文字符
+    has_chinese = any('\u4e00' <= ch <= '\u9fff' for ch in kw)
+
+    if has_chinese:
+        # 有中文 → 匹配商品名或别名（原样）
         return Q(name__icontains=kw) | Q(aliases__alias_name__icontains=kw)
+    else:
+        # 无中文 → 拼音搜索（全拼、首字母，含数字英文）
+        kw_lower = kw.lower()
+        return (
+            Q(pinyin_full__icontains=kw_lower) |
+            Q(pinyin_abbr__icontains=kw_lower) |
+            Q(aliases__alias_pinyin_full__icontains=kw_lower) |
+            Q(aliases__alias_pinyin_abbr__icontains=kw_lower)
+        )
 
 from django.core.cache import cache
 import logging
