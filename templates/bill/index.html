@@ -1028,17 +1028,18 @@
             const start = suggestCurrentPage * SUGGEST_PAGE_SIZE;
             const end = Math.min(start + SUGGEST_PAGE_SIZE, list.length);
             for (let i = start; i < end; i++) {
-                const item = list[i];
-                const div = document.createElement('div');
-                let priceText = `¥${item.price}/${item.unit}`;
-                if (item.standard_price !== item.price) {
-                    priceText = `¥${item.price}/${item.unit}（原价¥${item.standard_price}）`;
-                }
-                div.textContent = `${(i - start) + 1} ${item.name}  ${priceText}`;
-                div.dataset.index = i;
-                div.onclick = () => selectItem(i);
-                suggestBox.appendChild(div);
-            }
+        const item = list[i];
+        const div = document.createElement('div');
+        let labelHtml = '';
+        if (item.is_recent) {
+            labelHtml = ' <span style="background: #ffc107; color: #000; padding: 1px 6px; border-radius: 3px; font-size: 10px; margin-left: 5px;">客户最近购买</span>';
+        }
+        // 使用 innerHTML 以包含标签样式
+        div.innerHTML = `${(i - start) + 1} ${item.name}  ¥${item.price}/${item.unit}${labelHtml}`;
+        div.dataset.index = i;
+        div.onclick = () => selectItem(i);
+        suggestBox.appendChild(div);
+    }
             if (totalPages > 1) {
                 const navDiv = document.createElement('div');
                 navDiv.style.cssText = 'display:flex; justify-content:space-between; align-items:center; padding:4px 8px; font-size:12px; color:#666; background:#f8f9fa;';

@@ -303,6 +303,7 @@ def search_product(request):
     if not keyword:
         return JsonResponse({'code': 0, 'data': []})
 
+    # 1. 从缓存获取商品搜索结果（标准价格、单位等）
     cache_key = f"{CACHE_PREFIX_PRODUCT_SEARCH}_{keyword}"
     cached_products = cache.get(cache_key)
 
@@ -323,17 +324,40 @@ def search_product(request):
         cache.set(cache_key, cached_products, timeout=CACHE_PRODUCT_SEARCH)
         logger.info(f"设置商品搜索缓存: {cache_key}")
 
-    # 客户专属价查询
+    # 2. 获取客户最近购买商品（若已缓存）
+    recent_product_ids = set()
+    recent_price_map = {}
+    if customer_id:
+        recent_cache_key = f"{CACHE_PREFIX_CUSTOMER_RECENT_PRODUCT}{customer_id}"
+        recent_products = cache.get(recent_cache_key)
+        if recent_products:
+            for p in recent_products:
+                # 仅处理系统商品（id > 0）
+                if p.get('id') and p['id'] > 0:
+                    recent_product_ids.add(p['id'])
+                    recent_price_map[p['id']] = p.get('price', 0.0)
+        # 如果缓存不存在，则忽略，不影响正常搜索
+
+    # 3. 客户专属价查询（原逻辑）
     customer_prices = {}
     if customer_id:
         product_ids = [item['id'] for item in cached_products]
         cp_list = CustomerPrice.objects.filter(customer_id=customer_id, product_id__in=product_ids)
         customer_prices = {cp.product_id: float(cp.custom_price) for cp in cp_list}
 
+    # 4. 构建返回数据，并标记是否为最近购买商品
     data = []
     for item in cached_products:
         product_id = item['id']
-        final_price = customer_prices.get(product_id, item['standard_price'])
+        is_recent = product_id in recent_product_ids
+
+        if is_recent:
+            # 使用最近购买价格（缓存中的 price）
+            final_price = recent_price_map[product_id]
+        else:
+            # 使用客户专属价（若有），否则标准价
+            final_price = customer_prices.get(product_id, item['standard_price'])
+
         data.append({
             'id': product_id,
             'name': item['name'],
@@ -342,7 +366,14 @@ def search_product(request):
             'unit': item['unit'],
             'stock_system': item['stock_system'],
             'specification': item['specification'],
+            'is_recent': is_recent,   # 新增字段，供前端显示标签
         })
+
+    # 5. 排序：最近购买的商品优先展示在前列
+    recent_data = [d for d in data if d['is_recent']]
+    other_data = [d for d in data if not d['is_recent']]
+    data = recent_data + other_data
+
     return JsonResponse({'code': 1, 'data': data})
 
 
