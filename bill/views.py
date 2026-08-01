@@ -2656,163 +2656,24 @@ def is_customer_name_format_valid(raw_name):
 
 def _audit_normal_orders(order_nos, user):
     """
-    正常审核订单（完整流程 + 自动商品归属 + 客户关联与制单号设置）
-    增加详细调试输出，确保客户关联和制单号设置生效
+    正常审核订单：仅将订单标记为已审核，不创建任何关联数据（区域、客户、商品等）。
+    所有的区域、客户、商品创建和归属由其他标签页独立处理。
     """
     if not order_nos:
         return JsonResponse({'code': 0, 'msg': '未提供订单号'})
 
-    orders = list(Order.objects.filter(order_no__in=order_nos, is_verified=False)
-                  .select_related('area')
-                  .prefetch_related('items'))
-    if not orders:
+    # 获取未审核的订单，仅更新 is_verified 字段
+    orders = Order.objects.filter(order_no__in=order_nos, is_verified=False)
+    if not orders.exists():
         return JsonResponse({'code': 0, 'msg': '所选订单均不存在或已审核'})
 
-    # ---- 收集基础数据 ----
-    area_names = set()
-    customer_data = {}  # key: (pure_name, area_name) -> {'order_nos': [], 'order_numbers': []}
-    product_map = {}
+    # 批量标记为已审核
+    updated_count = orders.update(is_verified=True)
 
-    for order in orders:
-        if order.area:
-            area_names.add(order.area.name)
-
-        raw_customer = order.customer_name_snapshot or ''
-        if raw_customer:
-            final_area, pure_name = parse_customer_name(raw_customer, order.area.name if order.area else '')
-            if pure_name:
-                if final_area:
-                    area_names.add(final_area)
-                key = (pure_name, final_area)
-                if key not in customer_data:
-                    customer_data[key] = {'order_nos': [], 'order_numbers': []}
-                customer_data[key]['order_nos'].append(order.order_no)
-                # 制单号：优先使用快照，若为空则用订单号
-                order_number = order.order_number_snapshot or order.order_no
-                customer_data[key]['order_numbers'].append(order_number)
-                print(f"收集: 客户键 {key}, 订单号 {order.order_no}, 制单号 {order_number}")
-        else:
-            print(f"订单 {order.order_no} 的 customer_name_snapshot 为空，跳过客户创建")
-
-        for item in order.items.all():
-            if item.is_makeup_item:
-                continue
-            norm_key = (item.product_name.strip().lower(), item.unit.strip().lower())
-            if norm_key not in product_map:
-                product_map[norm_key] = {
-                    'price': item.actual_unit_price or Decimal('0'),
-                    'spec': item.specification or '',
-                    'raw_name': item.product_name.strip(),
-                    'raw_unit': item.unit.strip(),
-                }
-
-    print(f"=== 收集到的客户数据: {customer_data} ===")
-
-    # ---- 原子事务开始 ----
-    with transaction.atomic():
-        # 1. 创建区域
-        existing_areas = set(Area.objects.filter(name__in=area_names, is_active=True).values_list('name', flat=True))
-        missing_areas = [a for a in area_names if a not in existing_areas]
-        if missing_areas:
-            Area.objects.bulk_create([Area(name=n) for n in missing_areas])
-
-        # 2. 创建/获取客户，并通过 update 批量关联订单
-        for (pure_name, area_name), info in customer_data.items():
-            area_obj = Area.objects.filter(name=area_name, is_active=True).first() if area_name else None
-
-            first_order_number = info['order_numbers'][0] if info['order_numbers'] else ''
-            print(f"准备创建/获取客户: {pure_name}, 区域: {area_name}, 制单号: {first_order_number}")
-
-            customer, created = Customer.all_objects.get_or_create(
-                name=pure_name,
-                area=area_obj,
-                defaults={
-                    'is_active': True,
-                    'order_number': first_order_number
-                }
-            )
-            if not created and not customer.is_active:
-                customer.is_active = True
-                customer.save(update_fields=['is_active'])
-                print(f"重新激活已有客户: {customer.id}")
-            elif created:
-                print(f"新建客户: {customer.id}, 制单号: {customer.order_number}")
-            else:
-                print(f"使用已有客户: {customer.id}, 制单号: {customer.order_number}")
-
-            # 批量更新订单
-            order_list = Order.objects.filter(
-                order_no__in=info['order_nos'],
-                is_verified=False
-            )
-            print(f"待更新订单号列表: {info['order_nos']}")
-            print(f"查询到的订单数: {order_list.count()}")
-            updated_count = order_list.update(customer=customer)
-            print(f"更新了 {updated_count} 个订单的 customer")
-
-            # 如果 update 没生效，尝试逐个保存（主要解决可能的事务或缓存问题）
-            if updated_count == 0:
-                print("update 方法未更新任何订单，尝试逐个保存...")
-                for order_no in info['order_nos']:
-                    try:
-                        order_obj = Order.objects.get(order_no=order_no, is_verified=False)
-                        order_obj.customer = customer
-                        order_obj.save(update_fields=['customer'])
-                        print(f"订单 {order_no} 已关联客户 {customer.id}")
-                    except Order.DoesNotExist:
-                        print(f"订单 {order_no} 不存在或已审核")
-
-        # 3. 处理商品（新建或更新价格），使用规范化键判断
-        existing_products = Product.objects.filter(is_active=True)
-        existing_prod_map = {}
-        for p in existing_products:
-            norm_key = (p.name.strip().lower(), p.unit.strip().lower())
-            existing_prod_map[norm_key] = p
-
-        for norm_key, info in product_map.items():
-            if norm_key in existing_prod_map:
-                prod = existing_prod_map[norm_key]
-                if prod.price != info['price']:
-                    prod.price = info['price']
-                    prod.save(update_fields=['price'])
-            else:
-                Product.objects.create(
-                    name=info['raw_name'],
-                    unit=info['raw_unit'],
-                    specification=info.get('spec', ''),
-                    price=info['price'],
-                    stock_system=0,
-                    stock_actual=0
-                )
-
-        # 4. 重新获取所有活跃商品，构建规范化键映射
-        all_products = Product.objects.filter(is_active=True)
-        product_dict = {}
-        for p in all_products:
-            norm_key = (p.name.strip().lower(), p.unit.strip().lower())
-            product_dict[norm_key] = p
-
-        # 5. 遍历订单项，自动归属商品 + 更新价格快照
-        for order in orders:
-            for item in order.items.all():
-                if item.is_makeup_item:
-                    continue
-                norm_key = (item.product_name.strip().lower(), item.unit.strip().lower())
-                prod = product_dict.get(norm_key)
-                if prod:
-                    if not item.product:
-                        item.product = prod
-                    item.snapshot_standard_price = prod.price
-                    item.snapshot_customer_price = None
-                    item.save(update_fields=['product', 'snapshot_standard_price', 'snapshot_customer_price'])
-                else:
-                    print(f"警告: 订单 {order.order_no} 项 '{item.product_name}' 单位 '{item.unit}' 未匹配到商品")
-
-            order.is_verified = True
-            order.save(update_fields=['is_verified'])
-
+    # 清理缓存（如果有）
     clear_order_cache()
-    return JsonResponse({'code': 1, 'msg': f'成功审核 {len(orders)} 个订单（含商品自动归属和客户关联）'})
+
+    return JsonResponse({'code': 1, 'msg': f'成功审核 {updated_count} 个订单（仅标记通过，无任何创建行为）'})
 
 
 def _audit_cancel_orders(cancel_order_nos, user):
