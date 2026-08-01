@@ -182,14 +182,19 @@ def product_manage(request):
         elif status == 'inactive':
             products_query = products_query.filter(is_active=False)
 
-        # 关键词搜索
+        # ========== 🔍 拼音搜索扩展（关键修改） ==========
         if keyword:
-            alias_product_ids = ProductAlias.all_objects.filter(
-                Q(alias_name__icontains=keyword)
-            ).values_list('product_id', flat=True)
+            # 构建组合查询：名称（中文/拼音全拼/首字母） + 别名（名称/拼音全拼/首字母）
             products_query = products_query.filter(
-                Q(name__icontains=keyword) | Q(id__in=alias_product_ids)
-            )
+                Q(name__icontains=keyword) |                           # 原始名称（中文）
+                Q(pinyin_full__icontains=keyword) |                   # 名称全拼
+                Q(pinyin_abbr__icontains=keyword) |                   # 名称首字母
+                Q(aliases__alias_name__icontains=keyword) |           # 别名名称
+                Q(aliases__alias_pinyin_full__icontains=keyword) |    # 别名全拼
+                Q(aliases__alias_pinyin_abbr__icontains=keyword)      # 别名首字母
+            ).distinct()  # 避免因关联别名产生重复记录
+
+        # ========== 原别名子查询已由上方跨表Q替代，不需要再单独处理 ==========
 
         # 标签筛选
         if tag_ids:
@@ -236,10 +241,10 @@ def product_manage(request):
                 'specification': product.specification,
                 'stock_system': product.stock_system,
                 'stock_actual': product.stock_actual,
-                'aliases': [...],
-                'tags': [...],
+                'aliases': [...],   # 原有别名序列化逻辑保持不变
+                'tags': [...],      # 原有标签序列化逻辑保持不变
                 'status': 1 if product.is_active else 0,
-                'pinyin_abbr': product.pinyin_abbr,  # 新增
+                'pinyin_abbr': product.pinyin_abbr,
             })
 
         # 序列化分页器数据
@@ -260,25 +265,22 @@ def product_manage(request):
             'count_stats': count_stats
         }, CACHE_COMMON)
 
-    # ========== 新增：单位管理相关 ==========
+    # ========== 单位管理相关（未改动，省略部分） ==========
     unit_keyword = request.GET.get('unit_keyword', '').strip()
     unit_status = request.GET.get('unit_status', 'all')
 
-    # 全量统计
     count_unit_all = Unit.all_objects.count()
     count_unit_active = Unit.all_objects.filter(is_active=True).count()
     count_unit_inactive = Unit.all_objects.filter(is_active=False).count()
 
-    # 带过滤的列表
     unit_list_qs = Unit.all_objects.all().order_by('sort_order', 'id')
-
     if unit_keyword:
         unit_list_qs = unit_list_qs.filter(name__icontains=unit_keyword)
     if unit_status == 'active':
         unit_list_qs = unit_list_qs.filter(is_active=True)
     elif unit_status == 'inactive':
         unit_list_qs = unit_list_qs.filter(is_active=False)
-    # 区域缓存
+
     areas = cache.get(KEY_AREA)
     if not areas:
         areas = list(Area.objects.only('id', 'name'))
@@ -286,10 +288,10 @@ def product_manage(request):
 
     context = {
         'products': product_list_data,
-        'paginator_data': paginator_data,  # 前端需适配分页器数据结构
+        'paginator_data': paginator_data,
         'keyword': keyword,
         'status': status,
-        'tag_ids': list(map(int, tag_ids)),  # 转换为整数列表供前端使用
+        'tag_ids': list(map(int, tag_ids)),
         'all_tags': all_tags,
         'count_all': count_stats['count_all'],
         'count_active': count_stats['count_active'],
