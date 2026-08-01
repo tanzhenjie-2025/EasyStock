@@ -408,6 +408,21 @@ const orderDetailUrlTemplate = "{% url 'bill:order_detail' 'ORDER_NO_PLACEHOLDER
             </option>
         {% endfor %}
     </select>
+            
+            <!-- 订单状态多选（叠加筛选） -->
+<div class="col-auto">
+    <label class="form-label-sm me-2">订单状态：</label>
+    <div class="d-flex flex-wrap gap-3">
+        {% for value, label in order_status_choices %}
+        <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" name="statuses" 
+                   value="{{ value }}" id="status_{{ value }}"
+                   {% if value in statuses %}checked{% endif %}>
+            <label class="form-check-label" for="status_{{ value }}">{{ label }}</label>
+        </div>
+        {% endfor %}
+    </div>
+</div>
 </div>
                 <!-- 🔥 新增：保持status筛选参数 -->
                 <input type="hidden" name="status" value="{{ status }}">

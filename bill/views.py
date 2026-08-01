@@ -832,7 +832,8 @@ def get_all_product_tags(request):
 @login_required
 @accounts_permission_required(PERM_ORDER_VIEW)
 def order_list(request):
-    """订单列表页（新增Tab状态筛选版 + 财务进度展示）"""
+    """订单列表页（新增Tab状态筛选版 + 财务进度展示 + 多选状态叠加筛选）"""
+    # ---------- 1. 获取所有筛选参数 ----------
     order_no = request.GET.get('order_no', '').strip()
     date_from = request.GET.get('date_from', '')
     date_to = request.GET.get('date_to', '')
@@ -840,22 +841,24 @@ def order_list(request):
     customer_name = request.GET.get('customer_name', '').strip()
     amount_operator = request.GET.get('amount_operator', '')
     amount_value = request.GET.get('amount_value', '').strip()
-    status = request.GET.get('status', 'all')
-    # 🔥 新增：开单人筛选参数
+    status = request.GET.get('status', 'all')          # Tab 快速筛选
     creator_id = request.GET.get('creator_id', '')
     page = request.GET.get('page', 1)
 
-    # 🔥 缓存键中加入 creator_id
-    cache_key = f"{CACHE_PREFIX_ORDER_LIST}{request.user.id}_{order_no}_{date_from}_{date_to}_{area_id}_{customer_name}_{amount_operator}_{amount_value}_{status}_{creator_id}_{page}"
-    cached_data = cache.get(cache_key)
+    # 🔥 新增：多选订单状态（列表）
+    statuses = request.GET.getlist('statuses')        # 例如 ['pending', 'printed']
 
+    # ---------- 2. 缓存键（加入 statuses） ----------
+    statuses_key = '_'.join(sorted(statuses)) if statuses else 'none'
+    cache_key = f"{CACHE_PREFIX_ORDER_LIST}{request.user.id}_{order_no}_{date_from}_{date_to}_{area_id}_{customer_name}_{amount_operator}_{amount_value}_{status}_{creator_id}_{page}_{statuses_key}"
+    cached_data = cache.get(cache_key)
     if cached_data:
         return HttpResponse(cached_data)
 
-    # 关联预加载（无N+1）
+    # ---------- 3. 基础查询集 ----------
     orders = Order.objects.select_related('area', 'customer', 'creator').order_by('-create_time')
 
-    # 权限控制
+    # ---------- 4. 权限控制 ----------
     is_super_admin = request.user.role and request.user.role.code == ROLE_SUPER_ADMIN
     can_view_others = request.user.has_permission('order_view_others')
     if not is_super_admin and not can_view_others:
@@ -864,15 +867,14 @@ def order_list(request):
     is_admin = request.user.role and request.user.role.code == ROLE_ADMIN
     is_operator = request.user.role and request.user.role.code == ROLE_OPERATOR
 
-    # 🔥 新增：获取开单人列表（用于筛选下拉框）
+    # ---------- 5. 获取开单人列表（用于筛选下拉） ----------
     if is_super_admin or can_view_others:
         creators = User.objects.filter(created_orders__isnull=False).distinct().order_by('user_code')
     else:
-        # 无查看他人权限时，只显示当前用户自己
         creators = User.objects.filter(id=request.user.id)
 
-    # 🔥 状态筛选（核心Tab逻辑，包含已结清/未结清）
-    base_orders = orders
+    # ---------- 6. 订单状态 Tab 筛选（基础） ----------
+    base_orders = orders   # 用于统计计数（不含后续叠加条件）
     if status == 'normal':
         orders = orders.filter(status__in=ORDER_STATUS_VALID)
     elif status == 'cancelled':
@@ -881,22 +883,13 @@ def order_list(request):
         orders = orders.filter(is_settled=True, status__in=ORDER_STATUS_VALID)
     elif status == 'unsettled':
         orders = orders.filter(is_settled=False, status__in=ORDER_STATUS_VALID)
+    # status == 'all' 时不加过滤
 
-    # 🔥 Tab数量统计
-    counts = base_orders.aggregate(
-        count_all=Count('id'),
-        count_normal=Count(Case(When(status__in=ORDER_STATUS_VALID, then='id'))),
-        count_cancelled=Count(Case(When(status='cancelled', then='id'))),
-        count_settled=Count(Case(When(status__in=ORDER_STATUS_VALID, is_settled=True, then='id'))),
-        count_unsettled=Count(Case(When(status__in=ORDER_STATUS_VALID, is_settled=False, then='id')))
-    )
-    count_all = counts['count_all']
-    count_normal = counts['count_normal']
-    count_cancelled = counts['count_cancelled']
-    count_settled = counts['count_settled']
-    count_unsettled = counts['count_unsettled']
+    # 🔥 7. 叠加多选状态筛选（与 Tab 条件同时生效）
+    if statuses:
+        orders = orders.filter(status__in=statuses)
 
-    # 原有筛选逻辑
+    # ---------- 8. 其他筛选条件（日期、区域、客户、金额、开单人） ----------
     if order_no:
         orders = orders.filter(order_no__startswith=order_no)
 
@@ -923,16 +916,28 @@ def order_list(request):
     if amount_operator in ['gt', 'lt'] and amount_value:
         try:
             amount = decimal.Decimal(amount_value)
-            orders = orders.filter(total_amount__gt=amount) if amount_operator == 'gt' else orders.filter(
-                total_amount__lt=amount)
+            orders = orders.filter(total_amount__gt=amount) if amount_operator == 'gt' else orders.filter(total_amount__lt=amount)
         except decimal.InvalidOperation:
             pass
 
-    # 🔥 新增：开单人筛选
     if creator_id and creator_id.isdigit():
         orders = orders.filter(creator_id=int(creator_id))
 
-    # 分页
+    # ---------- 9. Tab 数量统计（基于 base_orders，不包含多选状态） ----------
+    counts = base_orders.aggregate(
+        count_all=Count('id'),
+        count_normal=Count(Case(When(status__in=ORDER_STATUS_VALID, then='id'))),
+        count_cancelled=Count(Case(When(status='cancelled', then='id'))),
+        count_settled=Count(Case(When(status__in=ORDER_STATUS_VALID, is_settled=True, then='id'))),
+        count_unsettled=Count(Case(When(status__in=ORDER_STATUS_VALID, is_settled=False, then='id')))
+    )
+    count_all = counts['count_all']
+    count_normal = counts['count_normal']
+    count_cancelled = counts['count_cancelled']
+    count_settled = counts['count_settled']
+    count_unsettled = counts['count_unsettled']
+
+    # ---------- 10. 分页 ----------
     paginator = Paginator(orders, 10)
     try:
         page_orders = paginator.page(page)
@@ -941,7 +946,7 @@ def order_list(request):
     except EmptyPage:
         page_orders = paginator.page(paginator.num_pages)
 
-    # 统计数据（基于当前筛选结果）
+    # ---------- 11. 统计数据（基于当前筛选结果） ----------
     stats = orders.aggregate(
         total_orders=Count('id'),
         total_sales=Sum('total_amount', default=decimal.Decimal('0.00')),
@@ -955,7 +960,7 @@ def order_list(request):
     settled_orders = stats['settled_orders']
     total_debt = stats['total_debt']
 
-    # 作废权限计算 & 财务数据计算
+    # ---------- 12. 计算每个订单的财务与权限 ----------
     current_time = timezone.now()
     order_list = list(page_orders)
     for order in order_list:
@@ -982,6 +987,8 @@ def order_list(request):
         order.can_cancel = can_cancel
 
     areas = Area.objects.all().order_by('name')
+
+    # ---------- 13. 构造上下文 ----------
     context = {
         'orders': order_list,
         'page_orders': page_orders,
@@ -1007,11 +1014,14 @@ def order_list(request):
         'count_cancelled': count_cancelled,
         'count_settled': count_settled,
         'count_unsettled': count_unsettled,
-        # 🔥 新增：开单人筛选数据
         'creators': creators,
         'creator_id': creator_id,
+        # 🔥 新增：多选状态数据
+        'statuses': statuses,
+        'order_status_choices': Order.ORDER_STATUS,   # 用于生成复选框
     }
 
+    # ---------- 14. 分页导航辅助 ----------
     query_params = request.GET.copy()
     if 'page' in query_params:
         del query_params['page']
@@ -1037,9 +1047,10 @@ def order_list(request):
         'base_query_string': base_query_string,
         'page_range_display': page_range_display,
     })
+
+    # ---------- 15. 渲染与缓存 ----------
     response = render(request, 'bill/order_list.html', context)
     cache.set(cache_key, response.content, CACHE_ORDER_LIST)
-
     return response
 
 @login_required
