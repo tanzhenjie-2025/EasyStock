@@ -244,6 +244,8 @@ function loadAuditPreview(page) {
             xhr.setRequestHeader('X-CSRFToken', getCsrfToken());
         },
         success: function(res) {
+            // 无论结果如何，先重置按钮（防止因异常导致按钮卡住）
+            $('#confirmAuditBtn').prop('disabled', false).text('确认审核');
             if (res.code === 1) {
                 auditData = res.data;
                 renderPage(auditData);
@@ -254,6 +256,7 @@ function loadAuditPreview(page) {
         },
         error: function() {
             $('#loadingArea').html('<div class="alert alert-danger">加载失败，请刷新重试</div>');
+            $('#confirmAuditBtn').prop('disabled', false).text('确认审核');
         }
     });
 }
