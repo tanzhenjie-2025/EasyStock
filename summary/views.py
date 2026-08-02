@@ -1005,3 +1005,19 @@ def out_car_list(request):
         records_page = paginator.page(paginator.num_pages)
 
     return render(request, 'summary/out_car_list.html', {'records_page': records_page})
+
+@login_required
+def get_out_car_record(request, record_id):
+    try:
+        record = OutCarRecord.objects.get(id=record_id)
+        return JsonResponse({
+            'code': 1,
+            'data': {
+                'date': record.date.strftime('%Y-%m-%d'),
+                'route': record.route,
+                'driver': record.driver,
+                'rows': record.data,
+            }
+        })
+    except OutCarRecord.DoesNotExist:
+        return JsonResponse({'code': 0, 'msg': '记录不存在'})

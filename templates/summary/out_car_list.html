@@ -24,31 +24,33 @@
 
     <table class="record-table">
         <thead>
-    <tr>
-        <th>日期</th>
-        <th>路线</th>
-        <th>司机</th>
-        <th>客户数</th>
-        <th>总金额</th>
-        <th>创建时间</th>
-        <th>操作</th>
-    </tr>
-</thead>
-<tbody>
-    {% for record in records_page %}
-    <tr>
-        <td>{{ record.date|date:"Y-m-d" }}</td>
-        <td>{{ record.route|default:"-" }}</td>
-        <td>{{ record.driver|default:"-" }}</td>
-        <td>{{ record.data|length }}</td>
-        <td>¥{{ record.total_amount|floatformat:2 }}</td>
-        <td>{{ record.created_at|date:"Y-m-d H:i" }}</td>
-        <td><a href="#" class="detail-link" onclick="alert('详情功能可扩展')">查看详情</a></td>
-    </tr>
-    {% empty %}
-    <tr><td colspan="7">暂无记录</td></tr>
-    {% endfor %}
-</tbody>
+            <tr>
+                <th>日期</th>
+                <th>路线</th>
+                <th>司机</th>
+                <th>客户数</th>
+                <th>总金额</th>
+                <th>创建时间</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for record in records_page %}
+            <tr>
+                <td>{{ record.date|date:"Y-m-d" }}</td>
+                <td>{{ record.route|default:"-" }}</td>
+                <td>{{ record.driver|default:"-" }}</td>
+                <td>{{ record.data|length }}</td>
+                <td>¥{{ record.total_amount|floatformat:2 }}</td>
+                <td>{{ record.created_at|date:"Y-m-d H:i" }}</td>
+                <td>
+                    <a href="{% url 'summary:out_car_register' %}?record_id={{ record.id }}" class="detail-link">修改</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="7">暂无记录</td></tr>
+            {% endfor %}
+        </tbody>
     </table>
 
     <div class="pagination">

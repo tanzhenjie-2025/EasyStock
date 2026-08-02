@@ -790,30 +790,89 @@ function fillDriver(value) {
         }
         return cookieValue;
     }
+    
+    // ========== 加载指定记录 ==========
+async function loadRecord(recordId) {
+    try {
+        const response = await fetch(`/summary/api/out-car-record/${recordId}/`);
+        const result = await response.json();
+        if (result.code === 1) {
+            const data = result.data;
+            // 填充日期
+            document.getElementById('register-date').value = data.date;
+            // 填充路线
+            document.getElementById('register-route').value = data.route || '';
+            // 填充司机
+            document.getElementById('register-driver').value = data.driver || '';
+            // 填充表格数据
+            const tbody = document.getElementById('bill-tbody');
+            tbody.innerHTML = '';
+            rowIdCounter = 0;
+            data.rows.forEach(row => {
+                const tr = createRowFromData(row.name, row.amount);
+                tbody.appendChild(tr);
+            });
+            updateRowNumbers();
+            calcTotalAmount();
+            // 保存到 localStorage 以便后续修改
+            saveState();
+            return true;
+        } else {
+            alert('加载记录失败：' + result.msg);
+            return false;
+        }
+    } catch (e) {
+        alert('加载记录失败：' + e.message);
+        return false;
+    }
+}
+
+function loadFromCacheOrDefault() {
+    const hasCache = loadState();
+    if (!hasCache) {
+        for (let i = 0; i < 5; i++) {
+            addBlankRow(false, true);
+        }
+        saveState();
+    }
+    updateRowNumbers();
+    calcTotalAmount();
+}
+
 
     // ========== 初始化 ==========
     window.onload = function() {
-        initSuggestBox();
-        const hasCache = loadState();
-        if (!hasCache) {
-            for (let i = 0; i < 5; i++) {
-                addBlankRow(false, true);
+    initSuggestBox();
+    // 检查 URL 参数 record_id
+    const urlParams = new URLSearchParams(window.location.search);
+    const recordId = urlParams.get('record_id');
+    if (recordId) {
+        loadRecord(recordId).then(loaded => {
+            if (!loaded) {
+                loadFromCacheOrDefault();
             }
-            saveState();
-        }
-        updateRowNumbers();
-        calcTotalAmount();
-
-        // 日期输入变化时自动保存
+            // 绑定日期保存事件
+            const dateInput = document.getElementById('register-date');
+            if (dateInput) {
+                dateInput.addEventListener('change', function() {
+                    localStorage.setItem(DATE_STORAGE_KEY, this.value);
+                });
+            }
+            const firstInput = document.querySelector('#bill-tbody .customer-name-input');
+            if (firstInput) firstInput.focus();
+        });
+    } else {
+        loadFromCacheOrDefault();
+        // 绑定日期保存事件
         const dateInput = document.getElementById('register-date');
         if (dateInput) {
             dateInput.addEventListener('change', function() {
                 localStorage.setItem(DATE_STORAGE_KEY, this.value);
             });
         }
-
         const firstInput = document.querySelector('#bill-tbody .customer-name-input');
         if (firstInput) firstInput.focus();
-    };
+    }
+};
 </script>
 {% endblock %}
