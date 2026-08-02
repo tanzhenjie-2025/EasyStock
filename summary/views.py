@@ -833,13 +833,14 @@ def out_car_register(request):
 
 @login_required
 def export_excel(request):
-    """导出出车登记数据为 Excel（每栏25行，间隔列，两侧合计写在有数据一侧底部并标红，信息列底边与客户栏底边对齐）"""
+    """导出出车登记数据为 Excel（每栏25行，间隔列，两侧合计写在有数据一侧底部并标红，信息列底边对齐，包含日期）"""
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
     try:
         data = json.loads(request.body)
         rows = data.get('rows', [])
+        date_str = data.get('date', '')  # 获取日期
         if not rows:
             return JsonResponse({'code': 0, 'msg': '无数据可导出'})
     except:
@@ -876,10 +877,8 @@ def export_excel(request):
     headers = ['序号', '客户名称', '客户金额', '备注']
 
     # ---------- 2. 写入表头 ----------
-    # 左客户栏：A~D
     for col_idx, header in enumerate(headers, start=1):
         ws.cell(row=1, column=col_idx, value=header)
-    # 右客户栏：F~I（E为空列）
     for col_idx, header in enumerate(headers, start=6):  # F=6
         ws.cell(row=1, column=col_idx, value=header)
 
@@ -888,14 +887,13 @@ def export_excel(request):
     left_total = 0
     for i, item in enumerate(left_rows, start=1):
         row_num = i + 1
-        ws.cell(row=row_num, column=1, value=i)          # A:序号
+        ws.cell(row=row_num, column=1, value=i)
         ws.cell(row=row_num, column=2, value=item['name'])
         ws.cell(row=row_num, column=3, value=item['amount'])
-        ws.cell(row=row_num, column=4, value='')         # D:备注
+        ws.cell(row=row_num, column=4, value='')
         left_total += item['amount']
 
-    # 左侧总计行
-    left_last_row = 1  # 记录左侧最后数据行（含总计、两侧合计）
+    left_last_row = 1
     if left_rows:
         row_num = len(left_rows) + 2
         ws.cell(row=row_num, column=1, value='总计')
@@ -905,15 +903,15 @@ def export_excel(request):
 
     right_rows = processed[limit:]
     right_total = 0
-    right_last_row = 1  # 记录右侧最后数据行（含总计、两侧合计）
+    right_last_row = 1
     if right_rows:
         for i, item in enumerate(right_rows, start=1):
             row_num = i + 1
             seq = limit + i
-            ws.cell(row=row_num, column=6, value=seq)    # F:序号
+            ws.cell(row=row_num, column=6, value=seq)
             ws.cell(row=row_num, column=7, value=item['name'])
             ws.cell(row=row_num, column=8, value=item['amount'])
-            ws.cell(row=row_num, column=9, value='')     # I:备注
+            ws.cell(row=row_num, column=9, value='')
             right_total += item['amount']
 
         row_num = len(right_rows) + 2
@@ -922,7 +920,7 @@ def export_excel(request):
         cell_right_total.font = Font(color='FF0000')
         right_last_row = row_num
 
-    # ---------- 4. 两侧合计（写在有数据的一侧底部） ----------
+    # ---------- 4. 两侧合计 ----------
     grand_total = left_total + right_total
     if right_rows:
         grand_row = right_last_row + 2
@@ -937,18 +935,19 @@ def export_excel(request):
         cell_grand.font = Font(color='FF0000')
         left_last_row = grand_row
 
-    # 客户栏底部行号（即两侧合计所在行，或总计行）
     bottom_row = max(left_last_row, right_last_row) if right_rows else left_last_row
 
-    # ---------- 5. 信息列（K列），底边与左侧客户栏底边对齐 ----------
-    info_labels = ['路线:', '总金额:', '退货:', '司机:', '搭档:', '零钱:200元', '实金额:', '补贴:', '时间:']
-    # 计算起始行，使得最后一项（时间:）位于 bottom_row 行
+    # ---------- 5. 信息列（K列），首行插入日期 ----------
+    # 构建标签列表，日期放在最前面
+    date_label = f"日期:{date_str}" if date_str else "日期:"
+    info_labels = [date_label, '路线:', '总金额:', '退货:', '司机:', '搭档:', '零钱:200元', '实金额:', '补贴:', '时间:']
+    # 计算起始行，使得最后一项（时间:）位于 bottom_row
     start_row = bottom_row - (len(info_labels) - 1) * 2
     if start_row < 1:
-        start_row = 1  # 若空间不足，从第1行开始，底部将略低于bottom_row
+        start_row = 1
     for idx, label in enumerate(info_labels):
         row = start_row + idx * 2
-        ws.cell(row=row, column=11, value=label)  # K列
+        ws.cell(row=row, column=11, value=label)
 
     # ---------- 6. 设置列宽 ----------
     col_widths = {
@@ -959,25 +958,20 @@ def export_excel(request):
     for col, width in col_widths.items():
         ws.column_dimensions[chr(64 + col)].width = width
 
-    # ---------- 7. 边框只加在数据区（A~D 和 F~I），范围止于客户栏底部 ----------
+    # ---------- 7. 边框只加在数据区（A~D 和 F~I） ----------
     thin_border = Border(
         left=Side(style='thin'),
         right=Side(style='thin'),
         top=Side(style='thin'),
         bottom=Side(style='thin')
     )
-    # 左侧数据区 (A~D)
     for row in range(1, bottom_row + 1):
         for col in range(1, 5):
             cell = ws.cell(row=row, column=col)
             cell.border = thin_border
-    # 右侧数据区 (F~I)
-    for row in range(1, bottom_row + 1):
         for col in range(6, 10):
             cell = ws.cell(row=row, column=col)
             cell.border = thin_border
-
-    # E列、J列、K列无边框
 
     # ---------- 8. 页面横向 ----------
     ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
