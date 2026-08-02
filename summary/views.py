@@ -814,7 +814,12 @@ from django.shortcuts import render
 @login_required
 def out_car_register(request):
     """出车登记工具页面"""
-    return render(request, 'summary/out_car_register.html')
+    route_options = ['稔山线', '遮浪线', '陆丰线', '陆河线', '海城线', '梅陇线', '可塘线']
+    driver_options = ['塔', '容', '伦', '达', '远', '武']
+    return render(request, 'summary/out_car_register.html', {
+        'route_options': route_options,
+        'driver_options': driver_options
+    })
 
 
 from openpyxl import Workbook
@@ -823,24 +828,22 @@ from django.http import HttpResponse, JsonResponse
 from django.contrib.auth.decorators import login_required
 import json
 from django.shortcuts import render
-
-
-@login_required
-def out_car_register(request):
-    """出车登记工具页面"""
-    return render(request, 'summary/out_car_register.html')
-
+# summary/views.py 中，替换原有的 export_excel 函数
+from .models import OutCarRecord
+from decimal import Decimal
 
 @login_required
 def export_excel(request):
-    """导出出车登记数据为 Excel（每栏25行，间隔列，两侧合计写在有数据一侧底部并标红，信息列底边对齐，包含日期）"""
+    """导出出车登记数据为 Excel（自动保存记录，包含路线和司机）"""
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
     try:
         data = json.loads(request.body)
         rows = data.get('rows', [])
-        date_str = data.get('date', '')  # 获取日期
+        date_str = data.get('date', '')
+        route = data.get('route', '')
+        driver = data.get('driver', '')
         if not rows:
             return JsonResponse({'code': 0, 'msg': '无数据可导出'})
     except:
@@ -854,7 +857,7 @@ def export_excel(request):
 
     # ---------- 1. 合并重名，累加金额 ----------
     merged = {}
-    order = []   # 保持首次出现顺序
+    order = []
     for row in rows:
         raw_name = row.get('customer_name', '')
         name = extract_name(raw_name)
@@ -867,22 +870,34 @@ def export_excel(request):
         merged[name] += amount
 
     processed = [{'name': name, 'amount': merged[name]} for name in order]
-    limit = 25  # 每栏最大行数
+    total_amount = sum(item['amount'] for item in processed)
+    limit = 25
 
-    # ---------- 创建工作簿 ----------
+    # ---------- 2. 保存记录到数据库 ----------
+    from datetime import datetime
+    record_date = datetime.strptime(date_str, '%Y-%m-%d').date() if date_str else datetime.now().date()
+    OutCarRecord.objects.create(
+        date=record_date,
+        data=processed,
+        total_amount=total_amount,
+        route=route,
+        driver=driver
+    )
+
+    # ---------- 3. 生成 Excel ----------
     wb = Workbook()
     ws = wb.active
     ws.title = '出车登记'
 
     headers = ['序号', '客户名称', '客户金额', '备注']
 
-    # ---------- 2. 写入表头 ----------
+    # 写入表头（左 A~D，右 F~I）
     for col_idx, header in enumerate(headers, start=1):
         ws.cell(row=1, column=col_idx, value=header)
-    for col_idx, header in enumerate(headers, start=6):  # F=6
+    for col_idx, header in enumerate(headers, start=6):
         ws.cell(row=1, column=col_idx, value=header)
 
-    # ---------- 3. 写入数据 ----------
+    # 写入左侧数据
     left_rows = processed[:limit]
     left_total = 0
     for i, item in enumerate(left_rows, start=1):
@@ -901,6 +916,7 @@ def export_excel(request):
         cell_left_total.font = Font(color='FF0000')
         left_last_row = row_num
 
+    # 右侧数据
     right_rows = processed[limit:]
     right_total = 0
     right_last_row = 1
@@ -920,7 +936,7 @@ def export_excel(request):
         cell_right_total.font = Font(color='FF0000')
         right_last_row = row_num
 
-    # ---------- 4. 两侧合计 ----------
+    # 两侧合计
     grand_total = left_total + right_total
     if right_rows:
         grand_row = right_last_row + 2
@@ -937,11 +953,13 @@ def export_excel(request):
 
     bottom_row = max(left_last_row, right_last_row) if right_rows else left_last_row
 
-    # ---------- 5. 信息列（K列），首行插入日期 ----------
-    # 构建标签列表，日期放在最前面
+    # 信息列（K列）：日期、路线（带值）、总金额、退货、司机（带值）、搭档、零钱、实金额、补贴、时间
     date_label = f"日期:{date_str}" if date_str else "日期:"
-    info_labels = [date_label, '路线:', '总金额:', '退货:', '司机:', '搭档:', '零钱:200元', '实金额:', '补贴:', '时间:']
-    # 计算起始行，使得最后一项（时间:）位于 bottom_row
+    route_label = f"路线:{route}" if route else "路线:"
+    driver_label = f"司机:{driver}" if driver else "司机:"
+    info_labels = [date_label, route_label, '总金额:', '退货:', driver_label, '搭档:', '零钱:200元', '实金额:', '补贴:', '时间:']
+
+    # 计算起始行，使最后一项（时间:）位于 bottom_row
     start_row = bottom_row - (len(info_labels) - 1) * 2
     if start_row < 1:
         start_row = 1
@@ -949,37 +967,41 @@ def export_excel(request):
         row = start_row + idx * 2
         ws.cell(row=row, column=11, value=label)
 
-    # ---------- 6. 设置列宽 ----------
-    col_widths = {
-        1: 5, 2: 12, 3: 9, 4: 7,
-        5: 2, 6: 5, 7: 12, 8: 9, 9: 7,
-        10: 2, 11: 16,
-    }
+    # 设置列宽
+    col_widths = {1:5, 2:12, 3:9, 4:7, 5:2, 6:5, 7:12, 8:9, 9:7, 10:2, 11:16}
     for col, width in col_widths.items():
         ws.column_dimensions[chr(64 + col)].width = width
 
-    # ---------- 7. 边框只加在数据区（A~D 和 F~I） ----------
-    thin_border = Border(
-        left=Side(style='thin'),
-        right=Side(style='thin'),
-        top=Side(style='thin'),
-        bottom=Side(style='thin')
-    )
+    # 边框：仅 A~D 和 F~I
+    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
     for row in range(1, bottom_row + 1):
         for col in range(1, 5):
-            cell = ws.cell(row=row, column=col)
-            cell.border = thin_border
+            ws.cell(row=row, column=col).border = thin_border
         for col in range(6, 10):
-            cell = ws.cell(row=row, column=col)
-            cell.border = thin_border
+            ws.cell(row=row, column=col).border = thin_border
 
-    # ---------- 8. 页面横向 ----------
+    # 页面横向
     ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
 
-    # ---------- 9. 返回 ----------
-    response = HttpResponse(
-        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
+    # 返回 Excel
+    response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     response['Content-Disposition'] = 'attachment; filename=出车登记.xlsx'
     wb.save(response)
     return response
+# summary/views.py 新增
+from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
+
+@login_required
+def out_car_list(request):
+    """出车登记历史记录列表"""
+    records = OutCarRecord.objects.all().order_by('-date', '-created_at')
+    paginator = Paginator(records, 20)  # 每页20条
+    page = request.GET.get('page')
+    try:
+        records_page = paginator.page(page)
+    except PageNotAnInteger:
+        records_page = paginator.page(1)
+    except EmptyPage:
+        records_page = paginator.page(paginator.num_pages)
+
+    return render(request, 'summary/out_car_list.html', {'records_page': records_page})

@@ -31,3 +31,26 @@ class DailySalesSummary(models.Model):
         product_unit = self.product.unit if self.product else ""
         return f'{self.summary_date} - {product_name} - 销售{self.sale_quantity}{product_unit}'
 
+# summary/models.py
+from django.db import models
+
+# summary/models.py
+class OutCarRecord(models.Model):
+    """出车登记记录"""
+    date = models.DateField('登记日期')
+    data = models.JSONField('客户数据', help_text='存储客户名称和金额列表，格式：[{"name": "客户A", "amount": 100}, ...]')
+    total_amount = models.DecimalField('总金额', max_digits=12, decimal_places=2, default=0)
+    route = models.CharField('路线', max_length=50, blank=True, default='')
+    driver = models.CharField('司机', max_length=20, blank=True, default='')
+    created_at = models.DateTimeField('创建时间', auto_now_add=True)
+    updated_at = models.DateTimeField('更新时间', auto_now=True)
+
+    class Meta:
+        verbose_name = '出车登记记录'
+        verbose_name_plural = '出车登记记录'
+        ordering = ['-date', '-created_at']
+
+    def __str__(self):
+        return f"{self.date} - {self.route} - {self.driver} - 共{len(self.data)}条"
+
+

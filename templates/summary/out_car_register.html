@@ -104,6 +104,20 @@
     }
     .btn-del:hover { background: #dd3300; }
     .total-row { background: #f0f0f0; font-weight: bold; }
+    
+    .recommend-tag {
+    display: inline-block;
+    background: #e9ecef;
+    padding: 2px 8px;
+    margin: 0 2px;
+    border-radius: 12px;
+    font-size: 12px;
+    cursor: pointer;
+    border: 1px solid #ced4da;
+}
+.recommend-tag:hover {
+    background: #dee2e6;
+}
 
     .suggest-dropdown {
         position: absolute;
@@ -145,6 +159,20 @@
     }
     .btn-export:hover { background: #218838; }
 
+    .recommend-tag {
+    display: inline-block;
+    background: #e9ecef;
+    padding: 2px 8px;
+    margin: 0 2px;
+    border-radius: 12px;
+    font-size: 12px;
+    cursor: pointer;
+    border: 1px solid #ced4da;
+}
+.recommend-tag:hover {
+    background: #dee2e6;
+}
+
     @media print {
         .navbar, .btn-add-row, .btn-group, .suggest-dropdown, .btn-clear-cache { display: none !important; }
         .bill-table input { border: none; }
@@ -178,6 +206,23 @@
         <div class="header-right">
             <label for="register-date">日期：</label>
             <input type="date" id="register-date">
+
+            <label for="register-route">路线：</label>
+            <input type="text" id="register-route" placeholder="可选" style="width:100px;">
+            <div style="display:inline-block;">
+                {% for r in route_options %}
+                <span class="recommend-tag" onclick="fillRoute('{{ r }}')">{{ r }}</span>
+                {% endfor %}
+            </div>
+
+            <label for="register-driver">司机：</label>
+            <input type="text" id="register-driver" placeholder="可选" style="width:70px;">
+            <div style="display:inline-block;">
+                {% for d in driver_options %}
+                <span class="recommend-tag" onclick="fillDriver('{{ d }}')">{{ d }}</span>
+                {% endfor %}
+            </div>
+
             <button class="btn-clear-cache" onclick="clearCache()">清除缓存</button>
         </div>
     </div>
@@ -212,6 +257,9 @@
 
 {% block extra_js %}
 <script>
+// ========== 缓存键 ==========
+const ROUTE_STORAGE_KEY = 'out_car_register_route';
+const DRIVER_STORAGE_KEY = 'out_car_register_driver';
     // ========== 缓存相关 ==========
     const STORAGE_KEY = 'out_car_register_data';
     const DATE_STORAGE_KEY = 'out_car_register_date';
@@ -244,6 +292,15 @@
         if (dateInput) {
             localStorage.setItem(DATE_STORAGE_KEY, dateInput.value);
         }
+
+        const routeInput = document.getElementById('register-route');
+    if (routeInput) {
+        localStorage.setItem(ROUTE_STORAGE_KEY, routeInput.value);
+    }
+    const driverInput = document.getElementById('register-driver');
+    if (driverInput) {
+        localStorage.setItem(DRIVER_STORAGE_KEY, driverInput.value);
+    }
     }
 
     // 从 localStorage 加载状态
@@ -281,9 +338,29 @@
                 localStorage.setItem(DATE_STORAGE_KEY, today);
             }
         }
-        return hasData;
+       const routeInput = document.getElementById('register-route');
+    if (routeInput) {
+        const savedRoute = localStorage.getItem(ROUTE_STORAGE_KEY);
+        if (savedRoute !== null) routeInput.value = savedRoute;
     }
-
+    // 加载司机
+    const driverInput = document.getElementById('register-driver');
+    if (driverInput) {
+        const savedDriver = localStorage.getItem(DRIVER_STORAGE_KEY);
+        if (savedDriver !== null) driverInput.value = savedDriver;
+    }
+    return hasData;
+    }
+    
+// 推荐点击填入
+function fillRoute(value) {
+    document.getElementById('register-route').value = value;
+    localStorage.setItem(ROUTE_STORAGE_KEY, value);
+}
+function fillDriver(value) {
+    document.getElementById('register-driver').value = value;
+    localStorage.setItem(DRIVER_STORAGE_KEY, value);
+}
     // 根据数据创建行（不触发保存）
     function createRowFromData(name, amount) {
         rowIdCounter++;
@@ -667,6 +744,8 @@
         // 获取日期
         const dateInput = document.getElementById('register-date');
         const date = dateInput ? dateInput.value : '';
+        const route = document.getElementById('register-route').value;
+    const driver = document.getElementById('register-driver').value;
 
         const csrfToken = getCsrfToken();
         try {
@@ -676,7 +755,7 @@
                     'Content-Type': 'application/json',
                     'X-CSRFToken': csrfToken
                 },
-                body: JSON.stringify({ rows: filteredRows, date: date })
+                body: JSON.stringify({ rows: filteredRows, date: date, route: route, driver: driver })
             });
             if (response.ok) {
                 const blob = await response.blob();

@@ -30,5 +30,5 @@ path('user-list/', views.user_list, name='user_list'),
 
     path('out-car-register/', views.out_car_register, name='out_car_register'),
     path('export-excel/', views.export_excel, name='export_excel'),
-
+    path('out-car-list/', views.out_car_list, name='out_car_list'),  # 新增
 ]
