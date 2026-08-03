@@ -725,56 +725,66 @@ function fillDriver(value) {
     }
 
     // ========== 导出 Excel ==========
-    async function exportExcel() {
-        const rows = [];
-        document.querySelectorAll('#bill-tbody tr').forEach(tr => {
-            const nameInput = tr.querySelector('.customer-name-input');
-            const amountInput = tr.querySelector('.amount-input');
-            const customerName = nameInput ? nameInput.value.trim() : '';
-            const amount = parseFloat(amountInput ? amountInput.value : 0) || 0;
-            rows.push({ customer_name: customerName, amount: amount });
-        });
+    // ========== 导出 Excel ==========
+async function exportExcel() {
+    const rows = [];
+    document.querySelectorAll('#bill-tbody tr').forEach(tr => {
+        const nameInput = tr.querySelector('.customer-name-input');
+        const amountInput = tr.querySelector('.amount-input');
+        const customerName = nameInput ? nameInput.value.trim() : '';
+        const amount = parseFloat(amountInput ? amountInput.value : 0) || 0;
+        rows.push({ customer_name: customerName, amount: amount });
+    });
 
-        const filteredRows = rows.filter(r => r.customer_name !== '' || r.amount !== 0);
-        if (filteredRows.length === 0) {
-            alert('没有数据可导出');
-            return;
-        }
+    const filteredRows = rows.filter(r => r.customer_name !== '' || r.amount !== 0);
+    if (filteredRows.length === 0) {
+        alert('没有数据可导出');
+        return;
+    }
 
-        // 获取日期
-        const dateInput = document.getElementById('register-date');
-        const date = dateInput ? dateInput.value : '';
-        const route = document.getElementById('register-route').value;
+    const dateInput = document.getElementById('register-date');
+    const date = dateInput ? dateInput.value : '';
+    const route = document.getElementById('register-route').value;
     const driver = document.getElementById('register-driver').value;
 
-        const csrfToken = getCsrfToken();
-        try {
-            const response = await fetch('/summary/export-excel/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': csrfToken
-                },
-                body: JSON.stringify({ rows: filteredRows, date: date, route: route, driver: driver })
-            });
-            if (response.ok) {
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `出车登记_${new Date().toISOString().slice(0,10)}.xlsx`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                window.URL.revokeObjectURL(url);
+    const csrfToken = getCsrfToken();
+    try {
+        const response = await fetch('/summary/export-excel/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': csrfToken
+            },
+            body: JSON.stringify({ rows: filteredRows, date: date, route: route, driver: driver })
+        });
+
+        if (response.ok) {
+            const blob = await response.blob();
+            // 🔥 直接使用前端的 route 和 date 构造文件名
+            let filename;
+            if (route) {
+                filename = `${route}_${date}.xlsx`;
+            } else if (date) {
+                filename = `${date}_出车登记.xlsx`;
             } else {
-                const err = await response.json();
-                alert('导出失败：' + (err.msg || '未知错误'));
+                filename = '出车登记.xlsx';
             }
-        } catch (e) {
-            alert('导出失败：' + e.message);
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        } else {
+            const err = await response.json();
+            alert('导出失败：' + (err.msg || '未知错误'));
         }
+    } catch (e) {
+        alert('导出失败：' + e.message);
     }
+}
 
     function getCsrfToken() {
         let cookieValue = null;

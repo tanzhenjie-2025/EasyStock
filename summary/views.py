@@ -985,7 +985,13 @@ def export_excel(request):
 
     # 返回 Excel
     response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    response['Content-Disposition'] = 'attachment; filename=出车登记.xlsx'
+    # 生成文件名：路线_日期.xlsx，若路线为空则使用 日期_出车登记.xlsx
+    if route:
+        filename = f"{route}_{date_str}.xlsx"
+    else:
+        filename = f"{date_str}_出车登记.xlsx" if date_str else "出车登记.xlsx"
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    response['Access-Control-Expose-Headers'] = 'Content-Disposition'  # 新增，暴露文件名头
     wb.save(response)
     return response
 # summary/views.py 新增
