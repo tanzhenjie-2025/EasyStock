@@ -893,10 +893,11 @@ def export_excel(request):
     def build_worksheet(ws):
         """将数据写入指定的 Worksheet"""
         headers = ['序号', '客户名称', '客户金额', '备注']
-        # 表头
+        # 左侧表头 A~D
         for col_idx, header in enumerate(headers, start=1):
             ws.cell(row=1, column=col_idx, value=header)
-        for col_idx, header in enumerate(headers, start=6):
+        # 右侧表头 J~M（第10列起）
+        for col_idx, header in enumerate(headers, start=10):
             ws.cell(row=1, column=col_idx, value=header)
 
         # 左侧数据
@@ -904,10 +905,10 @@ def export_excel(request):
         left_total = 0
         for i, item in enumerate(left_rows, start=1):
             row_num = i + 1
-            ws.cell(row=row_num, column=1, value=i)
+            ws.cell(row=row_num, column=1, value=i)  # A
             ws.cell(row=row_num, column=2, value=item['name'])
             ws.cell(row=row_num, column=3, value=item['amount'])
-            ws.cell(row=row_num, column=4, value='')
+            ws.cell(row=row_num, column=4, value='')  # D
             left_total += item['amount']
 
         left_last_row = 1
@@ -918,7 +919,7 @@ def export_excel(request):
             cell_left_total.font = Font(color='FF0000')
             left_last_row = row_num
 
-        # 右侧数据
+        # 右侧数据 J~M
         right_rows = processed[limit:]
         right_total = 0
         right_last_row = 1
@@ -926,15 +927,15 @@ def export_excel(request):
             for i, item in enumerate(right_rows, start=1):
                 row_num = i + 1
                 seq = limit + i
-                ws.cell(row=row_num, column=6, value=seq)
-                ws.cell(row=row_num, column=7, value=item['name'])
-                ws.cell(row=row_num, column=8, value=item['amount'])
-                ws.cell(row=row_num, column=9, value='')
+                ws.cell(row=row_num, column=10, value=seq)  # J:序号
+                ws.cell(row=row_num, column=11, value=item['name'])
+                ws.cell(row=row_num, column=12, value=item['amount'])
+                ws.cell(row=row_num, column=13, value='')  # M:备注
                 right_total += item['amount']
 
             row_num = len(right_rows) + 2
-            ws.cell(row=row_num, column=6, value='总计')
-            cell_right_total = ws.cell(row=row_num, column=8, value=right_total)
+            ws.cell(row=row_num, column=10, value='总计')
+            cell_right_total = ws.cell(row=row_num, column=12, value=right_total)
             cell_right_total.font = Font(color='FF0000')
             right_last_row = row_num
 
@@ -942,8 +943,8 @@ def export_excel(request):
         grand_total = left_total + right_total
         if right_rows:
             grand_row = right_last_row + 2
-            ws.cell(row=grand_row, column=6, value='两侧合计')
-            cell_grand = ws.cell(row=grand_row, column=8, value=grand_total)
+            ws.cell(row=grand_row, column=10, value='两侧合计')
+            cell_grand = ws.cell(row=grand_row, column=12, value=grand_total)
             cell_grand.font = Font(color='FF0000')
             right_last_row = grand_row
         else:
@@ -955,30 +956,38 @@ def export_excel(request):
 
         bottom_row = max(left_last_row, right_last_row) if right_rows else left_last_row
 
-        # 信息列（K列）
-        date_label = f"日期:{date_str}" if date_str else "日期:"
+        # 信息列（O列，第15列），去除独立的“日期:”，日期附加到“时间:”后
         route_label = f"路线:{route}" if route else "路线:"
         driver_label = f"司机:{driver}" if driver else "司机:"
-        info_labels = [date_label, route_label, '总金额:', '退货:', driver_label, '搭档:', '零钱:200元', '实金额:', '补贴:', '时间:']
+        time_label = f"时间:{date_str}" if date_str else "时间:"
+        info_labels = [route_label, '总金额:', '退货:', driver_label, '搭档:', '零钱:200元', '实金额:', '补贴:',
+                       time_label]
 
         start_row = bottom_row - (len(info_labels) - 1) * 2
         if start_row < 1:
             start_row = 1
         for idx, label in enumerate(info_labels):
             row = start_row + idx * 2
-            ws.cell(row=row, column=11, value=label)
+            ws.cell(row=row, column=15, value=label)  # O列
 
-        # 列宽
-        col_widths = {1:5, 2:12, 3:9, 4:7, 5:2, 6:5, 7:12, 8:9, 9:7, 10:2, 11:16}
+        # 列宽（新布局：A-D左数据，E-I空列5列，J-M右数据，N空列，O信息列）
+        col_widths = {
+            1: 5, 2: 12, 3: 9, 4: 7,  # A-D
+            5: 2, 6: 2, 7: 2, 8: 2, 9: 2,  # E-I 空列
+            10: 5, 11: 12, 12: 9, 13: 7,  # J-M
+            14: 2,  # N 空列
+            15: 16,  # O 信息列
+        }
         for col, width in col_widths.items():
             ws.column_dimensions[chr(64 + col)].width = width
 
-        # 边框
-        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+        # 边框：仅对数据区 A-D 和 J-M
+        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'),
+                             bottom=Side(style='thin'))
         for row in range(1, bottom_row + 1):
-            for col in range(1, 5):
+            for col in range(1, 5):  # A-D
                 ws.cell(row=row, column=col).border = thin_border
-            for col in range(6, 10):
+            for col in range(10, 14):  # J-M
                 ws.cell(row=row, column=col).border = thin_border
 
         ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
