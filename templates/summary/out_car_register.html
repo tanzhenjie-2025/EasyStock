@@ -273,18 +273,88 @@
 // ========== 缓存键 ==========
 const ROUTE_STORAGE_KEY = 'out_car_register_route';
 const DRIVER_STORAGE_KEY = 'out_car_register_driver';
-    // ========== 缓存相关 ==========
-    const STORAGE_KEY = 'out_car_register_data';
-    const DATE_STORAGE_KEY = 'out_car_register_date';
-    let saveTimeout = null;
-    
-    let targetFileHandle = null;  // 保存文件句柄
-let targetFileName = '';
+const STORAGE_KEY = 'out_car_register_data';
+const DATE_STORAGE_KEY = 'out_car_register_date';
 
-// 选择目标文件
+// ========== IndexedDB 文件句柄缓存 ==========
+const DB_NAME = 'OutCarFileHandleDB';
+const STORE_NAME = 'fileHandleStore';
+const HANDLE_ID = 'targetFileHandle';
+
+// ========== 全局变量 ==========
+let targetFileHandle = null;
+let targetFileName = '';
+let saveTimeout = null;
+
+// ========== 全局变量 ==========
+    let rowIdCounter = 0;
+    let suggestBox = null;
+    let currentCustomerInput = null;
+    let currentCustomerList = [];
+    let customerSuggestCurrentPage = 0;
+    const CUSTOMER_SUGGEST_PAGE_SIZE = 8;
+
+function openDB() {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, 1);
+        request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains(STORE_NAME)) {
+                db.createObjectStore(STORE_NAME);
+            }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+}
+
+async function saveFileHandle(handle) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const request = store.put(handle, HANDLE_ID);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+        tx.oncomplete = () => db.close();
+    });
+}
+
+async function loadFileHandle() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        const request = store.get(HANDLE_ID);
+        request.onsuccess = () => {
+            const handle = request.result;
+            db.close();
+            resolve(handle || null);
+        };
+        request.onerror = () => {
+            db.close();
+            reject(request.error);
+        };
+    });
+}
+
+async function clearFileHandle() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        const request = store.delete(HANDLE_ID);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+        tx.oncomplete = () => db.close();
+    });
+}
+
+
+
+// ========== 文件选择相关 ==========
 async function chooseTargetFile() {
     try {
-        // 检查浏览器支持
         if (!('showOpenFilePicker' in window)) {
             alert('您的浏览器不支持 File System Access API，请使用最新版 Edge 或 Chrome。');
             return;
@@ -298,10 +368,18 @@ async function chooseTargetFile() {
             }],
             multiple: false
         });
+        // 请求写入权限（如果需要）
+        const options = { mode: 'readwrite' };
+        if ((await fileHandle.requestPermission(options)) !== 'granted') {
+            alert('需要写入权限才能保存文件。');
+            return;
+        }
         targetFileHandle = fileHandle;
         targetFileName = fileHandle.name;
         document.getElementById('file-status').textContent = `已选择: ${targetFileName}`;
         document.getElementById('file-status').style.color = 'green';
+        // 保存到 IndexedDB
+        await saveFileHandle(fileHandle);
     } catch (err) {
         if (err.name !== 'AbortError') {
             alert('选择文件失败：' + err.message);
@@ -309,13 +387,11 @@ async function chooseTargetFile() {
     }
 }
 
-// 读取文件内容为 base64（用于发送到后端）
 async function readFileAsBase64(fileHandle) {
     const file = await fileHandle.getFile();
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => {
-            // result 为 data:...;base64,... 格式，提取 base64 部分
             const base64 = reader.result.split(',')[1];
             resolve(base64);
         };
@@ -324,9 +400,13 @@ async function readFileAsBase64(fileHandle) {
     });
 }
 
-// 将 Blob 写入目标文件（覆盖）
 async function writeBlobToFile(fileHandle, blob) {
     try {
+        // 检查权限
+        const options = { mode: 'readwrite' };
+        if ((await fileHandle.requestPermission(options)) !== 'granted') {
+            throw new Error('写入权限不足');
+        }
         const writable = await fileHandle.createWritable({ keepExistingData: false });
         await writable.write(blob);
         await writable.close();
@@ -335,6 +415,30 @@ async function writeBlobToFile(fileHandle, blob) {
     }
 }
 
+// ========== 恢复文件句柄 ==========
+async function restoreFileHandle() {
+    try {
+        const handle = await loadFileHandle();
+        if (handle) {
+            // 验证权限
+            const options = { mode: 'readwrite' };
+            if ((await handle.requestPermission(options)) === 'granted') {
+                targetFileHandle = handle;
+                targetFileName = handle.name;
+                document.getElementById('file-status').textContent = `已选择: ${targetFileName}`;
+                document.getElementById('file-status').style.color = 'green';
+                return true;
+            } else {
+                // 权限被拒绝，清除缓存
+                await clearFileHandle();
+                return false;
+            }
+        }
+    } catch (e) {
+        console.error('恢复文件句柄失败:', e);
+    }
+    return false;
+}
     // 防抖保存（500ms）
     function debouncedSave() {
         if (saveTimeout) clearTimeout(saveTimeout);
@@ -450,38 +554,49 @@ function fillDriver(value) {
     }
 
     // 清除缓存并重置表格
-    function clearCache() {
-        if (!confirm('确定要清除所有缓存数据吗？当前输入将被清空。')) return;
-        localStorage.removeItem(STORAGE_KEY);
-        localStorage.removeItem(DATE_STORAGE_KEY);
-        // 重置表格为5行空白行
-        const tbody = document.getElementById('bill-tbody');
-        tbody.innerHTML = '';
-        rowIdCounter = 0;
-        for (let i = 0; i < 5; i++) {
-            addBlankRow(true);
+    async function clearCache() {
+    if (!confirm('确定要清除所有缓存数据吗？当前输入将被清空。')) return;
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(DATE_STORAGE_KEY);
+    localStorage.removeItem(ROUTE_STORAGE_KEY);
+    localStorage.removeItem(DRIVER_STORAGE_KEY);
+
+    // 清除文件句柄缓存（等待完成）
+    try {
+        await clearFileHandle();
+        targetFileHandle = null;
+        targetFileName = '';
+        const statusEl = document.getElementById('file-status');
+        if (statusEl) {
+            statusEl.textContent = '未选择文件';
+            statusEl.style.color = '#666';
         }
-        // 重置日期为今天
-        const dateInput = document.getElementById('register-date');
-        if (dateInput) {
-            const today = new Date().toISOString().slice(0, 10);
-            dateInput.value = today;
-            localStorage.setItem(DATE_STORAGE_KEY, today);
-        }
-        saveState();
-        updateRowNumbers();
-        calcTotalAmount();
-        const firstInput = document.querySelector('#bill-tbody .customer-name-input');
-        if (firstInput) firstInput.focus();
+    } catch (err) {
+        console.warn('清除文件句柄失败:', err);
     }
 
-    // ========== 全局变量 ==========
-    let rowIdCounter = 0;
-    let suggestBox = null;
-    let currentCustomerInput = null;
-    let currentCustomerList = [];
-    let customerSuggestCurrentPage = 0;
-    const CUSTOMER_SUGGEST_PAGE_SIZE = 8;
+    // 重置表格
+    const tbody = document.getElementById('bill-tbody');
+    tbody.innerHTML = '';
+    rowIdCounter = 0;
+    for (let i = 0; i < 5; i++) {
+        addBlankRow(false, true); // 跳过保存，避免循环触发
+    }
+    const dateInput = document.getElementById('register-date');
+    if (dateInput) {
+        const today = new Date().toISOString().slice(0, 10);
+        dateInput.value = today;
+        localStorage.setItem(DATE_STORAGE_KEY, today);
+    }
+    // 手动保存一次空状态（但跳过保存已执行）
+    saveState();
+    updateRowNumbers();
+    calcTotalAmount();
+    const firstInput = document.querySelector('#bill-tbody .customer-name-input');
+    if (firstInput) firstInput.focus();
+}
+
+    
 
     // ========== 初始化建议框 ==========
     function initSuggestBox() {
@@ -913,13 +1028,9 @@ async function loadRecord(recordId) {
         const result = await response.json();
         if (result.code === 1) {
             const data = result.data;
-            // 填充日期
             document.getElementById('register-date').value = data.date;
-            // 填充路线
             document.getElementById('register-route').value = data.route || '';
-            // 填充司机
             document.getElementById('register-driver').value = data.driver || '';
-            // 填充表格数据
             const tbody = document.getElementById('bill-tbody');
             tbody.innerHTML = '';
             rowIdCounter = 0;
@@ -929,7 +1040,6 @@ async function loadRecord(recordId) {
             });
             updateRowNumbers();
             calcTotalAmount();
-            // 保存到 localStorage 以便后续修改
             saveState();
             return true;
         } else {
@@ -956,28 +1066,23 @@ function loadFromCacheOrDefault() {
 
 
     // ========== 初始化 ==========
-    window.onload = function() {
-    initSuggestBox();
-    // 检查 URL 参数 record_id
-    const urlParams = new URLSearchParams(window.location.search);
-    const recordId = urlParams.get('record_id');
-    if (recordId) {
-        loadRecord(recordId).then(loaded => {
+    window.onload = async function() {
+    try {
+        initSuggestBox();
+        // 恢复文件句柄
+        await restoreFileHandle();
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const recordId = urlParams.get('record_id');
+        if (recordId) {
+            const loaded = await loadRecord(recordId);
             if (!loaded) {
                 loadFromCacheOrDefault();
             }
-            // 绑定日期保存事件
-            const dateInput = document.getElementById('register-date');
-            if (dateInput) {
-                dateInput.addEventListener('change', function() {
-                    localStorage.setItem(DATE_STORAGE_KEY, this.value);
-                });
-            }
-            const firstInput = document.querySelector('#bill-tbody .customer-name-input');
-            if (firstInput) firstInput.focus();
-        });
-    } else {
-        loadFromCacheOrDefault();
+        } else {
+            loadFromCacheOrDefault();
+        }
+
         // 绑定日期保存事件
         const dateInput = document.getElementById('register-date');
         if (dateInput) {
@@ -987,6 +1092,9 @@ function loadFromCacheOrDefault() {
         }
         const firstInput = document.querySelector('#bill-tbody .customer-name-input');
         if (firstInput) firstInput.focus();
+    } catch (err) {
+        console.error('初始化失败:', err);
+        alert('页面加载出错，请刷新重试。');
     }
 };
 </script>
