@@ -546,7 +546,7 @@
     <div class="content-container">
     <!-- 标题行 -->
     <div class="d-flex justify-content-between align-items-center mb-2" style="flex-wrap: nowrap; overflow: visible;">
-        <h1 class="mb-0" style="flex-shrink: 0; white-space: nowrap;">快速开单工具（表格版）</h1>
+        <h1 class="mb-0" style="flex-shrink: 0; white-space: nowrap;">快速开单工具</h1>
         <div style="display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; overflow: visible; flex-shrink: 0;">
             <button class="btn btn-sm btn-outline-primary" onclick="sortBillTable()" title="按规则排序" style="flex-shrink: 0;">
                 📋 点击排序
@@ -563,6 +563,10 @@
             <label title="只打印数据（需模板）" style="white-space: nowrap; flex-shrink: 0; margin: 0;">
                 <input type="checkbox" id="onlyPrintDataCheckbox" onchange="saveOnlyPrintDataSetting()"> 套打模式
             </label>
+            
+            <label title="进入打印页后自动弹出打印预览，按回车即可打印" style="white-space: nowrap; flex-shrink: 0; margin: 0;">
+    <input type="checkbox" id="enterPrintCheckbox" onchange="saveEnterPrintSetting()"> 回车打印
+</label>
         </div>
     </div>
 
@@ -906,6 +910,19 @@
             const checkbox = document.getElementById('onlyPrintDataCheckbox');
             localStorage.setItem('bill_only_print_data', checkbox.checked ? 'true' : 'false');
         }
+        
+        function saveEnterPrintSetting() {
+    const checkbox = document.getElementById('enterPrintCheckbox');
+    localStorage.setItem('bill_enter_print', checkbox.checked ? 'true' : 'false');
+}
+
+function restoreEnterPrintSetting() {
+    const checkbox = document.getElementById('enterPrintCheckbox');
+    if (checkbox) {
+        const saved = localStorage.getItem('bill_enter_print');
+        checkbox.checked = (saved === 'true');
+    }
+}
 
         function restoreOnlyPrintDataSetting() {
             const checkbox = document.getElementById('onlyPrintDataCheckbox');
@@ -1722,100 +1739,106 @@ updateRecentBuyBadge(customerId);
 
         // ========== 保存/打印/重置 ==========
         async function saveOrder() {
-            const autoSortCheckbox = document.getElementById('autoSortCheckbox');
-            if (autoSortCheckbox && autoSortCheckbox.checked) {
-                sortBillTable();
-            }
-            const customerInput = document.getElementById('customerInput');
-            let customerId = customerInput.dataset.customerId || '';
-            const customerName = customerInput.value.trim();
-            if (!customerName) {
-                alert('请填写客户名称！');
-                customerInput.focus();
-                return;
-            }
-            const savedCustomerName = customerInput.dataset.customerName || '';
-            if (customerName !== savedCustomerName) {
-                customerId = '';
-            }
-            const orderNumberInput = document.getElementById('orderNumberInput');
-            const orderNumber = orderNumberInput ? orderNumberInput.value.trim() : '';
-            if (!orderNumber) {
-                alert('请输入制单号！');
-                setTimeout(() => {
-                    orderNumberInput.focus();
-                    orderNumberInput.select();
-                }, 10);
-                return;
-            }
-            const items = [];
-            document.querySelectorAll('#bill-tbody tr').forEach(tr => {
-                const nameInput = tr.querySelector('.name-input');
-                const name = nameInput.value.trim();
-                const qty = parseInt(tr.querySelector('.quantity-input').value) || 0;
-                const unit = tr.querySelector('.unit-input').value.trim();
-                const price = parseFloat(tr.querySelector('.price-input').value) || 0;
-                const amt = parseFloat(tr.querySelector('.amount-cell').textContent.replace('¥','')) || 0;
-                const productId = nameInput.dataset.productId || '';
-                const spec = tr.querySelector('.spec-input').value.trim();
-                const specInput = tr.querySelector('.spec-input');
-                if (specInput) {
-                    updateMakeupFlag(specInput);
-                }
-                const isMakeup = specInput && specInput.dataset.isMakeup === '1';
-                const operationType = specInput ? (specInput.dataset.operationType || '') : '';
-                const isRemark = (name === '' && spec !== '');
-                if (isRemark || (name && qty && price >= 0)) {
-                    items.push({
-                        id: productId,
-                        name: name,
-                        spec: spec,
-                        qty: isRemark ? 0 : qty,
-                        unit: unit,
-                        price: isRemark ? 0 : price,
-                        amt: isRemark ? 0 : amt,
-                        is_makeup: isMakeup,
-                        operation_type: operationType,
-                    });
-                }
-            });
-            if (!items.length) { alert('请填写商品'); return; }
-            const total = items.reduce((s, i) => s + parseFloat(i.amt), 0).toFixed(2);
-            try {
-                const requestData = {
-                    items,
-                    total_amount: total,
-                    customer_id: customerId,
-                    customer_name: customerName,
-                    order_number: orderNumber,
-                };
-                if (originalOrderNo) {
-                    requestData.original_order_no = originalOrderNo;
-                }
-                const r = await fetch(`/bill/save-order/`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': getCsrfToken()
-                    },
-                    body: JSON.stringify(requestData)
-                });
-                const d = await r.json();
-                if (d.code === 1) {
-                    clearFormState();
-                    const onlyPrintDataCheckbox = document.getElementById('onlyPrintDataCheckbox');
-                    const onlyPrintData = onlyPrintDataCheckbox ? onlyPrintDataCheckbox.checked : false;
-                    const printUrl = onlyPrintData
-                        ? `/bill/print-key-data/?order_no=${d.order_no}`
-                        : `/bill/print/?order_no=${d.order_no}`;
-                    window.location.href = printUrl;
-                } else {
-                    alert(d.msg);
-                }
-            } catch (e) {
-                alert('保存失败：' + e.message);
-            }
+    const autoSortCheckbox = document.getElementById('autoSortCheckbox');
+    if (autoSortCheckbox && autoSortCheckbox.checked) {
+        sortBillTable();
+    }
+    const customerInput = document.getElementById('customerInput');
+    let customerId = customerInput.dataset.customerId || '';
+    const customerName = customerInput.value.trim();
+    if (!customerName) {
+        alert('请填写客户名称！');
+        customerInput.focus();
+        return;
+    }
+    const savedCustomerName = customerInput.dataset.customerName || '';
+    if (customerName !== savedCustomerName) {
+        customerId = '';
+    }
+    const orderNumberInput = document.getElementById('orderNumberInput');
+    const orderNumber = orderNumberInput ? orderNumberInput.value.trim() : '';
+    if (!orderNumber) {
+        alert('请输入制单号！');
+        setTimeout(() => {
+            orderNumberInput.focus();
+            orderNumberInput.select();
+        }, 10);
+        return;
+    }
+    const items = [];
+    document.querySelectorAll('#bill-tbody tr').forEach(tr => {
+        const nameInput = tr.querySelector('.name-input');
+        const name = nameInput.value.trim();
+        const qty = parseInt(tr.querySelector('.quantity-input').value) || 0;
+        const unit = tr.querySelector('.unit-input').value.trim();
+        const price = parseFloat(tr.querySelector('.price-input').value) || 0;
+        const amt = parseFloat(tr.querySelector('.amount-cell').textContent.replace('¥','')) || 0;
+        const productId = nameInput.dataset.productId || '';
+        const spec = tr.querySelector('.spec-input').value.trim();
+        const specInput = tr.querySelector('.spec-input');
+        if (specInput) {
+            updateMakeupFlag(specInput);
         }
+        const isMakeup = specInput && specInput.dataset.isMakeup === '1';
+        const operationType = specInput ? (specInput.dataset.operationType || '') : '';
+        const isRemark = (name === '' && spec !== '');
+        if (isRemark || (name && qty && price >= 0)) {
+            items.push({
+                id: productId,
+                name: name,
+                spec: spec,
+                qty: isRemark ? 0 : qty,
+                unit: unit,
+                price: isRemark ? 0 : price,
+                amt: isRemark ? 0 : amt,
+                is_makeup: isMakeup,
+                operation_type: operationType,
+            });
+        }
+    });
+    if (!items.length) { alert('请填写商品'); return; }
+    const total = items.reduce((s, i) => s + parseFloat(i.amt), 0).toFixed(2);
+    try {
+        const requestData = {
+            items,
+            total_amount: total,
+            customer_id: customerId,
+            customer_name: customerName,
+            order_number: orderNumber,
+        };
+        if (originalOrderNo) {
+            requestData.original_order_no = originalOrderNo;
+        }
+        const r = await fetch(`/bill/save-order/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCsrfToken()
+            },
+            body: JSON.stringify(requestData)
+        });
+        const d = await r.json();
+        if (d.code === 1) {
+            clearFormState();
+            const onlyPrintDataCheckbox = document.getElementById('onlyPrintDataCheckbox');
+            const onlyPrintData = onlyPrintDataCheckbox ? onlyPrintDataCheckbox.checked : false;
+            const enterPrintCheckbox = document.getElementById('enterPrintCheckbox');
+            const enterPrint = enterPrintCheckbox ? enterPrintCheckbox.checked : false;
+
+            let printUrl = onlyPrintData
+                ? `/bill/print-key-data/?order_no=${d.order_no}`
+                : `/bill/print/?order_no=${d.order_no}`;
+            if (enterPrint) {
+                printUrl += '&enter_print=1';
+            }
+            window.location.href = printUrl;
+        } else {
+            alert(d.msg);
+        }
+    } catch (e) {
+        alert('保存失败：' + e.message);
+    }
+}
 
         function resetBill(){
     document.getElementById('bill-tbody').innerHTML='';
@@ -2446,6 +2469,7 @@ updateRecentBuyBadge(customerId);
         // ========== 页面加载初始化 ==========
         window.onload = function() {
             restoreAutoSortSetting();
+            restoreEnterPrintSetting(); 
             initCustomerInput();
             initOrderNumberInput();
             restoreOnlyPrintDataSetting();

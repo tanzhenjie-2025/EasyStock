@@ -346,59 +346,80 @@
 
     <!-- ===== JavaScript ===== -->
     <script>
-        var orderNos = [
-            {% for data in orders_data %}
-                "{{ data.order.order_no }}"{% if not forloop.last %},{% endif %}
-            {% endfor %}
-        ];
+    var orderNos = [
+        {% for data in orders_data %}
+            "{{ data.order.order_no }}"{% if not forloop.last %},{% endif %}
+        {% endfor %}
+    ];
 
-        function getCookie(name) {
-            let cookieValue = null;
-            if (document.cookie && document.cookie !== '') {
-                const cookies = document.cookie.split(';');
-                for (let i = 0; i < cookies.length; i++) {
-                    const cookie = cookies[i].trim();
-                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                        break;
-                    }
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
                 }
             }
-            return cookieValue;
         }
+        return cookieValue;
+    }
 
-        function printAndMark() {
-            window.onafterprint = function() {
-                fetch('{% url "bill:mark_printed" %}', {
-                    method: 'POST',
-                    headers: {
-                        'X-CSRFToken': getCookie('csrftoken'),
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ order_nos: orderNos }),
-                })
-                .then(r => r.json())
-                .then(data => {
-                    if (data.code === 1) {
-                        console.log('标记成功：', data.msg);
-                    } else {
-                        console.error('标记失败：', data.msg);
-                    }
-                })
-                .catch(e => console.error('请求错误：', e));
-                window.onafterprint = null;
-            };
+    function printAndMark() {
+        window.onafterprint = function() {
+            fetch('{% url "bill:mark_printed" %}', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken'),
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ order_nos: orderNos }),
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.code === 1) {
+                    console.log('标记成功：', data.msg);
+                } else {
+                    console.error('标记失败：', data.msg);
+                }
+            })
+            .catch(e => console.error('请求错误：', e));
+            window.onafterprint = null;
+        };
+        window.print();
+    }
+
+    // 读取 URL 参数
+    function getQueryParam(name) {
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.get(name);
+    }
+    const enterPrint = getQueryParam('enter_print') === '1';
+
+    // 若启用回车打印，自动弹出打印预览
+    if (enterPrint) {
+        // 延迟确保页面渲染完成
+        setTimeout(function() {
             window.print();
-        }
+        }, 500);
+    }
 
-        document.addEventListener('keydown', function(e) {
-            if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && e.key === 'Enter') {
-                e.preventDefault();
+    // 键盘事件：按回车直接打印（若启用），否则跳转到开单页
+    document.addEventListener('keydown', function(e) {
+        if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA' && e.key === 'Enter') {
+            e.preventDefault();
+            if (enterPrint) {
+                // 执行打印（如果打印对话框未打开，重新打开）
+                window.print();
+            } else {
                 {% if not is_batch %}
                     window.location.href = '/bill/';
                 {% endif %}
             }
-        });
-    </script>
+        }
+    });
+</script>
 </body>
 </html>
