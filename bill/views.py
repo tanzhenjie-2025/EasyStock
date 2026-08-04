@@ -635,6 +635,14 @@ def prepare_order_data(order):
     }
 
 
+def clean_product_name(name):
+    import re
+    """去除商品名称中的中文括号及内容，也兼容英文括号"""
+    if not name:
+        return name
+    # 去除中文括号「（）」及内容，或英文括号「()」及内容
+    return re.sub(r'[（(][^）)]*[）)]', '', name).strip()
+
 @login_required
 @permission_required(PERM_ORDER_PRINT, raise_exception=True)
 def print_orders(request, mode='normal'):
@@ -694,6 +702,22 @@ def print_orders(request, mode='normal'):
 
     if not orders_data:
         return HttpResponseBadRequest("没有有效订单（可能已取消）")
+
+    # ================== 新增：清洗商品名称中的括号 ==================
+    for order_data in orders_data:
+        items = order_data.get('items_display', [])
+        for item in items:
+            if item is None:
+                continue
+            # 处理字典类型
+            if isinstance(item, dict):
+                if 'product_name' in item:
+                    item['product_name'] = clean_product_name(item['product_name'])
+            # 处理对象类型（假设有 product_name 属性）
+            elif hasattr(item, 'product_name'):
+                item.product_name = clean_product_name(item.product_name)
+            # 若为其他类型，可忽略或尝试转换为字符串
+    # =============================================================
 
     context = {
         'orders_data': orders_data,
