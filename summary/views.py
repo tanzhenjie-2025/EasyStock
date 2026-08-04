@@ -848,19 +848,17 @@ def export_excel(request):
         date_str = data.get('date', '')
         route = data.get('route', '')
         driver = data.get('driver', '')
-        file_content_b64 = data.get('file_content', None)  # 用户提供的文件内容（base64）
+        file_content_b64 = data.get('file_content', None)
         if not rows:
             return JsonResponse({'code': 0, 'msg': '无数据可导出'})
     except:
         return JsonResponse({'code': 0, 'msg': '数据格式错误'})
 
-    # ---------- 辅助函数：提取客户名称 ----------
     def extract_name(raw):
         if '|' in raw:
             return raw.split('|', 1)[1].strip()
         return raw.strip()
 
-    # ---------- 1. 合并重名 ----------
     merged = {}
     order = []
     for row in rows:
@@ -878,7 +876,6 @@ def export_excel(request):
     total_amount = sum(item['amount'] for item in processed)
     limit = 25
 
-    # ---------- 2. 保存记录到数据库 ----------
     from datetime import datetime
     record_date = datetime.strptime(date_str, '%Y-%m-%d').date() if date_str else datetime.now().date()
     OutCarRecord.objects.create(
@@ -889,15 +886,13 @@ def export_excel(request):
         driver=driver
     )
 
-    # ---------- 3. 构建数据写入函数 ----------
     def build_worksheet(ws):
-        """将数据写入指定的 Worksheet"""
         headers = ['序号', '客户名称', '客户金额', '备注']
         # 左侧表头 A~D
         for col_idx, header in enumerate(headers, start=1):
             ws.cell(row=1, column=col_idx, value=header)
-        # 右侧表头 J~M（第10列起）
-        for col_idx, header in enumerate(headers, start=10):
+        # 右侧表头 O~R（第15列起）
+        for col_idx, header in enumerate(headers, start=15):
             ws.cell(row=1, column=col_idx, value=header)
 
         # 左侧数据
@@ -905,10 +900,10 @@ def export_excel(request):
         left_total = 0
         for i, item in enumerate(left_rows, start=1):
             row_num = i + 1
-            ws.cell(row=row_num, column=1, value=i)  # A
+            ws.cell(row=row_num, column=1, value=i)
             ws.cell(row=row_num, column=2, value=item['name'])
             ws.cell(row=row_num, column=3, value=item['amount'])
-            ws.cell(row=row_num, column=4, value='')  # D
+            ws.cell(row=row_num, column=4, value='')
             left_total += item['amount']
 
         left_last_row = 1
@@ -919,7 +914,7 @@ def export_excel(request):
             cell_left_total.font = Font(color='FF0000')
             left_last_row = row_num
 
-        # 右侧数据 J~M
+        # 右侧数据 O~R
         right_rows = processed[limit:]
         right_total = 0
         right_last_row = 1
@@ -927,15 +922,15 @@ def export_excel(request):
             for i, item in enumerate(right_rows, start=1):
                 row_num = i + 1
                 seq = limit + i
-                ws.cell(row=row_num, column=10, value=seq)  # J:序号
-                ws.cell(row=row_num, column=11, value=item['name'])
-                ws.cell(row=row_num, column=12, value=item['amount'])
-                ws.cell(row=row_num, column=13, value='')  # M:备注
+                ws.cell(row=row_num, column=15, value=seq)   # O:序号
+                ws.cell(row=row_num, column=16, value=item['name'])
+                ws.cell(row=row_num, column=17, value=item['amount'])
+                ws.cell(row=row_num, column=18, value='')    # R:备注
                 right_total += item['amount']
 
             row_num = len(right_rows) + 2
-            ws.cell(row=row_num, column=10, value='总计')
-            cell_right_total = ws.cell(row=row_num, column=12, value=right_total)
+            ws.cell(row=row_num, column=15, value='总计')
+            cell_right_total = ws.cell(row=row_num, column=17, value=right_total)
             cell_right_total.font = Font(color='FF0000')
             right_last_row = row_num
 
@@ -943,8 +938,8 @@ def export_excel(request):
         grand_total = left_total + right_total
         if right_rows:
             grand_row = right_last_row + 2
-            ws.cell(row=grand_row, column=10, value='两侧合计')
-            cell_grand = ws.cell(row=grand_row, column=12, value=grand_total)
+            ws.cell(row=grand_row, column=15, value='两侧合计')
+            cell_grand = ws.cell(row=grand_row, column=17, value=grand_total)
             cell_grand.font = Font(color='FF0000')
             right_last_row = grand_row
         else:
@@ -956,59 +951,53 @@ def export_excel(request):
 
         bottom_row = max(left_last_row, right_last_row) if right_rows else left_last_row
 
-        # 信息列（O列，第15列），去除独立的“日期:”，日期附加到“时间:”后
+        # 信息列（T列，第20列），日期附加到“时间:”后
         route_label = f"路线:{route}" if route else "路线:"
         driver_label = f"司机:{driver}" if driver else "司机:"
         time_label = f"时间:{date_str}" if date_str else "时间:"
-        info_labels = [route_label, '总金额:', '退货:', driver_label, '搭档:', '零钱:200元', '实金额:', '补贴:',
-                       time_label]
+        info_labels = [route_label, '总金额:', '退货:', driver_label, '搭档:', '零钱:200元', '实金额:', '补贴:', time_label]
 
         start_row = bottom_row - (len(info_labels) - 1) * 2
         if start_row < 1:
             start_row = 1
         for idx, label in enumerate(info_labels):
             row = start_row + idx * 2
-            ws.cell(row=row, column=15, value=label)  # O列
+            ws.cell(row=row, column=20, value=label)  # T列
 
-        # 列宽（新布局：A-D左数据，E-I空列5列，J-M右数据，N空列，O信息列）
+        # 列宽（A-D左数据，E-N空10列，O-R右数据，S空列，T信息列）
         col_widths = {
-            1: 5, 2: 12, 3: 9, 4: 7,  # A-D
-            5: 2, 6: 2, 7: 2, 8: 2, 9: 2,  # E-I 空列
-            10: 5, 11: 12, 12: 9, 13: 7,  # J-M
-            14: 2,  # N 空列
-            15: 16,  # O 信息列
+            1: 5, 2: 12, 3: 9, 4: 7,        # A-D
+            5: 2, 6: 2, 7: 2, 8: 2, 9: 2,   # E-I
+            10: 2, 11: 2, 12: 2, 13: 2, 14: 2,  # J-N
+            15: 5, 16: 12, 17: 9, 18: 7,    # O-R
+            19: 2,                           # S
+            20: 16,                          # T
         }
         for col, width in col_widths.items():
             ws.column_dimensions[chr(64 + col)].width = width
 
-        # 边框：仅对数据区 A-D 和 J-M
-        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'),
-                             bottom=Side(style='thin'))
+        # 边框：仅数据区 A-D 和 O-R
+        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
         for row in range(1, bottom_row + 1):
-            for col in range(1, 5):  # A-D
+            for col in range(1, 5):       # A-D
                 ws.cell(row=row, column=col).border = thin_border
-            for col in range(10, 14):  # J-M
+            for col in range(15, 19):     # O-R
                 ws.cell(row=row, column=col).border = thin_border
 
         ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
 
-    # ---------- 4. 生成 Excel（分两种情况） ----------
+    # 后续生成 Excel 的代码保持不变
     if file_content_b64:
-        # 用户提供了文件内容 → 修改已有文件
         try:
             file_bytes = base64.b64decode(file_content_b64)
             file_stream = BytesIO(file_bytes)
             wb = load_workbook(file_stream)
             sheet_name = route if route else "出车登记"
-            # 检查工作表是否存在
             if sheet_name in wb.sheetnames:
-                # 删除现有工作表（覆盖）
                 std = wb[sheet_name]
                 wb.remove(std)
-            # 创建新工作表（放在最后）
             ws = wb.create_sheet(sheet_name)
             build_worksheet(ws)
-            # 保存到内存
             output = BytesIO()
             wb.save(output)
             output.seek(0)
@@ -1017,9 +1006,7 @@ def export_excel(request):
             return response
         except Exception as e:
             return JsonResponse({'code': 0, 'msg': f'处理目标文件失败：{str(e)}'})
-
     else:
-        # 未提供文件 → 生成新文件
         wb = Workbook()
         ws = wb.active
         ws.title = route if route else "出车登记"
