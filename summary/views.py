@@ -814,7 +814,7 @@ from django.shortcuts import render
 @login_required
 def out_car_register(request):
     """出车登记工具页面"""
-    route_options = ['稔山线', '遮浪线', '陆丰线', '陆河线', '海城线', '梅陇线', '可塘线']
+    route_options = ['稔山线', '遮浪线', '陆丰线', '陆河线', '海城线', '梅陇线', '可塘线','马宫线']
     driver_options = ['塔', '容', '伦', '达', '远', '武']
     return render(request, 'summary/out_car_register.html', {
         'route_options': route_options,
@@ -832,9 +832,13 @@ from django.shortcuts import render
 from .models import OutCarRecord
 from decimal import Decimal
 
+from openpyxl import load_workbook
+from io import BytesIO
+import base64
+
 @login_required
 def export_excel(request):
-    """导出出车登记数据为 Excel（自动保存记录，包含路线和司机）"""
+    """导出出车登记数据为 Excel（支持追加/覆盖到用户指定文件）"""
     if request.method != 'POST':
         return JsonResponse({'code': 0, 'msg': '仅支持POST请求'})
 
@@ -844,18 +848,19 @@ def export_excel(request):
         date_str = data.get('date', '')
         route = data.get('route', '')
         driver = data.get('driver', '')
+        file_content_b64 = data.get('file_content', None)  # 用户提供的文件内容（base64）
         if not rows:
             return JsonResponse({'code': 0, 'msg': '无数据可导出'})
     except:
         return JsonResponse({'code': 0, 'msg': '数据格式错误'})
 
-    # ---------- 辅助函数：提取客户名称（去掉"|"及之前） ----------
+    # ---------- 辅助函数：提取客户名称 ----------
     def extract_name(raw):
         if '|' in raw:
             return raw.split('|', 1)[1].strip()
         return raw.strip()
 
-    # ---------- 1. 合并重名，累加金额 ----------
+    # ---------- 1. 合并重名 ----------
     merged = {}
     order = []
     for row in rows:
@@ -884,116 +889,141 @@ def export_excel(request):
         driver=driver
     )
 
-    # ---------- 3. 生成 Excel ----------
-    wb = Workbook()
-    ws = wb.active
-    ws.title = '出车登记'
+    # ---------- 3. 构建数据写入函数 ----------
+    def build_worksheet(ws):
+        """将数据写入指定的 Worksheet"""
+        headers = ['序号', '客户名称', '客户金额', '备注']
+        # 表头
+        for col_idx, header in enumerate(headers, start=1):
+            ws.cell(row=1, column=col_idx, value=header)
+        for col_idx, header in enumerate(headers, start=6):
+            ws.cell(row=1, column=col_idx, value=header)
 
-    headers = ['序号', '客户名称', '客户金额', '备注']
-
-    # 写入表头（左 A~D，右 F~I）
-    for col_idx, header in enumerate(headers, start=1):
-        ws.cell(row=1, column=col_idx, value=header)
-    for col_idx, header in enumerate(headers, start=6):
-        ws.cell(row=1, column=col_idx, value=header)
-
-    # 写入左侧数据
-    left_rows = processed[:limit]
-    left_total = 0
-    for i, item in enumerate(left_rows, start=1):
-        row_num = i + 1
-        ws.cell(row=row_num, column=1, value=i)
-        ws.cell(row=row_num, column=2, value=item['name'])
-        ws.cell(row=row_num, column=3, value=item['amount'])
-        ws.cell(row=row_num, column=4, value='')
-        left_total += item['amount']
-
-    left_last_row = 1
-    if left_rows:
-        row_num = len(left_rows) + 2
-        ws.cell(row=row_num, column=1, value='总计')
-        cell_left_total = ws.cell(row=row_num, column=3, value=left_total)
-        cell_left_total.font = Font(color='FF0000')
-        left_last_row = row_num
-
-    # 右侧数据
-    right_rows = processed[limit:]
-    right_total = 0
-    right_last_row = 1
-    if right_rows:
-        for i, item in enumerate(right_rows, start=1):
+        # 左侧数据
+        left_rows = processed[:limit]
+        left_total = 0
+        for i, item in enumerate(left_rows, start=1):
             row_num = i + 1
-            seq = limit + i
-            ws.cell(row=row_num, column=6, value=seq)
-            ws.cell(row=row_num, column=7, value=item['name'])
-            ws.cell(row=row_num, column=8, value=item['amount'])
-            ws.cell(row=row_num, column=9, value='')
-            right_total += item['amount']
+            ws.cell(row=row_num, column=1, value=i)
+            ws.cell(row=row_num, column=2, value=item['name'])
+            ws.cell(row=row_num, column=3, value=item['amount'])
+            ws.cell(row=row_num, column=4, value='')
+            left_total += item['amount']
 
-        row_num = len(right_rows) + 2
-        ws.cell(row=row_num, column=6, value='总计')
-        cell_right_total = ws.cell(row=row_num, column=8, value=right_total)
-        cell_right_total.font = Font(color='FF0000')
-        right_last_row = row_num
+        left_last_row = 1
+        if left_rows:
+            row_num = len(left_rows) + 2
+            ws.cell(row=row_num, column=1, value='总计')
+            cell_left_total = ws.cell(row=row_num, column=3, value=left_total)
+            cell_left_total.font = Font(color='FF0000')
+            left_last_row = row_num
 
-    # 两侧合计
-    grand_total = left_total + right_total
-    if right_rows:
-        grand_row = right_last_row + 2
-        ws.cell(row=grand_row, column=6, value='两侧合计')
-        cell_grand = ws.cell(row=grand_row, column=8, value=grand_total)
-        cell_grand.font = Font(color='FF0000')
-        right_last_row = grand_row
+        # 右侧数据
+        right_rows = processed[limit:]
+        right_total = 0
+        right_last_row = 1
+        if right_rows:
+            for i, item in enumerate(right_rows, start=1):
+                row_num = i + 1
+                seq = limit + i
+                ws.cell(row=row_num, column=6, value=seq)
+                ws.cell(row=row_num, column=7, value=item['name'])
+                ws.cell(row=row_num, column=8, value=item['amount'])
+                ws.cell(row=row_num, column=9, value='')
+                right_total += item['amount']
+
+            row_num = len(right_rows) + 2
+            ws.cell(row=row_num, column=6, value='总计')
+            cell_right_total = ws.cell(row=row_num, column=8, value=right_total)
+            cell_right_total.font = Font(color='FF0000')
+            right_last_row = row_num
+
+        # 两侧合计
+        grand_total = left_total + right_total
+        if right_rows:
+            grand_row = right_last_row + 2
+            ws.cell(row=grand_row, column=6, value='两侧合计')
+            cell_grand = ws.cell(row=grand_row, column=8, value=grand_total)
+            cell_grand.font = Font(color='FF0000')
+            right_last_row = grand_row
+        else:
+            grand_row = left_last_row + 2
+            ws.cell(row=grand_row, column=1, value='两侧合计')
+            cell_grand = ws.cell(row=grand_row, column=3, value=grand_total)
+            cell_grand.font = Font(color='FF0000')
+            left_last_row = grand_row
+
+        bottom_row = max(left_last_row, right_last_row) if right_rows else left_last_row
+
+        # 信息列（K列）
+        date_label = f"日期:{date_str}" if date_str else "日期:"
+        route_label = f"路线:{route}" if route else "路线:"
+        driver_label = f"司机:{driver}" if driver else "司机:"
+        info_labels = [date_label, route_label, '总金额:', '退货:', driver_label, '搭档:', '零钱:200元', '实金额:', '补贴:', '时间:']
+
+        start_row = bottom_row - (len(info_labels) - 1) * 2
+        if start_row < 1:
+            start_row = 1
+        for idx, label in enumerate(info_labels):
+            row = start_row + idx * 2
+            ws.cell(row=row, column=11, value=label)
+
+        # 列宽
+        col_widths = {1:5, 2:12, 3:9, 4:7, 5:2, 6:5, 7:12, 8:9, 9:7, 10:2, 11:16}
+        for col, width in col_widths.items():
+            ws.column_dimensions[chr(64 + col)].width = width
+
+        # 边框
+        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+        for row in range(1, bottom_row + 1):
+            for col in range(1, 5):
+                ws.cell(row=row, column=col).border = thin_border
+            for col in range(6, 10):
+                ws.cell(row=row, column=col).border = thin_border
+
+        ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+
+    # ---------- 4. 生成 Excel（分两种情况） ----------
+    if file_content_b64:
+        # 用户提供了文件内容 → 修改已有文件
+        try:
+            file_bytes = base64.b64decode(file_content_b64)
+            file_stream = BytesIO(file_bytes)
+            wb = load_workbook(file_stream)
+            sheet_name = route if route else "出车登记"
+            # 检查工作表是否存在
+            if sheet_name in wb.sheetnames:
+                # 删除现有工作表（覆盖）
+                std = wb[sheet_name]
+                wb.remove(std)
+            # 创建新工作表（放在最后）
+            ws = wb.create_sheet(sheet_name)
+            build_worksheet(ws)
+            # 保存到内存
+            output = BytesIO()
+            wb.save(output)
+            output.seek(0)
+            response = HttpResponse(output.read(), content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+            response['Content-Disposition'] = f'attachment; filename="{sheet_name}.xlsx"'
+            return response
+        except Exception as e:
+            return JsonResponse({'code': 0, 'msg': f'处理目标文件失败：{str(e)}'})
+
     else:
-        grand_row = left_last_row + 2
-        ws.cell(row=grand_row, column=1, value='两侧合计')
-        cell_grand = ws.cell(row=grand_row, column=3, value=grand_total)
-        cell_grand.font = Font(color='FF0000')
-        left_last_row = grand_row
+        # 未提供文件 → 生成新文件
+        wb = Workbook()
+        ws = wb.active
+        ws.title = route if route else "出车登记"
+        build_worksheet(ws)
 
-    bottom_row = max(left_last_row, right_last_row) if right_rows else left_last_row
-
-    # 信息列（K列）：日期、路线（带值）、总金额、退货、司机（带值）、搭档、零钱、实金额、补贴、时间
-    date_label = f"日期:{date_str}" if date_str else "日期:"
-    route_label = f"路线:{route}" if route else "路线:"
-    driver_label = f"司机:{driver}" if driver else "司机:"
-    info_labels = [date_label, route_label, '总金额:', '退货:', driver_label, '搭档:', '零钱:200元', '实金额:', '补贴:', '时间:']
-
-    # 计算起始行，使最后一项（时间:）位于 bottom_row
-    start_row = bottom_row - (len(info_labels) - 1) * 2
-    if start_row < 1:
-        start_row = 1
-    for idx, label in enumerate(info_labels):
-        row = start_row + idx * 2
-        ws.cell(row=row, column=11, value=label)
-
-    # 设置列宽
-    col_widths = {1:5, 2:12, 3:9, 4:7, 5:2, 6:5, 7:12, 8:9, 9:7, 10:2, 11:16}
-    for col, width in col_widths.items():
-        ws.column_dimensions[chr(64 + col)].width = width
-
-    # 边框：仅 A~D 和 F~I
-    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
-    for row in range(1, bottom_row + 1):
-        for col in range(1, 5):
-            ws.cell(row=row, column=col).border = thin_border
-        for col in range(6, 10):
-            ws.cell(row=row, column=col).border = thin_border
-
-    # 页面横向
-    ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
-
-    # 返回 Excel
-    response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-    # 生成文件名：路线_日期.xlsx，若路线为空则使用 日期_出车登记.xlsx
-    if route:
-        filename = f"{route}_{date_str}.xlsx"
-    else:
-        filename = f"{date_str}_出车登记.xlsx" if date_str else "出车登记.xlsx"
-    response['Content-Disposition'] = f'attachment; filename="{filename}"'
-    response['Access-Control-Expose-Headers'] = 'Content-Disposition'  # 新增，暴露文件名头
-    wb.save(response)
-    return response
+        response = HttpResponse(content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        if route:
+            filename = f"{route}_{date_str}.xlsx"
+        else:
+            filename = f"{date_str}_出车登记.xlsx" if date_str else "出车登记.xlsx"
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        wb.save(response)
+        return response
 # summary/views.py 新增
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 

@@ -196,6 +196,17 @@
         .header-bar { flex-direction: column; align-items: stretch; }
         .header-right { justify-content: flex-end; }
     }
+    
+    .btn-choose-file {
+    background: #007bff;
+    color: #fff;
+    border: none;
+    padding: 6px 16px;
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: pointer;
+}
+.btn-choose-file:hover { background: #0069d9; }
 </style>
 {% endblock %}
 
@@ -204,6 +215,8 @@
     <div class="header-bar">
         <h1>出车登记工具（表格版）</h1>
         <div class="header-right">
+        <button class="btn-choose-file" onclick="chooseTargetFile()">📂 选择目标文件</button>
+<span id="file-status" style="font-size:12px; color:#666;">未选择文件</span>
             <label for="register-date">日期：</label>
             <input type="date" id="register-date">
 
@@ -264,6 +277,63 @@ const DRIVER_STORAGE_KEY = 'out_car_register_driver';
     const STORAGE_KEY = 'out_car_register_data';
     const DATE_STORAGE_KEY = 'out_car_register_date';
     let saveTimeout = null;
+    
+    let targetFileHandle = null;  // 保存文件句柄
+let targetFileName = '';
+
+// 选择目标文件
+async function chooseTargetFile() {
+    try {
+        // 检查浏览器支持
+        if (!('showOpenFilePicker' in window)) {
+            alert('您的浏览器不支持 File System Access API，请使用最新版 Edge 或 Chrome。');
+            return;
+        }
+        const [fileHandle] = await window.showOpenFilePicker({
+            types: [{
+                description: 'Excel 文件',
+                accept: {
+                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx']
+                }
+            }],
+            multiple: false
+        });
+        targetFileHandle = fileHandle;
+        targetFileName = fileHandle.name;
+        document.getElementById('file-status').textContent = `已选择: ${targetFileName}`;
+        document.getElementById('file-status').style.color = 'green';
+    } catch (err) {
+        if (err.name !== 'AbortError') {
+            alert('选择文件失败：' + err.message);
+        }
+    }
+}
+
+// 读取文件内容为 base64（用于发送到后端）
+async function readFileAsBase64(fileHandle) {
+    const file = await fileHandle.getFile();
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            // result 为 data:...;base64,... 格式，提取 base64 部分
+            const base64 = reader.result.split(',')[1];
+            resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+}
+
+// 将 Blob 写入目标文件（覆盖）
+async function writeBlobToFile(fileHandle, blob) {
+    try {
+        const writable = await fileHandle.createWritable({ keepExistingData: false });
+        await writable.write(blob);
+        await writable.close();
+    } catch (err) {
+        throw new Error('写入文件失败：' + err.message);
+    }
+}
 
     // 防抖保存（500ms）
     function debouncedSave() {
@@ -747,6 +817,20 @@ async function exportExcel() {
     const route = document.getElementById('register-route').value;
     const driver = document.getElementById('register-driver').value;
 
+    // 构建请求体
+    const requestBody = { rows: filteredRows, date: date, route: route, driver: driver };
+
+    // 如果有目标文件，读取其内容并附加
+    if (targetFileHandle) {
+        try {
+            const fileContent = await readFileAsBase64(targetFileHandle);
+            requestBody.file_content = fileContent;
+        } catch (err) {
+            alert('读取目标文件失败：' + err.message);
+            return;
+        }
+    }
+
     const csrfToken = getCsrfToken();
     try {
         const response = await fetch('/summary/export-excel/', {
@@ -755,12 +839,36 @@ async function exportExcel() {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': csrfToken
             },
-            body: JSON.stringify({ rows: filteredRows, date: date, route: route, driver: driver })
+            body: JSON.stringify(requestBody)
         });
 
-        if (response.ok) {
-            const blob = await response.blob();
-            // 🔥 直接使用前端的 route 和 date 构造文件名
+        if (!response.ok) {
+            const err = await response.json();
+            alert('导出失败：' + (err.msg || '未知错误'));
+            return;
+        }
+
+        const blob = await response.blob();
+
+        // 如果有目标文件，则写入该文件（覆盖）
+        if (targetFileHandle) {
+            try {
+                await writeBlobToFile(targetFileHandle, blob);
+                alert(`数据已成功写入文件 "${targetFileName}" 的工作表 "${route || '出车登记'}"。`);
+            } catch (err) {
+                alert('写入目标文件失败：' + err.message);
+                // 如果写入失败，仍可下载副本
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${route || '出车登记'}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(url);
+            }
+        } else {
+            // 未选择文件 → 正常下载
             let filename;
             if (route) {
                 filename = `${route}_${date}.xlsx`;
@@ -777,9 +885,6 @@ async function exportExcel() {
             a.click();
             document.body.removeChild(a);
             window.URL.revokeObjectURL(url);
-        } else {
-            const err = await response.json();
-            alert('导出失败：' + (err.msg || '未知错误'));
         }
     } catch (e) {
         alert('导出失败：' + e.message);
